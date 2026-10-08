@@ -3,7 +3,8 @@ node_modules/
 .next/
 out/
 dist/
-build/
+build/*
+!build/.gitkeep
 
 # Local environment files (keep examples in version control)
 .env
