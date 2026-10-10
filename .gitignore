@@ -12,6 +12,8 @@ build/*
 !.env.example
 !.env.*.example
 
+*/td
+
 # Python bytecode, virtual environments, and tool caches
 __pycache__/
 *.py[cod]
