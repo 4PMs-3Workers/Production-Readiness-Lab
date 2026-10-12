@@ -1,74 +1,44 @@
 # Thiết kế cơ sở dữ liệu — Production Readiness Lab
 
-**Phiên bản:** 1.4 · **Ngày cập nhật:** 13/10/2026
-
-**Hệ quản trị:** MySQL 8.4 LTS · **Storage engine:** InnoDB
-
-**Database:** `production_readiness_lab`
-
-**Ứng dụng:** FastAPI (backend) · Next.js App Router (frontend)
-
-**Phạm vi:** Mô hình 11 bảng, từ điển dữ liệu, ràng buộc, chỉ mục và giao dịch nghiệp vụ.
-
-Tài liệu mô tả mô hình dữ liệu cho ứng dụng sinh viên đặt lịch gặp nhân viên/cố vấn tại trường đại học. Phạm vi gồm tài khoản, nhu cầu tư vấn, giờ phục vụ, lịch hẹn, đề nghị đổi lịch, thông báo và lịch sử thao tác. Các đoạn SQL thể hiện ràng buộc chính; bộ migration được triển khai dựa trên từ điển dữ liệu dưới đây.
+**Phiên bản:** 1.5 · **Ngày cập nhật:** 13/10/2026 · **Database:** `production_readiness_lab`.
 
 ## Mục lục
 
-1. Phạm vi và nguyên tắc
-2. Sơ đồ quan hệ
-3. Từ điển dữ liệu
-4. Ràng buộc chính
-5. Trạng thái nghiệp vụ
+1. Tổng quan dữ liệu
+2. Quan hệ giữa các nhóm dữ liệu
+3. Nguyên tắc thiết kế
+4. Vòng đời lịch hẹn
+5. Từ điển dữ liệu
 6. Giao dịch và đồng thời
 7. Chỉ mục và truy vấn
-8. Lưu trữ và quyền truy cập
-9. Triển khai và kiểm chứng
+8. Migration và vòng đời dữ liệu
+9. Kiểm chứng thiết kế
 
-## 1. Phạm vi và nguyên tắc
+Phụ lục A. SQL cho các ràng buộc chính
 
-Thiết kế gồm **11 bảng**. Sinh viên, nhân viên và quản trị viên dùng chung bảng `users`, phân biệt bằng `role`.
+## 1. Tổng quan dữ liệu
 
-| Quyết định | Thiết kế |
-|---|---|
-| Vai trò | Một tài khoản có một vai trò: `STUDENT`, `STAFF` hoặc `ADMIN`. |
-| Đặt lịch | Sinh viên tự chọn nhân viên và nhu cầu; lịch mới tự xác nhận với trạng thái `UPCOMING`. |
-| Thời lượng | Lấy từ nhu cầu, lưu vào lịch tại lúc tạo; thay đổi danh mục giữ nguyên thời lượng lịch đã có. |
-| Giờ có thể đặt | Giờ phục vụ chung, trừ thời gian nhân viên không nhận và các lịch đang chiếm chỗ. |
-| Lịch chiếm chỗ | `UPCOMING` và `CHANGE_PENDING`; khoảng thời gian dùng dạng `[starts_at, ends_at)`. |
-| Giới hạn | Tối đa ba lịch đang chiếm chỗ cho mỗi sinh viên; kiểm tra trong giao dịch có khóa tài khoản. |
-| Đổi lịch | Nhân viên đề nghị, sinh viên duyệt. Giữ giờ gốc khi chờ; từ chối hoặc hết hạn phản hồi thì hủy lịch. |
-| Chống gửi lặp | Lưu mã yêu cầu và hash nội dung ngay trong `appointments`; một mã chỉ tạo một lịch cho một sinh viên. |
-| Lịch sử | Giữ lịch hẹn và đề nghị; vô hiệu hóa tài khoản/danh mục đã được tham chiếu. Audit ghi các thay đổi nghiệp vụ. |
+Cơ sở dữ liệu phục vụ ứng dụng đặt lịch tư vấn tại trường đại học. Dữ liệu mô tả ai đặt lịch, nhân viên nhận nhu cầu nào, thời gian có thể tiếp nhận và kết quả của từng buổi gặp.
 
-Cửa sổ đặt mặc định là 7 ngày và bước giờ là 15 phút. Thời lượng từng nhu cầu, giờ phục vụ và địa điểm được quản lý bằng dữ liệu cấu hình; seed phải cung cấp đủ giá trị cho môi trường sử dụng.
+MySQL 8.4 LTS với InnoDB là nguồn dữ liệu bền vững. Backend FastAPI truy cập database qua SQLAlchemy và quản lý thay đổi schema bằng migration Alembic.
 
-### 1.1. Quy ước dữ liệu
+Mô hình gồm **11 bảng**, chia thành năm nhóm:
 
-- Tên bảng/cột dùng tiếng Anh và `snake_case`. Tất cả bảng dùng `ENGINE=InnoDB`, charset `utf8mb4`, collation mặc định `utf8mb4_0900_ai_ci`.
-- ID là UUID do backend sinh, lưu bằng `binary(16)`; API trả chuỗi UUID chuẩn. Adapter dùng 16 byte theo thứ tự chuẩn của UUID, thống nhất cho PK/FK; bảng liên kết dùng khóa ghép. `service_settings` có một dòng `id = 1`.
-- Mã nghiệp vụ (`role`, `status`, `code`, `event_type`, `action`, `entity_type`), mã đối chiếu (`entity_id`, `request_id`) và `creation_request_key` dùng `utf8mb4_0900_bin` để so sánh chính xác. Riêng email được chuẩn hóa chữ thường/bỏ khoảng trắng và dùng `utf8mb4_0900_as_ci` để phân biệt dấu nhưng không phân biệt hoa/thường. Không chuẩn hóa lại key do client gửi.
-- Thời điểm dùng `datetime(6)`, luôn lưu giá trị UTC; mỗi kết nối đặt `time_zone = '+00:00'`. Kiểu này không chứa múi giờ: adapter chuyển đầu vào có offset sang UTC trước khi lưu và gắn UTC khi đọc để API trả ISO 8601 có `Z`/offset. Giờ phục vụ dùng `time(0)` theo múi giờ cấu hình.
-- `created_at` mặc định `CURRENT_TIMESTAMP(6)`; `updated_at` được backend gán trong cùng giao dịch ghi. Giữ SQL mode nghiêm ngặt, gồm `STRICT_TRANS_TABLES`, `NO_ZERO_DATE` và `NO_ZERO_IN_DATE`; không dùng `ALLOW_INVALID_DATES`.
-- `PK` là khóa chính; `FK` là khóa ngoại; `UNIQUE` là ràng buộc duy nhất; `NN` là `NOT NULL`; `NULL` cho phép thiếu giá trị. Giá trị mặc định trong bảng là mặc định tại database, trừ trường được ghi rõ do backend gán. Các FK dùng `ON DELETE RESTRICT ON UPDATE RESTRICT`; cột FK và cột được tham chiếu phải có cùng kiểu.
-- Trạng thái dùng `varchar` và `CHECK`. `boolean` trong MySQL tương đương `tinyint(1)`; thêm `CHECK` chỉ nhận 0 hoặc 1 cho các cột cờ.
-- Hash SHA-256 lưu `varbinary(32)` cùng `CHECK (OCTET_LENGTH(...) = 32)`. Dữ liệu nghiệp vụ dùng cột quan hệ; `json` dành cho metadata audit.
+| Nhóm | Bảng | Vai trò |
+|---|---|---|
+| Tài khoản | `users`, `sessions` | Danh tính, vai trò và phiên đăng nhập. |
+| Nhu cầu tư vấn | `purposes`, `staff_purposes` | Thời lượng buổi gặp và khả năng tiếp nhận của nhân viên. |
+| Khả dụng | `service_settings`, `service_hours`, `staff_unavailability` | Cấu hình đặt lịch, giờ phục vụ và khoảng không nhận. |
+| Lịch hẹn | `appointments`, `change_proposals` | Lịch đã đặt và lịch sử đề nghị đổi. |
+| Thông báo và lịch sử | `notifications`, `audit_events` | Thông báo cá nhân và đối chiếu thay đổi nghiệp vụ. |
 
-### 1.2. Quy tắc thời gian và quyền
+Sinh viên, nhân viên và quản trị viên dùng chung bảng `users`, phân biệt bằng `role`. Phân quyền được kiểm tra tại backend; FK bảo đảm tài khoản tham chiếu tồn tại.
 
-| Quy tắc | Cách áp dụng |
-|---|---|
-| Ngày nghiệp vụ | Tính theo `service_settings.timezone`, mặc định `Asia/Ho_Chi_Minh`. |
-| Cửa sổ đặt | Với ngày hiện tại D, cho phép chọn ngày D+1 đến D+7, gồm cả hai biên; số ngày lấy từ `booking_horizon_days`. |
-| Bước giờ | Giờ bắt đầu lấy đầu mỗi khoảng phục vụ làm mốc, tăng theo `start_step_minutes`. Toàn bộ thời lượng phải nằm trong khoảng đó. |
-| Hạn hủy | Sinh viên/nhân viên của lịch hủy trước 00:00 ngày hẹn; đến hạn thì từ chối. |
-| Hạn phản hồi đề nghị | Trước 00:00 ngày hẹn sớm hơn giữa lịch gốc và đề nghị; lưu thời điểm UTC vào `expires_at`. |
-| Đúng thời điểm hết hạn | `now >= expires_at` không được phản hồi; worker chuyển đề nghị `EXPIRED` và lịch `CANCELLED`. |
-| Ghi kết quả | Nhân viên nhận lịch ghi `COMPLETED/NO_SHOW` trên lịch `UPCOMING` sau `ends_at`. |
-| Quyền quản trị | `ADMIN` quản lý tài khoản/danh mục/cấu hình, không mặc định có quyền đọc hoặc sửa nội dung tư vấn. |
+## 2. Quan hệ giữa các nhóm dữ liệu
 
-Quyền, thời điểm hiện tại và khả dụng được kiểm tra lại sau khi có đủ khóa trong transaction. Danh tính người thao tác lấy từ phiên, không lấy từ trường ID tùy ý trong request.
+Một nhân viên có thể nhận nhiều nhu cầu tư vấn; một nhu cầu có thể được nhiều nhân viên tiếp nhận. Bảng `staff_purposes` biểu diễn quan hệ này.
 
-## 2. Sơ đồ quan hệ
+Một lịch hẹn tham chiếu sinh viên và cặp nhân viên–nhu cầu. Mỗi lịch có thể có nhiều đề nghị đổi trong lịch sử, nhưng chỉ có tối đa một đề nghị đang chờ.
 
 ```mermaid
 erDiagram
@@ -158,9 +128,105 @@ erDiagram
 
 `service_settings` và `service_hours` là cấu hình chung cho toàn trường. Một lịch tham chiếu cặp `(staff_id, purpose_id)` trong `staff_purposes`; liên kết này được giữ lại khi nhân viên ngừng nhận nhu cầu.
 
-## 3. Từ điển dữ liệu
+Sơ đồ thể hiện các quan hệ chính. Những khóa ngoại cho người hủy, người ghi kết quả và người giải quyết đề nghị được mô tả trong từ điển dữ liệu.
 
-### 3.1. `users` — Tài khoản
+## 3. Nguyên tắc thiết kế
+
+### 3.1. Trách nhiệm của database và service
+
+Database bảo vệ sự tồn tại của đối tượng tham chiếu, tính hợp lệ trong từng hàng và những ràng buộc duy nhất. Service kiểm tra quyền, quy tắc giữa nhiều hàng và chuyển trạng thái trong một transaction.
+
+Ví dụ, CHECK có thể xác nhận thời điểm kết thúc lớn hơn thời điểm bắt đầu. Việc hai lịch của cùng nhân viên giao nhau cần được service kiểm tra dưới khóa.
+
+| Quy tắc | Lớp bảo đảm |
+|---|---|
+| Tài khoản/nhu cầu/lịch tham chiếu tồn tại | FK; cặp nhân viên–nhu cầu dùng FK ghép. |
+| Đúng vai trò, sinh viên tự đặt, người thao tác có quyền | Dịch vụ xác thực và kiểm tra lại dưới khóa tài khoản. |
+| Khoảng thời gian và thời lượng hợp lệ | `CHECK` trên bảng; SQL mode nghiêm ngặt cho ngày giờ. |
+| Lịch đang chiếm chỗ không giao nhau | Khóa hàng nhân viên/sinh viên bằng `FOR UPDATE`, kiểm tra giao khoảng rồi ghi trong cùng transaction. |
+| Tối đa ba lịch đang chiếm chỗ | Khóa sinh viên rồi đếm trong giao dịch tạo lịch. |
+| Mỗi yêu cầu tạo tối đa một lịch | Unique theo sinh viên và mã yêu cầu; so sánh hash khi retry. |
+| Tối đa một đề nghị đang chờ | Generated column `pending_guard` và unique ghép theo lịch. |
+| Trạng thái lịch/đề nghị đồng bộ, trường bất biến | Luồng ghi của dịch vụ, khóa lịch và cập nhật trong cùng transaction. |
+| Người hủy/ghi kết quả/giải quyết đề nghị phù hợp trạng thái | Dịch vụ kiểm tra quyền, danh tính và các cột actor dưới khóa. |
+| Audit/thông báo khớp kết quả nghiệp vụ | Ghi trong cùng transaction. |
+
+`CHECK` kiểm tra dữ liệu trong một hàng; không dùng subquery hoặc hàm thời gian hiện tại để kiểm tra khả dụng/quyền. MySQL hạn chế kết hợp `CHECK` với cột có hành động FK, vì vậy các điều kiện về `cancelled_by`, `outcome_by` và `resolved_by` được dịch vụ kiểm tra.
+
+**Chống trùng khoảng giờ là quy tắc của giao dịch dịch vụ.** MySQL không có constraint khai báo tương đương để cấm mọi khoảng giao nhau giữa các hàng. Mọi luồng ghi ảnh hưởng khả dụng, gồm API, worker và công cụ nhập/chỉnh dữ liệu, phải tuân theo §6. Unique theo giờ bắt đầu chỉ chặn giờ bắt đầu giống nhau, nên không đáp ứng quy tắc này.
+
+### 3.2. Quy ước lưu trữ
+
+- **Tên và engine:** bảng/cột dùng tiếng Anh, `snake_case`; tất cả bảng dùng InnoDB, charset `utf8mb4`, collation mặc định `utf8mb4_0900_ai_ci`.
+- **UUID:** backend sinh ID, lưu `BINARY(16)` theo thứ tự byte chuẩn. API trả chuỗi UUID chuẩn; PK và FK dùng cùng quy ước. Bảng liên kết dùng khóa ghép.
+- **Cấu hình chung:** `service_settings` có đúng dòng `id = 1`.
+- **Mã nghiệp vụ:** role, status, code, event type, action, entity type, mã đối chiếu và idempotency key dùng `utf8mb4_0900_bin` để so sánh chính xác.
+- **Email:** chuẩn hóa chữ thường và bỏ khoảng trắng hai đầu; dùng `utf8mb4_0900_as_ci`, phân biệt dấu nhưng không phân biệt hoa/thường.
+- **Thời điểm:** dùng `DATETIME(6)` theo UTC; mỗi kết nối đặt `time_zone = '+00:00'`. Adapter chuyển đầu vào có offset sang UTC và gắn UTC khi đọc.
+- **Giờ phục vụ:** dùng `TIME(0)` theo múi giờ cấu hình, giới hạn trong một ngày.
+- **Timestamp:** `created_at` mặc định `CURRENT_TIMESTAMP(6)`; backend gán `updated_at` trong giao dịch ghi.
+- **SQL mode:** giữ chế độ nghiêm ngặt, gồm `STRICT_TRANS_TABLES`, `NO_ZERO_DATE`, `NO_ZERO_IN_DATE`; không dùng `ALLOW_INVALID_DATES`.
+- **Khóa ngoại:** dùng `ON DELETE RESTRICT ON UPDATE RESTRICT`; kiểu cột FK và cột được tham chiếu phải khớp.
+- **Trạng thái và cờ:** dùng `VARCHAR` với CHECK cho trạng thái; boolean tương đương `TINYINT(1)` và có CHECK giới hạn 0/1.
+- **Hash:** SHA-256 lưu `VARBINARY(32)`, kèm CHECK độ dài. Key client được giữ nguyên, không chuẩn hóa lại.
+- **Metadata:** dữ liệu nghiệp vụ dùng cột quan hệ; JSON phục vụ metadata audit đã lọc nội dung nhạy cảm.
+
+Trong các bảng bên dưới, `PK` là khóa chính, `FK` là khóa ngoại, `UNIQUE` là duy nhất, `NN` là `NOT NULL`, `NULL` cho phép thiếu giá trị. Mặc định là giá trị tại database, trừ trường được ghi rõ do backend gán.
+
+## 4. Vòng đời lịch hẹn
+
+### 4.1. Thời gian và quyền thao tác
+
+| Quy tắc | Cách áp dụng |
+|---|---|
+| Ngày nghiệp vụ | Tính theo `service_settings.timezone`, mặc định `Asia/Ho_Chi_Minh`. |
+| Cửa sổ đặt | Với ngày hiện tại D, cho phép chọn ngày D+1 đến D+7, gồm cả hai biên; số ngày lấy từ `booking_horizon_days`. |
+| Bước giờ | Giờ bắt đầu lấy đầu mỗi khoảng phục vụ làm mốc, tăng theo `start_step_minutes`. Toàn bộ thời lượng phải nằm trong khoảng đó. |
+| Hạn hủy | Sinh viên/nhân viên của lịch hủy trước 00:00 ngày hẹn; đến hạn thì từ chối. |
+| Hạn phản hồi đề nghị | Trước 00:00 ngày hẹn sớm hơn giữa lịch gốc và đề nghị; lưu thời điểm UTC vào `expires_at`. |
+| Đúng thời điểm hết hạn | `now >= expires_at` không được phản hồi; worker chuyển đề nghị `EXPIRED` và lịch `CANCELLED`. |
+| Ghi kết quả | Nhân viên nhận lịch ghi `COMPLETED/NO_SHOW` trên lịch `UPCOMING` sau `ends_at`. |
+| Quyền quản trị | `ADMIN` quản lý tài khoản/danh mục/cấu hình, không mặc định có quyền đọc hoặc sửa nội dung tư vấn. |
+
+Quyền, thời điểm hiện tại và khả dụng được kiểm tra lại sau khi có đủ khóa trong transaction. Danh tính người thao tác lấy từ phiên, không lấy từ trường ID tùy ý trong request.
+
+Thời lượng lấy từ nhu cầu và được lưu tại lúc đặt. Thay đổi thời lượng danh mục không sửa lịch đã có. Sinh viên có tối đa ba lịch đang chiếm chỗ; `UPCOMING` và `CHANGE_PENDING` cùng được tính vào hạn mức.
+
+### 4.2. Trạng thái lịch và đề nghị
+
+| Thao tác | Trạng thái lịch sau thao tác | Trạng thái đề nghị |
+|---|---|---|
+| Sinh viên đặt thành công | `UPCOMING` | — |
+| Nhân viên đề nghị đổi | `CHANGE_PENDING` | `PENDING` |
+| Nhân viên đề nghị lại | `CHANGE_PENDING` | Bản cũ `SUPERSEDED`, bản mới `PENDING` |
+| Sinh viên chấp thuận | `UPCOMING`, áp dụng giá trị đề nghị | `ACCEPTED` |
+| Sinh viên từ chối | `CANCELLED` | `DECLINED` |
+| Hết hạn phản hồi | `CANCELLED` | `EXPIRED` |
+| Hủy trực tiếp | `CANCELLED` | Đề nghị đang chờ thành `CANCELLED` |
+| Nhân viên ghi kết quả sau buổi gặp | `COMPLETED` hoặc `NO_SHOW` | — |
+
+Lịch mới luôn là `UPCOMING`. `CHANGE_PENDING` có đúng một đề nghị `PENDING`. Các trạng thái kết thúc giữ nguyên khi retry; mọi cập nhật giờ/địa điểm đi qua luồng chấp thuận đề nghị. Chỉ nhân viên nhận lịch được ghi kết quả trên lịch `UPCOMING` sau `ends_at`.
+
+### 4.3. Một lần đặt lịch
+
+```text
+Sinh viên chọn nhu cầu, nhân viên và giờ
+    → Backend xác thực phiên
+    → Service lấy khóa và kiểm tra lại quyền, hạn mức, khả dụng
+    → Ghi lịch UPCOMING, audit và hai thông báo
+    → Commit transaction
+    → Trả kết quả tạo lịch
+```
+
+Ví dụ, hai lịch 09:00–09:30 và 09:30–10:00 được phép tiếp giáp. Hai yêu cầu cùng chọn khoảng 09:00–09:30 của một nhân viên phải được tuần tự hóa bằng khóa hàng tài khoản; chỉ một lịch được tạo.
+
+Giờ gốc vẫn được giữ khi chờ đổi lịch. Giờ đề nghị được kiểm tra lại khi chấp thuận, vì đề nghị không tự giữ chỗ mới.
+
+## 5. Từ điển dữ liệu
+
+### 5.1. `users` — Tài khoản
+
+Lưu danh tính và vai trò của người sử dụng ứng dụng.
 
 | Cột | Kiểu | Bắt buộc / mặc định | Ý nghĩa |
 |---|---|---|---|
@@ -178,7 +244,9 @@ FK tới `users.id` bảo đảm tài khoản tồn tại. Dịch vụ kiểm tr
 
 Vô hiệu hóa tài khoản thu hồi các phiên trong cùng giao dịch và giữ lịch sử lịch hẹn. Tạm từ chối đổi vai trò khi tài khoản đã có tham chiếu nghiệp vụ ở lịch hẹn, nhu cầu tiếp nhận, thời gian không nhận hoặc đề nghị; thao tác đổi vai trò dùng cùng khóa tài khoản với thao tác tạo dữ liệu nghiệp vụ.
 
-### 3.2. `sessions` — Phiên đăng nhập
+### 5.2. `sessions` — Phiên đăng nhập
+
+Lưu phiên đăng nhập và các mốc hết hạn, thu hồi.
 
 | Cột | Kiểu | Bắt buộc / mặc định | Ý nghĩa |
 |---|---|---|---|
@@ -193,7 +261,9 @@ Vô hiệu hóa tài khoản thu hồi các phiên trong cùng giao dịch và g
 
 Token gốc nằm trong cookie bảo mật. Khi xác thực, kiểm tra phiên chưa hết hạn/chưa bị thu hồi và tài khoản còn hoạt động.
 
-### 3.3. `purposes` — Nhu cầu tư vấn
+### 5.3. `purposes` — Nhu cầu tư vấn
+
+Lưu danh mục nhu cầu và thời lượng dùng khi tạo lịch.
 
 | Cột | Kiểu | Bắt buộc / mặc định | Ý nghĩa |
 |---|---|---|---|
@@ -209,7 +279,9 @@ Token gốc nằm trong cookie bảo mật. Khi xác thực, kiểm tra phiên c
 
 Mã nhu cầu giữ nguyên sau khi tạo. Danh mục đã được tham chiếu được vô hiệu hóa khi ngừng sử dụng. Tên hiển thị lấy từ danh mục hiện tại; thời lượng lịch hẹn giữ giá trị đã lưu lúc đặt.
 
-### 3.4. `staff_purposes` — Nhu cầu nhân viên tiếp nhận
+### 5.4. `staff_purposes` — Nhu cầu nhân viên tiếp nhận
+
+Liên kết nhân viên với những nhu cầu họ có thể tiếp nhận.
 
 | Cột | Kiểu | Bắt buộc / mặc định | Ý nghĩa |
 |---|---|---|---|
@@ -222,7 +294,9 @@ Mã nhu cầu giữ nguyên sau khi tạo. Danh mục đã được tham chiếu
 
 Ngừng nhận dùng `is_accepting = false`; lịch đã có giữ nguyên. Giao dịch tạo/duyệt đổi lịch kiểm tra nhân viên đang nhận nhu cầu và danh mục còn hoạt động.
 
-### 3.5. `service_settings` — Cấu hình đặt lịch
+### 5.5. `service_settings` — Cấu hình đặt lịch
+
+Lưu cấu hình chung áp dụng cho việc đặt lịch trong toàn trường.
 
 | Cột | Kiểu | Bắt buộc / mặc định | Ý nghĩa |
 |---|---|---|---|
@@ -234,9 +308,11 @@ Ngừng nhận dùng `is_accepting = false`; lịch đã có giữ nguyên. Giao
 
 **Ràng buộc:** `id = 1`; bước chọn giờ và cửa sổ đặt lớn hơn 0. Seed bắt buộc tạo dòng cấu hình; dịch vụ kiểm tra múi giờ hợp lệ.
 
-Thời lượng lấy từ nhu cầu. Hạn hủy và phản hồi đề nghị áp dụng theo mục 1.2. Người sửa cấu hình được ghi trong audit. Thao tác đổi múi giờ, cửa sổ đặt hoặc giờ phục vụ không tự sửa các lịch đã xác nhận.
+Thời lượng lấy từ nhu cầu. Hạn hủy và phản hồi đề nghị áp dụng theo mục 4.1. Người sửa cấu hình được ghi trong audit. Thao tác đổi múi giờ, cửa sổ đặt hoặc giờ phục vụ không tự sửa các lịch đã xác nhận.
 
-### 3.6. `service_hours` — Giờ phục vụ chung
+### 5.6. `service_hours` — Giờ phục vụ chung
+
+Lưu các khoảng phục vụ theo thứ trong tuần.
 
 | Cột | Kiểu | Bắt buộc / mặc định | Ý nghĩa |
 |---|---|---|---|
@@ -249,7 +325,9 @@ Thời lượng lấy từ nhu cầu. Hạn hủy và phản hồi đề nghị 
 
 Một ngày có thể có nhiều khoảng, ví dụ sáng và chiều. Ngày thiếu bản ghi là ngày nghỉ. Dịch vụ kiểm tra các khoảng cùng thứ không giao nhau khi cập nhật dưới khóa cấu hình. Mỗi khoảng nằm trong một ngày; hai giá trị giờ nằm từ `00:00:00` đến `23:59:59`. Giới hạn này giữ `TIME` của MySQL theo nghĩa giờ trong ngày và phù hợp kiểu giờ của adapter.
 
-### 3.7. `staff_unavailability` — Thời gian nhân viên không nhận
+### 5.7. `staff_unavailability` — Thời gian nhân viên không nhận
+
+Lưu khoảng thời gian nhân viên không nhận lịch.
 
 | Cột | Kiểu | Bắt buộc / mặc định | Ý nghĩa |
 |---|---|---|---|
@@ -262,7 +340,9 @@ Một ngày có thể có nhiều khoảng, ví dụ sáng và chiều. Ngày th
 
 Khi thêm, dịch vụ khóa nhân viên rồi kiểm tra không giao với lịch đang chiếm chỗ. Khi mở lại thời gian, xóa bản ghi và ghi audit trong cùng giao dịch. Các khoảng không nhận có thể giao nhau; availability loại bỏ thời gian nằm trong bất kỳ khoảng nào.
 
-### 3.8. `appointments` — Lịch hẹn
+### 5.8. `appointments` — Lịch hẹn
+
+Lưu lịch hẹn đã xác nhận, dữ liệu tạo ban đầu và kết quả cuối.
 
 | Cột | Kiểu | Bắt buộc / mặc định | Ý nghĩa |
 |---|---|---|---|
@@ -299,7 +379,9 @@ Khi thêm, dịch vụ khóa nhân viên rồi kiểm tra không giao với lị
 
 Người tham gia, nhu cầu, mô tả, thời lượng, mã/hash yêu cầu và `created_at` giữ nguyên sau khi tạo. Dịch vụ kiểm tra `requires_free_text` lúc đặt; mô tả đã có giữ nguyên khi danh mục thay đổi. Giờ/địa điểm chỉ cập nhật qua đề nghị được sinh viên chấp thuận. Giới hạn ba lịch được kiểm tra theo §6.
 
-### 3.9. `change_proposals` — Đề nghị đổi lịch
+### 5.9. `change_proposals` — Đề nghị đổi lịch
+
+Lưu từng đề nghị đổi lịch để giữ được lịch sử phản hồi.
 
 | Cột | Kiểu | Bắt buộc / mặc định | Ý nghĩa |
 |---|---|---|---|
@@ -328,7 +410,9 @@ Người tham gia, nhu cầu, mô tả, thời lượng, mã/hash yêu cầu và
 
 Hạn phản hồi là 00:00 theo múi giờ nghiệp vụ của ngày hẹn sớm hơn giữa lịch gốc và lịch đề nghị. Hạn được lưu cụ thể để worker xử lý theo cùng quyết định đã áp dụng lúc tạo.
 
-### 3.10. `notifications` — Thông báo
+### 5.10. `notifications` — Thông báo
+
+Lưu thông báo theo người nhận và trạng thái đã đọc.
 
 | Cột | Kiểu | Bắt buộc / mặc định | Ý nghĩa |
 |---|---|---|---|
@@ -341,7 +425,9 @@ Hạn phản hồi là 00:00 theo múi giờ nghiệp vụ của ngày hẹn s�
 
 Mỗi thay đổi cần thông báo tạo hai bản ghi cho sinh viên và nhân viên trong cùng giao dịch cập nhật lịch. Nội dung hiển thị dựng từ loại sự kiện và dữ liệu lịch người nhận được phép xem. Retry thao tác đã hoàn tất trả kết quả hiện có và giữ nguyên số thông báo.
 
-### 3.11. `audit_events` — Lịch sử thao tác
+### 5.11. `audit_events` — Lịch sử thao tác
+
+Lưu sự kiện để đối chiếu người thực hiện và thay đổi nghiệp vụ.
 
 | Cột | Kiểu | Bắt buộc / mặc định | Ý nghĩa |
 |---|---|---|---|
@@ -357,119 +443,6 @@ Mỗi thay đổi cần thông báo tạo hai bản ghi cho sinh viên và nhân
 Audit được ghi cùng giao dịch nghiệp vụ; tài khoản runtime chỉ được INSERT/SELECT. `entity_id` là tham chiếu tổng quát, phục vụ cả ID UUID và cấu hình `id = 1`; quan hệ này được dịch vụ kiểm soát. Sự kiện thay đổi lịch dùng `entity_type = 'APPOINTMENT'` và ID lịch để tra timeline.
 
 Metadata giữ thông tin cần đối chiếu thay đổi; mật khẩu, token, mô tả tư vấn, lý do hủy tự do và toàn bộ request body được loại khỏi audit.
-
-## 4. Ràng buộc chính
-
-### 4.1. Khóa ngoại và kiểm tra dữ liệu
-
-| Quy tắc | Lớp bảo đảm |
-|---|---|
-| Tài khoản/nhu cầu/lịch tham chiếu tồn tại | FK; cặp nhân viên–nhu cầu dùng FK ghép. |
-| Đúng vai trò, sinh viên tự đặt, người thao tác có quyền | Dịch vụ xác thực và kiểm tra lại dưới khóa tài khoản. |
-| Khoảng thời gian và thời lượng hợp lệ | `CHECK` trên bảng; SQL mode nghiêm ngặt cho ngày giờ. |
-| Lịch đang chiếm chỗ không giao nhau | Khóa hàng nhân viên/sinh viên bằng `FOR UPDATE`, kiểm tra giao khoảng rồi ghi trong cùng transaction. |
-| Tối đa ba lịch đang chiếm chỗ | Khóa sinh viên rồi đếm trong giao dịch tạo lịch. |
-| Mỗi yêu cầu tạo tối đa một lịch | Unique theo sinh viên và mã yêu cầu; so sánh hash khi retry. |
-| Tối đa một đề nghị đang chờ | Generated column `pending_guard` và unique ghép theo lịch. |
-| Trạng thái lịch/đề nghị đồng bộ, trường bất biến | Luồng ghi của dịch vụ, khóa lịch và cập nhật trong cùng transaction. |
-| Người hủy/ghi kết quả/giải quyết đề nghị phù hợp trạng thái | Dịch vụ kiểm tra quyền, danh tính và các cột actor dưới khóa. |
-| Audit/thông báo khớp kết quả nghiệp vụ | Ghi trong cùng transaction. |
-
-`CHECK` kiểm tra dữ liệu trong một hàng; không dùng subquery hoặc hàm thời gian hiện tại để kiểm tra khả dụng/quyền. MySQL hạn chế kết hợp `CHECK` với cột có hành động FK, vì vậy các điều kiện về `cancelled_by`, `outcome_by` và `resolved_by` được dịch vụ kiểm tra.
-
-**Chống trùng khoảng giờ là quy tắc của giao dịch dịch vụ.** MySQL không có constraint khai báo tương đương để cấm mọi khoảng giao nhau giữa các hàng. Mọi luồng ghi ảnh hưởng khả dụng, gồm API, worker và công cụ nhập/chỉnh dữ liệu, phải tuân theo §6. Unique theo giờ bắt đầu chỉ chặn giờ bắt đầu giống nhau, nên không đáp ứng quy tắc này.
-
-### 4.2. SQL cho các ràng buộc chính
-
-Đoạn dưới dùng cú pháp MySQL 8.4, giả định bảng/cột đã được tạo theo §3, chưa có `pending_guard` và các constraint nêu trong đoạn SQL. Tất cả ID/FK dùng `BINARY(16)`; cột trạng thái và key đã có collation theo §1.1.
-
-```sql
-ALTER TABLE appointments
-    ADD CONSTRAINT fk_appointments_staff_purpose
-        FOREIGN KEY (staff_id, purpose_id)
-        REFERENCES staff_purposes (staff_id, purpose_id)
-        ON DELETE RESTRICT ON UPDATE RESTRICT,
-    ADD CONSTRAINT ck_appointments_status
-        CHECK (status IN (
-            'UPCOMING', 'CHANGE_PENDING', 'CANCELLED',
-            'COMPLETED', 'NO_SHOW'
-        )),
-    ADD CONSTRAINT ck_appointments_interval
-        CHECK (
-            duration_minutes > 0
-            AND ends_at > starts_at
-            AND DATE_ADD(
-                starts_at, INTERVAL duration_minutes MINUTE
-            ) IS NOT NULL
-            AND ends_at = DATE_ADD(
-                starts_at, INTERVAL duration_minutes MINUTE
-            )
-        ),
-    ADD CONSTRAINT ck_appointments_creation_request
-        CHECK (
-            CHAR_LENGTH(TRIM(creation_request_key)) > 0
-            AND OCTET_LENGTH(creation_request_hash) = 32
-        ),
-    ADD CONSTRAINT ck_appointments_cancellation
-        CHECK (
-            (status = 'CANCELLED' AND cancelled_at IS NOT NULL)
-            OR
-            (status <> 'CANCELLED'
-                AND cancelled_at IS NULL AND cancel_reason IS NULL)
-        ),
-    ADD CONSTRAINT ck_appointments_outcome
-        CHECK (
-            (status IN ('COMPLETED', 'NO_SHOW')
-                AND outcome_at IS NOT NULL)
-            OR
-            (status NOT IN ('COMPLETED', 'NO_SHOW')
-                AND outcome_at IS NULL)
-        ),
-    ADD CONSTRAINT uq_appointments_creation_request
-        UNIQUE (student_id, creation_request_key);
-
-ALTER TABLE change_proposals
-    ADD COLUMN pending_guard TINYINT
-        GENERATED ALWAYS AS (
-            CASE WHEN status = 'PENDING' THEN 1 ELSE NULL END
-        ) VIRTUAL,
-    ADD CONSTRAINT ck_change_proposals_status
-        CHECK (status IN (
-            'PENDING', 'ACCEPTED', 'DECLINED',
-            'EXPIRED', 'SUPERSEDED', 'CANCELLED'
-        )),
-    ADD CONSTRAINT ck_change_proposals_interval
-        CHECK (
-            proposed_ends_at > proposed_starts_at
-            AND expires_at > created_at
-        ),
-    ADD CONSTRAINT ck_change_proposals_resolution
-        CHECK (
-            (status = 'PENDING' AND resolved_at IS NULL)
-            OR (status <> 'PENDING' AND resolved_at IS NOT NULL)
-        ),
-    ADD CONSTRAINT uq_change_proposals_pending
-        UNIQUE (appointment_id, pending_guard);
-```
-
-`pending_guard` chỉ phục vụ ràng buộc: đề nghị chờ có giá trị 1, các bản kết thúc có NULL. Unique cho phép nhiều NULL nên giữ được toàn bộ lịch sử và vẫn chỉ có một bản chờ trên mỗi lịch. Backend không ghi cột này.,.
-
-Hai lịch tiếp giáp, ví dụ 09:00–09:30 và 09:30–10:00, được phép cùng tồn tại. Truy vấn giao khoảng tại §7 dùng biên `[start, end)` để kiểm tra toàn bộ thời lượng.
-
-## 5. Trạng thái nghiệp vụ
-
-| Thao tác | Trạng thái lịch sau thao tác | Trạng thái đề nghị |
-|---|---|---|
-| Sinh viên đặt thành công | `UPCOMING` | — |
-| Nhân viên đề nghị đổi | `CHANGE_PENDING` | `PENDING` |
-| Nhân viên đề nghị lại | `CHANGE_PENDING` | Bản cũ `SUPERSEDED`, bản mới `PENDING` |
-| Sinh viên chấp thuận | `UPCOMING`, áp dụng giá trị đề nghị | `ACCEPTED` |
-| Sinh viên từ chối | `CANCELLED` | `DECLINED` |
-| Hết hạn phản hồi | `CANCELLED` | `EXPIRED` |
-| Hủy trực tiếp | `CANCELLED` | Đề nghị đang chờ thành `CANCELLED` |
-| Nhân viên ghi kết quả sau buổi gặp | `COMPLETED` hoặc `NO_SHOW` | — |
-
-Lịch mới luôn là `UPCOMING`. `CHANGE_PENDING` có đúng một đề nghị `PENDING`. Các trạng thái kết thúc giữ nguyên khi retry; mọi cập nhật giờ/địa điểm đi qua luồng chấp thuận đề nghị. Chỉ nhân viên nhận lịch được ghi kết quả trên lịch `UPCOMING` sau `ends_at`.
 
 ## 6. Giao dịch và đồng thời
 
@@ -610,17 +583,9 @@ Availability sinh giờ bắt đầu từ `opens_at` của mỗi khoảng phục
 
 Lock wait timeout mặc định có thể chỉ rollback câu lệnh đang chờ. Backend luôn rollback **toàn bộ transaction** khi gặp lỗi ghi/khóa, không tiếp tục commit phần còn lại. Với timeout trong request tạo cùng key, chỉ trả `409 REQUEST_IN_PROGRESS` khi đã xác định thao tác cùng key chưa hoàn tất; các trường hợp khác trả lỗi dịch vụ trong ngân sách timeout, không tự suy ra xung đột cùng key.
 
-## 8. Lưu trữ và quyền truy cập
+## 8. Migration và vòng đời dữ liệu
 
-- Giữ lịch, đề nghị và audit theo chính sách dữ liệu được chốt; thời hạn giữ logs/traces trong lab được quản lý riêng.
-- Dọn phiên hết hạn. Khi mở lại thời gian không nhận, xóa bản ghi và giữ sự kiện audit. Tài khoản, nhu cầu và liên kết đã được lịch tham chiếu dùng vô hiệu hóa.
-- Backend kiểm tra quyền trên từng request; sinh viên xem lịch của mình, nhân viên xem lịch được giao. Quyền `ADMIN` giới hạn ở tài khoản, danh mục và cấu hình; không mặc định cho phép đọc nội dung lịch.
-- Tách tài khoản migration và runtime. Runtime có quyền DML cần thiết, audit chỉ INSERT/SELECT. Log loại bỏ mật khẩu, token và nội dung tư vấn/lý do hủy tự do.
-- Backup và restore thử gồm schema, dữ liệu và phiên bản migration. Migration triển khai giữ tương thích với phiên bản ứng dụng ổn định trước để rollback image không làm mất dữ liệu.
-
-## 9. Triển khai và kiểm chứng
-
-### 9.1. Thứ tự migration và seed
+### 8.1. Migration và seed
 
 1. Tạo database/charset/collation; `users`, `sessions`, `purposes`, `service_settings`, `service_hours` dùng InnoDB.
 2. `staff_purposes`, `staff_unavailability`, `appointments` cùng FK/CHECK/UNIQUE.
@@ -631,7 +596,23 @@ Các mã nhu cầu ban đầu: `CAREER_INTERNSHIP`, `THESIS_RESEARCH`, `ACADEMIC
 
 DDL như `CREATE TABLE`/`ALTER TABLE` có thể gây implicit commit; không coi một chuỗi migration là giao dịch có thể rollback toàn bộ. Chạy migration một lần bằng job riêng, rà soát từng bước và kiểm thử lỗi giữa chừng. Rollback release khôi phục image ứng dụng tương thích, giữ schema/dữ liệu; không tự động chạy migration down phá dữ liệu.
 
-### 9.2. Kiểm chứng tích hợp
+Seed bắt buộc tạo `service_settings(id = 1)` với múi giờ hợp lệ, bước giờ và cửa sổ đặt dương. Các khoảng phục vụ cùng thứ không được giao nhau; ngày thiếu khoảng phục vụ là ngày nghỉ.
+
+### 8.2. Quyền truy cập và dữ liệu nhạy cảm
+
+- Backend kiểm tra quyền trên từng request; sinh viên xem lịch của mình, nhân viên xem lịch được giao. Quyền `ADMIN` giới hạn ở tài khoản, danh mục và cấu hình; không mặc định cho phép đọc nội dung lịch.
+- Tách tài khoản migration và runtime. Runtime có quyền DML cần thiết, audit chỉ INSERT/SELECT. Log loại bỏ mật khẩu, token và nội dung tư vấn/lý do hủy tự do.
+
+### 8.3. Lưu trữ và khôi phục
+
+- Tài khoản, nhu cầu và liên kết đã được lịch tham chiếu được vô hiệu hóa thay vì xóa; lịch kết thúc vẫn được giữ để tra cứu.
+- Phiên hết hạn/thu hồi có thể được dọn theo lịch vận hành. Lịch, đề nghị và audit chỉ được xóa theo chính sách lưu dữ liệu được cấu hình và phải giữ toàn vẹn tham chiếu.
+- Backup ghi thời điểm, phiên bản schema và release tương ứng. Restore vào database riêng, đối chiếu dữ liệu mẫu, FK/CHECK/UNIQUE và giờ UTC trước khi xác nhận khả năng phục hồi.
+- Mọi thay đổi schema cần migration có phiên bản và kế hoạch triển khai tương thích. Không dùng `create_all` để nâng cấp schema đang phục vụ người dùng.
+
+Khi mở lại thời gian không nhận, xóa bản ghi và giữ audit trong cùng transaction. Thời hạn giữ telemetry được quản lý riêng với dữ liệu nghiệp vụ.
+
+## 9. Kiểm chứng thiết kế
 
 Các bài kiểm chứng chạy trên **MySQL 8.4/InnoDB thật**, cấu hình UTC, strict SQL mode và `READ COMMITTED` giống triển khai. Bài cạnh tranh dùng các kết nối/transaction độc lập; không thay bằng SQLite.
 
@@ -653,11 +634,79 @@ Các bài kiểm chứng chạy trên **MySQL 8.4/InnoDB thật**, cấu hình U
 | Key khác hoa/thường; hash thiếu byte; ngày giờ không hợp lệ | Key được phân biệt chính xác; CHECK/strict SQL mode từ chối dữ liệu lỗi. |
 | Deadlock hoặc lock timeout sau khi đã ghi một phần | Toàn bộ thao tác rollback; retry không làm lệch lịch/audit/thông báo. |
 
-### 9.3. Cấu hình và quản lý vòng đời dữ liệu
+## Phụ lục A. SQL cho các ràng buộc chính
 
-- Seed bắt buộc có `service_settings(id = 1)`, múi giờ hợp lệ, bước giờ dương, cửa sổ đặt dương, nhu cầu và giờ phục vụ.
-- Cấu hình giờ phục vụ cùng thứ không được giao nhau; ngày không có khoảng phục vụ được coi là ngày nghỉ.
-- Tài khoản, nhu cầu và liên kết đã được lịch tham chiếu được vô hiệu hóa thay vì xóa; lịch kết thúc vẫn được giữ để tra cứu.
-- Phiên hết hạn/thu hồi có thể được dọn theo lịch vận hành. Lịch, đề nghị và audit chỉ được xóa theo chính sách lưu dữ liệu được cấu hình và phải giữ toàn vẹn tham chiếu.
-- Backup ghi thời điểm, phiên bản schema và release tương ứng. Restore vào database riêng, đối chiếu dữ liệu mẫu, FK/CHECK/UNIQUE và giờ UTC trước khi xác nhận khả năng phục hồi.
-- Mọi thay đổi schema cần migration có phiên bản và kế hoạch triển khai tương thích. Không dùng `create_all` để nâng cấp schema đang phục vụ người dùng.
+Đoạn dưới dùng cú pháp MySQL 8.4, giả định bảng/cột đã được tạo theo mục 5, chưa có `pending_guard` và các constraint nêu trong đoạn SQL. Tất cả ID/FK dùng `BINARY(16)`; cột trạng thái và key đã có collation theo mục 3.2.
+
+```sql
+ALTER TABLE appointments
+    ADD CONSTRAINT fk_appointments_staff_purpose
+        FOREIGN KEY (staff_id, purpose_id)
+        REFERENCES staff_purposes (staff_id, purpose_id)
+        ON DELETE RESTRICT ON UPDATE RESTRICT,
+    ADD CONSTRAINT ck_appointments_status
+        CHECK (status IN (
+            'UPCOMING', 'CHANGE_PENDING', 'CANCELLED',
+            'COMPLETED', 'NO_SHOW'
+        )),
+    ADD CONSTRAINT ck_appointments_interval
+        CHECK (
+            duration_minutes > 0
+            AND ends_at > starts_at
+            AND DATE_ADD(
+                starts_at, INTERVAL duration_minutes MINUTE
+            ) IS NOT NULL
+            AND ends_at = DATE_ADD(
+                starts_at, INTERVAL duration_minutes MINUTE
+            )
+        ),
+    ADD CONSTRAINT ck_appointments_creation_request
+        CHECK (
+            CHAR_LENGTH(TRIM(creation_request_key)) > 0
+            AND OCTET_LENGTH(creation_request_hash) = 32
+        ),
+    ADD CONSTRAINT ck_appointments_cancellation
+        CHECK (
+            (status = 'CANCELLED' AND cancelled_at IS NOT NULL)
+            OR
+            (status <> 'CANCELLED'
+                AND cancelled_at IS NULL AND cancel_reason IS NULL)
+        ),
+    ADD CONSTRAINT ck_appointments_outcome
+        CHECK (
+            (status IN ('COMPLETED', 'NO_SHOW')
+                AND outcome_at IS NOT NULL)
+            OR
+            (status NOT IN ('COMPLETED', 'NO_SHOW')
+                AND outcome_at IS NULL)
+        ),
+    ADD CONSTRAINT uq_appointments_creation_request
+        UNIQUE (student_id, creation_request_key);
+
+ALTER TABLE change_proposals
+    ADD COLUMN pending_guard TINYINT
+        GENERATED ALWAYS AS (
+            CASE WHEN status = 'PENDING' THEN 1 ELSE NULL END
+        ) VIRTUAL,
+    ADD CONSTRAINT ck_change_proposals_status
+        CHECK (status IN (
+            'PENDING', 'ACCEPTED', 'DECLINED',
+            'EXPIRED', 'SUPERSEDED', 'CANCELLED'
+        )),
+    ADD CONSTRAINT ck_change_proposals_interval
+        CHECK (
+            proposed_ends_at > proposed_starts_at
+            AND expires_at > created_at
+        ),
+    ADD CONSTRAINT ck_change_proposals_resolution
+        CHECK (
+            (status = 'PENDING' AND resolved_at IS NULL)
+            OR (status <> 'PENDING' AND resolved_at IS NOT NULL)
+        ),
+    ADD CONSTRAINT uq_change_proposals_pending
+        UNIQUE (appointment_id, pending_guard);
+```
+
+`pending_guard` chỉ phục vụ ràng buộc: đề nghị chờ có giá trị 1, các bản kết thúc có NULL. Unique cho phép nhiều NULL nên giữ được toàn bộ lịch sử và vẫn chỉ có một bản chờ trên mỗi lịch. Backend không ghi cột này.
+
+Hai lịch tiếp giáp, ví dụ 09:00–09:30 và 09:30–10:00, được phép cùng tồn tại. Truy vấn giao khoảng tại §7 dùng biên `[start, end)` để kiểm tra toàn bộ thời lượng.

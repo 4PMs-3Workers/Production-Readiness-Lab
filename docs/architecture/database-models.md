@@ -1,27 +1,31 @@
 # Models cơ sở dữ liệu — Production Readiness Lab
 
-**Ngày cập nhật:** 13/10/2026
-**Phạm vi:** Ánh xạ SQLAlchemy cho 11 bảng, chuyển đổi dữ liệu, kết nối MySQL và kiểm thử tầng lưu trữ.
-**Môi trường:** Python 3.11+ · SQLAlchemy 2 · asyncmy · MySQL 8.4/InnoDB.
-
-Tầng models lưu dữ liệu cho ứng dụng đặt lịch tư vấn tại trường đại học: tài khoản, nhu cầu tư vấn, giờ phục vụ, lịch hẹn, đề nghị đổi lịch, thông báo và lịch sử thao tác. Models cung cấp schema và các ràng buộc dữ liệu; service chịu trách nhiệm quyền thao tác, khả dụng và giao dịch nghiệp vụ.
+**Ngày cập nhật:** 13/10/2026 · **Môi trường:** Python 3.11+, SQLAlchemy 2, asyncmy và MySQL 8.4/InnoDB.
 
 ## Mục lục
 
-1. Danh sách bảng và model
-2. Chuyển đổi kiểu dữ liệu
-3. Kết nối và vòng đời session
-4. Ràng buộc và giao dịch nghiệp vụ
-5. Thiết lập và chạy kiểm tra
-6. Phạm vi kiểm thử và CI
-7. Kết quả kiểm chứng đã ghi nhận
+1. Tổng quan tầng models
+2. Tổ chức models
+3. Luồng truy cập dữ liệu
+4. Quy ước ánh xạ
+5. Ràng buộc và giao dịch nghiệp vụ
+6. Thiết lập và chạy kiểm tra
+7. Phạm vi kiểm thử và CI
+8. Kết quả kiểm chứng đã ghi nhận
 
-## 1. Danh sách bảng và model
+## 1. Tổng quan tầng models
 
-Tất cả module nằm trong `src/backend/app/models`. Import `app.models.Base` để đăng ký đầy đủ
-các bảng trước khi kiểm tra schema hoặc tự động sinh bản nháp migration.
+Tầng models lưu dữ liệu cho ứng dụng đặt lịch tư vấn tại trường đại học. Một lịch hẹn liên quan đến sinh viên, nhân viên, nhu cầu tư vấn, đề nghị đổi lịch, thông báo và lịch sử thao tác.
 
-| Bảng nguồn | Model | Module |
+SQLAlchemy 2 ánh xạ **11 bảng** thành các lớp Python có chú thích kiểu. Các bộ chuyển đổi giữ UUID, giờ UTC, hash và giờ trong ngày nhất quán khi dữ liệu đi qua ORM.
+
+Models chịu trách nhiệm biểu diễn schema và ràng buộc dữ liệu. Service kiểm tra quyền, khả dụng, chuyển trạng thái và quản lý transaction; repository thực hiện truy vấn bằng session được truyền vào.
+
+## 2. Tổ chức models
+
+Các model nằm trong `src/backend/app/models`. Import `app.models.Base` để đăng ký đủ bảng vào metadata trước khi kiểm tra schema hoặc sinh bản nháp migration.
+
+| Bảng | Model | Module |
 |---|---|---|
 | `users` | `User` | `user.py` |
 | `sessions` | `Session` | `session.py` |
@@ -35,67 +39,109 @@ các bảng trước khi kiểm tra schema hoặc tự động sinh bản nháp 
 | `notifications` | `Notification` | `notification.py` |
 | `audit_events` | `AuditEvent` | `audit_event.py` |
 
-Mỗi model dùng ánh xạ khai báo của SQLAlchemy 2 có chú thích kiểu, tên SQL bằng tiếng Anh theo
-`snake_case`, engine InnoDB và collation `utf8mb4_0900_ai_ci`. Các ràng buộc FK/CHECK/UNIQUE
-có tên; chỉ mục phục vụ truy vấn phiên, nhu cầu, khoảng thời gian, lịch sử, thông báo và worker hết hạn. Khóa ngoại dùng `RESTRICT` cho cả thao tác
-xóa và cập nhật. Model cung cấp các ID khóa ngoại; truy vấn, phép join và giao dịch của service
-được thực hiện tường minh, không khai báo relationship tự tải dữ liệu ngầm.
+Mỗi model dùng ánh xạ khai báo có chú thích kiểu. Tên SQL theo `snake_case`; engine là InnoDB, collation mặc định là `utf8mb4_0900_ai_ci`.
 
-## 2. Chuyển đổi kiểu dữ liệu
+- FK/CHECK/UNIQUE có tên; khóa ngoại dùng `RESTRICT` khi xóa và cập nhật.
+- Chỉ mục phục vụ truy vấn phiên, nhu cầu, khoảng thời gian, lịch sử, thông báo và worker hết hạn.
+- Model cung cấp ID khóa ngoại. Repository/service thực hiện truy vấn và join tường minh; không khai báo relationship tự tải dữ liệu ngầm.
 
-- Các trường UUID nhận `uuid.UUID` hoặc chuỗi UUID, lưu 16 byte theo thứ tự chuẩn trong
-  `BINARY(16)` và trả đối tượng UUID khi đọc. Không dùng `UUID_TO_BIN(..., 1)` đảo thứ tự byte
-  với các cột này.
-- `UTCDateTime` chỉ nhận `datetime` có múi giờ, chuyển về UTC trước khi lưu vào `DATETIME(6)`
-  và gắn múi giờ UTC khi đọc. Độ chính xác microsecond được giữ nguyên. Schema API chịu trách
-  nhiệm xuất ISO 8601; frontend chịu trách nhiệm chuyển múi giờ hiển thị.
-- `TimeOfDay` nhận `datetime.time` biểu diễn giờ địa phương, không có múi giờ hoặc phần lẻ
-  của giây, để lưu vào `TIME(0)`. Ràng buộc của giờ phục vụ từ chối giá trị âm hoặc từ 24 giờ trở lên.
-- Các trường SHA-256 nhận giá trị hash dạng 32 byte thô, không nhận chuỗi hex. Bộ chuyển đổi
-  và ràng buộc CHECK đều kiểm tra độ dài.
-- Khi gán email qua ORM, giá trị được chuẩn hóa bằng `strip().lower()`. CHECK tại database
-  cũng bảo vệ thao tác SQL trực tiếp. Email dùng `utf8mb4_0900_as_ci`, phân biệt dấu nhưng
-  không phân biệt hoa/thường. Mã nghiệp vụ và idempotency key dùng `utf8mb4_0900_bin`;
-  key do client gửi được giữ nguyên, kể cả khoảng trắng cuối chuỗi.
-- `created_at` có giá trị mặc định tại database là `CURRENT_TIMESTAMP(6)`. `updated_at` được
-  gán theo UTC khi insert/update qua ORM; các luồng ghi SQL trực tiếp phải tự cung cấp hoặc
-  cập nhật trường này. Cấu hình `eager_defaults` tải các cột mặc định hoặc tự sinh ngay trong
-  `flush`, để việc đọc `created_at` hoặc `pending_guard` không phát sinh I/O ngầm trong
-  `AsyncSession` trên MySQL. Chỉ đọc các thuộc tính đã tải; thao tác truy vấn hoặc tải lại
-  dữ liệu cần được thực hiện tường minh bằng lời gọi async.
-- Cột SQL `metadata` của audit được ánh xạ thành `AuditEvent.event_metadata` vì SQLAlchemy
-  dành riêng tên thuộc tính `metadata`. Giá trị mặc định khi insert tạo một dictionary mới
-  cho mỗi bản ghi. Phần triển khai hạ tầng/service phải giới hạn quyền audit của tài khoản
-  runtime ở INSERT/SELECT và loại bỏ dữ liệu nhạy cảm khỏi metadata.
-- `pending_guard` là cột sinh tự động dạng virtual. Code ứng dụng không được gán giá trị cho
-  cột này. Unique trên `(appointment_id, pending_guard)` cho phép tối đa một đề nghị đang chờ
-  và nhiều đề nghị đã kết thúc trên cùng lịch hẹn.
+Các thành phần dùng chung gồm:
 
-## 3. Kết nối và vòng đời session
+| Thành phần | Trách nhiệm |
+|---|---|
+| `models/base.py` | Base, quy ước đặt tên constraint, UUID và timestamp mixin. |
+| `models/types.py` | Chuyển đổi UUID, thời điểm UTC, giờ trong ngày và SHA-256. |
+| `models/__init__.py` | Đăng ký các model để metadata chứa đủ 11 bảng. |
+| `core/database.py` | Tạo async engine với các quy tắc kết nối MySQL. |
 
-Dùng `app.core.database.create_database_engine` với URL kết nối theo driver `mysql+asyncmy`. Mỗi kết nối
-được cấu hình UTC, SQL mode nghiêm ngặt và `READ COMMITTED`, kể cả sau khi kết nối lại.
-Service quản lý session và vòng đời commit/rollback; mỗi request hoặc giao dịch worker dùng
-một session riêng. Tham số tùy chọn `connect_args` cho phép cấu hình TLS/timeout, trong khi
-hàm tạo engine vẫn giữ các quy tắc UTC và SQL mode nghiêm ngặt. Dependency `cryptography`
-được bổ sung để hỗ trợ xác thực RSA của `caching_sha2_password`, cơ chế mặc định của MySQL 8.4,
-khi kết nối không sử dụng TLS.
+## 3. Luồng truy cập dữ liệu
 
-## 4. Ràng buộc và giao dịch nghiệp vụ
+Một request hoặc giao dịch worker sử dụng một session riêng. Service quyết định transaction; repository và các thao tác ghi liên quan nhận cùng session đó.
 
-CHECK bảo vệ tính hợp lệ trong từng hàng: tập trạng thái, độ dài, khoảng thời gian và các mốc
-thời gian theo trạng thái. Do giới hạn kết hợp FK/CHECK của MySQL, các kiểm tra phụ thuộc vào
-người thao tác được thực hiện ở service. Service phải kiểm tra `cancelled_by`, `outcome_by`
-và `resolved_by`, gồm điều kiện NULL và vai trò của người thao tác cho từng lần chuyển trạng thái.
+```text
+Router hoặc worker
+    → Service kiểm tra nghiệp vụ và quản lý transaction
+    → Repository truy vấn bằng session được truyền vào
+    → SQLAlchemy chuyển đổi giá trị và thực thi SQL
+    → MySQL kiểm tra ràng buộc, đọc/ghi dữ liệu
+    → Service commit hoặc rollback
+```
 
-Service tiếp tục chịu trách nhiệm về vai trò/quyền sở hữu, lịch giao khoảng, hạn mức ba lịch,
-xung đột với thời gian không nhận, các trường bất biến, chuyển trạng thái hợp lệ, thời lượng
-đề nghị khớp với lịch, hạn đặt/hủy và việc ghi audit/thông báo trong cùng giao dịch. Thứ tự khóa
-là cấu hình → tài khoản người tham gia theo thứ tự byte UUID → lịch hẹn → đề nghị. Sau khi lấy
-khóa, phải đọc lại và kiểm tra trước khi ghi. Bộ model này
-chỉ cung cấp lớp ánh xạ lưu trữ; luồng đặt lịch được triển khai tại service.
+### 3.1. Kết nối và session
 
-### 4.1. Quy tắc nghiệp vụ cần bảo vệ
+Dùng `app.core.database.create_database_engine` với driver `mysql+asyncmy`. Hàm tạo engine bảo đảm UTC, SQL mode nghiêm ngặt và `READ COMMITTED` cho mỗi kết nối, kể cả sau khi kết nối lại.
+
+`connect_args` cho phép cấu hình TLS/timeout nhưng không thay thế các quy tắc kết nối bắt buộc. Dependency `cryptography` hỗ trợ xác thực RSA của `caching_sha2_password` khi kết nối không sử dụng TLS.
+
+Không dùng chung một `AsyncSession` cho các tác vụ đồng thời. Khi kết thúc request hoặc giao dịch worker, đóng session; khi tiến trình shutdown, đóng engine/pool theo vòng đời ứng dụng.
+
+### 3.2. Ví dụ truy vấn trong repository
+
+Ví dụ dưới đây đọc nhu cầu đang hoạt động bằng session do service cung cấp:
+
+```python
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models import Purpose
+
+
+async def list_active_purposes(session: AsyncSession) -> list[Purpose]:
+    result = await session.scalars(
+        select(Purpose).where(Purpose.is_active.is_(True))
+    )
+    return list(result)
+```
+
+Hàm truy vấn không tự tạo session hoặc commit. Với thao tác ghi, service có thể gọi nhiều repository bằng cùng session để toàn bộ thay đổi nằm trong một transaction.
+
+## 4. Quy ước ánh xạ
+
+### 4.1. UUID và hash
+
+- Các trường UUID nhận `uuid.UUID` hoặc chuỗi UUID, lưu 16 byte theo thứ tự chuẩn trong `BINARY(16)` và trả đối tượng UUID khi đọc. Không dùng `UUID_TO_BIN(..., 1)` đảo thứ tự byte với các cột này.
+
+- Các trường SHA-256 nhận giá trị hash dạng 32 byte thô, không nhận chuỗi hex. Bộ chuyển đổi và ràng buộc CHECK đều kiểm tra độ dài.
+
+### 4.2. Thời gian và timestamp
+
+**Thời điểm:** `UTCDateTime` nhận `datetime` có múi giờ, chuyển về UTC trước khi lưu vào `DATETIME(6)` và gắn UTC khi đọc. Độ chính xác microsecond được giữ nguyên.
+
+Schema API xuất ISO 8601; frontend chuyển thời điểm sang múi giờ hiển thị.
+
+**Giờ trong ngày:** `TimeOfDay` nhận `datetime.time` địa phương, không có múi giờ hoặc phần lẻ của giây, lưu vào `TIME(0)`. Ràng buộc giờ phục vụ từ chối giá trị âm hoặc từ 24 giờ trở lên.
+
+**Timestamp và giá trị mặc định:**
+
+- Database gán `created_at` bằng `CURRENT_TIMESTAMP(6)`.
+- ORM gán `updated_at` theo UTC khi insert/update. Luồng SQL trực tiếp tự cung cấp hoặc cập nhật trường này.
+- `eager_defaults` tải giá trị mặc định/tự sinh trong `flush`, gồm `created_at` và `pending_guard`.
+
+Chỉ đọc các thuộc tính đã tải trong `AsyncSession`. Truy vấn hoặc tải lại dữ liệu được thực hiện bằng lời gọi async tường minh để tránh I/O ngầm.
+
+### 4.3. Email và mã đối chiếu
+
+Email được chuẩn hóa bằng `strip().lower()` khi gán qua ORM. CHECK tại database bảo vệ quy tắc chuẩn hóa khi ghi bằng SQL trực tiếp.
+
+- Email dùng `utf8mb4_0900_as_ci`: phân biệt dấu, không phân biệt hoa/thường.
+- Mã nghiệp vụ và idempotency key dùng `utf8mb4_0900_bin`: so sánh chính xác.
+- Key client được giữ nguyên, kể cả khoảng trắng cuối chuỗi.
+
+### 4.4. Audit và cột sinh tự động
+
+SQLAlchemy dành riêng tên thuộc tính `metadata`, nên cột audit cùng tên được ánh xạ thành `AuditEvent.event_metadata`. Mặc định khi insert tạo một dictionary mới cho mỗi bản ghi.
+
+Tài khoản runtime chỉ có quyền INSERT/SELECT với audit. Service loại bỏ mật khẩu, token và nội dung tư vấn khỏi metadata.
+
+`pending_guard` là cột sinh tự động dạng virtual; ứng dụng không gán giá trị trực tiếp. UNIQUE `(appointment_id, pending_guard)` cho phép tối đa một đề nghị đang chờ và nhiều đề nghị đã kết thúc trên cùng lịch.
+
+## 5. Ràng buộc và giao dịch nghiệp vụ
+
+CHECK bảo vệ tính hợp lệ trong từng hàng: trạng thái, độ dài, khoảng thời gian và các mốc theo trạng thái. FK bảo vệ tham chiếu, UNIQUE bảo vệ mã yêu cầu và giới hạn một đề nghị đang chờ.
+
+Các điều kiện về quyền, người thao tác và dữ liệu giữa nhiều hàng được kiểm tra tại service. Do giới hạn kết hợp FK/CHECK của MySQL, service cũng kiểm tra các cột actor `cancelled_by`, `outcome_by` và `resolved_by`.
+
+### 5.1. Quy tắc nghiệp vụ cần bảo vệ
 
 - Tài khoản có một vai trò `STUDENT`, `STAFF` hoặc `ADMIN`; sinh viên tự đặt lịch cho mình.
 - `UPCOMING` và `CHANGE_PENDING` chiếm chỗ; mỗi sinh viên có tối đa ba lịch thuộc hai trạng thái này.
@@ -108,7 +154,7 @@ Ngày nghiệp vụ dùng `Asia/Ho_Chi_Minh`. Cửa sổ đặt mặc định g�
 
 `cancelled_by` chỉ ghi người tham gia của lịch hoặc NULL cho hệ thống; `outcome_by` phải là nhân viên nhận lịch; `resolved_by` phải phù hợp với thao tác giải quyết đề nghị và để NULL khi hết hạn. Model không tự xác thực các danh tính này; service kiểm tra trước khi commit.
 
-### 4.2. Thứ tự khóa và kiểm tra
+### 5.2. Thứ tự khóa và kiểm tra
 
 1. Khóa `service_settings(id = 1)` bằng `FOR SHARE`; thao tác quản trị sửa cấu hình/danh mục/giờ chung dùng `FOR UPDATE`.
 2. Khóa từng tài khoản sinh viên và nhân viên bằng `FOR UPDATE`, theo thứ tự 16 byte UUID tăng dần. Khóa hàng tài khoản ngay cả khi chưa có lịch.
@@ -122,9 +168,9 @@ Service quản lý commit/rollback; repository nhận session của giao dịch 
 schema production phải dùng migration Alembic đã được review và giữ khả năng tương thích
 theo yêu cầu rollback.
 
-## 5. Thiết lập và chạy kiểm tra
+## 6. Thiết lập và chạy kiểm tra
 
-### 5.1. Điều kiện môi trường
+### 6.1. Điều kiện môi trường
 
 - Chạy các lệnh từ thư mục gốc repository.
 - Cài Python 3.11 trở lên. Dependencies được khóa trong `requirements.txt` và `requirements-dev.txt`.
@@ -132,7 +178,7 @@ theo yêu cầu rollback.
 - Cài Node.js 22 và npm để chạy Pyright 1.1.407.
 - Khi Windows Application Control chặn DLL của asyncmy, chạy bộ kiểm thử trong WSL/Linux với môi trường Python riêng ở đó.
 
-### 5.2. Môi trường Python và kiểm tra cơ bản
+### 6.2. Môi trường Python và kiểm tra cơ bản
 
 **PowerShell:**
 
@@ -156,7 +202,7 @@ python3 -m venv .venv
 
 Các lệnh gọi trực tiếp interpreter trong `.venv`, nên không cần kích hoạt môi trường trước khi chạy.
 
-### 5.3. Cấu hình import trong editor
+### 6.3. Cấu hình import trong editor
 
 Package `app` nằm dưới `src/backend`, nên editor cần đường dẫn này để phân tích các import
 như `from app.models import Base`. `pyproject.toml` đã khai báo `extraPaths` cho Pyright/Pylance;
@@ -176,7 +222,7 @@ tự cấu hình interpreter cho editor.
 
 Trên Bash, thay `.\.venv\Scripts\python.exe` bằng `.venv/bin/python`. Pytest và Pyright đã có cấu hình đường dẫn `src/backend`; cài editable phục vụ việc import ngoài hai công cụ này.
 
-### 5.4. Kiểm thử tích hợp với MySQL
+### 6.4. Kiểm thử tích hợp với MySQL
 
 Khởi động MySQL riêng cho tests bằng lệnh dùng được trên cả PowerShell và Bash:
 
@@ -216,7 +262,7 @@ docker stop prl-model-tests
 docker rm prl-model-tests
 ```
 
-### 5.5. Kiểm tra kiểu và xuất báo cáo
+### 6.5. Kiểm tra kiểu và xuất báo cáo
 
 Sau khi tạo `.venv` và cài dependencies, chạy Pyright bằng phiên bản cố định:
 
@@ -232,7 +278,7 @@ npx --yes pyright@1.1.407
 
 Trên Bash, dùng `.venv/bin/python` với cùng tham số. Báo cáo nằm trong `build/`, là đầu ra kiểm thử và không được commit.
 
-## 6. Phạm vi kiểm thử và CI
+## 7. Phạm vi kiểm thử và CI
 
 Bộ tests kiểm tra việc ghi/đọc lại dữ liệu của tất cả bảng, thứ tự byte UUID, độ chính xác UTC, giá trị mặc định, chuyển đổi giờ, cấu hình kết nối, CHECK khi ghi SQL trực tiếp, khóa ngoại ghép, giới hạn xóa dữ liệu được tham chiếu, tính duy nhất và collation của idempotency key, ràng buộc đề nghị đang chờ và lịch sử đề nghị, collation email, JSON audit mặc định và timestamp của backend.
 
@@ -241,7 +287,7 @@ Workflow `.github/workflows/backend-models.yml` chạy trên pull request vào `
 
 Tests models xác minh tầng lưu trữ và ràng buộc từng hàng. Quyền API, giao dịch đặt lịch, hạn mức ba lịch, xử lý đổi lịch và tính đúng đắn dưới tải đồng thời cần bộ kiểm thử service/API riêng; kết quả models không thay thế các tiêu chí đó.
 
-## 7. Kết quả kiểm chứng đã ghi nhận
+## 8. Kết quả kiểm chứng đã ghi nhận
 
 Các kết quả sau thuộc lần kiểm chứng ngày **11/10/2026**, được giữ làm mốc đối chiếu:
 
@@ -251,7 +297,7 @@ Các kết quả sau thuộc lần kiểm chứng ngày **11/10/2026**, được
   Black và Ruff đều đạt. Pyright kiểm tra toàn bộ source/tests: 0 lỗi, 0 cảnh báo.
 - Tạo thành công cả 11 bảng và các chỉ mục trên MySQL. Các schema test tạm đã được fixture
   xóa sau khi kiểm tra. Báo cáo JUnit `build/model-review-tests.xml` là file tạm, đã được dọn
-  trước commit; có thể tạo lại bằng lệnh xuất JUnit tại mục 5.5.
+  trước commit; có thể tạo lại bằng lệnh xuất JUnit tại mục 6.5.
 - Đã đối chiếu cột, kiểu dữ liệu, NULL, khóa, CHECK, collation và 12 chỉ mục truy vấn với
   thiết kế cơ sở dữ liệu phiên bản 1.3.
 - Khi chạy trực tiếp trên Windows, Application Control chặn một DLL của asyncmy. Toàn bộ
