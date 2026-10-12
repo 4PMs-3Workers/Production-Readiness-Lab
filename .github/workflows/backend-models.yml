@@ -1,0 +1,45 @@
+name: Backend models
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: ['feature/**', 'fixbug/**', 'hotfix/**']
+
+permissions:
+  contents: read
+
+jobs:
+  models:
+    runs-on: ubuntu-24.04
+    services:
+      mysql:
+        image: mysql:8.4.11
+        env:
+          MYSQL_ROOT_PASSWORD: test-only-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -ptest-only-password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    env:
+      MYSQL_TEST_URL: mysql+asyncmy://root:test-only-password@127.0.0.1:3306
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: pip
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - run: python -m venv .venv
+      - run: .venv/bin/python -m pip install -r requirements-dev.txt
+      - run: npm install --global pyright@1.1.407
+      - run: .venv/bin/python -m black --check src/backend tests/backend
+      - run: .venv/bin/python -m ruff check src/backend tests/backend
+      - run: pyright
+      - run: .venv/bin/python -m pytest -q

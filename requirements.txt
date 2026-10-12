@@ -1,0 +1,9 @@
+# Runtime dependencies pinned for the model layer (Python 3.11+).
+SQLAlchemy==2.0.44
+asyncmy==0.2.10
+# MySQL 8.4 defaults to caching_sha2_password; asyncmy needs RSA support without TLS.
+cryptography==46.0.3
+cffi==2.0.0
+pycparser==2.23
+greenlet==3.5.6
+typing_extensions==4.16.0
