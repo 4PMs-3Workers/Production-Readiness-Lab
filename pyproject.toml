@@ -1,0 +1,35 @@
+[project]
+name = "production-readiness-lab-backend"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["SQLAlchemy==2.0.44", "asyncmy==0.2.10", "cryptography==46.0.3"]
+
+[tool.setuptools.packages.find]
+where = ["src/backend"]
+include = ["app*"]
+
+[tool.pyright]
+include = ["src/backend", "tests/backend"]
+extraPaths = ["src/backend"]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests/backend"]
+pythonpath = ["src/backend"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = ["mysql: requires a dedicated MySQL 8.4 test database"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src/backend"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
