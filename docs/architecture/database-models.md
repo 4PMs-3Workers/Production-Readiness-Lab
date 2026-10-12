@@ -155,10 +155,10 @@ pyright
   Black và Ruff đều đạt. Pyright kiểm tra toàn bộ source/tests: 0 lỗi, 0 cảnh báo.
 - Tạo thành công cả 11 bảng và các chỉ mục trên MySQL. Các schema test tạm đã được fixture
   xóa sau khi kiểm tra. Báo cáo JUnit `build/model-review-tests.xml` là file tạm, đã được dọn
-  trước commit; có thể tạo lại theo lệnh trong [tài liệu tests](../tasks/model-tests.md).
+  trước commit; có thể tạo lại theo lệnh trong [báo cáo task](../tasks/database-models.md).
 - Đã đối chiếu cột, kiểu dữ liệu, NULL, khóa, CHECK, collation và 12 chỉ mục truy vấn với
   `database-design.md` v1.3. Chi tiết các phát hiện và bản sửa nằm trong
-  [báo cáo rà soát models](../tasks/model-review.md).
+  [báo cáo task tạo models](../tasks/database-models.md).
 - Khi chạy trực tiếp trên Windows, Application Control chặn một DLL của asyncmy. Toàn bộ
   kiểm thử ORM/driver đã được chạy trong WSL, kết nối đến MySQL riêng dành cho tests.
 - Workflow trên GitHub Actions đã chạy thành công ở commit `62acd33`, gồm service MySQL,
