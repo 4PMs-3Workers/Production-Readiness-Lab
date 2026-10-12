@@ -277,12 +277,12 @@ sequenceDiagram
     participant DB as MySQL
     Student->>UI: Xác nhận nhu cầu, nhân viên và giờ
     UI->>API: POST /appointments + key + cookie
-    API->>DB: Xác thực; tra key đã có
+    API->>DB: Xác thực, tra key đã có
     alt Đã có lịch cùng key
         API->>API: So sánh hash
         API-->>UI: Kết quả tạo ban đầu hoặc 409 khác nội dung
     else Chưa có lịch cùng key
-        API->>DB: BEGIN; lấy khóa; tra lại key
+        API->>DB: BEGIN, lấy khóa, tra lại key
         alt Key đã được request cạnh tranh lưu
             API->>API: So sánh hash
             API->>DB: Kết thúc transaction đọc
@@ -290,7 +290,7 @@ sequenceDiagram
         else Key vẫn chưa có
             API->>DB: Kiểm tra vai trò, hạn mức và khả dụng
             alt Đặt mới hợp lệ
-                API->>DB: INSERT lịch, audit, hai thông báo; COMMIT
+                API->>DB: INSERT lịch, audit, hai thông báo, rồi COMMIT
                 API-->>UI: 201: id, UPCOMING, created_at
             else Vi phạm nghiệp vụ hoặc constraint
                 API->>DB: ROLLBACK
