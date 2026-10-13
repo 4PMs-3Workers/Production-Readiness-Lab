@@ -35,6 +35,7 @@ manual schema inspection — see docs/tasks/database-migrations.md.
 """
 
 from collections.abc import Sequence
+from typing import Any
 
 import sqlalchemy as sa
 from alembic import op
@@ -47,7 +48,7 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 # Shared table options for all InnoDB/utf8mb4 tables.
-_TABLE_KW = {
+_TABLE_KW: dict[str, Any] = {
     "mysql_engine": "InnoDB",
     "mysql_charset": "utf8mb4",
     "mysql_collate": "utf8mb4_0900_ai_ci",
