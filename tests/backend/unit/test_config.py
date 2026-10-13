@@ -110,3 +110,35 @@ def test_malformed_database_url_is_reported_without_echoing_value(monkeypatch):
         load_settings()
     assert "DATABASE_URL" in str(error.value)
     assert "sentinel-password" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "https://exa mple.com",
+        "https://example.com\n",
+        "https://example.com\\evil",
+        "https://-example.com",
+        "https://example..com",
+    ],
+)
+def test_origin_rejects_malformed_hostname_or_characters(origin):
+    with pytest.raises(ValueError):
+        Settings.model_validate({**VALID, "APPLICATION_ORIGIN": origin})
+
+
+@pytest.mark.parametrize("domain", ["exa mple.com", "example.com; secure", "example..com"])
+def test_cookie_domain_rejects_malformed_hostname(domain):
+    with pytest.raises(ValueError):
+        Settings.model_validate({**VALID, "COOKIE_DOMAIN": domain})
+
+
+@pytest.mark.parametrize(
+    "origin",
+    ["http://localhost:3000", "https://example.com", "http://127.0.0.1:8000", "http://[::1]:8000"],
+)
+def test_origin_accepts_localhost_ip_and_domain(origin):
+    assert (
+        Settings.model_validate({**VALID, "APPLICATION_ORIGIN": origin}).application_origin
+        == origin
+    )

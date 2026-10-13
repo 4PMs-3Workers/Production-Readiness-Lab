@@ -1,4 +1,11 @@
+import logging
+import socket
+from threading import Thread
+from time import monotonic, sleep
+
+import httpx
 import pytest
+import uvicorn
 from fastapi import Body, HTTPException
 from fastapi.testclient import TestClient
 
@@ -80,3 +87,47 @@ def test_http_exception_5xx_is_sanitized_service_error():
     assert result.json()["error"]["code"] == "SERVICE_UNAVAILABLE"
     assert result.json()["error"]["request_id"] == result.headers["X-Request-ID"]
     assert "secret_token" not in result.text
+
+
+def test_health_method_error_is_not_cacheable():
+    with TestClient(make_app()) as client:
+        result = client.post("/health/live")
+    assert result.status_code == 405
+    assert result.headers["Allow"] == "GET"
+    assert result.headers["Cache-Control"] == "no-store"
+    assert result.json()["error"]["request_id"] == result.headers["X-Request-ID"]
+
+
+def test_uvicorn_logs_unexpected_error_without_sensitive_exception_text(caplog, monkeypatch):
+    # Alembic's in-process fileConfig() can disable loggers created before migration tests.
+    monkeypatch.setattr(logging.getLogger("app.errors"), "disabled", False)
+    monkeypatch.setattr(logging.getLogger("uvicorn.error"), "disabled", False)
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+    server = uvicorn.Server(
+        uvicorn.Config(make_app(), host="127.0.0.1", port=port, log_config=None, access_log=False)
+    )
+    thread = Thread(target=server.run, daemon=True)
+    response = None
+    with (
+        caplog.at_level(logging.ERROR, logger="uvicorn.error"),
+        caplog.at_level(logging.ERROR, logger="app.errors"),
+    ):
+        thread.start()
+        try:
+            deadline = monotonic() + 10
+            while monotonic() < deadline:
+                try:
+                    response = httpx.get(f"http://127.0.0.1:{port}/__test/crash", timeout=1)
+                    break
+                except httpx.ConnectError:
+                    sleep(0.05)
+        finally:
+            server.should_exit = True
+            thread.join(timeout=5)
+    assert response is not None
+    assert response.status_code == 500
+    assert "secret_token=hidden" not in caplog.text
+    assert "SQL SELECT" not in caplog.text
+    assert "RuntimeError" in caplog.text

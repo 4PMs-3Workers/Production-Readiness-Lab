@@ -10,7 +10,8 @@ Migration commands and recovery remain in `docs/tasks/database-migrations.md`.
 ## Delivered modules
 
 - `app.core.config`: environment settings, finite positive timeout/pool checks, origin and CIDR parsing,
-  required secret/revision checks, cookie policy and sanitized configuration errors.
+  required secret/revision checks, cookie policy and sanitized configuration errors. Origin and
+  cookie-domain hostnames reject whitespace, backslashes and malformed DNS labels.
 - `app.factory` and `app.main`: injectable app factory and Uvicorn entry point. Lifespan constructs
   the engine with `create_database_engine()` and a session factory; shutdown or partial setup
   disposes the engine. Startup itself does not query MySQL or run migrations.
@@ -20,12 +21,15 @@ Migration commands and recovery remain in `docs/tasks/database-migrations.md`.
   peer in `TRUSTED_GATEWAY_CIDRS`; otherwise generates a new ID. The middleware never trusts
   `X-Forwarded-For`.
 - `app.api.errors`: stable status/code/class mapping and one sanitized JSON envelope. The
-  response header and body carry the same request ID; `405` retains `Allow`.
+  response header and body carry the same request ID; `405` retains `Allow`. Health errors also
+  return `Cache-Control: no-store`. Unexpected exceptions are logged by class only, without
+  propagating their raw message or traceback to the ASGI server logger.
 - `app.api.health`: liveness without DB access; readiness uses one deadline for connection,
   `SELECT 1`, and reading the single installed Alembic revision. Only explicit allowlist members
   are accepted. A timed-out probe returns promptly while its tracked task finishes connection
-  cleanup; shutdown waits for that cleanup before disposing the engine. Health responses are
-  `no-store`.
+  cleanup, including SQLAlchemy's shielded connection close; shutdown waits for that cleanup
+  before disposing the engine. Health responses are `no-store`, and the exported health error
+  contract documents `X-Error-Class`.
 - `app.schemas.common`: shared error, pagination and timezone-aware timestamp schemas.
 - `tools/scripts/export_openapi.py`: deterministic YAML export with explicit validated placeholder
   settings isolated from runtime environment and `.env`, no lifespan and no DB connection.
@@ -77,6 +81,11 @@ requirements, and OpenAPI export completed. The live Uvicorn smoke test with a d
 unreachable MySQL URL returned `/health/live` 200 and `/health/ready` 503, both with
 `Cache-Control: no-store`; readiness used `X-Error-Class: service`. The local Docker container
 was used only for tests and is removed after verification.
+
+Review-fix verification on 14/10/2026 used the same dedicated MySQL image: **169 passed, 0 failed,
+0 skipped**. The new regression tests cover shielded close/disposal order, Uvicorn log sanitization,
+malformed hostnames, health error cache headers and OpenAPI error headers. Black, Ruff, Pyright,
+`pip check` and artifact consistency were rerun for this revision.
 
 The existing CI job retains both Alembic upgrade checks, Black/Ruff/Pyright and the MySQL
 service. It now runs the full backend suite, fails if any required test skips, regenerates

@@ -1,9 +1,11 @@
 import asyncio
 from time import monotonic
+from typing import cast
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from app.core.config import Settings
 from app.core.database import create_database_engine
@@ -57,7 +59,7 @@ class Connection:
         await asyncio.sleep(self.delay)
         return self
 
-    async def __aexit__(self, *args):
+    async def __aexit__(self, exc_type, exc_value, traceback):
         await asyncio.sleep(self.exit_delay)
         self.closed = True
 
@@ -160,6 +162,41 @@ def test_readiness_returns_within_deadline_when_connection_cleanup_is_slow():
         assert elapsed < 0.2  # 0.05-second budget plus scheduling and test-client tolerance.
         assert connection.queries == ["SELECT 1"]
     assert connection.closed  # Shutdown waits for deferred cleanup to finish.
+
+
+def test_shutdown_waits_for_shielded_sqlalchemy_connection_close(monkeypatch):
+    events = []
+
+    class ShieldedConnection(Connection):
+        async def __aexit__(self, exc_type, exc_value, traceback):
+            await AsyncConnection.__aexit__(
+                cast(AsyncConnection, self), exc_type, exc_value, traceback
+            )
+
+        async def close(self):
+            events.append("close_started")
+            await asyncio.sleep(0.3)
+            events.append("close_finished")
+
+    connection = ShieldedConnection(["a1b2c3d4e5f6"])
+    engine = create_database_engine(settings().database_url)
+    original_dispose = AsyncEngine.dispose
+
+    async def recorded_dispose(self):
+        events.append("engine_disposed")
+        await original_dispose(self)
+
+    monkeypatch.setattr(AsyncEngine, "connect", lambda self: connection)
+    monkeypatch.setattr(AsyncEngine, "dispose", recorded_dispose)
+    app = create_app(settings(timeout=0.05), engine_factory=lambda *args, **kwargs: engine)
+    with TestClient(app) as client:
+        started = monotonic()
+        result = client.get("/health/ready")
+        elapsed = monotonic() - started
+        assert result.status_code == 503
+        assert elapsed < 0.2  # 0.05-second budget plus scheduling and test-client tolerance.
+        assert "close_started" in events
+    assert events.index("close_finished") < events.index("engine_disposed")
 
 
 def test_readiness_sanitizes_query_failure_and_closes_connection():

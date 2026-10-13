@@ -80,6 +80,10 @@ paths:
               description: Always no-store
               schema:
                 type: string
+            X-Error-Class:
+              description: Error class
+              schema:
+                type: string
             X-Request-ID:
               description: Request correlation ID
               schema:
@@ -117,6 +121,10 @@ paths:
               description: Always no-store
               schema:
                 type: string
+            X-Error-Class:
+              description: Error class
+              schema:
+                type: string
             X-Request-ID:
               description: Request correlation ID
               schema:
@@ -130,6 +138,10 @@ paths:
           headers:
             Cache-Control:
               description: Always no-store
+              schema:
+                type: string
+            X-Error-Class:
+              description: Error class
               schema:
                 type: string
             X-Request-ID:

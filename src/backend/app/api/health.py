@@ -16,6 +16,10 @@ HEALTH_HEADERS = {
     "Cache-Control": {"description": "Always no-store", "schema": {"type": "string"}},
     "X-Request-ID": {"description": "Request correlation ID", "schema": {"type": "string"}},
 }
+HEALTH_ERROR_HEADERS = {
+    **HEALTH_HEADERS,
+    "X-Error-Class": {"description": "Error class", "schema": {"type": "string"}},
+}
 
 
 class LiveResponse(BaseModel):
@@ -31,7 +35,7 @@ class ReadyResponse(BaseModel):
     response_model=LiveResponse,
     responses={
         200: {"headers": HEALTH_HEADERS},
-        500: {"model": ErrorResponse, "headers": HEALTH_HEADERS},
+        500: {"model": ErrorResponse, "headers": HEALTH_ERROR_HEADERS},
     },
 )
 async def live(response: Response) -> LiveResponse:
@@ -39,14 +43,19 @@ async def live(response: Response) -> LiveResponse:
     return LiveResponse(status="live")
 
 
-async def _probe_database(engine: AsyncEngine, accepted_revisions: frozenset[str]) -> None:
+async def _probe_database(
+    engine: AsyncEngine, accepted_revisions: frozenset[str], cleanup_started: asyncio.Event
+) -> None:
     async with engine.connect() as connection:
-        if await connection.scalar(text("SELECT 1")) != 1:
-            raise ServiceUnavailable()
-        result = await connection.execute(text("SELECT version_num FROM alembic_version"))
-        revisions = result.scalars().all()
-        if len(revisions) != 1 or revisions[0] not in accepted_revisions:
-            raise ServiceUnavailable()
+        try:
+            if await connection.scalar(text("SELECT 1")) != 1:
+                raise ServiceUnavailable()
+            result = await connection.execute(text("SELECT version_num FROM alembic_version"))
+            revisions = result.scalars().all()
+            if len(revisions) != 1 or revisions[0] not in accepted_revisions:
+                raise ServiceUnavailable()
+        finally:
+            cleanup_started.set()
 
 
 @router.get(
@@ -57,17 +66,20 @@ async def _probe_database(engine: AsyncEngine, accepted_revisions: frozenset[str
         503: {
             "model": ErrorResponse,
             "description": "Database unavailable or schema incompatible",
-            "headers": HEALTH_HEADERS,
+            "headers": HEALTH_ERROR_HEADERS,
         },
-        500: {"model": ErrorResponse, "headers": HEALTH_HEADERS},
+        500: {"model": ErrorResponse, "headers": HEALTH_ERROR_HEADERS},
     },
 )
 async def ready(request: Request, response: Response) -> ReadyResponse:
     response.headers["Cache-Control"] = "no-store"
     settings = request.app.state.settings
     pending_tasks: set[asyncio.Task[None]] = request.app.state.pending_readiness_tasks
+    cleanup_started = asyncio.Event()
     task = asyncio.create_task(
-        _probe_database(request.app.state.engine, settings.accepted_schema_revisions)
+        _probe_database(
+            request.app.state.engine, settings.accepted_schema_revisions, cleanup_started
+        )
     )
     pending_tasks.add(task)
 
@@ -85,6 +97,6 @@ async def ready(request: Request, response: Response) -> ReadyResponse:
     except Exception:
         raise ServiceUnavailable() from None
     finally:
-        if not task.done():
-            task.cancel()  # Cleanup continues in the tracked task before engine disposal.
+        if not task.done() and not cleanup_started.is_set():
+            task.cancel()  # Cancellation enters cleanup; lifespan waits for the tracked task.
     return ReadyResponse(status="ready")

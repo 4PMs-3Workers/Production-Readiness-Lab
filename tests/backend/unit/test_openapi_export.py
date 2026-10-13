@@ -25,6 +25,10 @@ def test_openapi_export_is_deterministic_without_database(tmp_path):
     assert "200" in document["paths"]["/health/live"]["get"]["responses"]
     assert "503" in document["paths"]["/health/ready"]["get"]["responses"]
     assert "ErrorResponse" in document["components"]["schemas"]
+    for path, statuses in {"/health/live": ("500",), "/health/ready": ("500", "503")}.items():
+        for status in statuses:
+            headers = document["paths"][path]["get"]["responses"][status]["headers"]
+            assert "X-Error-Class" in headers
 
 
 def test_openapi_export_ignores_invalid_runtime_environment(tmp_path):

@@ -1,7 +1,8 @@
 """Validated process configuration; error messages never include supplied values."""
 
+import re
 from collections.abc import Callable
-from ipaddress import IPv4Network, IPv6Network, ip_network
+from ipaddress import IPv4Network, IPv6Network, ip_address, ip_network
 from math import isfinite
 from typing import Literal, Self, cast
 from urllib.parse import urlsplit
@@ -14,6 +15,25 @@ from sqlalchemy.exc import ArgumentError
 
 class ConfigurationError(ValueError):
     """Startup configuration failed validation."""
+
+
+def _valid_hostname(host: str) -> bool:
+    try:
+        ip_address(host)
+        return True
+    except ValueError:
+        pass
+    try:
+        ascii_host = host.encode("idna").decode("ascii")
+    except UnicodeError:
+        return False
+    if len(ascii_host) > 253:
+        return False
+    labels = ascii_host.removesuffix(".").split(".")
+    return all(
+        re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", label) is not None
+        for label in labels
+    )
 
 
 class Settings(BaseSettings):
@@ -82,6 +102,10 @@ class Settings(BaseSettings):
     @field_validator("application_origin")
     @classmethod
     def require_origin(cls, value: str) -> str:
+        if any(
+            character.isspace() or ord(character) < 32 or character == "\\" for character in value
+        ):
+            raise ValueError("Invalid APPLICATION_ORIGIN")
         try:
             parsed = urlsplit(value)
             valid_port = parsed.port is None or 0 < parsed.port < 65536
@@ -90,6 +114,7 @@ class Settings(BaseSettings):
         if (
             parsed.scheme not in {"http", "https"}
             or not parsed.hostname
+            or not _valid_hostname(parsed.hostname)
             or parsed.username is not None
             or parsed.password is not None
             or parsed.path not in {"", "/"}
@@ -136,9 +161,14 @@ class Settings(BaseSettings):
     def require_cookie_domain(cls, value: str | None) -> str | None:
         if value is None or value == "":
             return None
+        if any(
+            character.isspace() or ord(character) < 32 or character == "\\" for character in value
+        ):
+            raise ValueError("Invalid COOKIE_DOMAIN")
         parsed = urlsplit("//" + value)
         if (
             parsed.hostname != value
+            or not _valid_hostname(value)
             or parsed.port is not None
             or parsed.path
             or parsed.query
