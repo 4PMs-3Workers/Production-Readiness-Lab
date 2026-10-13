@@ -217,11 +217,16 @@ alembic revision --autogenerate -m "verify" --rev-id verify_check
 
 | Account | Permissions needed |
 |---|---|
-| **Migration account** | `CREATE`, `DROP`, `ALTER`, `INDEX`, `REFERENCES` on the target schema |
+| **Migration account** | `CREATE`, `DROP`, `ALTER`, `INDEX`, `REFERENCES` on the target schema<br/>`SELECT`, `INSERT`, `UPDATE`, `DELETE` on `alembic_version` table<br/>(Future data migrations may require DML on application tables) |
 | **API runtime account** | `SELECT`, `INSERT`, `UPDATE`, `DELETE` on the target schema only |
 
 The API runtime account must **not** have DDL permissions. Migration runs use
 the migration account; the running application uses the runtime account.
+
+**Migration account DML requirements:**
+- Alembic reads/writes the `alembic_version` table to track applied revisions
+- Future data migrations (INSERT/UPDATE application rows during schema changes) require DML grants on affected tables
+- Grant pattern: `GRANT SELECT, INSERT, UPDATE, DELETE ON dbname.* TO 'migration_user'@'%';` (or specific tables as needed)
 
 ### Serialized deployment job
 

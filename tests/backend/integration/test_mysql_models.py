@@ -205,9 +205,7 @@ async def test_connection_invariants_survive_new_connections(mysql_engine):
         ("change_proposals", "proposed_ends_at = proposed_starts_at"),
         ("change_proposals", "expires_at = created_at"),
         ("change_proposals", "resolved_at = created_at"),
-        # NOTE: sessions.token_hash is BINARY(32), which auto-pads short values with zeros.
-        # Therefore, "token_hash = X'00'" does NOT violate OCTET_LENGTH(token_hash) = 32
-        # and cannot be tested here. The constraint is still enforced at the ORM level.
+        ("sessions", "token_hash = X'00'"),
         ("sessions", "expires_at = created_at"),
     ],
 )

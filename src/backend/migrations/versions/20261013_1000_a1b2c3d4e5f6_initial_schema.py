@@ -93,17 +93,17 @@ def upgrade() -> None:
         sa.Column("updated_at", mysql.DATETIME(fsp=6), nullable=False),
         sa.PrimaryKeyConstraint("id", name="pk_users"),
         sa.UniqueConstraint("email", name="uq_users_email"),
-        sa.CheckConstraint("CHAR_LENGTH(TRIM(email)) > 0", name="ck_users_email_not_empty"),
-        sa.CheckConstraint("CHAR_LENGTH(TRIM(name)) > 0", name="ck_users_name_not_empty"),
+        sa.CheckConstraint("CHAR_LENGTH(TRIM(email)) > 0", name=op.f("ck_users_email_not_empty")),
+        sa.CheckConstraint("CHAR_LENGTH(TRIM(name)) > 0", name=op.f("ck_users_name_not_empty")),
         sa.CheckConstraint(
             "CAST(email AS BINARY) = CAST(LOWER(TRIM(email)) AS BINARY)",
-            name="ck_users_email_normalized",
+            name=op.f("ck_users_email_normalized"),
         ),
         sa.CheckConstraint(
             "role IN ('STUDENT', 'STAFF', 'ADMIN')",
-            name="ck_users_role",
+            name=op.f("ck_users_role"),
         ),
-        sa.CheckConstraint("is_active IN (0, 1)", name="ck_users_is_active"),
+        sa.CheckConstraint("is_active IN (0, 1)", name=op.f("ck_users_is_active")),
         **_TABLE_KW,
     )
 
@@ -141,11 +141,13 @@ def upgrade() -> None:
         sa.Column("updated_at", mysql.DATETIME(fsp=6), nullable=False),
         sa.PrimaryKeyConstraint("id", name="pk_purposes"),
         sa.UniqueConstraint("code", name="uq_purposes_code"),
-        sa.CheckConstraint("CHAR_LENGTH(TRIM(code)) > 0", name="ck_purposes_code_not_empty"),
-        sa.CheckConstraint("CHAR_LENGTH(TRIM(name)) > 0", name="ck_purposes_name_not_empty"),
-        sa.CheckConstraint("duration_minutes > 0", name="ck_purposes_duration"),
-        sa.CheckConstraint("requires_free_text IN (0, 1)", name="ck_purposes_requires_free_text"),
-        sa.CheckConstraint("is_active IN (0, 1)", name="ck_purposes_is_active"),
+        sa.CheckConstraint("CHAR_LENGTH(TRIM(code)) > 0", name=op.f("ck_purposes_code_not_empty")),
+        sa.CheckConstraint("CHAR_LENGTH(TRIM(name)) > 0", name=op.f("ck_purposes_name_not_empty")),
+        sa.CheckConstraint("duration_minutes > 0", name=op.f("ck_purposes_duration")),
+        sa.CheckConstraint(
+            "requires_free_text IN (0, 1)", name=op.f("ck_purposes_requires_free_text")
+        ),
+        sa.CheckConstraint("is_active IN (0, 1)", name=op.f("ck_purposes_is_active")),
         **_TABLE_KW,
     )
 
@@ -181,9 +183,11 @@ def upgrade() -> None:
         ),
         sa.Column("updated_at", mysql.DATETIME(fsp=6), nullable=False),
         sa.PrimaryKeyConstraint("id", name="pk_service_settings"),
-        sa.CheckConstraint("id = 1", name="ck_service_settings_singleton"),
-        sa.CheckConstraint("start_step_minutes > 0", name="ck_service_settings_start_step"),
-        sa.CheckConstraint("booking_horizon_days > 0", name="ck_service_settings_booking_horizon"),
+        sa.CheckConstraint("id = 1", name=op.f("ck_service_settings_singleton")),
+        sa.CheckConstraint("start_step_minutes > 0", name=op.f("ck_service_settings_start_step")),
+        sa.CheckConstraint(
+            "booking_horizon_days > 0", name=op.f("ck_service_settings_booking_horizon")
+        ),
         **_TABLE_KW,
     )
 
@@ -205,10 +209,10 @@ def upgrade() -> None:
         sa.Column("updated_at", mysql.DATETIME(fsp=6), nullable=False),
         sa.PrimaryKeyConstraint("id", name="pk_service_hours"),
         sa.UniqueConstraint("weekday", "opens_at", "closes_at", name="uq_service_hours_window"),
-        sa.CheckConstraint("weekday BETWEEN 1 AND 7", name="ck_service_hours_weekday"),
+        sa.CheckConstraint("weekday BETWEEN 1 AND 7", name=op.f("ck_service_hours_weekday")),
         sa.CheckConstraint(
             "opens_at >= '00:00:00' AND opens_at < closes_at AND closes_at < '24:00:00'",
-            name="ck_service_hours_interval",
+            name=op.f("ck_service_hours_interval"),
         ),
         **_TABLE_KW,
     )
@@ -220,7 +224,7 @@ def upgrade() -> None:
         "sessions",
         sa.Column("id", mysql.BINARY(16), nullable=False),
         sa.Column("user_id", mysql.BINARY(16), nullable=False),
-        sa.Column("token_hash", mysql.BINARY(32), nullable=False),
+        sa.Column("token_hash", mysql.VARBINARY(32), nullable=False),
         sa.Column(
             "created_at",
             mysql.DATETIME(fsp=6),
@@ -238,8 +242,8 @@ def upgrade() -> None:
             ondelete="RESTRICT",
             onupdate="RESTRICT",
         ),
-        sa.CheckConstraint("OCTET_LENGTH(token_hash) = 32", name="ck_sessions_token_hash"),
-        sa.CheckConstraint("expires_at > created_at", name="ck_sessions_expiry"),
+        sa.CheckConstraint("OCTET_LENGTH(token_hash) = 32", name=op.f("ck_sessions_token_hash")),
+        sa.CheckConstraint("expires_at > created_at", name=op.f("ck_sessions_expiry")),
         **_TABLE_KW,
     )
     op.create_index("ix_sessions_user_id", "sessions", ["user_id"])
@@ -280,7 +284,7 @@ def upgrade() -> None:
             ondelete="RESTRICT",
             onupdate="RESTRICT",
         ),
-        sa.CheckConstraint("is_accepting IN (0, 1)", name="ck_staff_purposes_is_accepting"),
+        sa.CheckConstraint("is_accepting IN (0, 1)", name=op.f("ck_staff_purposes_is_accepting")),
         **_TABLE_KW,
     )
     op.create_index(
@@ -312,7 +316,7 @@ def upgrade() -> None:
             ondelete="RESTRICT",
             onupdate="RESTRICT",
         ),
-        sa.CheckConstraint("ends_at > starts_at", name="ck_staff_unavailability_interval"),
+        sa.CheckConstraint("ends_at > starts_at", name=op.f("ck_staff_unavailability_interval")),
         **_TABLE_KW,
     )
     op.create_index(
@@ -346,7 +350,7 @@ def upgrade() -> None:
             sa.String(128, collation=_CODE_COLLATION),
             nullable=False,
         ),
-        sa.Column("creation_request_hash", sa.LargeBinary(32), nullable=False),
+        sa.Column("creation_request_hash", mysql.VARBINARY(32), nullable=False),
         sa.Column("cancelled_at", mysql.DATETIME(fsp=6), nullable=True),
         sa.Column("cancelled_by", mysql.BINARY(16), nullable=True),
         sa.Column("cancel_reason", sa.String(2000), nullable=True),
@@ -394,28 +398,28 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint(
             "status IN ('UPCOMING', 'CHANGE_PENDING', 'CANCELLED', 'COMPLETED', 'NO_SHOW')",
-            name="ck_appointments_status",
+            name=op.f("ck_appointments_status"),
         ),
         sa.CheckConstraint(
             "duration_minutes > 0 AND ends_at > starts_at "
             "AND DATE_ADD(starts_at, INTERVAL duration_minutes MINUTE) IS NOT NULL "
             "AND ends_at = DATE_ADD(starts_at, INTERVAL duration_minutes MINUTE)",
-            name="ck_appointments_interval",
+            name=op.f("ck_appointments_interval"),
         ),
         sa.CheckConstraint(
             "CHAR_LENGTH(TRIM(creation_request_key)) > 0 "
             "AND OCTET_LENGTH(creation_request_hash) = 32",
-            name="ck_appointments_creation_request",
+            name=op.f("ck_appointments_creation_request"),
         ),
         sa.CheckConstraint(
             "(status = 'CANCELLED' AND cancelled_at IS NOT NULL) OR "
             "(status <> 'CANCELLED' AND cancelled_at IS NULL AND cancel_reason IS NULL)",
-            name="ck_appointments_cancellation",
+            name=op.f("ck_appointments_cancellation"),
         ),
         sa.CheckConstraint(
             "(status IN ('COMPLETED', 'NO_SHOW') AND outcome_at IS NOT NULL) OR "
             "(status NOT IN ('COMPLETED', 'NO_SHOW') AND outcome_at IS NULL)",
-            name="ck_appointments_outcome",
+            name=op.f("ck_appointments_outcome"),
         ),
         **_TABLE_KW,
     )
@@ -519,16 +523,16 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint(
             "status IN ('PENDING', 'ACCEPTED', 'DECLINED', 'EXPIRED', 'SUPERSEDED', 'CANCELLED')",
-            name="ck_change_proposals_status",
+            name=op.f("ck_change_proposals_status"),
         ),
         sa.CheckConstraint(
             "proposed_ends_at > proposed_starts_at AND expires_at > created_at",
-            name="ck_change_proposals_interval",
+            name=op.f("ck_change_proposals_interval"),
         ),
         sa.CheckConstraint(
             "(status = 'PENDING' AND resolved_at IS NULL) OR "
             "(status <> 'PENDING' AND resolved_at IS NOT NULL)",
-            name="ck_change_proposals_resolution",
+            name=op.f("ck_change_proposals_resolution"),
         ),
         **_TABLE_KW,
     )

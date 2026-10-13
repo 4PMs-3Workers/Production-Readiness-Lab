@@ -27,9 +27,10 @@ if str(_project_pkg_dir) not in sys.path:
 
 # ruff: noqa: E402 — app imports must come after sys.path manipulation above
 from alembic import context
-from sqlalchemy import Connection, pool
+from sqlalchemy import Connection
 from sqlalchemy.engine import URL, make_url
-from sqlalchemy.ext.asyncio import create_async_engine
+
+from app.core.database import create_database_engine
 
 # Import the full model registry so that all 11 tables are registered on
 # Base.metadata before autogenerate or upgrade inspects it.
@@ -104,14 +105,12 @@ def _run_migrations_with_connection(connection: Connection) -> None:
 async def run_migrations_online_async() -> None:
     """Run migrations against a live database using async engine.
 
-    Creates an AsyncEngine and runs migrations via connection.run_sync()
-    to properly handle the async context without MissingGreenlet errors.
+    Creates an AsyncEngine using the configured create_database_engine() helper,
+    which applies UTC timezone, strict SQL mode, and READ COMMITTED isolation.
+    Runs migrations via connection.run_sync() to properly handle async context.
     """
     url = _database_url()
-    connectable = create_async_engine(
-        url,
-        poolclass=pool.NullPool,
-    )
+    connectable = create_database_engine(url)
 
     async with connectable.connect() as connection:
         await connection.run_sync(_run_migrations_with_connection)
