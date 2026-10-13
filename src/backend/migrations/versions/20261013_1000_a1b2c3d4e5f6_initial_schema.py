@@ -220,7 +220,7 @@ def upgrade() -> None:
         "sessions",
         sa.Column("id", mysql.BINARY(16), nullable=False),
         sa.Column("user_id", mysql.BINARY(16), nullable=False),
-        sa.Column("token_hash", sa.LargeBinary(32), nullable=False),
+        sa.Column("token_hash", mysql.BINARY(32), nullable=False),
         sa.Column(
             "created_at",
             mysql.DATETIME(fsp=6),
