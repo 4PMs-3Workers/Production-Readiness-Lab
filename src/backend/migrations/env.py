@@ -1,17 +1,18 @@
 """Alembic migration environment for Production Readiness Lab.
 
 Supports two execution modes:
-- Online (CLI): reads DATABASE_URL from the environment, creates a sync engine
-  wrapper around the existing async engine, and runs migrations in-process.
+- Online (CLI): reads DATABASE_URL from the environment, creates an async engine,
+  and runs migrations inside asyncio.run() via connection.run_sync().
 - Programmatic (test fixtures): the caller passes an active connection via
   config.attributes["connection"] so migrations run inside the test's own
   transaction or connection.
 
 The DATABASE_URL environment variable must use the mysql+asyncmy scheme.
-Alembic's synchronous API cannot drive asyncmy directly; we hand it a
-synchronous proxy via AsyncEngine.sync_engine.
+Alembic's synchronous migration API is wrapped via connection.run_sync() to
+properly run in the async context without MissingGreenlet errors.
 """
 
+import asyncio
 import os
 import sys
 from logging.config import fileConfig
@@ -26,10 +27,9 @@ if str(_project_pkg_dir) not in sys.path:
 
 # ruff: noqa: E402 — app imports must come after sys.path manipulation above
 from alembic import context
-from sqlalchemy import Connection
+from sqlalchemy import Connection, pool
 from sqlalchemy.engine import URL, make_url
-
-from app.core.database import create_database_engine
+from sqlalchemy.ext.asyncio import create_async_engine
 
 # Import the full model registry so that all 11 tables are registered on
 # Base.metadata before autogenerate or upgrade inspects it.
@@ -87,7 +87,10 @@ def run_migrations_offline() -> None:
 
 
 def _run_migrations_with_connection(connection: Connection) -> None:
-    """Run migrations using an already-open synchronous connection."""
+    """Run migrations using an already-open synchronous connection.
+
+    This is called via connection.run_sync() to bridge async/sync contexts.
+    """
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
@@ -98,6 +101,24 @@ def _run_migrations_with_connection(connection: Connection) -> None:
         context.run_migrations()
 
 
+async def run_migrations_online_async() -> None:
+    """Run migrations against a live database using async engine.
+
+    Creates an AsyncEngine and runs migrations via connection.run_sync()
+    to properly handle the async context without MissingGreenlet errors.
+    """
+    url = _database_url()
+    connectable = create_async_engine(
+        url,
+        poolclass=pool.NullPool,
+    )
+
+    async with connectable.connect() as connection:
+        await connection.run_sync(_run_migrations_with_connection)
+
+    await connectable.dispose()
+
+
 def run_migrations_online() -> None:
     """Run migrations against a live database.
 
@@ -106,9 +127,8 @@ def run_migrations_online() -> None:
     that case we use that connection directly so the migration runs inside the
     caller's session/schema context.
 
-    Otherwise we create a fresh async engine from DATABASE_URL and drive it via
-    the synchronous proxy (AsyncEngine.sync_engine), which is safe for Alembic's
-    synchronous API.
+    Otherwise we create a fresh async engine from DATABASE_URL and run it via
+    asyncio.run() to properly handle the async context.
     """
     # --- Programmatic / test-fixture path ---
     provided_connection: Any = config.attributes.get("connection")
@@ -116,15 +136,8 @@ def run_migrations_online() -> None:
         _run_migrations_with_connection(provided_connection)
         return
 
-    # --- CLI / standalone path ---
-    url = _database_url()
-    async_engine = create_database_engine(url)
-    try:
-        with async_engine.sync_engine.connect() as connection:
-            _run_migrations_with_connection(connection)
-    finally:
-        # Dispose synchronously; we are already outside any event loop here.
-        async_engine.sync_engine.dispose()
+    # --- CLI / standalone path (async) ---
+    asyncio.run(run_migrations_online_async())
 
 
 if context.is_offline_mode():
