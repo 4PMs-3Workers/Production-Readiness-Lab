@@ -25,7 +25,10 @@ jobs:
           --health-timeout=5s
           --health-retries=12
     env:
+      # Used by integration tests (schema-per-test isolation; no default database).
       MYSQL_TEST_URL: mysql+asyncmy://root:test-only-password@127.0.0.1:3306
+      # Used by alembic CLI smoke-test steps below (dedicated database).
+      DATABASE_URL: mysql+asyncmy://root:test-only-password@127.0.0.1:3306/prl_ci_migrations
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -42,4 +45,32 @@ jobs:
       - run: .venv/bin/python -m black --check src/backend tests/backend
       - run: .venv/bin/python -m ruff check src/backend tests/backend
       - run: pyright
+
+      # --- Migration smoke tests ---
+      # Create the dedicated CI migration database first.
+      - name: Create CI migration database
+        run: |
+          mysql -h 127.0.0.1 -uroot -ptest-only-password \
+            -e "CREATE DATABASE IF NOT EXISTS prl_ci_migrations CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
+
+      - name: alembic upgrade head (first run — creates schema)
+        run: .venv/bin/alembic upgrade head
+
+      - name: alembic current (must report the initial revision)
+        run: .venv/bin/alembic current
+
+      - name: alembic heads (must report exactly one head)
+        run: |
+          heads=$(.venv/bin/alembic heads)
+          echo "$heads"
+          head_count=$(echo "$heads" | grep -c "(head)") || true
+          if [ "$head_count" -ne 1 ]; then
+            echo "ERROR: expected exactly 1 head, got $head_count"
+            exit 1
+          fi
+
+      - name: alembic upgrade head (second run — must be a no-op)
+        run: .venv/bin/alembic upgrade head
+
+      # --- Full test suite (integration tests run through migrations) ---
       - run: .venv/bin/python -m pytest -q

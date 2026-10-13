@@ -1,16 +1,39 @@
-"""Integration tests create a unique schema and delete only that schema."""
+"""Integration tests create a unique schema and delete only that schema.
+
+Schema initialization uses ``alembic upgrade head`` instead of
+``Base.metadata.create_all()``.  This ensures the integration tests exercise
+the migration path on every run, not just the ORM metadata snapshot.
+
+Safety boundaries (unchanged from the original design):
+- A uniquely named schema is created per test session; only that schema is
+  dropped in the finally block, even when migration setup fails.
+- The admin connection (database=None) creates and drops the schema;
+  the test engine connects only to the isolated schema.
+"""
 
 import os
 from uuid import uuid4
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import text
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import Connection, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.pool import NullPool
 
 from app.core.database import create_database_engine
-from app.models import Base
+
+
+def _run_alembic_upgrade(connection: Connection) -> None:
+    """Run ``alembic upgrade head`` using an already-open synchronous connection.
+
+    The env.py detects ``config.attributes["connection"]`` and uses it directly,
+    so migrations run inside the test schema's connection context.
+    """
+    cfg = Config("alembic.ini")
+    cfg.attributes["connection"] = connection
+    command.upgrade(cfg, "head")
 
 
 @pytest_asyncio.fixture
@@ -37,8 +60,10 @@ async def mysql_engine():
             poolclass=NullPool,
             connect_args={"connect_timeout": 5},
         )
-        async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
+        # Replace Base.metadata.create_all() with alembic upgrade head.
+        # This exercises the full migration path on every integration test run.
+        async with engine.begin() as async_conn:
+            await async_conn.run_sync(_run_alembic_upgrade)
         yield engine
     finally:
         if engine is not None:

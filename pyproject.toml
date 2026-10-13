@@ -2,7 +2,7 @@
 name = "production-readiness-lab-backend"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = ["SQLAlchemy==2.0.44", "asyncmy==0.2.10", "cryptography==46.0.3"]
+dependencies = ["SQLAlchemy==2.0.44", "asyncmy==0.2.10", "cryptography==46.0.3", "alembic==1.16.2"]
 
 [tool.setuptools.packages.find]
 where = ["src/backend"]
