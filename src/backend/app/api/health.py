@@ -6,6 +6,7 @@ from typing import Literal
 from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.api.errors import ServiceUnavailable
 from app.schemas.common import ErrorResponse
@@ -38,6 +39,16 @@ async def live(response: Response) -> LiveResponse:
     return LiveResponse(status="live")
 
 
+async def _probe_database(engine: AsyncEngine, accepted_revisions: frozenset[str]) -> None:
+    async with engine.connect() as connection:
+        if await connection.scalar(text("SELECT 1")) != 1:
+            raise ServiceUnavailable()
+        result = await connection.execute(text("SELECT version_num FROM alembic_version"))
+        revisions = result.scalars().all()
+        if len(revisions) != 1 or revisions[0] not in accepted_revisions:
+            raise ServiceUnavailable()
+
+
 @router.get(
     "/ready",
     response_model=ReadyResponse,
@@ -54,15 +65,26 @@ async def live(response: Response) -> LiveResponse:
 async def ready(request: Request, response: Response) -> ReadyResponse:
     response.headers["Cache-Control"] = "no-store"
     settings = request.app.state.settings
+    pending_tasks: set[asyncio.Task[None]] = request.app.state.pending_readiness_tasks
+    task = asyncio.create_task(
+        _probe_database(request.app.state.engine, settings.accepted_schema_revisions)
+    )
+    pending_tasks.add(task)
+
+    def finish_probe(completed: asyncio.Task[None]) -> None:
+        pending_tasks.discard(completed)
+        if not completed.cancelled():
+            completed.exception()  # Consume failures after a timed-out response.
+
+    task.add_done_callback(finish_probe)
     try:
-        async with asyncio.timeout(settings.readiness_timeout_seconds):
-            async with request.app.state.engine.connect() as connection:
-                if await connection.scalar(text("SELECT 1")) != 1:
-                    raise ServiceUnavailable()
-                result = await connection.execute(text("SELECT version_num FROM alembic_version"))
-                revisions = result.scalars().all()
-                if len(revisions) != 1 or revisions[0] not in settings.accepted_schema_revisions:
-                    raise ServiceUnavailable()
+        done, _ = await asyncio.wait({task}, timeout=settings.readiness_timeout_seconds)
+        if not done:
+            raise ServiceUnavailable()
+        task.result()
     except Exception:
         raise ServiceUnavailable() from None
+    finally:
+        if not task.done():
+            task.cancel()  # Cleanup continues in the tracked task before engine disposal.
     return ReadyResponse(status="ready")

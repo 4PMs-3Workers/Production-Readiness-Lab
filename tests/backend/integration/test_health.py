@@ -35,10 +35,21 @@ class Result:
 
 
 class Connection:
-    def __init__(self, revisions=(), delay=0, error=None):
+    def __init__(
+        self,
+        revisions=(),
+        delay: float = 0,
+        error=None,
+        revision_delay: float | None = None,
+        exit_delay: float = 0,
+        scalar_delay: float | None = None,
+    ):
         self.revisions = revisions
         self.delay = delay
         self.error = error
+        self.revision_delay = revision_delay
+        self.exit_delay = exit_delay
+        self.scalar_delay = scalar_delay
         self.closed = False
         self.queries = []
 
@@ -47,18 +58,19 @@ class Connection:
         return self
 
     async def __aexit__(self, *args):
+        await asyncio.sleep(self.exit_delay)
         self.closed = True
 
     async def scalar(self, query):
         self.queries.append(str(query))
-        await asyncio.sleep(self.delay)
+        await asyncio.sleep(self.delay if self.scalar_delay is None else self.scalar_delay)
         if self.error:
             raise self.error
         return 1
 
     async def execute(self, query):
         self.queries.append(str(query))
-        await asyncio.sleep(self.delay)
+        await asyncio.sleep(self.delay if self.revision_delay is None else self.revision_delay)
         if self.error:
             raise self.error
         return Result(self.revisions)
@@ -120,6 +132,34 @@ def test_readiness_timeout_covers_connection_and_queries(delay):
     assert result.status_code == 503
     assert elapsed < 0.7  # 0.2-second deadline + 0.5 seconds scheduling/test-client tolerance.
     assert connection.closed or not connection.queries  # No connection was acquired yet.
+
+
+def test_readiness_timeout_covers_revision_query():
+    app = create_app(settings(timeout=0.2))
+    connection = Connection(["a1b2c3d4e5f6"], revision_delay=0.25)
+    with TestClient(app) as client:
+        app.state.engine = Engine(connection)
+        started = monotonic()
+        result = client.get("/health/ready")
+        elapsed = monotonic() - started
+    assert result.status_code == 503
+    assert elapsed < 0.7
+    assert connection.closed
+    assert connection.queries == ["SELECT 1", "SELECT version_num FROM alembic_version"]
+
+
+def test_readiness_returns_within_deadline_when_connection_cleanup_is_slow():
+    app = create_app(settings(timeout=0.05))
+    connection = Connection(["a1b2c3d4e5f6"], scalar_delay=0.1, exit_delay=0.3)
+    with TestClient(app) as client:
+        app.state.engine = Engine(connection)
+        started = monotonic()
+        result = client.get("/health/ready")
+        elapsed = monotonic() - started
+        assert result.status_code == 503
+        assert elapsed < 0.2  # 0.05-second budget plus scheduling and test-client tolerance.
+        assert connection.queries == ["SELECT 1"]
+    assert connection.closed  # Shutdown waits for deferred cleanup to finish.
 
 
 def test_readiness_sanitizes_query_failure_and_closes_connection():

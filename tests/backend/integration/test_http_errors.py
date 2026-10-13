@@ -1,5 +1,5 @@
 import pytest
-from fastapi import Body
+from fastapi import Body, HTTPException
 from fastapi.testclient import TestClient
 
 from app.api.errors import BusinessConflict, ServiceUnavailable
@@ -40,6 +40,10 @@ def make_app():
     def crash():
         raise RuntimeError("SQL SELECT secret_token=hidden trace")
 
+    @app.get("/__test/http-service-error", include_in_schema=False)
+    def http_service_error():
+        raise HTTPException(status_code=503, detail="secret_token=hidden")
+
     return app
 
 
@@ -66,3 +70,13 @@ def test_error_envelope_and_headers(method, path, json, status, code, error_clas
     if status in {422, 500}:
         assert "secret_input" not in result.text
         assert "secret_token" not in result.text
+
+
+def test_http_exception_5xx_is_sanitized_service_error():
+    with TestClient(make_app(), raise_server_exceptions=False) as client:
+        result = client.get("/__test/http-service-error")
+    assert result.status_code == 503
+    assert result.headers["X-Error-Class"] == "service"
+    assert result.json()["error"]["code"] == "SERVICE_UNAVAILABLE"
+    assert result.json()["error"]["request_id"] == result.headers["X-Request-ID"]
+    assert "secret_token" not in result.text

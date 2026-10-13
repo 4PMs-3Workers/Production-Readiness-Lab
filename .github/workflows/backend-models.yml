@@ -44,8 +44,8 @@ jobs:
       - name: Install backend package (editable)
         run: .venv/bin/python -m pip install -e .
       - run: npm install --global pyright@1.1.407
-      - run: .venv/bin/python -m black --check src/backend tests/backend
-      - run: .venv/bin/python -m ruff check src/backend tests/backend
+      - run: .venv/bin/python -m black --check src/backend tests/backend tools/scripts/export_openapi.py
+      - run: .venv/bin/python -m ruff check src/backend tests/backend tools/scripts/export_openapi.py
       - run: pyright
 
       # --- Migration smoke tests ---

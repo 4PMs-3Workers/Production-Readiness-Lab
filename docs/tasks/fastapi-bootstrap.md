@@ -23,7 +23,9 @@ Migration commands and recovery remain in `docs/tasks/database-migrations.md`.
   response header and body carry the same request ID; `405` retains `Allow`.
 - `app.api.health`: liveness without DB access; readiness uses one deadline for connection,
   `SELECT 1`, and reading the single installed Alembic revision. Only explicit allowlist members
-  are accepted. Health responses are `no-store`.
+  are accepted. A timed-out probe returns promptly while its tracked task finishes connection
+  cleanup; shutdown waits for that cleanup before disposing the engine. Health responses are
+  `no-store`.
 - `app.schemas.common`: shared error, pagination and timezone-aware timestamp schemas.
 - `tools/scripts/export_openapi.py`: deterministic YAML export with explicit validated placeholder
   settings isolated from runtime environment and `.env`, no lifespan and no DB connection.
@@ -43,8 +45,9 @@ trusted. If a deployment enables proxy-header rewriting, it must retain the orig
 request-ID trust decisions; client-supplied forwarded headers never grant trust. Gateway/Nginx
 configuration is a separate deployment task.
 
-The default readiness deadline is 2 seconds. The timeout test allows 0.5 seconds of scheduling
-and test-client overhead beyond its 0.2-second test budget; this tolerance is for tests only.
+The default readiness deadline is 2 seconds. The timeout tests allow 0.5 seconds of scheduling
+and test-client overhead beyond their 0.2-second budget; the slow-cleanup test allows 0.15
+seconds beyond a 0.05-second budget. These tolerances are for tests only.
 Query, lock, request and worker/retry settings are validated now and reserved for later business
 services and worker implementation.
 
@@ -67,7 +70,7 @@ git diff --exit-code -- docs/api/openapi.yaml
 ```
 
 Local verification on 13/10/2026 used Python 3.11.4 and a dedicated `mysql:8.4.11` container
-bound to `127.0.0.1:33071`. `pytest` reported **151 passed, 0 failed, 0 skipped**; its JUnit
+bound to `127.0.0.1:33071`. `pytest` reported **154 passed, 0 failed, 0 skipped**; its JUnit
 report (`build/backend-tests.xml`, ignored by Git) also recorded zero skips. Black reported
 41 unchanged Python files; Ruff and Pyright reported zero errors, `pip check` reported no broken
 requirements, and OpenAPI export completed. The live Uvicorn smoke test with a deliberately

@@ -168,17 +168,17 @@ có thể liệt kê nhiều revision tương thích, cách nhau bằng dấu ph
 | `COOKIE_SAMESITE` | `lax` | `lax`, `strict`, `none`. |
 | `COOKIE_DOMAIN` | Không đặt | Hostname cookie; không đặt để cookie host-only. |
 | `DB_POOL_SIZE`, `DB_MAX_OVERFLOW` | `5`, `5` | Số kết nối cơ bản >0 và kết nối vượt mức >=0 trên mỗi API process. |
-| `DB_CONNECT_TIMEOUT_SECONDS` | `1` giây | Timeout kết nối dương. |
-| `DB_POOL_TIMEOUT_SECONDS` | `0.5` giây | Timeout chờ pool dương. |
-| `DB_QUERY_TIMEOUT_SECONDS` | `1` giây | Timeout truy vấn dương, dành cho services sau này. |
-| `DB_LOCK_TIMEOUT_SECONDS` | `0.5` giây | Timeout chờ khóa dương, dành cho services sau này. |
-| `REQUEST_TIMEOUT_SECONDS` | `3` giây | Ngân sách request dương, dành cho business routes sau này. |
-| `READINESS_TIMEOUT_SECONDS` | `2` giây | Deadline dương cho toàn bộ readiness, gồm chờ pool, kết nối và cả hai query. |
+| `DB_CONNECT_TIMEOUT_SECONDS` | `1` giây | Timeout kết nối hữu hạn, >0. |
+| `DB_POOL_TIMEOUT_SECONDS` | `0.5` giây | Timeout chờ pool hữu hạn, >0. |
+| `DB_QUERY_TIMEOUT_SECONDS` | `1` giây | Timeout truy vấn hữu hạn, >0; dành cho services sau này. |
+| `DB_LOCK_TIMEOUT_SECONDS` | `0.5` giây | Timeout chờ khóa hữu hạn, >0; dành cho services sau này. |
+| `REQUEST_TIMEOUT_SECONDS` | `3` giây | Ngân sách request hữu hạn, >0; dành cho business routes sau này. |
+| `READINESS_TIMEOUT_SECONDS` | `2` giây | Deadline hữu hạn, >0 cho toàn bộ readiness, gồm chờ pool, kết nối và cả hai query. |
 | `MAX_DEADLOCK_RETRIES` | `2` | Số lần retry >=0, dành cho services sau này. |
-| `WORKER_POLL_INTERVAL_SECONDS` | `5` giây | Chu kỳ quét dương, dành cho worker sau này. |
+| `WORKER_POLL_INTERVAL_SECONDS` | `5` giây | Chu kỳ quét hữu hạn, >0; dành cho worker sau này. |
 | `WORKER_BATCH_SIZE` | `100` | Số bản ghi/batch >0, dành cho worker sau này. |
-| `WORKER_GRACE_SECONDS` | `30` giây | Grace period dương, dành cho worker sau này. |
-| `WORKER_HEARTBEAT_INTERVAL_SECONDS` | `15` giây | Chu kỳ heartbeat dương, dành cho worker sau này. |
+| `WORKER_GRACE_SECONDS` | `30` giây | Grace period hữu hạn, >0; dành cho worker sau này. |
+| `WORKER_HEARTBEAT_INTERVAL_SECONDS` | `15` giây | Chu kỳ heartbeat hữu hạn, >0; dành cho worker sau này. |
 | `ACCEPTED_SCHEMA_REVISIONS` | Bắt buộc | Danh sách Alembic revision không rỗng, cách nhau bằng dấu phẩy. |
 | `TRUSTED_GATEWAY_CIDRS` | Rỗng | Danh sách CIDR của **peer mạng trực tiếp**, cách nhau bằng dấu phẩy; rỗng nghĩa là không tin incoming `X-Request-ID`. |
 

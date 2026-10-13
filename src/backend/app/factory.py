@@ -1,5 +1,6 @@
 """FastAPI composition and application-owned database resources."""
 
+import asyncio
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 
@@ -31,15 +32,22 @@ def create_app(
             pool_timeout=config.db_pool_timeout_seconds,
         )
         app.state.engine = engine
+        pending_readiness_tasks: set[asyncio.Task[None]] = set()
+        app.state.pending_readiness_tasks = pending_readiness_tasks
         try:
             app.state.session_factory = async_sessionmaker(engine, expire_on_commit=False)
             yield
         finally:
             try:
-                await engine.dispose()
+                try:
+                    if pending_readiness_tasks:
+                        await asyncio.gather(*pending_readiness_tasks, return_exceptions=True)
+                finally:
+                    await engine.dispose()
             finally:
                 if hasattr(app.state, "session_factory"):
                     del app.state.session_factory
+                del app.state.pending_readiness_tasks
                 del app.state.engine
 
     app = FastAPI(lifespan=lifespan)

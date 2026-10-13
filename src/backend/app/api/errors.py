@@ -65,18 +65,28 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(HTTPException)
     async def http_error(request: Request, exc: HTTPException) -> JSONResponse:
-        code = (
-            "NOT_FOUND"
-            if exc.status_code == 404
-            else "METHOD_NOT_ALLOWED" if exc.status_code == 405 else "HTTP_ERROR"
-        )
-        message = (
-            "Not found"
-            if exc.status_code == 404
-            else "Method not allowed" if exc.status_code == 405 else "Request rejected"
-        )
+        if exc.status_code >= 500:
+            error_class: ErrorClass = "service"
+            code = "SERVICE_UNAVAILABLE" if exc.status_code == 503 else "INTERNAL_SERVER_ERROR"
+            message = (
+                "Service temporarily unavailable"
+                if exc.status_code == 503
+                else "Internal server error"
+            )
+        else:
+            error_class = "input"
+            code = (
+                "NOT_FOUND"
+                if exc.status_code == 404
+                else "METHOD_NOT_ALLOWED" if exc.status_code == 405 else "HTTP_ERROR"
+            )
+            message = (
+                "Not found"
+                if exc.status_code == 404
+                else "Method not allowed" if exc.status_code == 405 else "Request rejected"
+            )
         return error_response(
-            request, AppError(exc.status_code, code, message, "input", exc.headers)
+            request, AppError(exc.status_code, code, message, error_class, exc.headers)
         )
 
     @app.exception_handler(RequestValidationError)
