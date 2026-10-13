@@ -80,7 +80,9 @@ was used only for tests and is removed after verification.
 
 The existing CI job retains both Alembic upgrade checks, Black/Ruff/Pyright and the MySQL
 service. It now runs the full backend suite, fails if any required test skips, regenerates
-OpenAPI and fails on artifact drift. CI results for this unpushed branch remain unverified.
+OpenAPI and fails on artifact drift. The [Backend models run](https://github.com/4PMs-3Workers/Production-Readiness-Lab/actions/runs/38415708743)
+passed for code commit `6273ca0` on the pushed feature branch. The latest PR checks must pass
+before merge.
 
 ## Handoff and limits
 
