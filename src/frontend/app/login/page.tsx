@@ -8,7 +8,7 @@ export default function LoginPage() {
   return (
     <DemoPage
       eyebrow="CHÀO MỪNG BẠN"
-      title="Kết nối với người có thể giúp bạn."
+      title="Thêm một điểm tựa trên hành trình đại học."
       description="Tìm sự hỗ trợ cho việc học, định hướng nghề nghiệp và những lựa chọn tiếp theo."
       action={{ href: '/booking', label: 'Khám phá luồng đặt lịch' }}
     >

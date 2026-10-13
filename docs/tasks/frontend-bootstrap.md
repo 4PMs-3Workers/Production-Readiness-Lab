@@ -172,7 +172,8 @@ API catalog/availability/appointments tương ứng.
 | Visual QA | Đã xem ảnh login desktop và booking mobile; không tràn ngang hoặc cắt nội dung. |
 | `git diff --check` | Đạt. |
 
-Bản sao sạch và ảnh QA local nằm trong `build/frontend-bootstrap`, được gitignore.
+Ảnh QA mới nhất nằm trong `build/frontend-bootstrap`, được gitignore. Bản sao
+kiểm tra sạch, archive, metadata tải về và caches tạm đã được dọn sau kiểm chứng.
 Windows sandbox chặn socket local, một số thao tác ghi output và liên kết workspace;
 những kiểm tra bị ảnh hưởng đã chạy lại ngoài sandbox. Không cần đổi source để né
 các giới hạn đó. Không chạy lại MySQL/backend tests vì mốc này không sửa backend;

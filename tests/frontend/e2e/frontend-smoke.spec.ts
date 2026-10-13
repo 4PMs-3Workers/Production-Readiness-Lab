@@ -10,7 +10,7 @@ test('opens the Vietnamese demo routes and follows navigation without backend se
   await expect(page).toHaveURL('/login');
   await expect(page.locator('html')).toHaveAttribute('lang', 'vi');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(
-    'Kết nối với người có thể giúp bạn.',
+    'Thêm một điểm tựa trên hành trình đại học.',
   );
   await expect(page.getByText('Bản demo dùng dữ liệu giả. Chưa tạo lịch hẹn thật.')).toBeVisible();
 
