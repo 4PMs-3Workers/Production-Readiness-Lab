@@ -80,3 +80,33 @@ def test_startup_reports_invalid_cross_field_policy_without_leaking_values(monke
         load_settings()
     assert "policy" in str(error.value)
     assert "cookie-secret" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "DB_CONNECT_TIMEOUT_SECONDS",
+        "DB_POOL_TIMEOUT_SECONDS",
+        "DB_QUERY_TIMEOUT_SECONDS",
+        "DB_LOCK_TIMEOUT_SECONDS",
+        "REQUEST_TIMEOUT_SECONDS",
+        "READINESS_TIMEOUT_SECONDS",
+        "WORKER_POLL_INTERVAL_SECONDS",
+        "WORKER_GRACE_SECONDS",
+        "WORKER_HEARTBEAT_INTERVAL_SECONDS",
+    ],
+)
+@pytest.mark.parametrize("value", ["inf", "1e1000"])
+def test_timeout_must_be_finite(field, value):
+    with pytest.raises(ValueError):
+        Settings.model_validate({**VALID, field: value})
+
+
+def test_malformed_database_url_is_reported_without_echoing_value(monkeypatch):
+    for name, value in VALID.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("DATABASE_URL", "sentinel-password")
+    with pytest.raises(ConfigurationError) as error:
+        load_settings()
+    assert "DATABASE_URL" in str(error.value)
+    assert "sentinel-password" not in str(error.value)

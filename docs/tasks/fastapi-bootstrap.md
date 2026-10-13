@@ -9,7 +9,7 @@ Migration commands and recovery remain in `docs/tasks/database-migrations.md`.
 
 ## Delivered modules
 
-- `app.core.config`: environment settings, positive timeout/pool checks, origin and CIDR parsing,
+- `app.core.config`: environment settings, finite positive timeout/pool checks, origin and CIDR parsing,
   required secret/revision checks, cookie policy and sanitized configuration errors.
 - `app.factory` and `app.main`: injectable app factory and Uvicorn entry point. Lifespan constructs
   the engine with `create_database_engine()` and a session factory; shutdown or partial setup
@@ -26,7 +26,8 @@ Migration commands and recovery remain in `docs/tasks/database-migrations.md`.
   are accepted. Health responses are `no-store`.
 - `app.schemas.common`: shared error, pagination and timezone-aware timestamp schemas.
 - `tools/scripts/export_openapi.py`: deterministic YAML export with explicit validated placeholder
-  settings, no lifespan and no DB connection. Artifact: `docs/api/openapi.yaml`.
+  settings isolated from runtime environment and `.env`, no lifespan and no DB connection.
+  Artifact: `docs/api/openapi.yaml`.
 
 ## Configuration and runtime
 
@@ -66,7 +67,7 @@ git diff --exit-code -- docs/api/openapi.yaml
 ```
 
 Local verification on 13/10/2026 used Python 3.11.4 and a dedicated `mysql:8.4.11` container
-bound to `127.0.0.1:33071`. `pytest` reported **130 passed, 0 failed, 0 skipped**; its JUnit
+bound to `127.0.0.1:33071`. `pytest` reported **151 passed, 0 failed, 0 skipped**; its JUnit
 report (`build/backend-tests.xml`, ignored by Git) also recorded zero skips. Black reported
 41 unchanged Python files; Ruff and Pyright reported zero errors, `pip check` reported no broken
 requirements, and OpenAPI export completed. The live Uvicorn smoke test with a deliberately

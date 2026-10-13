@@ -35,9 +35,12 @@ def create_app(
             app.state.session_factory = async_sessionmaker(engine, expire_on_commit=False)
             yield
         finally:
-            await engine.dispose()
-            del app.state.session_factory
-            del app.state.engine
+            try:
+                await engine.dispose()
+            finally:
+                if hasattr(app.state, "session_factory"):
+                    del app.state.session_factory
+                del app.state.engine
 
     app = FastAPI(lifespan=lifespan)
     app.state.settings = config

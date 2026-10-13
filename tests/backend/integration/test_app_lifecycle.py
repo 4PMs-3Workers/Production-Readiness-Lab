@@ -38,6 +38,24 @@ def test_lifespan_disposes_engine_without_database_connecting():
     assert engine.sync_engine.pool is not original_pool
 
 
+def test_partial_lifespan_failure_disposes_engine_and_preserves_error(monkeypatch):
+    engine = create_database_engine(settings().database_url)
+    original_pool = engine.sync_engine.pool
+    app = create_app(settings(), engine_factory=lambda *args, **kwargs: engine)
+
+    def fail_session_factory(*args, **kwargs):
+        raise RuntimeError("session factory failed")
+
+    monkeypatch.setattr("app.factory.async_sessionmaker", fail_session_factory)
+    with pytest.raises(RuntimeError, match="session factory failed"):
+        with TestClient(app):
+            pass
+
+    assert engine.sync_engine.pool is not original_pool
+    assert not hasattr(app.state, "engine")
+    assert not hasattr(app.state, "session_factory")
+
+
 @pytest.mark.asyncio
 async def test_session_dependency_never_commits_and_rolls_back(mysql_engine):
     app = create_app(settings(), engine_factory=lambda *args, **kwargs: mysql_engine)

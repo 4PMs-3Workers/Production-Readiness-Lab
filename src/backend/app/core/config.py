@@ -2,12 +2,14 @@
 
 from collections.abc import Callable
 from ipaddress import IPv4Network, IPv6Network, ip_network
+from math import isfinite
 from typing import Literal, Self, cast
 from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
 
 
 class ConfigurationError(ValueError):
@@ -54,10 +56,27 @@ class Settings(BaseSettings):
     def require_mysql_driver(cls, value: str) -> str:
         try:
             url = make_url(value)
-        except (ValueError, TypeError) as exc:
+        except (ValueError, TypeError, ArgumentError) as exc:
             raise ValueError("Invalid database URL") from exc
         if url.drivername != "mysql+asyncmy" or not url.database:
             raise ValueError("DATABASE_URL must use mysql+asyncmy and include a database")
+        return value
+
+    @field_validator(
+        "db_connect_timeout_seconds",
+        "db_pool_timeout_seconds",
+        "db_query_timeout_seconds",
+        "db_lock_timeout_seconds",
+        "request_timeout_seconds",
+        "readiness_timeout_seconds",
+        "worker_poll_interval_seconds",
+        "worker_grace_seconds",
+        "worker_heartbeat_interval_seconds",
+    )
+    @classmethod
+    def require_finite_timeout(cls, value: float) -> float:
+        if not isfinite(value):
+            raise ValueError("Timeout must be finite")
         return value
 
     @field_validator("application_origin")
