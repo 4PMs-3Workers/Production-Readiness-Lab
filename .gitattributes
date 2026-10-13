@@ -1,0 +1,13 @@
+# Keep frontend formatting consistent between Windows checkouts and Linux CI.
+/src/frontend/** text eol=lf
+/tests/frontend/** text eol=lf
+/tools/scripts/lint-frontend.mjs text eol=lf
+/eslint.config.mjs text eol=lf
+/package.json text eol=lf
+/package-lock.json text eol=lf
+/.gitattributes text eol=lf
+/.npmrc text eol=lf
+/.nvmrc text eol=lf
+/.prettierignore text eol=lf
+/.prettierrc.json text eol=lf
+/docs/tasks/frontend-bootstrap.md text eol=lf

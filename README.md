@@ -135,10 +135,41 @@ Production-Readiness-Lab/
 | [Thiết kế cơ sở dữ liệu](docs/architecture/database-design.md) | Mô hình 11 bảng, ràng buộc, chỉ mục và xử lý giao dịch cạnh tranh. |
 | [Models cơ sở dữ liệu](docs/architecture/database-models.md) | Ánh xạ SQLAlchemy, chuyển đổi kiểu dữ liệu và hướng dẫn chạy kiểm tra. |
 | [Task database models](docs/tasks/database-models.md) | Phạm vi triển khai, kiểm thử và bàn giao bộ models. |
+| [Task frontend bootstrap](docs/tasks/frontend-bootstrap.md) | Thiết lập frontend, các trang khung demo và hướng dẫn kiểm tra. |
 | [Coding convention](docs/other/CONVENTION.md) | Quy ước tổ chức và viết mã frontend/backend. |
 | [Git Flow](docs/other/GITFLOW.md) | Vai trò các branch, Pull Request và quy trình release/hotfix. |
 
 ## Phát triển và kiểm thử
+
+### Chạy frontend
+
+Frontend nằm trong npm workspace `src/frontend`. Dùng Node.js 24 theo `.nvmrc`
+và npm 12.2.0; chạy từ thư mục gốc repository:
+
+```bash
+npm ci
+npm --workspace src/frontend run dev
+```
+
+Mở `http://127.0.0.1:3000`. Bản khung hiện có ba trang `/login`, `/booking` và
+`/booking/result`, chạy độc lập với FastAPI/MySQL. Đăng nhập và đặt lịch mock sẽ
+được bổ sung ở các mốc tiếp theo của issue #7.
+
+```bash
+npm --workspace src/frontend run format:check
+npm --workspace src/frontend run lint
+npm --workspace src/frontend run typecheck
+npm --workspace src/frontend run test
+npm --workspace src/frontend run build
+npm --workspace src/frontend exec -- playwright install chromium
+npm --workspace src/frontend run test:e2e
+```
+
+Playwright tự chạy production server trên cổng 3100 sau khi đã build.
+Xem [hướng dẫn frontend](docs/tasks/frontend-bootstrap.md) để biết phiên bản,
+cấu trúc và phạm vi kiểm tra hiện tại.
+
+### Kiểm thử hệ thống
 
 Đọc thiết kế hệ thống và cơ sở dữ liệu trước khi thay đổi nghiệp vụ. Router xử lý hợp đồng HTTP; service chịu trách nhiệm quy tắc và transaction; repository thực hiện truy vấn với session do service cung cấp. Frontend tập trung lời gọi API trong lớp `services` và xử lý đầy đủ trạng thái loading, lỗi, dữ liệu rỗng và xung đột.
 
