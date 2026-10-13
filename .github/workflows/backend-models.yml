@@ -75,4 +75,19 @@ jobs:
         run: .venv/bin/alembic upgrade head
 
       # --- Full test suite (integration tests run through migrations) ---
-      - run: .venv/bin/python -m pytest -q
+      - name: Run backend tests; required integration tests must not skip
+        run: |
+          .venv/bin/python -m pytest tests/backend -q --junitxml=build/backend-tests.xml
+          .venv/bin/python - <<'PY'
+          from xml.etree import ElementTree
+
+          root = ElementTree.parse("build/backend-tests.xml").getroot()
+          skipped = sum(int(suite.get("skipped", "0")) for suite in root.iter("testsuite"))
+          if skipped:
+              raise SystemExit(f"Required backend tests skipped: {skipped}")
+          PY
+
+      - name: Check committed OpenAPI artifact
+        run: |
+          .venv/bin/python tools/scripts/export_openapi.py
+          git diff --exit-code -- docs/api/openapi.yaml
