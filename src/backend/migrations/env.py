@@ -13,9 +13,18 @@ synchronous proxy via AsyncEngine.sync_engine.
 """
 
 import os
+import sys
 from logging.config import fileConfig
+from pathlib import Path
 from typing import Any
 
+# Ensure src/backend is on sys.path so 'app' package is importable when running alembic.
+_current_dir = Path(__file__).resolve().parent  # .../src/backend/migrations
+_project_pkg_dir = _current_dir.parent  # .../src/backend
+if str(_project_pkg_dir) not in sys.path:
+    sys.path.insert(0, str(_project_pkg_dir))
+
+# ruff: noqa: E402 — app imports must come after sys.path manipulation above
 from alembic import context
 from sqlalchemy import Connection
 from sqlalchemy.engine import URL, make_url
