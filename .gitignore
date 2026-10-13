@@ -43,3 +43,6 @@ pnpm-debug.log*
 .DS_Store
 Thumbs.db
 .idea/
+
+# PR description template (for GitHub UI only, not part of repo)
+PR_DESCRIPTION.md

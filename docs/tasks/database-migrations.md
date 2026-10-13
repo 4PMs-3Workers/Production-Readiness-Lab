@@ -143,7 +143,7 @@ pytest -q
 - [ ] Named constraints match `pk_`, `fk_`, `ck_`, `uq_`, `ix_` convention
 - [ ] String columns use explicit collation where required
 - [ ] `DATETIME(fsp=6)` for timestamp columns, `TIME(fsp=0)` for time-of-day
-- [ ] `BINARY(16)` for UUID columns, `LargeBinary(32)` for SHA-256 hashes
+- [ ] `BINARY(16)` for UUID columns, `mysql.VARBINARY(32)` for SHA-256 hashes
 - [ ] Virtual generated columns use `sa.Computed(..., persisted=False)`
 - [ ] `mysql_engine="InnoDB"`, `mysql_charset="utf8mb4"`, `mysql_collate="utf8mb4_0900_ai_ci"` on every new table
 - [ ] `downgrade()` is labeled DESTRUCTIVE if it drops tables or non-nullable columns
@@ -395,10 +395,13 @@ revision on disposable databases (see [Section 7](#7-downgrade-behavior)).
 
 Alembic's standard API is synchronous. The backend uses `mysql+asyncmy`, which
 is an async driver. The migration environment (`src/backend/migrations/env.py`)
-uses `AsyncEngine.sync_engine` to obtain a synchronous connection proxy when
-running from the CLI. In test fixtures, the caller passes an active connection
-via `config.attributes["connection"]` and `run_sync`, so Alembic never creates
-its own engine.
+uses the shared `create_database_engine()` helper to create an `AsyncEngine`
+with the backend's configured connection settings (UTC timezone, strict SQL mode,
+READ COMMITTED isolation). Migrations run via `asyncio.run()` and
+`connection.run_sync()` to properly bridge the async/sync boundary. In test
+fixtures, the caller passes an active connection via
+`config.attributes["connection"]` and `run_sync`, so Alembic never creates its
+own engine.
 
 ### `pending_guard` virtual generated column
 
