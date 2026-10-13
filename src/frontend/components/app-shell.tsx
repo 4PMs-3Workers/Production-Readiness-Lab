@@ -1,3 +1,4 @@
+import Image from 'next/image';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 
@@ -8,11 +9,21 @@ export function AppShell({ children }: { children: ReactNode }) {
         Đến nội dung chính
       </a>
       <header className="site-header">
-        <Link className="brand" href="/login" aria-label="Cổng tư vấn sinh viên — trang đăng nhập">
-          <span className="brand-mark" aria-hidden="true">
-            TV
-          </span>
-          <span>
+        <Link
+          className="brand"
+          href="/login"
+          aria-label="HUS — Cổng tư vấn sinh viên — trang đăng nhập"
+        >
+          <Image
+            className="brand-logo"
+            src="/branding/hus-logo.png"
+            alt="HUS — Trường Đại học Khoa học Tự nhiên, Đại học Quốc gia Hà Nội"
+            width={661}
+            height={99}
+            sizes="(max-width: 370px) calc(100vw - 40px), 330px"
+            preload
+          />
+          <span className="brand-copy">
             <strong>Cổng tư vấn</strong>
             <span className="brand-caption">Đồng hành cùng sinh viên</span>
           </span>

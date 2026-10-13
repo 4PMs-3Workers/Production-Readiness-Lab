@@ -112,6 +112,13 @@ TypeScript strict và alias `@/*` trỏ tới `src/frontend/*`. Vitest root là 
 Turbopack root được xác định rõ theo npm workspace; dùng font hệ thống để build
 không phụ thuộc tải font ngoài.
 
+Logo HUS ở đầu trang được lưu tại `src/frontend/public/branding/hus-logo.png`,
+lấy nguyên file đang dùng trên [website chính thức HUS](https://hus.vnu.edu.vn/):
+[`logo.png`](https://hus.vnu.edu.vn/static/hus/img/core-img/logo.png).
+Hiển thị qua `next/image`, giữ tỉ lệ 661:99 và màu gốc; desktop đặt cạnh tên cổng,
+mobile xếp trên tên cổng để không tràn ngang. File logo nằm trong repo nên trang
+không phải tải ảnh từ website trường khi sử dụng.
+
 `src/frontend/AGENTS.md` được `next dev` tạo để hướng dẫn đọc tài liệu đi kèm đúng
 phiên bản Next.js trước khi sửa code. Giữ file này trong Git; loại khỏi formatting
 vì phần hướng dẫn được framework tự quản lý. `next-env.d.ts` cũng do Next tạo,

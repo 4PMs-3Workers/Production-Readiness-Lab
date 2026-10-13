@@ -54,6 +54,7 @@ a:focus-visible {
 
 .site-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
@@ -63,21 +64,22 @@ a:focus-visible {
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 20px;
+  max-width: 100%;
   text-decoration: none;
 }
 
-.brand-mark {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  background: var(--primary);
-  color: #ffffff;
-  font-weight: 700;
-  font-size: 15px;
-  letter-spacing: 1px;
+.brand-logo {
+  display: block;
+  width: 330px;
+  max-width: 100%;
+  height: auto;
+  flex-shrink: 0;
+}
+
+.brand-copy {
+  padding-left: 20px;
+  border-left: 1px solid var(--border);
 }
 
 .brand strong {
@@ -271,6 +273,17 @@ h2 {
 
   .navigation {
     margin-left: -12px;
+  }
+
+  .brand {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .brand-copy {
+    padding-left: 0;
+    border-left: 0;
   }
 
   main {
