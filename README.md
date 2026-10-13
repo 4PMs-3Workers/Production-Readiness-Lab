@@ -155,6 +155,11 @@ Mở `http://127.0.0.1:3000`. Bản khung hiện có ba trang `/login`, `/bookin
 `/booking/result`, chạy độc lập với FastAPI/MySQL. Đăng nhập và đặt lịch mock sẽ
 được bổ sung ở các mốc tiếp theo của issue #7.
 
+Trên PowerShell, nếu `node` chưa có trên PATH nhưng dependencies đã được cài,
+có thể chạy `./tools/scripts/start-frontend.ps1`. Script tìm Node trên PATH,
+thư mục cài Node chuẩn hoặc runtime Codex của người dùng, rồi mở dev server;
+không yêu cầu npm trên PATH và không đổi PATH hệ thống.
+
 ```bash
 npm --workspace src/frontend run format:check
 npm --workspace src/frontend run lint

@@ -2,6 +2,7 @@
 /src/frontend/** text eol=lf
 /tests/frontend/** text eol=lf
 /tools/scripts/lint-frontend.mjs text eol=lf
+/tools/scripts/start-frontend.ps1 text eol=lf
 /eslint.config.mjs text eol=lf
 /package.json text eol=lf
 /package-lock.json text eol=lf

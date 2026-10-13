@@ -45,6 +45,10 @@ vẫn qua cùng kiểm tra format như Linux CI.
 Nếu máy có `node` nhưng không tìm được `npm`, cấu hình Node.js/npm đầy đủ trên PATH
 trước khi chạy các lệnh bên dưới. Không commit đường dẫn runtime riêng của máy.
 
+Runtime Node do Codex cung cấp có thể chỉ nằm trên PATH của tiến trình Codex,
+không có trên PATH terminal PowerShell bên ngoài. Python `.venv` không cung cấp
+Node.js hoặc npm.
+
 ## Cài đặt và chạy
 
 Chạy từ gốc repository, không chạy `npm install` trong một thư mục frontend riêng:
@@ -58,6 +62,24 @@ npm --workspace src/frontend run dev
 
 Dev server: `http://127.0.0.1:3000`. Nếu cổng 3000 đang được dùng, xem URL do server
 in ra hoặc chọn cổng bằng `npm --workspace src/frontend run dev -- --port 3001`.
+
+### PowerShell chưa có Node/npm trên PATH
+
+Nếu dependencies đã được cài trong workspace hiện tại, chạy:
+
+```powershell
+.\tools\scripts\start-frontend.ps1
+# Chọn cổng khác khi cần:
+.\tools\scripts\start-frontend.ps1 -Port 3001
+```
+
+Script tìm `node.exe` trên PATH, trong thư mục Node.js chuẩn hoặc runtime Codex
+dưới USERPROFILE. Script kiểm tra phiên bản Node, thêm thư mục Node vào PATH chỉ
+trong lúc chạy server, rồi phục hồi PATH và thư mục hiện tại. Script gọi Next.js
+đã cài trực tiếp, không phụ thuộc bản npm tạm trong `build`.
+
+Nếu chưa có Node hoặc dependencies, cài Node.js 24 LTS/npm, mở terminal mới và
+chạy `npm ci` từ gốc. Script không tự tải hoặc cài phần mềm.
 
 Chạy production local:
 
@@ -139,6 +161,7 @@ API catalog/availability/appointments tương ứng.
 | Production build trên bản sao sạch | Đạt; `/login`, `/booking`, `/booking/result` được prerender. |
 | Playwright trên production build sạch | 4 smoke tests đạt: hai ca chạy trên desktop và mobile Chromium. |
 | Dev server | Khởi động thành công, `/login` trả HTTP 200. |
+| PowerShell không có Node trên PATH | `start-frontend.ps1` tìm được runtime Node 24.19.0, mở server và `/login` trả HTTP 200. |
 | Visual QA | Đã xem ảnh login desktop và booking mobile; không tràn ngang hoặc cắt nội dung. |
 | `git diff --check` | Đạt. |
 
