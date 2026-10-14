@@ -21,6 +21,10 @@ EngineFactory = Callable[..., AsyncEngine]
 logger = logging.getLogger("app.errors")
 
 
+class ResponseInterruptedError(RuntimeError):
+    """Safe ASGI failure marker for a response that cannot be completed."""
+
+
 class SanitizedFastAPI(FastAPI):
     """Keep exceptions already converted to HTTP 500 out of server tracebacks."""
 
@@ -34,26 +38,31 @@ class SanitizedFastAPI(FastAPI):
 
         async def track_response(message: Message) -> None:
             nonlocal response_started, response_complete
+            await send(message)
             if message["type"] == "http.response.start":
                 response_started = True
             elif message["type"] == "http.response.body" and not message.get("more_body", False):
                 response_complete = True
-            await send(message)
 
         try:
             await super().__call__(scope, receive, track_response)
         except Exception as exc:
             logger.error("Unhandled application exception: %s", type(exc).__name__)
-            if not response_started:
-                state = scope.setdefault("state", {})
-                state.setdefault("request_id", token_hex(16))
-                response = error_response(
-                    Request(scope),
-                    AppError(500, "INTERNAL_SERVER_ERROR", "Internal server error", "service"),
-                )
-                await response(scope, receive, send)
-            elif not response_complete:
-                await send({"type": "http.response.body", "body": b"", "more_body": False})
+        else:
+            return
+
+        if response_started:
+            if not response_complete:
+                raise ResponseInterruptedError("Application response interrupted") from None
+            return
+
+        state = scope.setdefault("state", {})
+        state.setdefault("request_id", token_hex(16))
+        response = error_response(
+            Request(scope),
+            AppError(500, "INTERNAL_SERVER_ERROR", "Internal server error", "service"),
+        )
+        await response(scope, receive, send)
 
 
 def create_app(

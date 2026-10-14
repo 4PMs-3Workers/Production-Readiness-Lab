@@ -23,7 +23,9 @@ Migration commands and recovery remain in `docs/tasks/database-migrations.md`.
 - `app.api.errors`: stable status/code/class mapping and one sanitized JSON envelope. The
   response header and body carry the same request ID; `405` retains `Allow`. Health errors also
   return `Cache-Control: no-store`. Unexpected exceptions are logged by class only, without
-  propagating their raw message or traceback to the ASGI server logger.
+  propagating their raw message or traceback to the ASGI server logger. If an exception interrupts
+  a response after headers have been sent, the app raises a safe interruption error so the server
+  closes the incomplete transfer instead of marking it successful.
 - `app.api.health`: liveness without DB access; readiness uses one deadline for connection,
   `SELECT 1`, and reading the single installed Alembic revision. Only explicit allowlist members
   are accepted. A timed-out probe returns promptly while its tracked task finishes connection
@@ -86,6 +88,12 @@ Review-fix verification on 14/10/2026 used the same dedicated MySQL image: **169
 0 skipped**. The new regression tests cover shielded close/disposal order, Uvicorn log sanitization,
 malformed hostnames, health error cache headers and OpenAPI error headers. Black, Ruff, Pyright,
 `pip check` and artifact consistency were rerun for this revision.
+
+The follow-up streaming fix adds real Uvicorn tests for interrupted chunked and fixed-length
+responses. The local backend run reported **117 passed, 54 skipped** because Docker Desktop's
+MySQL engine was unavailable on this workstation. The CI workflow requires a dedicated MySQL
+instance and rejects skipped backend tests; its result for the follow-up commit must be checked
+before merge.
 
 The existing CI job retains both Alembic upgrade checks, Black/Ruff/Pyright and the MySQL
 service. It now runs the full backend suite, fails if any required test skips, regenerates

@@ -7,6 +7,7 @@ import httpx
 import pytest
 import uvicorn
 from fastapi import Body, HTTPException
+from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 
 from app.api.errors import BusinessConflict, ServiceUnavailable
@@ -46,6 +47,15 @@ def make_app():
     @app.get("/__test/crash", include_in_schema=False)
     def crash():
         raise RuntimeError("SQL SELECT secret_token=hidden trace")
+
+    @app.get("/__test/stream/{mode}", include_in_schema=False)
+    async def broken_stream(mode: str):
+        async def chunks():
+            yield b"partial"
+            raise RuntimeError("synthetic-stream-secret")
+
+        headers = {"Content-Length": "20"} if mode == "fixed" else None
+        return StreamingResponse(chunks(), headers=headers)
 
     @app.get("/__test/http-service-error", include_in_schema=False)
     def http_service_error():
@@ -131,3 +141,37 @@ def test_uvicorn_logs_unexpected_error_without_sensitive_exception_text(caplog, 
     assert "secret_token=hidden" not in caplog.text
     assert "SQL SELECT" not in caplog.text
     assert "RuntimeError" in caplog.text
+
+
+@pytest.mark.parametrize("mode", ["chunked", "fixed"])
+def test_uvicorn_aborts_interrupted_stream_without_leaking_exception(caplog, monkeypatch, mode):
+    monkeypatch.setattr(logging.getLogger("app.errors"), "disabled", False)
+    monkeypatch.setattr(logging.getLogger("uvicorn.error"), "disabled", False)
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+    server = uvicorn.Server(
+        uvicorn.Config(make_app(), host="127.0.0.1", port=port, log_config=None, access_log=False)
+    )
+    thread = Thread(target=server.run, daemon=True)
+    with (
+        caplog.at_level(logging.ERROR, logger="uvicorn.error"),
+        caplog.at_level(logging.ERROR, logger="app.errors"),
+    ):
+        thread.start()
+        try:
+            deadline = monotonic() + 10
+            while monotonic() < deadline:
+                try:
+                    httpx.get(f"http://127.0.0.1:{port}/health/live", timeout=1)
+                    break
+                except httpx.ConnectError:
+                    sleep(0.05)
+            with pytest.raises(httpx.RemoteProtocolError):
+                httpx.get(f"http://127.0.0.1:{port}/__test/stream/{mode}", timeout=2)
+        finally:
+            server.should_exit = True
+            thread.join(timeout=5)
+    assert "synthetic-stream-secret" not in caplog.text
+    assert "Unhandled application exception" in caplog.text
+    assert "ResponseInterruptedError" in caplog.text
