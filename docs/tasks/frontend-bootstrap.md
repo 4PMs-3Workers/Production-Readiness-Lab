@@ -146,8 +146,13 @@ ba trang, direct navigation/refresh trang result, runtime errors, keyboard skip 
 và không tràn ngang trên mobile. Component test kiểm tra app shell và skip target.
 
 Không cần tạo database hoặc khởi động backend để chạy các kiểm tra frontend.
-Workflow frontend đầy đủ và tests nghiệp vụ sẽ được thêm trong mốc 6; workflow backend
-hiện có tiếp tục giữ nguyên ở mốc 1.
+Workflow `.github/workflows/frontend.yml` chạy ngay từ mốc 1 trên pull request vào
+`develop`/`main` và push vào các nhánh phát triển được cấu hình. Mỗi job checkout
+sạch, dùng Node từ `.nvmrc` và npm 12.2.0, chạy `npm ci`, format, lint, typecheck,
+component tests và production build. Sau build, workflow cài Chromium cùng system
+dependencies bằng Playwright từ lockfile rồi chạy E2E trên desktop/mobile.
+Cache chỉ giữ các gói npm tải về; `node_modules` được cài lại bằng `npm ci`.
+Workflow backend hiện có được giữ nguyên. Tests nghiệp vụ sẽ mở rộng ở mốc 6.
 
 ## Bàn giao cho mốc tiếp theo
 
@@ -172,12 +177,17 @@ API catalog/availability/appointments tương ứng.
 | Visual QA | Đã xem ảnh login desktop và booking mobile; không tràn ngang hoặc cắt nội dung. |
 | `git diff --check` | Đạt. |
 
-Ảnh QA mới nhất nằm trong `build/frontend-bootstrap`, được gitignore. Bản sao
-kiểm tra sạch, archive, metadata tải về và caches tạm đã được dọn sau kiểm chứng.
+Sáu ảnh review cho `/login`, `/booking` và `/booking/result` nằm trong
+[`docs/screenshots/frontend-milestone-1`](../screenshots/frontend-milestone-1).
+Mỗi route có ảnh desktop (viewport 1440 × 900) và mobile (viewport 390 × 844),
+chụp toàn trang từ production build. PR #10 nhúng trực tiếp các ảnh bằng URL cố
+định theo commit; reviewer không cần truy cập thư mục `build/` local.
+Bản sao kiểm tra sạch, archive, metadata tải về và caches tạm đã được dọn sau kiểm chứng.
 Windows sandbox chặn socket local, một số thao tác ghi output và liên kết workspace;
 những kiểm tra bị ảnh hưởng đã chạy lại ngoài sandbox. Không cần đổi source để né
 các giới hạn đó. Không chạy lại MySQL/backend tests vì mốc này không sửa backend;
-workflow backend hiện có giữ nguyên. Chưa có kết quả frontend CI remote ở mốc 1.
+workflow backend hiện có giữ nguyên. Workflow frontend được bổ sung trong PR mốc 1;
+kết quả chạy remote được ghi trong phần checks của PR.
 
 ### Cảnh báo dependencies hiện tại
 
