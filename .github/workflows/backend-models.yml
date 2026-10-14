@@ -25,7 +25,10 @@ jobs:
           --health-timeout=5s
           --health-retries=12
     env:
+      # Used by integration tests (schema-per-test isolation; no default database).
       MYSQL_TEST_URL: mysql+asyncmy://root:test-only-password@127.0.0.1:3306
+      # Used by alembic CLI smoke-test steps below (dedicated database).
+      DATABASE_URL: mysql+asyncmy://root:test-only-password@127.0.0.1:3306/prl_ci_migrations
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -38,8 +41,53 @@ jobs:
           package-manager-cache: false
       - run: python -m venv .venv
       - run: .venv/bin/python -m pip install -r requirements-dev.txt
+      - name: Install backend package (editable)
+        run: .venv/bin/python -m pip install -e .
       - run: npm install --global pyright@1.1.407
-      - run: .venv/bin/python -m black --check src/backend tests/backend
-      - run: .venv/bin/python -m ruff check src/backend tests/backend
+      - run: .venv/bin/python -m black --check src/backend tests/backend tools/scripts/export_openapi.py
+      - run: .venv/bin/python -m ruff check src/backend tests/backend tools/scripts/export_openapi.py
       - run: pyright
-      - run: .venv/bin/python -m pytest -q
+
+      # --- Migration smoke tests ---
+      # Create the dedicated CI migration database first.
+      - name: Create CI migration database
+        run: |
+          mysql -h 127.0.0.1 -uroot -ptest-only-password \
+            -e "CREATE DATABASE IF NOT EXISTS prl_ci_migrations CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
+
+      - name: alembic upgrade head (first run — creates schema)
+        run: .venv/bin/alembic upgrade head
+
+      - name: alembic current (must report the initial revision)
+        run: .venv/bin/alembic current
+
+      - name: alembic heads (must report exactly one head)
+        run: |
+          heads=$(.venv/bin/alembic heads)
+          echo "$heads"
+          head_count=$(echo "$heads" | grep -c "(head)") || true
+          if [ "$head_count" -ne 1 ]; then
+            echo "ERROR: expected exactly 1 head, got $head_count"
+            exit 1
+          fi
+
+      - name: alembic upgrade head (second run — must be a no-op)
+        run: .venv/bin/alembic upgrade head
+
+      # --- Full test suite (integration tests run through migrations) ---
+      - name: Run backend tests; required integration tests must not skip
+        run: |
+          .venv/bin/python -m pytest tests/backend -q --junitxml=build/backend-tests.xml
+          .venv/bin/python - <<'PY'
+          from xml.etree import ElementTree
+
+          root = ElementTree.parse("build/backend-tests.xml").getroot()
+          skipped = sum(int(suite.get("skipped", "0")) for suite in root.iter("testsuite"))
+          if skipped:
+              raise SystemExit(f"Required backend tests skipped: {skipped}")
+          PY
+
+      - name: Check committed OpenAPI artifact
+        run: |
+          .venv/bin/python tools/scripts/export_openapi.py
+          git diff --exit-code -- docs/api/openapi.yaml

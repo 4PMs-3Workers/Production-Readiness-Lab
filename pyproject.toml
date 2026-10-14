@@ -1,15 +1,33 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "production-readiness-lab-backend"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = ["SQLAlchemy==2.0.44", "asyncmy==0.2.10", "cryptography==46.0.3"]
+dependencies = [
+    "SQLAlchemy==2.0.44",
+    "asyncmy==0.2.10",
+    "cryptography==46.0.3",
+    "alembic==1.16.2",
+    "fastapi==0.143.0",
+    "uvicorn==0.54.0",
+    "pydantic==2.14.1",
+    "pydantic-settings==2.15.0",
+    "starlette==1.8.0",
+    "PyYAML==6.0.3",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src/backend"}
 
 [tool.setuptools.packages.find]
 where = ["src/backend"]
 include = ["app*"]
 
 [tool.pyright]
-include = ["src/backend", "tests/backend"]
+include = ["src/backend", "tests/backend", "tools/scripts/export_openapi.py"]
 extraPaths = ["src/backend"]
 venvPath = "."
 venv = ".venv"

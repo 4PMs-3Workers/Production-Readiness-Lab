@@ -181,6 +181,59 @@ Playwright tự chạy production server trên cổng 3100 sau khi đã build.
 Xem [hướng dẫn frontend](docs/tasks/frontend-bootstrap.md) để biết phiên bản,
 cấu trúc và phạm vi kiểm tra hiện tại.
 
+### Chạy nền tảng FastAPI
+
+Cài `requirements-dev.txt`, rồi cài backend dạng editable (`python -m pip install -e .`).
+Sao chép `.env.example` thành `.env` ở thư mục gốc và thay mọi giá trị `replace-with-*`
+bằng giá trị local riêng. Không commit `.env`. Với môi trường demo/production, dùng
+`APPLICATION_ORIGIN=https://...` và `COOKIE_SECURE=true`. Khởi động từ gốc repo:
+
+```bash
+python -m uvicorn app.main:app --app-dir src/backend --no-proxy-headers
+```
+
+API khởi động khi MySQL tạm thời không truy cập được. `/health/live` kiểm tra tiến trình
+không hỏi database; `/health/ready` kiểm tra `SELECT 1` và phiên bản trong `alembic_version`.
+Chạy migration theo `docs/tasks/database-migrations.md` trước khi mong readiness trả 200.
+Phiên bản schema ban đầu được chấp nhận là `a1b2c3d4e5f6`. `ACCEPTED_SCHEMA_REVISIONS`
+có thể liệt kê nhiều revision tương thích, cách nhau bằng dấu phẩy; revision khác luôn trả 503.
+
+| Biến môi trường                     | Bắt buộc / mặc định | Ý nghĩa và giá trị hợp lệ                                                                                             |
+| ----------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                      | Bắt buộc            | URL `mysql+asyncmy` có tên database; chỉ cung cấp qua môi trường hoặc `.env` local.                                   |
+| `MYSQL_TEST_URL`                    | Chỉ cho tests MySQL | URL tài khoản test có quyền tạo/xóa schema riêng; không dùng database demo.                                           |
+| `ENVIRONMENT`                       | `local`             | `local`, `test`, `demo`, `production`.                                                                                |
+| `APPLICATION_ORIGIN`                | Bắt buộc            | Origin HTTP(S), không có path/query/credentials; demo/production phải HTTPS.                                          |
+| `COOKIE_SECRET`, `CSRF_SECRET`      | Bắt buộc            | Hai secret không rỗng, độc lập; không đưa vào Git/log.                                                                |
+| `COOKIE_SECURE`                     | `true`              | Boolean; bắt buộc `true` trong demo/production và khi SameSite là `none`. Local HTTP đặt `false`.                     |
+| `COOKIE_SAMESITE`                   | `lax`               | `lax`, `strict`, `none`.                                                                                              |
+| `COOKIE_DOMAIN`                     | Không đặt           | Hostname cookie; không đặt để cookie host-only.                                                                       |
+| `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`   | `5`, `5`            | Số kết nối cơ bản >0 và kết nối vượt mức >=0 trên mỗi API process.                                                    |
+| `DB_CONNECT_TIMEOUT_SECONDS`        | `1` giây            | Timeout kết nối hữu hạn, >0.                                                                                          |
+| `DB_POOL_TIMEOUT_SECONDS`           | `0.5` giây          | Timeout chờ pool hữu hạn, >0.                                                                                         |
+| `DB_QUERY_TIMEOUT_SECONDS`          | `1` giây            | Timeout truy vấn hữu hạn, >0; dành cho services sau này.                                                              |
+| `DB_LOCK_TIMEOUT_SECONDS`           | `0.5` giây          | Timeout chờ khóa hữu hạn, >0; dành cho services sau này.                                                              |
+| `REQUEST_TIMEOUT_SECONDS`           | `3` giây            | Ngân sách request hữu hạn, >0; dành cho business routes sau này.                                                      |
+| `READINESS_TIMEOUT_SECONDS`         | `2` giây            | Deadline hữu hạn, >0 cho toàn bộ readiness, gồm chờ pool, kết nối và cả hai query.                                    |
+| `MAX_DEADLOCK_RETRIES`              | `2`                 | Số lần retry >=0, dành cho services sau này.                                                                          |
+| `WORKER_POLL_INTERVAL_SECONDS`      | `5` giây            | Chu kỳ quét hữu hạn, >0; dành cho worker sau này.                                                                     |
+| `WORKER_BATCH_SIZE`                 | `100`               | Số bản ghi/batch >0, dành cho worker sau này.                                                                         |
+| `WORKER_GRACE_SECONDS`              | `30` giây           | Grace period hữu hạn, >0; dành cho worker sau này.                                                                    |
+| `WORKER_HEARTBEAT_INTERVAL_SECONDS` | `15` giây           | Chu kỳ heartbeat hữu hạn, >0; dành cho worker sau này.                                                                |
+| `ACCEPTED_SCHEMA_REVISIONS`         | Bắt buộc            | Danh sách Alembic revision không rỗng, cách nhau bằng dấu phẩy.                                                       |
+| `TRUSTED_GATEWAY_CIDRS`             | Rỗng                | Danh sách CIDR của **peer mạng trực tiếp**, cách nhau bằng dấu phẩy; rỗng nghĩa là không tin incoming `X-Request-ID`. |
+
+Gateway chuyển `X-Request-ID` nhưng chỉ IP Nginx được cấu hình trong
+`TRUSTED_GATEWAY_CIDRS`. Chạy Uvicorn với `--no-proxy-headers` hoặc cấu hình proxy sao cho
+địa chỉ peer gốc đến được middleware; không dùng `X-Forwarded-For` để quyết định tin ID.
+Nginx không được cho client bên ngoài giả danh peer nội bộ. ID hợp lệ dài 1–128 ký tự ASCII
+`[A-Za-z0-9._-]`; API thay ID thiếu, sai hoặc lặp và trả ID ở mọi response ứng dụng.
+
+Kiểm thử từ gốc repo: `python -m pytest tests/backend -q` với MySQL 8.4 test riêng,
+`python tools/scripts/export_openapi.py`, rồi `git diff --exit-code -- docs/api/openapi.yaml`.
+Trên Windows, một số chính sách sandbox có thể chặn event loop asyncio; chạy tests async
+trong môi trường Python được phép tạo event loop.
+
 ### Kiểm thử hệ thống
 
 Đọc thiết kế hệ thống và cơ sở dữ liệu trước khi thay đổi nghiệp vụ. Router xử lý hợp đồng HTTP; service chịu trách nhiệm quy tắc và transaction; repository thực hiện truy vấn với session do service cung cấp. Frontend tập trung lời gọi API trong lớp `services` và xử lý đầy đủ trạng thái loading, lỗi, dữ liệu rỗng và xung đột.

@@ -3,6 +3,8 @@ from uuid import uuid4
 
 import pytest
 import pytest_asyncio
+from alembic import command
+from alembic.config import Config
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -148,7 +150,8 @@ async def test_all_models_round_trip_with_server_defaults(graph):
     assert raw[0].lower() == appointment.id.hex
     assert raw[1] == START.astimezone(UTC).replace(tzinfo=None)
     tables = (await session.execute(text("SHOW TABLES"))).scalars().all()
-    assert set(tables) == set(Base.metadata.tables)
+    app_tables = {t for t in tables if t != "alembic_version"}
+    assert app_tables == set(Base.metadata.tables)
 
 
 async def test_connection_invariants_survive_new_connections(mysql_engine):
@@ -367,3 +370,93 @@ async def test_strict_sql_mode_rejects_invalid_dates(graph, value):
                 text("UPDATE staff_unavailability SET starts_at = :value"), {"value": value}
             )
     assert mysql_error_code(error.value) == 1292
+
+
+# ---------------------------------------------------------------------------
+# Migration-specific tests
+# ---------------------------------------------------------------------------
+
+
+async def test_migration_creates_all_tables_plus_alembic_version(mysql_engine):
+    """After upgrade head there must be exactly 12 tables: 11 app tables + alembic_version."""
+    async with mysql_engine.connect() as connection:
+        tables = (await connection.execute(text("SHOW TABLES"))).scalars().all()
+    table_set = set(tables)
+    assert "alembic_version" in table_set, "alembic_version table must be present"
+    app_tables = table_set - {"alembic_version"}
+    assert app_tables == set(Base.metadata.tables), (
+        f"Missing: {set(Base.metadata.tables) - app_tables}, "
+        f"Extra: {app_tables - set(Base.metadata.tables)}"
+    )
+    assert len(table_set) == len(Base.metadata.tables) + 1  # 11 + 1
+
+
+async def test_migration_records_correct_revision(mysql_engine):
+    """alembic_version must contain exactly one row with the initial revision ID."""
+    async with mysql_engine.connect() as connection:
+        rows = (
+            (await connection.execute(text("SELECT version_num FROM alembic_version")))
+            .scalars()
+            .all()
+        )
+    assert rows == ["a1b2c3d4e5f6"], f"Unexpected revision rows: {rows}"
+
+
+async def test_second_upgrade_head_is_idempotent(mysql_engine, graph):
+    """Running alembic upgrade head a second time must not change the revision or remove data.
+
+    The ``graph`` fixture inserts sample data; this test verifies that data
+    survives the second upgrade attempt without modification.
+    """
+    session, rows = graph
+
+    def run_upgrade(connection):  # type: ignore[no-untyped-def]
+        cfg = Config("alembic.ini")
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "head")
+
+    async with mysql_engine.begin() as async_conn:
+        await async_conn.run_sync(run_upgrade)
+
+    # Revision must be unchanged.
+    async with mysql_engine.connect() as connection:
+        version = (
+            await connection.execute(text("SELECT version_num FROM alembic_version"))
+        ).scalar_one()
+    assert version == "a1b2c3d4e5f6"
+
+    # Sample data inserted by ``graph`` must still be present.
+    async with AsyncSession(mysql_engine, expire_on_commit=False) as check_session:
+        loaded_user = await check_session.get(User, rows["users"].id)
+        assert loaded_user is not None
+        assert loaded_user.email == rows["users"].email
+
+
+async def test_schema_detail_spot_checks(mysql_engine):
+    """Inspect representative tables for engine, charset, collation, and generated column."""
+    async with mysql_engine.connect() as connection:
+        # --- users: engine, charset, collation ---
+        users_ddl = (await connection.execute(text("SHOW CREATE TABLE users"))).one()[1]
+        assert "ENGINE=InnoDB" in users_ddl
+        assert "DEFAULT CHARSET=utf8mb4" in users_ddl
+        assert "COLLATE=utf8mb4_0900_ai_ci" in users_ddl
+        # email column must use the case-insensitive-accent-sensitive collation
+        assert "utf8mb4_0900_as_ci" in users_ddl
+
+        # --- appointments: creation_request_key binary collation ---
+        appt_ddl = (await connection.execute(text("SHOW CREATE TABLE appointments"))).one()[1]
+        assert "utf8mb4_0900_bin" in appt_ddl
+
+        # --- change_proposals: virtual generated column ---
+        cp_ddl = (await connection.execute(text("SHOW CREATE TABLE change_proposals"))).one()[1]
+        assert "GENERATED ALWAYS AS" in cp_ddl
+        assert "VIRTUAL" in cp_ddl
+
+        # --- sessions: datetime(6) precision ---
+        sessions_ddl = (await connection.execute(text("SHOW CREATE TABLE sessions"))).one()[1]
+        assert "datetime(6)" in sessions_ddl.lower()
+
+        # --- service_hours: time(0) precision ---
+        sh_ddl = (await connection.execute(text("SHOW CREATE TABLE service_hours"))).one()[1]
+        # MySQL renders TIME without fsp when fsp=0
+        assert "time" in sh_ddl.lower()
