@@ -14,12 +14,12 @@ Dự án lấy một bài toán thực tế làm nền tảng: sinh viên chọn
 
 ## Nghiệp vụ
 
-| Vai trò | Chức năng |
-|---|---|
-| Sinh viên | Chọn nhu cầu và nhân viên, xem giờ trống, đặt/hủy lịch, phản hồi đề nghị đổi lịch, xem lịch sử và thông báo cá nhân. |
-| Nhân viên / cố vấn | Quản lý nhu cầu tiếp nhận và thời gian không nhận, xem lịch được giao, đề nghị đổi giờ/địa điểm, ghi nhận kết quả buổi gặp. |
-| Quản trị viên | Quản lý tài khoản, danh mục nhu cầu tư vấn và giờ phục vụ chung. |
-| Thành viên vận hành | Triển khai release, theo dõi hệ thống, xử lý cảnh báo, sao lưu, khôi phục và diễn tập sự cố. |
+| Vai trò             | Chức năng                                                                                                                   |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Sinh viên           | Chọn nhu cầu và nhân viên, xem giờ trống, đặt/hủy lịch, phản hồi đề nghị đổi lịch, xem lịch sử và thông báo cá nhân.        |
+| Nhân viên / cố vấn  | Quản lý nhu cầu tiếp nhận và thời gian không nhận, xem lịch được giao, đề nghị đổi giờ/địa điểm, ghi nhận kết quả buổi gặp. |
+| Quản trị viên       | Quản lý tài khoản, danh mục nhu cầu tư vấn và giờ phục vụ chung.                                                            |
+| Thành viên vận hành | Triển khai release, theo dõi hệ thống, xử lý cảnh báo, sao lưu, khôi phục và diễn tập sự cố.                                |
 
 Quyền vận hành hạ tầng được quản lý riêng với vai trò quản trị viên trong ứng dụng.
 
@@ -46,19 +46,19 @@ Chi tiết trạng thái, ràng buộc và giao dịch nằm trong [thiết kế
 
 ## Công nghệ
 
-| Thành phần | Công nghệ |
-|---|---|
-| Giao diện | Next.js App Router, React, TypeScript strict |
-| Backend | FastAPI, Python 3.11+, Pydantic |
-| Truy cập dữ liệu | SQLAlchemy 2, asyncmy, Alembic |
-| Cơ sở dữ liệu | MySQL 8.4 LTS, InnoDB |
-| Worker | Tiến trình Python dùng chung mã nguồn và image backend |
-| Reverse proxy | Nginx |
-| Đóng gói và triển khai | Docker, Docker Compose trên Linux/VM |
-| CI/CD | GitHub Actions, container registry |
-| Thu thập telemetry | OpenTelemetry Collector |
-| Metrics, logs và traces | Prometheus, Loki, Tempo |
-| Dashboard và cảnh báo | Grafana, Alertmanager, probe ngoài máy chủ ứng dụng |
+| Thành phần              | Công nghệ                                              |
+| ----------------------- | ------------------------------------------------------ |
+| Giao diện               | Next.js App Router, React, TypeScript strict           |
+| Backend                 | FastAPI, Python 3.11+, Pydantic                        |
+| Truy cập dữ liệu        | SQLAlchemy 2, asyncmy, Alembic                         |
+| Cơ sở dữ liệu           | MySQL 8.4 LTS, InnoDB                                  |
+| Worker                  | Tiến trình Python dùng chung mã nguồn và image backend |
+| Reverse proxy           | Nginx                                                  |
+| Đóng gói và triển khai  | Docker, Docker Compose trên Linux/VM                   |
+| CI/CD                   | GitHub Actions, container registry                     |
+| Thu thập telemetry      | OpenTelemetry Collector                                |
+| Metrics, logs và traces | Prometheus, Loki, Tempo                                |
+| Dashboard và cảnh báo   | Grafana, Alertmanager, probe ngoài máy chủ ứng dụng    |
 
 ## Kiến trúc
 
@@ -94,13 +94,13 @@ Xem [thiết kế hệ thống](docs/architecture/system-design.md) để hiểu
 
 Các tiêu chí dưới đây là mục tiêu nghiệm thu. Kết quả được đánh giá bằng dữ liệu đo và bằng chứng kiểm thử.
 
-| Tiêu chí | Mục tiêu |
-|---|---|
-| Availability | ≥99,5% trên request hợp lệ trong cửa sổ trượt 7 ngày. |
-| Độ trễ | ≥95% request hợp lệ thành công hoàn tất trong ≤500 ms tại gateway, cùng cửa sổ 7 ngày. |
-| Nhất quán lịch | Không có cặp lịch đang chiếm chỗ giao nhau của cùng nhân viên. |
-| Phát hiện sự cố | Alert chuyển sang trạng thái firing trong ≤3 phút khi diễn tập. |
-| Phục hồi release | Rollback và xác minh phục hồi trong ≤5 phút kể từ quyết định rollback. |
+| Tiêu chí         | Mục tiêu                                                                               |
+| ---------------- | -------------------------------------------------------------------------------------- |
+| Availability     | ≥99,5% trên request hợp lệ trong cửa sổ trượt 7 ngày.                                  |
+| Độ trễ           | ≥95% request hợp lệ thành công hoàn tất trong ≤500 ms tại gateway, cùng cửa sổ 7 ngày. |
+| Nhất quán lịch   | Không có cặp lịch đang chiếm chỗ giao nhau của cùng nhân viên.                         |
+| Phát hiện sự cố  | Alert chuyển sang trạng thái firing trong ≤3 phút khi diễn tập.                        |
+| Phục hồi release | Rollback và xác minh phục hồi trong ≤5 phút kể từ quyết định rollback.                 |
 
 Phạm vi triển khai là một trường đại học với máy chủ demo dùng Docker Compose. Probe và kênh cảnh báo nằm ngoài máy chủ ứng dụng để phát hiện được sự cố toàn máy chủ. RPO/RTO của sao lưu được đánh giá qua bài khôi phục dữ liệu.
 
@@ -129,15 +129,17 @@ Production-Readiness-Lab/
 
 ## Tài liệu
 
-| Tài liệu | Nội dung |
-|---|---|
-| [Thiết kế hệ thống](docs/architecture/system-design.md) | Kiến trúc, luồng nghiệp vụ, bảo mật, observability, triển khai và phục hồi. |
-| [Thiết kế cơ sở dữ liệu](docs/architecture/database-design.md) | Mô hình 11 bảng, ràng buộc, chỉ mục và xử lý giao dịch cạnh tranh. |
-| [Models cơ sở dữ liệu](docs/architecture/database-models.md) | Ánh xạ SQLAlchemy, chuyển đổi kiểu dữ liệu và hướng dẫn chạy kiểm tra. |
-| [Task database models](docs/tasks/database-models.md) | Phạm vi triển khai, kiểm thử và bàn giao bộ models. |
-| [Task frontend bootstrap](docs/tasks/frontend-bootstrap.md) | Thiết lập frontend, các trang khung demo và hướng dẫn kiểm tra. |
-| [Coding convention](docs/other/CONVENTION.md) | Quy ước tổ chức và viết mã frontend/backend. |
-| [Git Flow](docs/other/GITFLOW.md) | Vai trò các branch, Pull Request và quy trình release/hotfix. |
+| Tài liệu                                                              | Nội dung                                                                    |
+| --------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| [Thiết kế hệ thống](docs/architecture/system-design.md)               | Kiến trúc, luồng nghiệp vụ, bảo mật, observability, triển khai và phục hồi. |
+| [Thiết kế cơ sở dữ liệu](docs/architecture/database-design.md)        | Mô hình 11 bảng, ràng buộc, chỉ mục và xử lý giao dịch cạnh tranh.          |
+| [Models cơ sở dữ liệu](docs/architecture/database-models.md)          | Ánh xạ SQLAlchemy, chuyển đổi kiểu dữ liệu và hướng dẫn chạy kiểm tra.      |
+| [Task database models](docs/tasks/database-models.md)                 | Phạm vi triển khai, kiểm thử và bàn giao bộ models.                         |
+| [Task frontend bootstrap](docs/tasks/frontend-bootstrap.md)           | Bản gộp mốc 1 + 2: nền tảng, CI, UI đặt lịch, screenshots và kiểm chứng.    |
+| [Mock services và UI đặt lịch](docs/tasks/frontend-mock-services.md)  | Chi tiết fixtures, preset, clock và thao tác đặt lịch bằng dữ liệu demo.    |
+| [Screenshots frontend](docs/screenshots/frontend-bootstrap/README.md) | 14 ảnh login, các bước đặt lịch và kết quả trên desktop/mobile.             |
+| [Coding convention](docs/other/CONVENTION.md)                         | Quy ước tổ chức và viết mã frontend/backend.                                |
+| [Git Flow](docs/other/GITFLOW.md)                                     | Vai trò các branch, Pull Request và quy trình release/hotfix.               |
 
 ## Phát triển và kiểm thử
 
@@ -151,9 +153,14 @@ npm ci
 npm --workspace src/frontend run dev
 ```
 
-Mở `http://127.0.0.1:3000`. Bản khung hiện có ba trang `/login`, `/booking` và
-`/booking/result`, chạy độc lập với FastAPI/MySQL. Đăng nhập và đặt lịch mock sẽ
-được bổ sung ở các mốc tiếp theo của issue #7.
+Mở `http://127.0.0.1:3000/booking` để trải nghiệm trực tiếp UI đặt lịch với dữ liệu
+mock, không cần đăng nhập hoặc chạy FastAPI/MySQL. Sidebar có tab Đặt lịch tư vấn;
+bạn chọn nhu cầu, cố vấn, ngày/giờ rồi xác nhận để xem `/booking/result`.
+Panel **Thiết lập bản demo** ở cuối trang cung cấp các kịch bản lỗi/thử lại/xung đột.
+`/login` hiện vẫn là trang khung; UI đăng nhập và Home sẽ được triển khai tiếp theo
+trong issue #7. Nền tảng và mock booking được bàn giao chung trong
+[bản gộp mốc 1 + 2](docs/tasks/frontend-bootstrap.md); hợp đồng services và các
+kịch bản nằm trong [tài liệu mock services](docs/tasks/frontend-mock-services.md).
 
 Trên PowerShell, nếu `node` chưa có trên PATH nhưng dependencies đã được cài,
 có thể chạy `./tools/scripts/start-frontend.ps1`. Script tìm Node trên PATH,

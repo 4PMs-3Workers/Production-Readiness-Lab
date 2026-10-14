@@ -1,0 +1,241 @@
+.portal {
+  min-height: 100vh;
+  display: grid;
+  grid-template: 94px 1fr / 232px minmax(0, 1fr);
+  background: #f3f6fa;
+  color: #20364b;
+  font-size: 14px;
+}
+.header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 30px;
+  background: white;
+  padding: 20px 32px;
+  border-top: 4px solid #185b8c;
+  border-bottom: 1px solid #e0e7ef;
+}
+.logo {
+  width: 330px;
+  height: auto;
+  display: block;
+}
+.headerTitle {
+  display: grid;
+  padding-left: 28px;
+  border-left: 1px solid #dce4ec;
+  gap: 2px;
+}
+.headerTitle strong {
+  font-size: 15px;
+  letter-spacing: 0.4px;
+  color: #185b8c;
+}
+.headerTitle span {
+  font-size: 12px;
+  color: #7a8794;
+}
+.loginLink {
+  margin-left: auto;
+  text-decoration: none;
+  font-size: 13px;
+  color: #526b80;
+  white-space: nowrap;
+}
+.loginLink span {
+  margin-left: 8px;
+}
+.sidebar {
+  background: white;
+  border-right: 1px solid #e0e7ef;
+  padding: 30px 16px 20px;
+  display: flex;
+  flex-direction: column;
+}
+.sidebarHeading {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.1px;
+  color: #8998a7;
+  padding: 0 14px 18px;
+}
+.activeLink {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: #eaf3fb;
+  color: #185b8c;
+  border-radius: 7px;
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 13px;
+}
+.calendarIcon {
+  font-size: 23px;
+  line-height: 1;
+  font-weight: 400;
+}
+.chevron {
+  margin-left: auto;
+  font-size: 19px;
+}
+.sidebarNote {
+  margin: 46px 10px auto;
+  padding: 18px 14px;
+  border: 1px solid #e5edf3;
+  border-radius: 8px;
+  background: #fafcfe;
+}
+.noteIcon {
+  border: 1px solid #a8bfd1;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-content: center;
+  color: #34709b;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+.sidebarNote strong {
+  display: block;
+  font-size: 12px;
+}
+.sidebarNote p {
+  font-size: 12px;
+  color: #7b8997;
+  margin-bottom: 0;
+}
+.profile {
+  margin-top: 70px;
+  padding: 18px 6px 0;
+  border-top: 1px solid #e9eef3;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.avatar {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-content: center;
+  background: #e8f0f6;
+  border-radius: 50%;
+  color: #33678c;
+  font-weight: 700;
+}
+.profile div {
+  display: grid;
+}
+.profile div > span {
+  font-size: 11px;
+  color: #8693a0;
+}
+.onlineDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #50a28f;
+  margin-left: auto;
+}
+.workspace {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.breadcrumb {
+  background: white;
+  border-bottom: 1px solid #e4eaf0;
+  padding: 13px 36px;
+  color: #8996a3;
+  font-size: 12px;
+}
+.breadcrumb span {
+  padding: 0 12px;
+  color: #bec9d3;
+}
+.breadcrumb strong {
+  font-weight: 400;
+  color: #4c6276;
+}
+.main {
+  padding: 30px 36px 40px;
+  display: block;
+  align-items: initial;
+  width: 100%;
+  max-width: 1360px;
+  margin: 0 auto;
+}
+.footer {
+  margin-top: auto;
+  padding: 17px 36px;
+  border-top: 1px solid #e0e7ef;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #8996a3;
+  font-size: 11px;
+}
+@media (max-width: 1080px) {
+  .portal {
+    grid-template-columns: 200px minmax(0, 1fr);
+  }
+  .headerTitle {
+    display: none;
+  }
+  .main {
+    padding: 26px 24px;
+  }
+  .breadcrumb {
+    padding-left: 24px;
+  }
+}
+@media (max-width: 760px) {
+  .portal {
+    display: flex;
+    flex-direction: column;
+  }
+  .header {
+    padding: 20px;
+    gap: 10px;
+  }
+  .logo {
+    width: min(275px, 66vw);
+  }
+  .loginLink {
+    font-size: 11px;
+  }
+  .loginLink span {
+    display: none;
+  }
+  .sidebar {
+    padding: 12px 20px;
+    border-right: 0;
+    border-bottom: 1px solid #e0e7ef;
+  }
+  .sidebarHeading,
+  .sidebarNote,
+  .profile {
+    display: none;
+  }
+  .activeLink {
+    max-width: 100%;
+  }
+  .breadcrumb {
+    padding: 12px 20px;
+  }
+  .workspace {
+    flex: 1;
+  }
+  .main {
+    padding: 22px 16px 30px;
+  }
+  .footer {
+    padding: 16px 20px;
+    flex-direction: column;
+    gap: 2px;
+  }
+}

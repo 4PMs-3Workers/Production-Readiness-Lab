@@ -14,4 +14,4 @@
 /.prettierrc.json text eol=lf
 /docs/tasks/frontend-bootstrap.md text eol=lf
 /.github/workflows/frontend.yml text eol=lf
-/docs/screenshots/frontend-milestone-1/*.png -text
+/docs/screenshots/frontend-bootstrap/*.png -text

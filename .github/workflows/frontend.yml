@@ -38,7 +38,7 @@ jobs:
         run: npm --workspace src/frontend run lint
       - name: Typecheck
         run: npm --workspace src/frontend run typecheck
-      - name: Component tests
+      - name: Unit and component tests
         run: npm --workspace src/frontend run test
       - name: Production build
         run: npm --workspace src/frontend run build
@@ -46,3 +46,11 @@ jobs:
         run: npx --no-install playwright install --with-deps chromium
       - name: Desktop and mobile E2E tests
         run: npm --workspace src/frontend run test:e2e
+      - name: Preserve E2E failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-e2e-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/frontend/
+          if-no-files-found: ignore
+          retention-days: 7

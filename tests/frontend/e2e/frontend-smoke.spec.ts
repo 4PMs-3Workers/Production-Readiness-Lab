@@ -18,7 +18,7 @@ test('opens the Vietnamese demo routes and follows navigation without backend se
   await expect(page).toHaveURL('/booking');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Đặt lịch tư vấn');
 
-  await page.getByRole('navigation').getByRole('link', { name: 'Kết quả' }).click();
+  await page.goto('/booking/result');
   await expect(page).toHaveURL('/booking/result');
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Bạn chưa có kết quả đặt lịch.' })).toBeVisible();
