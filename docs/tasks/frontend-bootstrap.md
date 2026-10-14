@@ -164,7 +164,9 @@ Tests kiểm tra app shell, skip link, root redirect, ngôn ngữ `vi`, demo dis
 runtime errors và không tràn ngang. Unit tests kiểm tra dữ liệu, thời gian, hợp đồng
 và vòng đời mock services. E2E kiểm tra luồng đặt lịch thành công, lựa chọn phụ
 thuộc, OTHER, retry, booking failure, conflict recovery, stale responses và giữ
-kết quả qua menu; reset hoặc refresh xóa kết quả đúng phạm vi phiên.
+kết quả qua menu; reset hoặc refresh xóa kết quả đúng phạm vi phiên. Hồi quy P2
+kiểm tra rời trang khi đang xác nhận chậm, quay lại bằng client navigation,
+đặt lịch mới và tiếp tục sử dụng bộ chọn kịch bản/reset demo.
 
 Không cần tạo database hoặc khởi động backend để chạy các kiểm tra frontend.
 Workflow `.github/workflows/frontend.yml` chạy ngay từ mốc 1 trên pull request vào
@@ -191,23 +193,33 @@ và transaction của backend.
 
 ## Kết quả kiểm chứng
 
-Kiểm chứng bản gộp ngày **14/10/2026** trên Windows, Node.js 24.19.0 và npm 12.2.0.
-Xuất `HEAD` bằng `git archive`, chép toàn bộ file thay đổi và file mới, áp dụng
-các file đã xóa; không mang theo `node_modules`, `.next` hoặc generated types.
-Đã đối chiếu SHA-256 với working tree trước khi ghi kết quả.
+Kiểm chứng ngày **14/10/2026** trên Windows, Node.js 24.19.0 và npm 12.2.0.
+Bản gộp ban đầu được kiểm tra trên source sạch: xuất `HEAD` bằng `git archive`,
+chép file thay đổi/mới và áp dụng file đã xóa; không mang theo `node_modules`,
+`.next` hoặc generated types, rồi đối chiếu SHA-256 với working tree.
+Bản sửa P2 được kiểm tra lại trên workspace với cùng dependencies và lockfile;
+bảng dưới ghi kết quả mới nhất.
 
-| Kiểm tra                                | Kết quả                                                                   |
-| --------------------------------------- | ------------------------------------------------------------------------- |
-| Cài dependencies và kiểm tra chất lượng | Đạt: `npm ci`, format, lint và typecheck, với `next typegen` trước `tsc`. |
-| Vitest / React Testing Library          | 39 unit/component tests đạt cho nền tảng và mock services.                |
-| Production build                        | Đạt; bao gồm `/login`, `/booking` và `/booking/result`.                   |
-| Playwright                              | 20 E2E tests đạt trên desktop và mobile Chromium.                         |
-| Visual QA                               | Đạt; 14 ảnh hiện tại, không tràn ngang ở hai viewport đã chụp.            |
+| Kiểm tra                       | Kết quả                                                                     |
+| ------------------------------ | --------------------------------------------------------------------------- |
+| Cài dependencies               | `npm ci` đạt trên bản sao sạch ban đầu; P2 không đổi dependencies/lockfile. |
+| Format, lint và typecheck      | Đạt sau sửa P2; `next typegen` chạy trước `tsc`.                            |
+| Vitest / React Testing Library | 40 unit/component tests đạt, gồm cleanup muộn của submission cũ.            |
+| Production build               | Đạt; bao gồm `/login`, `/booking` và `/booking/result`.                     |
+| Playwright                     | 22 E2E tests đạt trên desktop và mobile Chromium.                           |
+| Visual QA                      | Đạt; 14 ảnh hiện tại, không tràn ngang ở hai viewport đã chụp.              |
 
-`npm ci` cài mới 269 packages từ lockfile. Typecheck chạy trước production build;
-39 unit/component tests thuộc 4 files. Cả 20 E2E tests đạt ngay lần đầu, dùng
+`npm ci` ban đầu cài mới 269 packages từ lockfile. Typecheck chạy trước production
+build; 40 unit/component tests thuộc 5 files. Cả 22 E2E tests đạt không cần retry, dùng
 Chromium khớp với Playwright 1.64.0 và production server riêng, không dùng lại
 preview server. Kết quả CI cũ tại `c06b45d` chỉ xác nhận scaffold trước đây.
+
+Test điều hướng trong khi xác nhận chậm đã thất bại trên cả desktop/mobile ở
+production build `94fc319`, rồi đạt sau sửa P2. Wizard hủy request và giải phóng
+trạng thái bận khi unmount; `finally` cũng giải phóng khi bị hủy. Provider chỉ
+cho request hiện đang sở hữu trạng thái bận xóa nó. Component test cố ý cho
+request cũ báo hủy sau khi request mới bắt đầu, để xác nhận request mới vẫn khóa
+nút gửi, Back, selector và reset cho đến khi hoàn tất.
 
 Toàn bộ ảnh review nằm trong
 [`docs/screenshots/frontend-bootstrap`](../screenshots/frontend-bootstrap/README.md).

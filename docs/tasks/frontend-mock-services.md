@@ -114,6 +114,11 @@ Request bị hủy không tiêu thụ lỗi một lần hoặc slot. Dữ liệu
 UI dùng AbortController cùng key/active guard để response của lựa chọn cũ không
 ghi đè lựa chọn mới; đổi nhu cầu/cố vấn/ngày xóa các trường phụ thuộc.
 
+Trạng thái bận khi xác nhận gắn với AbortController của từng submission trong
+provider. Unmount wizard hủy request và giải phóng trạng thái ngay; `finally`
+cũng giải phóng cả khi request bị hủy. Chỉ controller đang sở hữu trạng thái
+được xóa nó, nên cleanup/response muộn của request cũ không mở khóa request mới.
+
 Kết quả gần nhất ở trong provider chung của ứng dụng: chuyển qua `/login` rồi
 bấm **Kết quả** vẫn xem được cuộc hẹn vừa xác nhận. **Đặt lịch khác** bắt đầu một
 draft mới và giữ kết quả cũ; một lần xác nhận thành công tiếp theo sẽ thay thế nó.
@@ -127,14 +132,16 @@ trả danh tính giả; không đối chiếu một mật khẩu thật/hardcode
 Chạy các scripts frontend từ README, với Node.js 24.19.0 và npm 12.2.0:
 
 - Format, lint và typecheck đạt.
-- **39 unit/component tests**: catalog/associations, timestamps/duration/window,
+- **40 unit/component tests**: catalog/associations, timestamps/duration/window,
   biên ngày, OTHER, login outcomes, empty/fail-once/conflict, reset, hủy request,
-  input snapshot, đảo thứ tự response và cách ly state giữa các factory.
+  input snapshot, đảo thứ tự response, cách ly state giữa các factory và cleanup
+  submission cũ hoàn tất sau khi submission mới bắt đầu.
 - Production build đạt.
-- **20 E2E tests** trên desktop/mobile Chromium: các route, skip link, happy path
+- **22 E2E tests** trên desktop/mobile Chromium: các route, skip link, happy path
   không cần login, reset lựa chọn phụ thuộc, OTHER, retry, booking failure,
   conflict recovery, stale responses, refresh result và giữ kết quả qua menu
-  điều hướng/đặt lịch khác; reset demo xóa kết quả.
+  điều hướng/đặt lịch khác; reset demo xóa kết quả. Có hồi quy cho rời trang khi
+  đang xác nhận chậm, quay lại không refresh, gửi lịch mới và dùng selector/reset.
 - Đã chụp 14 ảnh: login, 4 bước đặt lịch, kết quả thành công và kết quả rỗng
   trên desktop 1440×900/mobile 390×844; không tràn ngang ở các trạng thái đã chụp.
   Bộ ảnh hiện tại và chú thích route/viewport nằm trong

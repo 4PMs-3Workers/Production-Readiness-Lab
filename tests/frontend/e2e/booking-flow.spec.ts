@@ -80,6 +80,49 @@ test('keeps the latest result when starting another booking and returning throug
   await expect(page.getByRole('heading', { name: 'Bạn chưa có kết quả đặt lịch.' })).toBeVisible();
 });
 
+test('releases a slow submission after client navigation and allows another booking', async ({
+  page,
+}) => {
+  await page.goto('/booking');
+  await chooseScenario(page, 'slow');
+  await selectTime(page);
+  await page.getByRole('button', { name: 'Xác nhận đặt lịch' }).click();
+  await expect(page.getByRole('button', { name: 'Đang xác nhận…' })).toBeDisabled();
+
+  await page.getByRole('link', { name: 'Đăng nhập', exact: true }).click();
+  await expect(page).toHaveURL('/login');
+  await page.getByRole('navigation').getByRole('link', { name: 'Đặt lịch', exact: true }).click();
+  await expect(page).toHaveURL('/booking');
+  await page.getByText('Thiết lập bản demo', { exact: false }).click();
+  const scenario = page.getByLabel('Kịch bản trải nghiệm');
+  const reset = page.getByRole('button', { name: 'Đặt lại demo', exact: true });
+  // The slow preset survives only when navigation retains the existing demo provider.
+  await expect(scenario).toHaveValue('slow');
+  await expect(scenario).toBeEnabled();
+  await expect(reset).toBeEnabled();
+
+  await selectTime(page);
+  await expect(page.getByRole('button', { name: /Quay lại/ })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Xác nhận đặt lịch' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Xác nhận đặt lịch' }).click();
+  await expect(page.getByRole('button', { name: 'Đang xác nhận…' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: /Quay lại/ })).toBeDisabled();
+  await expect(scenario).toBeDisabled();
+  await expect(reset).toBeDisabled();
+  await expect(page).toHaveURL('/booking/result');
+  await expect(page.getByText('Mã lịch hẹn: DEMO-0001')).toBeVisible();
+
+  await page.getByRole('link', { name: 'Đặt lịch khác' }).click();
+  await chooseScenario(page, 'success');
+  await expect(scenario).toHaveValue('success');
+  await page.getByRole('radio', { name: /Nghề nghiệp và thực tập/ }).check();
+  await expect(page.getByRole('button', { name: 'Tiếp tục' })).toBeEnabled();
+  await page.getByText('Thiết lập bản demo', { exact: false }).click();
+  await reset.click();
+  await expect(page.getByRole('button', { name: 'Tiếp tục' })).toBeDisabled();
+  await expect(page.getByRole('radio', { checked: true })).toHaveCount(0);
+});
+
 test('requires OTHER text and preserves it in review', async ({ page }) => {
   await page.goto('/booking');
   await page.getByRole('radio', { name: /Nhu cầu khác/ }).check();

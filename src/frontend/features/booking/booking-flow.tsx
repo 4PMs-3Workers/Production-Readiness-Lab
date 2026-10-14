@@ -38,7 +38,7 @@ export function BookingFlow() {
 }
 
 function BookingWizard() {
-  const { services, setResult, busy, setBusy, resetDemo } = useDemo();
+  const { services, setResult, busy, beginSubmission, finishSubmission, resetDemo } = useDemo();
   const router = useRouter();
   const [selection, setSelection] = useState<BookingSelection>(emptySelection);
   const [step, setStep] = useState(0);
@@ -49,7 +49,16 @@ function BookingWizard() {
   const previousStep = useRef(0);
   const configuration = services.getConfiguration();
 
-  useEffect(() => () => pending.current?.abort(), []);
+  useEffect(
+    () => () => {
+      const controller = pending.current;
+      if (!controller) return;
+      pending.current = null;
+      controller.abort();
+      finishSubmission(controller);
+    },
+    [finishSubmission],
+  );
   useEffect(() => {
     if (previousStep.current !== step) heading.current?.focus();
     previousStep.current = step;
@@ -74,7 +83,7 @@ function BookingWizard() {
     if (pending.current || !selection.purpose || !selection.staff || !selection.slot) return;
     const controller = new AbortController();
     pending.current = controller;
-    setBusy(true);
+    beginSubmission(controller);
     setError('');
     try {
       const result = await services.createBooking(
@@ -101,10 +110,8 @@ function BookingWizard() {
         setStep(2);
       }
     } finally {
-      if (!controller.signal.aborted) {
-        pending.current = null;
-        setBusy(false);
-      }
+      if (pending.current === controller) pending.current = null;
+      finishSubmission(controller);
     }
   }
 
