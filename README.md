@@ -14,12 +14,12 @@ Dự án lấy một bài toán thực tế làm nền tảng: sinh viên chọn
 
 ## Nghiệp vụ
 
-| Vai trò | Chức năng |
-|---|---|
-| Sinh viên | Chọn nhu cầu và nhân viên, xem giờ trống, đặt/hủy lịch, phản hồi đề nghị đổi lịch, xem lịch sử và thông báo cá nhân. |
-| Nhân viên / cố vấn | Quản lý nhu cầu tiếp nhận và thời gian không nhận, xem lịch được giao, đề nghị đổi giờ/địa điểm, ghi nhận kết quả buổi gặp. |
-| Quản trị viên | Quản lý tài khoản, danh mục nhu cầu tư vấn và giờ phục vụ chung. |
-| Thành viên vận hành | Triển khai release, theo dõi hệ thống, xử lý cảnh báo, sao lưu, khôi phục và diễn tập sự cố. |
+| Vai trò             | Chức năng                                                                                                                   |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Sinh viên           | Chọn nhu cầu và nhân viên, xem giờ trống, đặt/hủy lịch, phản hồi đề nghị đổi lịch, xem lịch sử và thông báo cá nhân.        |
+| Nhân viên / cố vấn  | Quản lý nhu cầu tiếp nhận và thời gian không nhận, xem lịch được giao, đề nghị đổi giờ/địa điểm, ghi nhận kết quả buổi gặp. |
+| Quản trị viên       | Quản lý tài khoản, danh mục nhu cầu tư vấn và giờ phục vụ chung.                                                            |
+| Thành viên vận hành | Triển khai release, theo dõi hệ thống, xử lý cảnh báo, sao lưu, khôi phục và diễn tập sự cố.                                |
 
 Quyền vận hành hạ tầng được quản lý riêng với vai trò quản trị viên trong ứng dụng.
 
@@ -46,19 +46,19 @@ Chi tiết trạng thái, ràng buộc và giao dịch nằm trong [thiết kế
 
 ## Công nghệ
 
-| Thành phần | Công nghệ |
-|---|---|
-| Giao diện | Next.js App Router, React, TypeScript strict |
-| Backend | FastAPI, Python 3.11+, Pydantic |
-| Truy cập dữ liệu | SQLAlchemy 2, asyncmy, Alembic |
-| Cơ sở dữ liệu | MySQL 8.4 LTS, InnoDB |
-| Worker | Tiến trình Python dùng chung mã nguồn và image backend |
-| Reverse proxy | Nginx |
-| Đóng gói và triển khai | Docker, Docker Compose trên Linux/VM |
-| CI/CD | GitHub Actions, container registry |
-| Thu thập telemetry | OpenTelemetry Collector |
-| Metrics, logs và traces | Prometheus, Loki, Tempo |
-| Dashboard và cảnh báo | Grafana, Alertmanager, probe ngoài máy chủ ứng dụng |
+| Thành phần              | Công nghệ                                              |
+| ----------------------- | ------------------------------------------------------ |
+| Giao diện               | Next.js App Router, React, TypeScript strict           |
+| Backend                 | FastAPI, Python 3.11+, Pydantic                        |
+| Truy cập dữ liệu        | SQLAlchemy 2, asyncmy, Alembic                         |
+| Cơ sở dữ liệu           | MySQL 8.4 LTS, InnoDB                                  |
+| Worker                  | Tiến trình Python dùng chung mã nguồn và image backend |
+| Reverse proxy           | Nginx                                                  |
+| Đóng gói và triển khai  | Docker, Docker Compose trên Linux/VM                   |
+| CI/CD                   | GitHub Actions, container registry                     |
+| Thu thập telemetry      | OpenTelemetry Collector                                |
+| Metrics, logs và traces | Prometheus, Loki, Tempo                                |
+| Dashboard và cảnh báo   | Grafana, Alertmanager, probe ngoài máy chủ ứng dụng    |
 
 ## Kiến trúc
 
@@ -94,13 +94,13 @@ Xem [thiết kế hệ thống](docs/architecture/system-design.md) để hiểu
 
 Các tiêu chí dưới đây là mục tiêu nghiệm thu. Kết quả được đánh giá bằng dữ liệu đo và bằng chứng kiểm thử.
 
-| Tiêu chí | Mục tiêu |
-|---|---|
-| Availability | ≥99,5% trên request hợp lệ trong cửa sổ trượt 7 ngày. |
-| Độ trễ | ≥95% request hợp lệ thành công hoàn tất trong ≤500 ms tại gateway, cùng cửa sổ 7 ngày. |
-| Nhất quán lịch | Không có cặp lịch đang chiếm chỗ giao nhau của cùng nhân viên. |
-| Phát hiện sự cố | Alert chuyển sang trạng thái firing trong ≤3 phút khi diễn tập. |
-| Phục hồi release | Rollback và xác minh phục hồi trong ≤5 phút kể từ quyết định rollback. |
+| Tiêu chí         | Mục tiêu                                                                               |
+| ---------------- | -------------------------------------------------------------------------------------- |
+| Availability     | ≥99,5% trên request hợp lệ trong cửa sổ trượt 7 ngày.                                  |
+| Độ trễ           | ≥95% request hợp lệ thành công hoàn tất trong ≤500 ms tại gateway, cùng cửa sổ 7 ngày. |
+| Nhất quán lịch   | Không có cặp lịch đang chiếm chỗ giao nhau của cùng nhân viên.                         |
+| Phát hiện sự cố  | Alert chuyển sang trạng thái firing trong ≤3 phút khi diễn tập.                        |
+| Phục hồi release | Rollback và xác minh phục hồi trong ≤5 phút kể từ quyết định rollback.                 |
 
 Phạm vi triển khai là một trường đại học với máy chủ demo dùng Docker Compose. Probe và kênh cảnh báo nằm ngoài máy chủ ứng dụng để phát hiện được sự cố toàn máy chủ. RPO/RTO của sao lưu được đánh giá qua bài khôi phục dữ liệu.
 
@@ -129,16 +129,56 @@ Production-Readiness-Lab/
 
 ## Tài liệu
 
-| Tài liệu | Nội dung |
-|---|---|
-| [Thiết kế hệ thống](docs/architecture/system-design.md) | Kiến trúc, luồng nghiệp vụ, bảo mật, observability, triển khai và phục hồi. |
-| [Thiết kế cơ sở dữ liệu](docs/architecture/database-design.md) | Mô hình 11 bảng, ràng buộc, chỉ mục và xử lý giao dịch cạnh tranh. |
-| [Models cơ sở dữ liệu](docs/architecture/database-models.md) | Ánh xạ SQLAlchemy, chuyển đổi kiểu dữ liệu và hướng dẫn chạy kiểm tra. |
-| [Task database models](docs/tasks/database-models.md) | Phạm vi triển khai, kiểm thử và bàn giao bộ models. |
-| [Coding convention](docs/other/CONVENTION.md) | Quy ước tổ chức và viết mã frontend/backend. |
-| [Git Flow](docs/other/GITFLOW.md) | Vai trò các branch, Pull Request và quy trình release/hotfix. |
+| Tài liệu                                                              | Nội dung                                                                    |
+| --------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| [Thiết kế hệ thống](docs/architecture/system-design.md)               | Kiến trúc, luồng nghiệp vụ, bảo mật, observability, triển khai và phục hồi. |
+| [Thiết kế cơ sở dữ liệu](docs/architecture/database-design.md)        | Mô hình 11 bảng, ràng buộc, chỉ mục và xử lý giao dịch cạnh tranh.          |
+| [Models cơ sở dữ liệu](docs/architecture/database-models.md)          | Ánh xạ SQLAlchemy, chuyển đổi kiểu dữ liệu và hướng dẫn chạy kiểm tra.      |
+| [Task database models](docs/tasks/database-models.md)                 | Phạm vi triển khai, kiểm thử và bàn giao bộ models.                         |
+| [Task frontend bootstrap](docs/tasks/frontend-bootstrap.md)           | Bản gộp mốc 1 + 2: nền tảng, CI, UI đặt lịch và kiểm chứng.                 |
+| [Mock services và UI đặt lịch](docs/tasks/frontend-mock-services.md)  | Chi tiết fixtures, preset, clock và thao tác đặt lịch bằng dữ liệu demo.    |
+| [Coding convention](docs/other/CONVENTION.md)                         | Quy ước tổ chức và viết mã frontend/backend.                                |
+| [Git Flow](docs/other/GITFLOW.md)                                     | Vai trò các branch, Pull Request và quy trình release/hotfix.               |
 
 ## Phát triển và kiểm thử
+
+### Chạy frontend
+
+Frontend nằm trong npm workspace `src/frontend`. Dùng Node.js 24 theo `.nvmrc`
+và npm 12.2.0; chạy từ thư mục gốc repository:
+
+```bash
+npm ci
+npm --workspace src/frontend run dev
+```
+
+Mở `http://127.0.0.1:3000/booking` để trải nghiệm trực tiếp UI đặt lịch với dữ liệu
+mock, không cần đăng nhập hoặc chạy FastAPI/MySQL. Sidebar có tab Đặt lịch tư vấn;
+bạn chọn nhu cầu, cố vấn, ngày/giờ rồi xác nhận để xem `/booking/result`.
+Panel **Thiết lập bản demo** ở cuối trang cung cấp các kịch bản lỗi/thử lại/xung đột.
+`/login` hiện vẫn là trang khung; UI đăng nhập và Home sẽ được triển khai tiếp theo
+trong issue #7. Nền tảng và mock booking được bàn giao chung trong
+[bản gộp mốc 1 + 2](docs/tasks/frontend-bootstrap.md); hợp đồng services và các
+kịch bản nằm trong [tài liệu mock services](docs/tasks/frontend-mock-services.md).
+
+Trên PowerShell, nếu `node` chưa có trên PATH nhưng dependencies đã được cài,
+có thể chạy `./tools/scripts/start-frontend.ps1`. Script tìm Node trên PATH,
+thư mục cài Node chuẩn hoặc runtime Codex của người dùng, rồi mở dev server;
+không yêu cầu npm trên PATH và không đổi PATH hệ thống.
+
+```bash
+npm --workspace src/frontend run format:check
+npm --workspace src/frontend run lint
+npm --workspace src/frontend run typecheck
+npm --workspace src/frontend run test
+npm --workspace src/frontend run build
+npm --workspace src/frontend exec -- playwright install chromium
+npm --workspace src/frontend run test:e2e
+```
+
+Playwright tự chạy production server trên cổng 3100 sau khi đã build.
+Xem [hướng dẫn frontend](docs/tasks/frontend-bootstrap.md) để biết phiên bản,
+cấu trúc và phạm vi kiểm tra hiện tại.
 
 ### Chạy nền tảng FastAPI
 
@@ -157,30 +197,30 @@ Chạy migration theo `docs/tasks/database-migrations.md` trước khi mong read
 Phiên bản schema ban đầu được chấp nhận là `a1b2c3d4e5f6`. `ACCEPTED_SCHEMA_REVISIONS`
 có thể liệt kê nhiều revision tương thích, cách nhau bằng dấu phẩy; revision khác luôn trả 503.
 
-| Biến môi trường | Bắt buộc / mặc định | Ý nghĩa và giá trị hợp lệ |
-|---|---|---|
-| `DATABASE_URL` | Bắt buộc | URL `mysql+asyncmy` có tên database; chỉ cung cấp qua môi trường hoặc `.env` local. |
-| `MYSQL_TEST_URL` | Chỉ cho tests MySQL | URL tài khoản test có quyền tạo/xóa schema riêng; không dùng database demo. |
-| `ENVIRONMENT` | `local` | `local`, `test`, `demo`, `production`. |
-| `APPLICATION_ORIGIN` | Bắt buộc | Origin HTTP(S), không có path/query/credentials; demo/production phải HTTPS. |
-| `COOKIE_SECRET`, `CSRF_SECRET` | Bắt buộc | Hai secret không rỗng, độc lập; không đưa vào Git/log. |
-| `COOKIE_SECURE` | `true` | Boolean; bắt buộc `true` trong demo/production và khi SameSite là `none`. Local HTTP đặt `false`. |
-| `COOKIE_SAMESITE` | `lax` | `lax`, `strict`, `none`. |
-| `COOKIE_DOMAIN` | Không đặt | Hostname cookie; không đặt để cookie host-only. |
-| `DB_POOL_SIZE`, `DB_MAX_OVERFLOW` | `5`, `5` | Số kết nối cơ bản >0 và kết nối vượt mức >=0 trên mỗi API process. |
-| `DB_CONNECT_TIMEOUT_SECONDS` | `1` giây | Timeout kết nối hữu hạn, >0. |
-| `DB_POOL_TIMEOUT_SECONDS` | `0.5` giây | Timeout chờ pool hữu hạn, >0. |
-| `DB_QUERY_TIMEOUT_SECONDS` | `1` giây | Timeout truy vấn hữu hạn, >0; dành cho services sau này. |
-| `DB_LOCK_TIMEOUT_SECONDS` | `0.5` giây | Timeout chờ khóa hữu hạn, >0; dành cho services sau này. |
-| `REQUEST_TIMEOUT_SECONDS` | `3` giây | Ngân sách request hữu hạn, >0; dành cho business routes sau này. |
-| `READINESS_TIMEOUT_SECONDS` | `2` giây | Deadline hữu hạn, >0 cho toàn bộ readiness, gồm chờ pool, kết nối và cả hai query. |
-| `MAX_DEADLOCK_RETRIES` | `2` | Số lần retry >=0, dành cho services sau này. |
-| `WORKER_POLL_INTERVAL_SECONDS` | `5` giây | Chu kỳ quét hữu hạn, >0; dành cho worker sau này. |
-| `WORKER_BATCH_SIZE` | `100` | Số bản ghi/batch >0, dành cho worker sau này. |
-| `WORKER_GRACE_SECONDS` | `30` giây | Grace period hữu hạn, >0; dành cho worker sau này. |
-| `WORKER_HEARTBEAT_INTERVAL_SECONDS` | `15` giây | Chu kỳ heartbeat hữu hạn, >0; dành cho worker sau này. |
-| `ACCEPTED_SCHEMA_REVISIONS` | Bắt buộc | Danh sách Alembic revision không rỗng, cách nhau bằng dấu phẩy. |
-| `TRUSTED_GATEWAY_CIDRS` | Rỗng | Danh sách CIDR của **peer mạng trực tiếp**, cách nhau bằng dấu phẩy; rỗng nghĩa là không tin incoming `X-Request-ID`. |
+| Biến môi trường                     | Bắt buộc / mặc định | Ý nghĩa và giá trị hợp lệ                                                                                             |
+| ----------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                      | Bắt buộc            | URL `mysql+asyncmy` có tên database; chỉ cung cấp qua môi trường hoặc `.env` local.                                   |
+| `MYSQL_TEST_URL`                    | Chỉ cho tests MySQL | URL tài khoản test có quyền tạo/xóa schema riêng; không dùng database demo.                                           |
+| `ENVIRONMENT`                       | `local`             | `local`, `test`, `demo`, `production`.                                                                                |
+| `APPLICATION_ORIGIN`                | Bắt buộc            | Origin HTTP(S), không có path/query/credentials; demo/production phải HTTPS.                                          |
+| `COOKIE_SECRET`, `CSRF_SECRET`      | Bắt buộc            | Hai secret không rỗng, độc lập; không đưa vào Git/log.                                                                |
+| `COOKIE_SECURE`                     | `true`              | Boolean; bắt buộc `true` trong demo/production và khi SameSite là `none`. Local HTTP đặt `false`.                     |
+| `COOKIE_SAMESITE`                   | `lax`               | `lax`, `strict`, `none`.                                                                                              |
+| `COOKIE_DOMAIN`                     | Không đặt           | Hostname cookie; không đặt để cookie host-only.                                                                       |
+| `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`   | `5`, `5`            | Số kết nối cơ bản >0 và kết nối vượt mức >=0 trên mỗi API process.                                                    |
+| `DB_CONNECT_TIMEOUT_SECONDS`        | `1` giây            | Timeout kết nối hữu hạn, >0.                                                                                          |
+| `DB_POOL_TIMEOUT_SECONDS`           | `0.5` giây          | Timeout chờ pool hữu hạn, >0.                                                                                         |
+| `DB_QUERY_TIMEOUT_SECONDS`          | `1` giây            | Timeout truy vấn hữu hạn, >0; dành cho services sau này.                                                              |
+| `DB_LOCK_TIMEOUT_SECONDS`           | `0.5` giây          | Timeout chờ khóa hữu hạn, >0; dành cho services sau này.                                                              |
+| `REQUEST_TIMEOUT_SECONDS`           | `3` giây            | Ngân sách request hữu hạn, >0; dành cho business routes sau này.                                                      |
+| `READINESS_TIMEOUT_SECONDS`         | `2` giây            | Deadline hữu hạn, >0 cho toàn bộ readiness, gồm chờ pool, kết nối và cả hai query.                                    |
+| `MAX_DEADLOCK_RETRIES`              | `2`                 | Số lần retry >=0, dành cho services sau này.                                                                          |
+| `WORKER_POLL_INTERVAL_SECONDS`      | `5` giây            | Chu kỳ quét hữu hạn, >0; dành cho worker sau này.                                                                     |
+| `WORKER_BATCH_SIZE`                 | `100`               | Số bản ghi/batch >0, dành cho worker sau này.                                                                         |
+| `WORKER_GRACE_SECONDS`              | `30` giây           | Grace period hữu hạn, >0; dành cho worker sau này.                                                                    |
+| `WORKER_HEARTBEAT_INTERVAL_SECONDS` | `15` giây           | Chu kỳ heartbeat hữu hạn, >0; dành cho worker sau này.                                                                |
+| `ACCEPTED_SCHEMA_REVISIONS`         | Bắt buộc            | Danh sách Alembic revision không rỗng, cách nhau bằng dấu phẩy.                                                       |
+| `TRUSTED_GATEWAY_CIDRS`             | Rỗng                | Danh sách CIDR của **peer mạng trực tiếp**, cách nhau bằng dấu phẩy; rỗng nghĩa là không tin incoming `X-Request-ID`. |
 
 Gateway chuyển `X-Request-ID` nhưng chỉ IP Nginx được cấu hình trong
 `TRUSTED_GATEWAY_CIDRS`. Chạy Uvicorn với `--no-proxy-headers` hoặc cấu hình proxy sao cho
@@ -192,6 +232,8 @@ Kiểm thử từ gốc repo: `python -m pytest tests/backend -q` với MySQL 8.
 `python tools/scripts/export_openapi.py`, rồi `git diff --exit-code -- docs/api/openapi.yaml`.
 Trên Windows, một số chính sách sandbox có thể chặn event loop asyncio; chạy tests async
 trong môi trường Python được phép tạo event loop.
+
+### Kiểm thử hệ thống
 
 Đọc thiết kế hệ thống và cơ sở dữ liệu trước khi thay đổi nghiệp vụ. Router xử lý hợp đồng HTTP; service chịu trách nhiệm quy tắc và transaction; repository thực hiện truy vấn với session do service cung cấp. Frontend tập trung lời gọi API trong lớp `services` và xử lý đầy đủ trạng thái loading, lỗi, dữ liệu rỗng và xung đột.
 

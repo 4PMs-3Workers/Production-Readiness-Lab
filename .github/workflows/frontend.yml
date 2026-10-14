@@ -1,0 +1,56 @@
+name: Frontend
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main, 'feature/**', 'fixbug/**', 'hotfix/**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CI: 'true'
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Use the project npm version
+        run: npm install --global npm@12.2.0
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Check formatting
+        run: npm --workspace src/frontend run format:check
+      - name: Lint
+        run: npm --workspace src/frontend run lint
+      - name: Typecheck
+        run: npm --workspace src/frontend run typecheck
+      - name: Unit and component tests
+        run: npm --workspace src/frontend run test
+      - name: Production build
+        run: npm --workspace src/frontend run build
+      - name: Install Playwright Chromium and system dependencies
+        run: npx --no-install playwright install --with-deps chromium
+      - name: Desktop and mobile E2E tests
+        run: npm --workspace src/frontend run test:e2e
+      - name: Preserve E2E failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-e2e-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/frontend/
+          if-no-files-found: ignore
+          retention-days: 7

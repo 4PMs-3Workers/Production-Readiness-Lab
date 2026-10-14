@@ -1,0 +1,22 @@
+{
+  "name": "@prl/frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1",
+    "start": "next start --hostname 127.0.0.1",
+    "build": "next build",
+    "format": "prettier --write --ignore-path ../../.prettierignore . ../../tests/frontend ../../package.json ../../.prettierrc.json ../../eslint.config.mjs ../../tools/scripts/lint-frontend.mjs ../../.github/workflows/frontend.yml",
+    "format:check": "prettier --check --ignore-path ../../.prettierignore . ../../tests/frontend ../../package.json ../../.prettierrc.json ../../eslint.config.mjs ../../tools/scripts/lint-frontend.mjs ../../.github/workflows/frontend.yml",
+    "lint": "node ../../tools/scripts/lint-frontend.mjs",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "vitest run --config vitest.config.ts",
+    "test:e2e": "playwright test --config playwright.config.ts"
+  },
+  "dependencies": {
+    "next": "16.4.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  }
+}

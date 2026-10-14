@@ -1,6 +1,8 @@
 # Node.js dependencies and generated output
 node_modules/
 .next/
+next-env.d.ts
+*.tsbuildinfo
 out/
 dist/
 build/*
