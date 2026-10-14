@@ -15,7 +15,7 @@ vẫn là trang khung; form đăng nhập giả lập và Home là phần tiếp
 tiếp tục mở**, chưa nghiệm thu toàn bộ acceptance criteria.
 
 Xem [hợp đồng mock services và các kịch bản](frontend-mock-services.md) và
-[bộ screenshots hiện tại](../screenshots/frontend-bootstrap/README.md).
+ảnh review nhúng trong mô tả [PR #10](https://github.com/4PMs-3Workers/Production-Readiness-Lab/pull/10).
 
 ## Môi trường và dependencies
 
@@ -207,7 +207,7 @@ bảng dưới ghi kết quả mới nhất.
 | Vitest / React Testing Library | 40 unit/component tests đạt, gồm cleanup muộn của submission cũ.            |
 | Production build               | Đạt; bao gồm `/login`, `/booking` và `/booking/result`.                     |
 | Playwright                     | 22 E2E tests đạt trên desktop và mobile Chromium.                           |
-| Visual QA                      | Đạt; 14 ảnh hiện tại, không tràn ngang ở hai viewport đã chụp.              |
+| Visual QA                      | Đạt; đã chụp 14 ảnh, không tràn ngang ở hai viewport đã kiểm tra.           |
 
 `npm ci` ban đầu cài mới 269 packages từ lockfile. Typecheck chạy trước production
 build; 40 unit/component tests thuộc 5 files. Cả 22 E2E tests đạt không cần retry, dùng
@@ -221,12 +221,13 @@ cho request hiện đang sở hữu trạng thái bận xóa nó. Component test
 request cũ báo hủy sau khi request mới bắt đầu, để xác nhận request mới vẫn khóa
 nút gửi, Back, selector và reset cho đến khi hoàn tất.
 
-Toàn bộ ảnh review nằm trong
-[`docs/screenshots/frontend-bootstrap`](../screenshots/frontend-bootstrap/README.md).
-Bộ ảnh gồm login, cả bốn bước đặt lịch, kết quả thành công và trạng thái rỗng;
+Ảnh review được nhúng trực tiếp trong mô tả
+[PR #10](https://github.com/4PMs-3Workers/Production-Readiness-Lab/pull/10).
+Bộ ảnh đã chụp gồm login, cả bốn bước đặt lịch, kết quả thành công và trạng thái rỗng;
 mỗi trạng thái có ảnh desktop (viewport 1440 × 900) và mobile (viewport 390 × 844),
-chụp toàn trang từ production build. Đây là bộ ảnh chung thay thế ảnh scaffold.
-Các ảnh cũ vẫn xem được trong lịch sử Git tại `c06b45d`.
+chụp toàn trang từ production build. Thư mục screenshot đã được xóa khỏi cây mã
+nguồn hiện tại; bộ ảnh vẫn xem được tại
+[commit `7505019`](https://github.com/4PMs-3Workers/Production-Readiness-Lab/tree/750501984778a4de3d4a16b117aa727973954bbd/docs/screenshots/frontend-bootstrap).
 
 Kết quả trên được thu thập local. Mỗi commit được đẩy cần chạy lại CI; không dùng
 CI của `c06b45d` làm bằng chứng cho code mới. Mô tả PR dùng phạm vi mốc 1 + 2 và

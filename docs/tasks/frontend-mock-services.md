@@ -144,8 +144,8 @@ Chạy các scripts frontend từ README, với Node.js 24.19.0 và npm 12.2.0:
   đang xác nhận chậm, quay lại không refresh, gửi lịch mới và dùng selector/reset.
 - Đã chụp 14 ảnh: login, 4 bước đặt lịch, kết quả thành công và kết quả rỗng
   trên desktop 1440×900/mobile 390×844; không tràn ngang ở các trạng thái đã chụp.
-  Bộ ảnh hiện tại và chú thích route/viewport nằm trong
-  [bộ screenshots chung](../screenshots/frontend-bootstrap/README.md).
+  Bộ ảnh và chú thích route/viewport được nhúng trong mô tả
+  [PR #10](https://github.com/4PMs-3Workers/Production-Readiness-Lab/pull/10).
   Bộ ảnh này thay thế ảnh scaffold trước đây. Ảnh kết quả thành công được chụp sau khi
   đi qua menu để kiểm chứng kết quả vẫn được giữ lại.
 
