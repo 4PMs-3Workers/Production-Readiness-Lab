@@ -1,0 +1,153 @@
+components:
+  schemas:
+    ErrorDetail:
+      properties:
+        code:
+          title: Code
+          type: string
+        message:
+          title: Message
+          type: string
+        request_id:
+          title: Request Id
+          type: string
+      required:
+      - code
+      - message
+      - request_id
+      title: ErrorDetail
+      type: object
+    ErrorResponse:
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorDetail'
+      required:
+      - error
+      title: ErrorResponse
+      type: object
+    LiveResponse:
+      properties:
+        status:
+          const: live
+          title: Status
+          type: string
+      required:
+      - status
+      title: LiveResponse
+      type: object
+    ReadyResponse:
+      properties:
+        status:
+          const: ready
+          title: Status
+          type: string
+      required:
+      - status
+      title: ReadyResponse
+      type: object
+info:
+  title: FastAPI
+  version: 0.1.0
+openapi: 3.1.0
+paths:
+  /health/live:
+    get:
+      operationId: live_health_live_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LiveResponse'
+          description: Successful Response
+          headers:
+            Cache-Control:
+              description: Always no-store
+              schema:
+                type: string
+            X-Request-ID:
+              description: Request correlation ID
+              schema:
+                type: string
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Internal Server Error
+          headers:
+            Cache-Control:
+              description: Always no-store
+              schema:
+                type: string
+            X-Error-Class:
+              description: Error class
+              schema:
+                type: string
+            X-Request-ID:
+              description: Request correlation ID
+              schema:
+                type: string
+      summary: Live
+      tags:
+      - health
+  /health/ready:
+    get:
+      operationId: ready_health_ready_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyResponse'
+          description: Successful Response
+          headers:
+            Cache-Control:
+              description: Always no-store
+              schema:
+                type: string
+            X-Request-ID:
+              description: Request correlation ID
+              schema:
+                type: string
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Internal Server Error
+          headers:
+            Cache-Control:
+              description: Always no-store
+              schema:
+                type: string
+            X-Error-Class:
+              description: Error class
+              schema:
+                type: string
+            X-Request-ID:
+              description: Request correlation ID
+              schema:
+                type: string
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Database unavailable or schema incompatible
+          headers:
+            Cache-Control:
+              description: Always no-store
+              schema:
+                type: string
+            X-Error-Class:
+              description: Error class
+              schema:
+                type: string
+            X-Request-ID:
+              description: Request correlation ID
+              schema:
+                type: string
+      summary: Ready
+      tags:
+      - health
