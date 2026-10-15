@@ -120,6 +120,8 @@ def test_malformed_database_url_is_reported_without_echoing_value(monkeypatch):
         "https://example.com\\evil",
         "https://-example.com",
         "https://example..com",
+        "http://localhost:3000?",
+        "http://localhost:3000#",
     ],
 )
 def test_origin_rejects_malformed_hostname_or_characters(origin):

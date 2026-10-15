@@ -127,6 +127,8 @@ class Settings(BaseSettings):
             or parsed.username is not None
             or parsed.password is not None
             or parsed.path not in {"", "/"}
+            or "?" in value
+            or "#" in value
             or parsed.query
             or parsed.fragment
             or not valid_port

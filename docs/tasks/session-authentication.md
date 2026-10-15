@@ -196,7 +196,7 @@ Không có finding Minor bị hoãn. Các fix được xác minh bằng tests v�
 
 | Kiểm tra | Kết quả |
 |---|---|
-| Full backend, JUnit, MySQL 8.4.11 | **255 passed, 0 failed, 0 skipped**, 91.88 giây |
+| Full backend, JUnit, MySQL 8.4.11 | **260 passed, 0 failed, 0 skipped**, 88.34 giây |
 | Black | 68 Python files không cần format lại |
 | Ruff | All checks passed |
 | Pyright 1.1.407 | 0 errors, 0 warnings |
@@ -211,6 +211,11 @@ warnings thuộc các loại deprecation Starlette TestClient/httpx và Alembic 
 nền hiện có. Không nâng dependency ngoài Argon2 để xử lý các cảnh báo không thuộc Issue này.
 Log kiểm chứng local nằm trong `build/session-auth/` (gitignored); kết quả trên không phải CI.
 Tài liệu này và các local commits là handoff; chưa push/PR/merge/đóng Issue.
+
+Lượt rà soát diff cuối tái hiện việc Origin và APPLICATION_ORIGIN chấp nhận dấu `?`/`#` rỗng
+ở cuối URL. Đã bổ sung regression tests và từ chối các chuỗi này; Referer có path/query hợp lệ
+vẫn được chấp nhận làm fallback. Full suite 260 tests và Black/Ruff/Pyright đạt sau sửa;
+OpenAPI export không đổi. Chưa có CI run cho commit sửa này.
 
 ## Quyết định thực thi so với kế hoạch
 

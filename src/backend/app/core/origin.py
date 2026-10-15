@@ -19,7 +19,7 @@ def parse_origin(value: str, *, referer: bool = False) -> tuple[str, str, int]:
         or parsed.username is not None
         or parsed.password is not None
         or parsed.fragment
-        or (not referer and (parsed.path or parsed.query))
+        or (not referer and (parsed.path or "?" in value or "#" in value))
     ):
         raise ValueError("Invalid origin")
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
