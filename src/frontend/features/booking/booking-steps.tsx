@@ -1,21 +1,14 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 import { useDemo } from '@/features/demo/demo-provider';
 import { formatBusinessDate, formatBusinessTime } from '@/lib/business-time';
 import type { AvailableSlot, Purpose, Staff } from '@/types/booking';
 
 import styles from './booking.module.css';
+import type { BookingSelection } from './booking-state';
 import { useDemoResource } from './use-demo-resource';
-
-export interface BookingSelection {
-  purpose: Purpose | null;
-  staff: Staff | null;
-  date: string;
-  slot: AvailableSlot | null;
-  description: string;
-}
 
 function Feedback({
   loading,
@@ -28,8 +21,17 @@ function Feedback({
   retry?: () => void;
   empty?: string;
 }) {
+  const feedback = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (error) feedback.current?.focus();
+  }, [error]);
   return (
-    <div className={styles.feedback} role={error ? 'alert' : 'status'}>
+    <div
+      className={styles.feedback}
+      role={error ? 'alert' : 'status'}
+      tabIndex={error ? -1 : undefined}
+      ref={feedback}
+    >
       {loading ? (
         <>
           <span className={styles.spinner} aria-hidden="true" />
@@ -202,7 +204,9 @@ function SlotOptions({
   if (state.status === 'loading') return <Feedback loading />;
   if (state.status === 'error') return <Feedback error={state.message} retry={retry} />;
   if (!state.data.length)
-    return <Feedback empty="Ngày này chưa có giờ trống. Vui lòng chọn một ngày khác." />;
+    return (
+      <Feedback empty="Ngày này chưa có giờ trống phù hợp với lịch của bạn. Vui lòng chọn một ngày khác." />
+    );
   return (
     <fieldset className={styles.fieldset}>
       <legend className={styles.fieldLabel}>
@@ -275,6 +279,7 @@ export function DateStep({
             </label>
           ))}
         </div>
+        <p className={styles.requiredNote}>Giờ trùng với lịch bạn đã đặt trong phiên sẽ được ẩn.</p>
       </fieldset>
       <div className={styles.slotSection}>
         {selection.date ? (

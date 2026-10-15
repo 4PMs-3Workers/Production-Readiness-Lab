@@ -9,6 +9,7 @@ export default defineConfig({
     alias: { '@': fileURLToPath(new URL('.', import.meta.url)) },
   },
   test: {
+    allowOnly: !process.env.CI,
     environment: 'jsdom',
     setupFiles: ['tests/frontend/setup.ts'],
     include: ['tests/frontend/{unit,components}/**/*.test.{ts,tsx}'],

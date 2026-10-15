@@ -70,6 +70,7 @@ const associations = [
 const slotTemplates = [
   { dayOffset: 1, time: '09:00', location: 'Phòng tư vấn demo A101' },
   { dayOffset: 1, time: '09:15', location: null },
+  { dayOffset: 1, time: '09:30', location: null },
   { dayOffset: 2, time: '10:00', location: 'Phòng tư vấn demo A101' },
   { dayOffset: 3, time: '14:15', location: null },
   { dayOffset: 4, time: '09:30', location: 'Phòng tư vấn demo A102' },

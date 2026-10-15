@@ -7,15 +7,19 @@ nền tảng trong [bản gộp mốc 1 + 2](frontend-bootstrap.md) của
 [issue #7](https://github.com/4PMs-3Workers/Production-Readiness-Lab/issues/7).
 **UI đặt lịch hoàn chỉnh** gồm header HUS, sidebar có tab Đặt lịch tư vấn,
 form bốn bước và phần tóm tắt cuộc hẹn.
+Mốc 5 thêm tab **Lịch đã đặt**, danh sách `/appointments` và chi tiết từng lịch;
+xem [kết quả và vòng đời danh sách](frontend-results.md).
 
 Mở trực tiếp `/booking`, không cần đăng nhập. Các thao tác chọn nhu cầu → cố vấn →
 ngày/giờ → xác nhận đều sử dụng mock services. Sau xác nhận thành công, trang
 `/booking/result` hiển thị dữ liệu trả về từ service. Khi refresh hoặc mở trực tiếp
 trang kết quả trong phiên mới, màn hình hiển thị trạng thái chưa có kết quả.
 
-UI đăng nhập và Home là phần tiếp theo. Hướng điều hướng đã thống nhất: sau đăng
-nhập giả lập vào Home, từ sidebar mở Đặt lịch. `/login` hiện vẫn là trang khung của
-nền tảng ban đầu; chưa bổ sung xác thực thật hoặc form đăng nhập trong lượt này.
+Mốc 3 nối `/login` với `loginDemo`: sau đăng nhập giả lập vào `/home`, từ sidebar
+mở Đặt lịch. Chi tiết form, lỗi và phiên trong bộ nhớ nằm trong
+[tài liệu đăng nhập demo và Home](frontend-login.md). Chưa bổ sung xác thực thật.
+Mốc 4 chuẩn hóa draft và vòng đời request; xem
+[đối chiếu yêu cầu và kiểm chứng wizard](frontend-booking.md).
 
 ## Cấu trúc và hợp đồng
 
@@ -26,10 +30,10 @@ nền tảng ban đầu; chưa bổ sung xác thực thật hoặc form đăng n
 - `services/index.ts`: điểm truy cập của UI; không export fixtures.
 - `services/mock`: factory, fixtures và định nghĩa preset.
 - `lib/business-time.ts`: ngày nghiệp vụ và định dạng giờ Việt Nam.
-- `features/demo`: provider ở root layout giữ một instance services và kết quả
+- `features/demo`: provider ở root layout giữ một instance services, sinh viên và các lịch đã đặt
   trong bộ nhớ qua điều hướng giữa các route.
-- `features/booking`: wizard, các bước chọn dữ liệu, result và resource hook.
-- `components/portal-shell`: layout portal dùng riêng cho nhóm route đặt lịch.
+- `features/booking`: wizard, các bước chọn dữ liệu, result, history và resource hook.
+- `components/portal-shell`: layout portal dùng chung cho Home và nhóm route đặt lịch.
 
 UI đọc dữ liệu qua `services`, không import fixtures. DTO và lỗi là hợp đồng
 frontend tạm thời; cần đối chiếu OpenAPI được review của #4 và các API nghiệp vụ
@@ -65,14 +69,21 @@ Request bị hủy hoặc bị reset reject với `AbortError`; dùng `isRequest
   clock bằng tùy chọn `now` có `Z` hoặc offset khi tạo/reset services.
 
 Đây là lịch demo được khai báo, không phải thuật toán availability từ giờ phục
-vụ, ngày nghỉ, quota hoặc lịch backend. Thành công/xung đột loại slot ID đã chọn
-khỏi phiên; không mô phỏng khóa giao dịch, giao khoảng, idempotency hay xác thực.
+vụ, ngày nghỉ, quota hoặc lịch backend. Thành công ghi nhận khoảng giờ đã đặt
+của sinh viên demo; danh sách giờ trống loại mọi khoảng giao nhau, kể cả khác
+nhu cầu/cố vấn. `createBooking` kiểm tra lại trước khi tạo kết quả và trả
+`BOOKING_CONFLICT` nếu trùng. So sánh toàn bộ khoảng `[startsAt, endsAt)`, nên
+hai lịch tiếp giáp được phép. Fixtures có thêm giờ 09:30 ngày D+1 để thử biên này.
+Kịch bản conflict-once chỉ loại slot ID bị tranh, không tạo lịch của sinh viên.
+Reset xóa cả các khoảng đã đặt. Không mô phỏng khóa/giao dịch MySQL, idempotency
+hay xác thực; mỗi factory chỉ có một sinh viên giả.
 
 ## Preset và reset
 
 Trong `/booking`, mở **Thiết lập bản demo** ở cuối trang để chọn kịch bản hoặc
 **Đặt lại demo**. Panel tách khỏi các trường đặt lịch và bị khóa khi đang gửi.
-Các preset lỗi đăng nhập dành cho `loginDemo`, chưa đưa vào panel đặt lịch.
+Cùng 13 preset được chọn từ login hoặc booking; hai preset lỗi đăng nhập chỉ
+ảnh hưởng `loginDemo`. Kịch bản đã chọn được giữ qua điều hướng client.
 
 | Preset           | Hành vi                                                                             |
 | ---------------- | ----------------------------------------------------------------------------------- |
@@ -113,21 +124,29 @@ counter request và mã `DEMO-0001`; request cũ bị hủy trước khi có th�
 Request bị hủy không tiêu thụ lỗi một lần hoặc slot. Dữ liệu trả về là bản sao.
 UI dùng AbortController cùng key/active guard để response của lựa chọn cũ không
 ghi đè lựa chọn mới; đổi nhu cầu/cố vấn/ngày xóa các trường phụ thuộc.
+Từ mốc 4, guard so sánh đối tượng request theo query/attempt/loader. Quay lại
+query A sau A → B → A vẫn phải chờ request mới, không hiển thị lại kết quả A cũ.
 
 Trạng thái bận khi xác nhận gắn với AbortController của từng submission trong
 provider. Unmount wizard hủy request và giải phóng trạng thái ngay; `finally`
 cũng giải phóng cả khi request bị hủy. Chỉ controller đang sở hữu trạng thái
 được xóa nó, nên cleanup/response muộn của request cũ không mở khóa request mới.
 
-Kết quả gần nhất ở trong provider chung của ứng dụng: chuyển qua `/login` rồi
-bấm **Kết quả** vẫn xem được cuộc hẹn vừa xác nhận. **Đặt lịch khác** bắt đầu một
-draft mới và giữ kết quả cũ; một lần xác nhận thành công tiếp theo sẽ thay thế nó.
-**Đặt lại demo** xóa kết quả. Refresh hoặc mở tab mới bắt đầu phiên mới, không có
-kết quả. Không dùng localStorage, sessionStorage, cookie hay token.
+Provider lưu từng kết quả thành công theo ID, mới nhất trước, bỏ qua ID trùng.
+`result` được suy ra từ phần tử đầu; xem lại lịch cũ không đổi kết quả gần nhất.
+Chuyển qua `/login` rồi bấm **Kết quả** vẫn xem được cuộc hẹn vừa xác nhận.
+**Đặt lịch khác** bắt đầu draft mới, giữ toàn bộ lịch đã đặt. **Đặt lại demo** hoặc
+đổi kịch bản xóa danh sách nhưng giữ sinh viên nếu đã đăng nhập. Đăng xuất reset
+services về `success`, xóa sinh viên và danh sách. Refresh hoặc mở tab mới bắt đầu
+phiên mới, không có lịch. Không dùng localStorage, sessionStorage, cookie hay token.
 `loginDemo` không lưu hoặc log mật khẩu và chỉ
 trả danh tính giả; không đối chiếu một mật khẩu thật/hardcode nào.
 
 ## Kiểm chứng ngày 14/10/2026
+
+Phần dưới là kiểm chứng lịch sử mốc 1 + 2. Kết quả mốc 5 nằm trong
+[tài liệu kết quả và lịch đã đặt](frontend-results.md); kiểm chứng mới nhất với
+dependencies cài sạch nằm trong [mốc 6: kiểm thử và CI](frontend-testing.md).
 
 Chạy các scripts frontend từ README, với Node.js 24.19.0 và npm 12.2.0:
 

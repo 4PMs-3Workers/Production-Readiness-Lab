@@ -7,7 +7,7 @@ import type {
 import { DemoServiceError } from '@/services/errors';
 import { createFixtures, DEFAULT_DEMO_NOW } from '@/services/mock/fixtures';
 import { getDemoScenario } from '@/services/mock/scenarios';
-import type { BookingDraft } from '@/types/booking';
+import type { AvailableSlot, BookingDraft } from '@/types/booking';
 import type { DemoListOutcome, MockServiceOptions } from '@/types/demo';
 
 type Operation = 'login' | 'purposes' | 'staff' | 'slots' | 'booking';
@@ -34,6 +34,8 @@ function createState(options: MockServiceOptions) {
     requests: new Map<Operation, number>(),
     failedLists: new Set<Operation>(),
     unavailableSlots: new Set<string>(),
+    // This adapter accepts only the single fixture student, including direct booking previews.
+    studentBookings: [] as AvailableSlot[],
     conflictReported: false,
     bookingSequence: 0,
   };
@@ -101,10 +103,15 @@ function invalidRequest(): never {
   );
 }
 
-function bookingConflict(): never {
-  throw new DemoServiceError(
-    'BOOKING_CONFLICT',
-    'Giờ này không còn trống. Vui lòng chọn giờ khác.',
+function bookingConflict(message = 'Giờ này không còn trống. Vui lòng chọn giờ khác.'): never {
+  throw new DemoServiceError('BOOKING_CONFLICT', message);
+}
+
+function overlapsStudentBooking(state: MockState, candidate: AvailableSlot): boolean {
+  const startsAt = Date.parse(candidate.startsAt);
+  const endsAt = Date.parse(candidate.endsAt);
+  return state.studentBookings.some(
+    (booked) => startsAt < Date.parse(booked.endsAt) && endsAt > Date.parse(booked.startsAt),
   );
 }
 
@@ -199,7 +206,8 @@ export function createMockServices(options: MockServiceOptions = {}): MockBookin
               slot.purposeId === selection.purposeId &&
               slot.staffId === selection.staffId &&
               slot.date === selection.date &&
-              !current.unavailableSlots.has(slot.id),
+              !current.unavailableSlots.has(slot.id) &&
+              !overlapsStudentBooking(current, slot),
           )
           .map((slot) => ({ ...slot }));
       });
@@ -224,6 +232,9 @@ export function createMockServices(options: MockServiceOptions = {}): MockBookin
           (purpose.requiresFreeText && !description)
         )
           invalidRequest();
+        if (overlapsStudentBooking(current, slot)) {
+          bookingConflict('Giờ này trùng với lịch bạn đã đặt trong phiên. Vui lòng chọn giờ khác.');
+        }
         if (current.unavailableSlots.has(slot.id)) bookingConflict();
         if (current.scenario.booking === 'error') serviceUnavailable();
         if (current.scenario.booking === 'conflict-once' && !current.conflictReported) {
@@ -232,6 +243,7 @@ export function createMockServices(options: MockServiceOptions = {}): MockBookin
           bookingConflict();
         }
         current.unavailableSlots.add(slot.id);
+        current.studentBookings.push({ ...slot });
         current.bookingSequence += 1;
         const sequence = String(current.bookingSequence).padStart(4, '0');
         return {

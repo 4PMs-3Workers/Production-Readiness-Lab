@@ -46,6 +46,31 @@
 .loginLink span {
   margin-left: 8px;
 }
+.account {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  gap: 18px;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.account a {
+  text-decoration: none;
+  color: #185b8c;
+}
+.account button {
+  padding: 8px 12px;
+  border: 1px solid #cfdae5;
+  border-radius: 6px;
+  color: #526b80;
+  background: white;
+  font: inherit;
+  cursor: pointer;
+}
+.account button:focus-visible {
+  outline: 3px solid #2475b3;
+  outline-offset: 3px;
+}
 .sidebar {
   background: white;
   border-right: 1px solid #e0e7ef;
@@ -60,17 +85,24 @@
   color: #8998a7;
   padding: 0 14px 18px;
 }
-.activeLink {
+.navLink {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 12px 14px;
-  background: #eaf3fb;
   color: #185b8c;
   border-radius: 7px;
   text-decoration: none;
   font-weight: 700;
   font-size: 13px;
+}
+.sidebar nav {
+  display: grid;
+  gap: 6px;
+}
+.activeLink,
+.navLink:hover {
+  background: #eaf3fb;
 }
 .calendarIcon {
   font-size: 23px;
@@ -161,6 +193,9 @@
   font-weight: 400;
   color: #4c6276;
 }
+.breadcrumb a {
+  text-decoration: none;
+}
 .main {
   padding: 30px 36px 40px;
   display: block;
@@ -201,6 +236,7 @@
   .header {
     padding: 20px;
     gap: 10px;
+    flex-wrap: wrap;
   }
   .logo {
     width: min(275px, 66vw);
@@ -210,6 +246,11 @@
   }
   .loginLink span {
     display: none;
+  }
+  .account {
+    width: 100%;
+    justify-content: flex-end;
+    font-size: 12px;
   }
   .sidebar {
     padding: 12px 20px;
@@ -221,7 +262,7 @@
   .profile {
     display: none;
   }
-  .activeLink {
+  .navLink {
     max-width: 100%;
   }
   .breadcrumb {

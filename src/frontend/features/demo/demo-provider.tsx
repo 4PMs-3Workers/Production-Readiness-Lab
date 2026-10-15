@@ -3,14 +3,18 @@
 import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
 
 import { createMockServices, type MockBookingServices } from '@/services';
-import type { BookingResult } from '@/types/booking';
+import type { BookingResult, StudentContext } from '@/types/booking';
 import type { DemoScenarioId } from '@/types/demo';
 
 interface DemoContextValue {
   services: MockBookingServices;
   revision: number;
   result: BookingResult | null;
-  setResult: (result: BookingResult | null) => void;
+  bookings: readonly BookingResult[];
+  recordBooking: (booking: BookingResult) => void;
+  student: StudentContext | null;
+  setStudent: (student: StudentContext) => void;
+  logout: () => void;
   busy: boolean;
   beginSubmission: (controller: AbortController) => void;
   finishSubmission: (controller: AbortController) => void;
@@ -28,7 +32,9 @@ export function DemoProvider({
 }) {
   const [services] = useState(() => suppliedServices ?? createMockServices());
   const [revision, setRevision] = useState(0);
-  const [result, setResult] = useState<BookingResult | null>(null);
+  const [bookings, setBookings] = useState<readonly BookingResult[]>([]);
+  const result = bookings[0] ?? null;
+  const [student, setStudent] = useState<StudentContext | null>(null);
   const [submission, setSubmission] = useState<AbortController | null>(null);
 
   const beginSubmission = useCallback((controller: AbortController) => {
@@ -38,10 +44,25 @@ export function DemoProvider({
     // An older request may settle after navigation or a demo reset starts a new submission.
     setSubmission((current) => (current === controller ? null : current));
   }, []);
+  const recordBooking = useCallback((booking: BookingResult) => {
+    setBookings((current) =>
+      current.some((item) => item.id === booking.id) ? current : [booking, ...current],
+    );
+  }, []);
 
   function resetDemo(scenario?: DemoScenarioId) {
+    submission?.abort();
     services.reset(scenario ? { scenario } : undefined);
-    setResult(null);
+    setBookings([]);
+    setSubmission(null);
+    setRevision((value) => value + 1);
+  }
+
+  function logout() {
+    submission?.abort();
+    services.reset({ scenario: 'success' });
+    setStudent(null);
+    setBookings([]);
     setSubmission(null);
     setRevision((value) => value + 1);
   }
@@ -52,7 +73,11 @@ export function DemoProvider({
         services,
         revision,
         result,
-        setResult,
+        bookings,
+        recordBooking,
+        student,
+        setStudent,
+        logout,
         busy: submission !== null,
         beginSubmission,
         finishSubmission,
