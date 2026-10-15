@@ -12,7 +12,10 @@ Safety boundaries (unchanged from the original design):
 """
 
 import os
-from uuid import uuid4
+from dataclasses import dataclass
+from datetime import time
+from typing import Any
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -21,13 +24,13 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import Connection, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.pool import NullPool
 
 from app.core.database import create_database_engine
 from app.core.passwords import PasswordPolicy, PasswordService
 from app.factory import create_app
-from app.models import User
+from app.models import Purpose, ServiceHour, ServiceSetting, StaffPurpose, User
 
 
 def _run_alembic_upgrade(connection: Connection) -> None:
@@ -101,3 +104,93 @@ async def auth_env(mysql_engine, auth_settings):
             transport=httpx.ASGITransport(app=app), base_url="http://localhost:3000"
         ) as client:
             yield client, factory, user.id, app
+
+
+@dataclass(frozen=True)
+class AvailabilityTestEnv:
+    client: httpx.AsyncClient
+    factory: async_sessionmaker[AsyncSession]
+    app: Any
+    student_id: UUID
+    other_student_id: UUID
+    staff_id: UUID
+    other_staff_id: UUID
+    purpose_id: UUID
+    other_purpose_id: UUID
+
+
+@pytest_asyncio.fixture
+async def availability_env(auth_env):
+    """Create the two-student/two-staff graph used by availability tests."""
+    client, factory, student_id, app = auth_env
+    other_student_id = uuid4()
+    staff_id = uuid4()
+    other_staff_id = uuid4()
+    purpose_id = uuid4()
+    other_purpose_id = uuid4()
+    async with factory.begin() as db:
+        student = await db.get(User, student_id)
+        assert student is not None
+        db.add_all(
+            [
+                User(
+                    id=other_student_id,
+                    email="other-student@example.invalid",
+                    name="Other Student",
+                    role="STUDENT",
+                    password_hash=student.password_hash,
+                ),
+                User(
+                    id=staff_id,
+                    email="staff@example.invalid",
+                    name="Selected Staff",
+                    role="STAFF",
+                    password_hash="unused-test-hash",
+                ),
+                User(
+                    id=other_staff_id,
+                    email="other-staff@example.invalid",
+                    name="Other Staff",
+                    role="STAFF",
+                    password_hash="unused-test-hash",
+                ),
+                Purpose(
+                    id=purpose_id,
+                    code="SELECTED",
+                    name="Selected purpose",
+                    duration_minutes=30,
+                ),
+                Purpose(
+                    id=other_purpose_id,
+                    code="OTHER",
+                    name="Other purpose",
+                    duration_minutes=30,
+                ),
+                ServiceSetting(
+                    timezone="Asia/Ho_Chi_Minh",
+                    start_step_minutes=15,
+                    booking_horizon_days=7,
+                ),
+                ServiceHour(weekday=5, opens_at=time(8, 10), closes_at=time(9, 10)),
+            ]
+        )
+        await db.flush()
+        db.add_all(
+            [
+                StaffPurpose(staff_id=staff_id, purpose_id=purpose_id),
+                StaffPurpose(staff_id=staff_id, purpose_id=other_purpose_id),
+                StaffPurpose(staff_id=other_staff_id, purpose_id=purpose_id),
+                StaffPurpose(staff_id=other_staff_id, purpose_id=other_purpose_id),
+            ]
+        )
+    return AvailabilityTestEnv(
+        client=client,
+        factory=factory,
+        app=app,
+        student_id=student_id,
+        other_student_id=other_student_id,
+        staff_id=staff_id,
+        other_staff_id=other_staff_id,
+        purpose_id=purpose_id,
+        other_purpose_id=other_purpose_id,
+    )
