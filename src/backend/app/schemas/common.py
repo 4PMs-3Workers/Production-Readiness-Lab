@@ -1,6 +1,7 @@
 """Schemas shared by current health routes and future business routers."""
 
 from datetime import UTC, datetime
+from typing import Generic, TypeVar
 
 from pydantic import AwareDatetime, BaseModel, Field, RootModel, field_serializer
 
@@ -18,6 +19,16 @@ class ErrorResponse(BaseModel):
 class PaginationParams(BaseModel):
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=20, ge=1, le=100)
+
+
+T = TypeVar("T")
+
+
+class PageResponse(BaseModel, Generic[T]):
+    items: list[T]
+    page: int = Field(ge=1)
+    page_size: int = Field(ge=1, le=100)
+    total: int = Field(ge=0)
 
 
 class UtcTimestamp(RootModel[AwareDatetime]):
