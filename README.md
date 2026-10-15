@@ -135,8 +135,13 @@ Production-Readiness-Lab/
 | [Thiết kế cơ sở dữ liệu](docs/architecture/database-design.md)        | Mô hình 11 bảng, ràng buộc, chỉ mục và xử lý giao dịch cạnh tranh.          |
 | [Models cơ sở dữ liệu](docs/architecture/database-models.md)          | Ánh xạ SQLAlchemy, chuyển đổi kiểu dữ liệu và hướng dẫn chạy kiểm tra.      |
 | [Task database models](docs/tasks/database-models.md)                 | Phạm vi triển khai, kiểm thử và bàn giao bộ models.                         |
-| [Task frontend bootstrap](docs/tasks/frontend-bootstrap.md)           | Bản gộp mốc 1 + 2: nền tảng, CI, UI đặt lịch và kiểm chứng.                 |
+| [Task frontend bootstrap](docs/tasks/frontend-bootstrap.md)           | Nền tảng, routes, các mốc triển khai, cài đặt và kiểm chứng.                 |
 | [Mock services và UI đặt lịch](docs/tasks/frontend-mock-services.md)  | Chi tiết fixtures, preset, clock và thao tác đặt lịch bằng dữ liệu demo.    |
+| [Đăng nhập demo và Home](docs/tasks/frontend-login.md)               | Mốc 3: form đăng nhập, phiên trong bộ nhớ, Home và đăng xuất.               |
+| [Booking wizard và state](docs/tasks/frontend-booking.md)           | Mốc 4: reset draft, vòng đời request và kiểm thử các trạng thái đặt lịch.   |
+| [Kết quả và lịch đã đặt](docs/tasks/frontend-results.md)            | Mốc 5: danh sách trong phiên, chi tiết từng lịch và thao tác bàn phím.      |
+| [Kiểm thử frontend và CI](docs/tasks/frontend-testing.md)           | Mốc 6: ma trận hành vi, clean install, báo cáo E2E và chẩn đoán CI.         |
+| [Bàn giao và nghiệm thu frontend](docs/tasks/frontend-handoff.md)   | Mốc 7: acceptance criteria, cách review, ảnh và phụ thuộc tích hợp API.     |
 | [Coding convention](docs/other/CONVENTION.md)                         | Quy ước tổ chức và viết mã frontend/backend.                                |
 | [Git Flow](docs/other/GITFLOW.md)                                     | Vai trò các branch, Pull Request và quy trình release/hotfix.               |
 
@@ -153,11 +158,25 @@ npm --workspace src/frontend run dev
 ```
 
 Mở `http://127.0.0.1:3000/booking` để trải nghiệm trực tiếp UI đặt lịch với dữ liệu
-mock, không cần đăng nhập hoặc chạy FastAPI/MySQL. Sidebar có tab Đặt lịch tư vấn;
+mock, không cần đăng nhập hoặc chạy FastAPI/MySQL. Sidebar có tab Đặt lịch tư vấn và Lịch đã đặt;
 bạn chọn nhu cầu, cố vấn, ngày/giờ rồi xác nhận để xem `/booking/result`.
 Panel **Thiết lập bản demo** ở cuối trang cung cấp các kịch bản lỗi/thử lại/xung đột.
-`/login` hiện vẫn là trang khung; UI đăng nhập và Home sẽ được triển khai tiếp theo
-trong issue #7. Nền tảng và mock booking được bàn giao chung trong
+Mở `/login`, nhập email hợp lệ và mật khẩu minh họa bất kỳ không rỗng để vào
+`/home`, rồi chọn **Đặt lịch tư vấn** từ sidebar. Chỉ dùng thông tin giả;
+`loginDemo` luôn trả về sinh viên minh họa, không xác thực tài khoản thật.
+Đăng xuất hoặc tải lại trang kết thúc phiên; đặt lịch trực tiếp vẫn được hỗ trợ.
+Xem [mốc 3: đăng nhập demo và Home](docs/tasks/frontend-login.md).
+Quy tắc reset draft, xử lý request cũ và kiểm chứng wizard nằm trong
+[mốc 4: booking wizard và state](docs/tasks/frontend-booking.md).
+Mục **Lịch đã đặt** tại `/appointments` giữ tất cả lần xác nhận thành công trong
+phiên, mới nhất trước; mỗi lịch mở được trang chi tiết riêng. Đặt lịch khác giữ
+danh sách; tải lại trang, đặt lại demo/đổi kịch bản hoặc đăng xuất sẽ xóa danh sách.
+Xem [mốc 5: kết quả và lịch đã đặt](docs/tasks/frontend-results.md).
+Ma trận kiểm thử và kết quả chạy với dependencies cài sạch nằm trong
+[mốc 6: kiểm thử và CI](docs/tasks/frontend-testing.md).
+Hướng dẫn review từng tình huống, khác biệt so với scope gốc và bàn giao API nằm
+trong [mốc 7: bàn giao và nghiệm thu](docs/tasks/frontend-handoff.md).
+Nền tảng và mock booking được bàn giao chung trong
 [bản gộp mốc 1 + 2](docs/tasks/frontend-bootstrap.md); hợp đồng services và các
 kịch bản nằm trong [tài liệu mock services](docs/tasks/frontend-mock-services.md).
 

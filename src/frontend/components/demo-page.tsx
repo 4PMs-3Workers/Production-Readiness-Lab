@@ -23,7 +23,7 @@ export function DemoPage({ eyebrow, title, description, children, action }: Demo
       </div>
       <div className="content-card">
         {children}
-        <Link className="primary-link" href={action.href}>
+        <Link className="preview-link" href={action.href}>
           {action.label}
           <span aria-hidden="true">→</span>
         </Link>

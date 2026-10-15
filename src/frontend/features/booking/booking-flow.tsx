@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useReducer, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { useDemo } from '@/features/demo/demo-provider';
@@ -8,13 +8,13 @@ import { formatBusinessDate, getBusinessDate } from '@/lib/business-time';
 import { DEMO_SCENARIOS, DemoServiceError, isRequestCancelled } from '@/services';
 import type { DemoScenarioId } from '@/types/demo';
 
+import { DateStep, PurposeStep, SelectionSummary, StaffStep } from './booking-steps';
 import {
-  DateStep,
-  PurposeStep,
-  SelectionSummary,
-  StaffStep,
-  type BookingSelection,
-} from './booking-steps';
+  bookingReducer,
+  canVisitStep,
+  initialBookingState,
+  isCompleteSelection,
+} from './booking-state';
 import styles from './booking.module.css';
 
 const steps = ['Nhu cầu tư vấn', 'Người tư vấn', 'Ngày & giờ', 'Xác nhận'];
@@ -24,13 +24,6 @@ const descriptions = [
   'Chọn ngày và khung giờ thuận tiện cho bạn.',
   'Kiểm tra thông tin trước khi xác nhận cuộc hẹn demo.',
 ];
-const emptySelection: BookingSelection = {
-  purpose: null,
-  staff: null,
-  date: '',
-  slot: null,
-  description: '',
-};
 
 export function BookingFlow() {
   const { revision } = useDemo();
@@ -38,16 +31,18 @@ export function BookingFlow() {
 }
 
 function BookingWizard() {
-  const { services, setResult, busy, beginSubmission, finishSubmission, resetDemo } = useDemo();
+  const { services, student, recordBooking, busy, beginSubmission, finishSubmission, resetDemo } =
+    useDemo();
   const router = useRouter();
-  const [selection, setSelection] = useState<BookingSelection>(emptySelection);
-  const [step, setStep] = useState(0);
-  const [error, setError] = useState('');
+  const [{ selection, step }, dispatch] = useReducer(bookingReducer, initialBookingState);
+  const [error, setError] = useState<{ message: string } | null>(null);
   const [refresh, setRefresh] = useState(0);
   const pending = useRef<AbortController | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
+  const errorAlert = useRef<HTMLDivElement>(null);
   const previousStep = useRef(0);
   const configuration = services.getConfiguration();
+  const currentStudent = student ?? services.getDemoStudent();
 
   useEffect(
     () => () => {
@@ -60,35 +55,29 @@ function BookingWizard() {
     [finishSubmission],
   );
   useEffect(() => {
-    if (previousStep.current !== step) heading.current?.focus();
+    if (error) errorAlert.current?.focus();
+    else if (previousStep.current !== step) heading.current?.focus();
     previousStep.current = step;
-  }, [step]);
+  }, [step, error]);
 
-  const canContinue =
-    step === 0
-      ? Boolean(
-          selection.purpose &&
-          (!selection.purpose.requiresFreeText || selection.description.trim()),
-        )
-      : step === 1
-        ? Boolean(selection.staff)
-        : Boolean(selection.slot);
+  const canContinue = canVisitStep(selection, step + 1);
 
   function changeStep(next: number) {
-    setError('');
-    setStep(next);
+    if (busy) return;
+    setError(null);
+    dispatch({ type: 'stepChanged', step: next });
   }
 
   async function confirmBooking() {
-    if (pending.current || !selection.purpose || !selection.staff || !selection.slot) return;
+    if (pending.current || !isCompleteSelection(selection)) return;
     const controller = new AbortController();
     pending.current = controller;
     beginSubmission(controller);
-    setError('');
+    setError(null);
     try {
       const result = await services.createBooking(
         {
-          studentId: services.getDemoStudent().id,
+          studentId: currentStudent.id,
           purposeId: selection.purpose.id,
           staffId: selection.staff.id,
           date: selection.date,
@@ -97,17 +86,19 @@ function BookingWizard() {
         },
         { signal: controller.signal },
       );
-      if (!controller.signal.aborted) {
-        setResult(result);
+      if (!controller.signal.aborted && pending.current === controller) {
+        recordBooking(result);
         router.push('/booking/result');
       }
     } catch (error: unknown) {
-      if (controller.signal.aborted || isRequestCancelled(error)) return;
-      setError(error instanceof Error ? error.message : 'Chưa thể đặt lịch. Vui lòng thử lại.');
+      if (controller.signal.aborted || pending.current !== controller || isRequestCancelled(error))
+        return;
+      setError({
+        message: error instanceof Error ? error.message : 'Chưa thể đặt lịch. Vui lòng thử lại.',
+      });
       if (error instanceof DemoServiceError && error.code === 'BOOKING_CONFLICT') {
-        setSelection((current) => ({ ...current, slot: null }));
+        dispatch({ type: 'bookingConflict' });
         setRefresh((value) => value + 1);
-        setStep(2);
       }
     } finally {
       if (pending.current === controller) pending.current = null;
@@ -166,21 +157,17 @@ function BookingWizard() {
           </header>
           <div className={styles.formBody}>
             {error && (
-              <div role="alert" className={styles.error}>
+              <div role="alert" tabIndex={-1} ref={errorAlert} className={styles.error}>
                 <strong>Chưa thể xác nhận lịch hẹn</strong>
-                <p>{error}</p>
+                <p>{error.message}</p>
               </div>
             )}
             {step === 0 && (
               <PurposeStep
                 selection={selection}
-                onSelect={(purpose) =>
-                  setSelection((current) =>
-                    current.purpose?.id === purpose.id ? current : { ...emptySelection, purpose },
-                  )
-                }
+                onSelect={(purpose) => dispatch({ type: 'purposeSelected', purpose })}
                 onDescription={(description) =>
-                  setSelection((current) => ({ ...current, description }))
+                  dispatch({ type: 'descriptionChanged', description })
                 }
               />
             )}
@@ -189,11 +176,7 @@ function BookingWizard() {
                 purpose={selection.purpose}
                 selected={selection.staff}
                 onSelect={(staff) =>
-                  setSelection((current) =>
-                    current.staff?.id === staff.id
-                      ? current
-                      : { ...current, staff, date: '', slot: null },
-                  )
+                  dispatch({ type: 'staffSelected', purposeId: selection.purpose?.id ?? '', staff })
                 }
               />
             )}
@@ -202,11 +185,14 @@ function BookingWizard() {
                 selection={{ ...selection, purpose: selection.purpose, staff: selection.staff }}
                 refresh={refresh}
                 onDate={(date) =>
-                  setSelection((current) =>
-                    current.date === date ? current : { ...current, date, slot: null },
-                  )
+                  dispatch({
+                    type: 'dateSelected',
+                    purposeId: selection.purpose?.id ?? '',
+                    staffId: selection.staff?.id ?? '',
+                    date,
+                  })
                 }
-                onSlot={(slot) => setSelection((current) => ({ ...current, slot }))}
+                onSlot={(slot) => dispatch({ type: 'slotSelected', slot })}
               />
             )}
             {step === 3 && (
@@ -216,8 +202,8 @@ function BookingWizard() {
                     SV
                   </span>
                   <div>
-                    <strong>{services.getDemoStudent().displayName}</strong>
-                    <span>{services.getDemoStudent().email}</span>
+                    <strong>{currentStudent.displayName}</strong>
+                    <span>{currentStudent.email}</span>
                   </div>
                   <span className={styles.readyBadge}>Sẵn sàng xác nhận</span>
                 </div>
@@ -245,7 +231,7 @@ function BookingWizard() {
               <button
                 type="button"
                 className={styles.primaryButton}
-                disabled={!canContinue}
+                disabled={busy || !canContinue}
                 onClick={() => changeStep(step + 1)}
               >
                 Tiếp tục <span aria-hidden="true">→</span>
@@ -309,9 +295,7 @@ function BookingWizard() {
             disabled={busy}
             onChange={(event) => resetDemo(event.target.value as DemoScenarioId)}
           >
-            {DEMO_SCENARIOS.filter(
-              (scenario) => !['invalid-login', 'login-error'].includes(scenario.id),
-            ).map((scenario) => (
+            {DEMO_SCENARIOS.map((scenario) => (
               <option value={scenario.id} key={scenario.id}>
                 {scenario.label}
               </option>
@@ -326,8 +310,8 @@ function BookingWizard() {
             Đặt lại demo
           </button>
           <p>
-            Đổi kịch bản sẽ bắt đầu lại các lựa chọn. Ngày giả lập cố định giúp bạn kiểm tra lại
-            cùng một tình huống.
+            Đổi kịch bản hoặc đặt lại demo sẽ xóa lựa chọn và các lịch trong phiên. Ngày giả lập cố
+            định giúp bạn kiểm tra lại cùng một tình huống.
           </p>
         </div>
       </details>

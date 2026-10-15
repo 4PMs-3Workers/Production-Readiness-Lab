@@ -1,6 +1,6 @@
-# Frontend bootstrap — mốc 1 + 2, issue #7
+# Frontend — nền tảng và luồng đặt lịch demo, issue #7
 
-## Phạm vi bàn giao chung
+## Phạm vi hiện tại và các mốc
 
 - Issue: [#7](https://github.com/4PMs-3Workers/Production-Readiness-Lab/issues/7).
 - Nhánh: `feature/frontend-bootstrap`, bắt đầu từ `develop` (`00426bb`).
@@ -8,14 +8,26 @@
   lượng và CI, DTO, fixtures, mock services, 13 preset, portal đặt lịch bốn bước
   và kết quả trả về sau xác nhận thành công.
 - Frontend chạy độc lập, không yêu cầu FastAPI, MySQL hay biến môi trường.
+- Mốc 3 bổ sung form đăng nhập demo, Home và đăng xuất trên cùng nền tảng;
+  xem [luồng đăng nhập và vòng đời phiên](frontend-login.md).
+- Mốc 4 chuẩn hóa reducer cho draft và sửa request A → B → A;
+  xem [booking wizard và kiểm chứng state](frontend-booking.md).
+- Mốc 5 thêm Lịch đã đặt, chi tiết từng lịch và hoàn thiện focus bàn phím;
+  xem [kết quả và lịch sử trong phiên](frontend-results.md).
+- Mốc 6 hoàn thiện báo cáo E2E, guard CI và kiểm chứng từ dependencies cài sạch;
+  xem [ma trận kiểm thử và CI](frontend-testing.md).
+- Mốc 7 đối chiếu acceptance criteria, bổ sung hướng dẫn reviewer và API handoff;
+  xem [bàn giao và nghiệm thu](frontend-handoff.md).
 
 Mở trực tiếp `/booking` để chọn nhu cầu → cố vấn → ngày/giờ → xác nhận, không cần
 đăng nhập. `/booking/result` hiển thị kết quả mock mới nhất trong phiên. `/login`
-vẫn là trang khung; form đăng nhập giả lập và Home là phần tiếp theo. **Issue #7
+gọi `loginDemo` rồi chuyển vào `/home`; từ sidebar mở Đặt lịch tư vấn. **Issue #7
 tiếp tục mở**, chưa nghiệm thu toàn bộ acceptance criteria.
 
-Xem [hợp đồng mock services và các kịch bản](frontend-mock-services.md) và
-ảnh review nhúng trong mô tả [PR #10](https://github.com/4PMs-3Workers/Production-Readiness-Lab/pull/10).
+Xem [hợp đồng mock services và các kịch bản](frontend-mock-services.md).
+[PR #10](https://github.com/4PMs-3Workers/Production-Readiness-Lab/pull/10) đã
+squash-merge phần mốc 1 + 2. Bộ ảnh trong PR đó là bằng chứng lịch sử;
+bộ ảnh và mô tả PR mới cho mốc 3–7 đang được chuẩn bị theo [bàn giao](frontend-handoff.md).
 
 ## Môi trường và dependencies
 
@@ -101,14 +113,20 @@ TypeScript cache và test reports nằm ngoài Git.
 | Route             | Nội dung hiện tại                                                                            |
 | ----------------- | -------------------------------------------------------------------------------------------- |
 | `/`               | Chuyển tới `/login`.                                                                         |
-| `/login`          | Giới thiệu và đường xem trước đặt lịch; chưa nhận credentials.                               |
+| `/login`          | Form đăng nhập demo, validation, pending, lỗi và đường xem trước đặt lịch.                   |
+| `/home`           | Thông tin sinh viên giả, dịch vụ đặt lịch; trạng thái chưa đăng nhập sau refresh.             |
 | `/booking`        | Portal bốn bước với dữ liệu mock, kiểm tra lựa chọn, loading, empty, lỗi, retry và xung đột. |
 | `/booking/result` | Kết quả mock sau xác nhận thành công; trạng thái rỗng khi chưa có kết quả trong phiên.       |
+| `/appointments`   | Tất cả lịch đã xác nhận trong phiên, mới nhất trước; có trạng thái danh sách rỗng.            |
+| `/appointments/[id]` | Chi tiết đúng lịch đã chọn; giải thích khi ID không có trong phiên.                         |
 
 - `src/frontend/app`: layout/pages, metadata tiếng Việt, CSS và provider demo ở root.
 - `src/frontend/components`: app shell cho login, portal shell cho booking, navigation,
   demo disclosure và page wrapper.
-- `src/frontend/features/booking`: wizard, các bước, result và resource hook.
+- `src/frontend/features/booking`: wizard, các bước, result, history và resource hook.
+  `booking-state.ts` giữ quy tắc reset/chuyển bước; resource hook chỉ hiện kết quả
+  của request hiện tại, kể cả khi quay lại query đã chọn trước đó.
+- `src/frontend/features/login`, `features/home`: form đăng nhập và trang chủ demo.
 - `src/frontend/features/demo`: state phiên, preset và reset dữ liệu demo.
 - `src/frontend/services`: hợp đồng và mock adapters; UI không import fixtures.
 - `src/frontend/types`: DTO booking và cấu hình demo.
@@ -117,10 +135,12 @@ TypeScript cache và test reports nằm ngoài Git.
 - `tests/frontend/unit`: contracts, dữ liệu, thời gian, lỗi, hủy và reset services.
 - `tests/frontend/e2e`: Playwright.
 
-Kết quả gần nhất được giữ trong bộ nhớ qua điều hướng, kể cả quay qua `/login`
-rồi chọn **Kết quả**. **Đặt lịch khác** bắt đầu draft mới nhưng giữ kết quả cũ
-cho đến khi có lần xác nhận thành công tiếp theo hoặc **Đặt lại demo**.
+Mọi lịch xác nhận thành công được giữ trong bộ nhớ qua điều hướng. Kết quả gần
+nhất lấy từ đầu danh sách; mở một lịch cũ không thay đổi kết quả này. **Đặt lịch
+khác** bắt đầu draft mới và giữ cả danh sách lẫn kết quả gần nhất.
 Refresh hoặc mở tab mới bắt đầu phiên mới. Chưa dùng storage, cookie hay token.
+Đăng xuất xóa cả sinh viên demo và lịch đã đặt; đổi kịch bản hoặc Đặt lại demo chỉ
+reset dữ liệu đặt lịch, giữ danh tính nếu đã đăng nhập.
 
 TypeScript strict và alias `@/*` trỏ tới `src/frontend/*`. Vitest root là repository
 để đọc tests ở gốc. ESLint và typecheck phải kiểm tra cả frontend lẫn tests/frontend.
@@ -175,15 +195,16 @@ sạch, dùng Node từ `.nvmrc` và npm 12.2.0, chạy `npm ci`, format, lint, 
 unit/component tests và production build. Sau build, workflow cài Chromium cùng system
 dependencies bằng Playwright từ lockfile rồi chạy E2E trên desktop/mobile.
 Cache chỉ giữ các gói npm tải về; `node_modules` được cài lại bằng `npm ci`.
-Khi job lỗi, workflow lưu `test-results/frontend/`, gồm trace E2E khi có, trong
-7 ngày. Workflow backend hiện có được giữ nguyên. Tests tiếp tục mở rộng cùng
+Sau khi E2E chạy, workflow lưu HTML report tại `playwright-report/frontend/` cả
+khi đạt và khi lỗi; khi lỗi có thêm ảnh/trace trong `test-results/frontend/`.
+Artifact giữ 7 ngày. CI chặn `only`, dùng 2 workers và báo lỗi khi test flaky dù
+retry thành công. Workflow backend hiện có được giữ nguyên. Tests tiếp tục mở rộng cùng
 các chức năng còn lại của issue #7.
 
 ## Phần còn lại của issue #7
 
-- Thêm login form giả lập và điều hướng vào Home; từ sidebar mở Đặt lịch.
-- Kết nối login UI với `loginDemo`, bao gồm pending, lỗi credentials và lỗi dịch vụ.
-- Rà soát toàn bộ acceptance criteria, trạng thái giao diện và bằng chứng review.
+- Đã rà acceptance criteria local trong [bàn giao mốc 7](frontend-handoff.md);
+  còn xuất bản PR mới, nhúng ảnh, kiểm tra CI trên SHA mới, approval và merge.
 - Khi tích hợp backend, đối chiếu DTO/mock adapter với OpenAPI được review của #4,
   auth của #5 và API catalog/availability/appointments tương ứng.
 
@@ -192,6 +213,12 @@ giả lập; chưa tạo lịch thật, xác thực thật hoặc triển khai t
 và transaction của backend.
 
 ## Kết quả kiểm chứng
+
+Kết quả bên dưới ghi nhận bản gộp mốc 1 + 2 và sửa P2 ngày 14/10/2026.
+Kiểm chứng cho mốc 3 nằm trong [tài liệu đăng nhập demo và Home](frontend-login.md).
+Kiểm chứng mốc 4 nằm trong [tài liệu booking wizard và state](frontend-booking.md).
+Kiểm chứng mốc 5 nằm trong [tài liệu kết quả và lịch đã đặt](frontend-results.md).
+Kiểm chứng mới nhất từ clean install của mốc 6 nằm trong [tài liệu kiểm thử và CI](frontend-testing.md).
 
 Kiểm chứng ngày **14/10/2026** trên Windows, Node.js 24.19.0 và npm 12.2.0.
 Bản gộp ban đầu được kiểm tra trên source sạch: xuất `HEAD` bằng `git archive`,
@@ -246,5 +273,5 @@ khi kiểm tra vẫn là 3.0.3, nằm trong khoảng bị advisory đánh dấu.
 `npm audit fix --force` để hạ phiên bản Next/plugin trái với cấu hình đã kiểm chứng.
 Theo dõi bản vá upstream để cập nhật lockfile khi có bản tương thích.
 
-Các kiểm tra xác nhận phạm vi nền tảng và mock booking đã gộp; chưa phải bằng chứng
-cho đăng nhập UI, backend thật hoặc hoàn thành toàn bộ issue #7.
+Các kiểm tra lịch sử ở trên xác nhận phạm vi nền tảng và mock booking đã gộp;
+chưa phải bằng chứng cho backend thật hoặc hoàn thành toàn bộ issue #7.

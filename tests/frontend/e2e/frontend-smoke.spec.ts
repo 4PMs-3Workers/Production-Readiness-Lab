@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 test('opens the Vietnamese demo routes and follows navigation without backend services', async ({
   page,
@@ -31,7 +31,14 @@ test('opens the Vietnamese demo routes and follows navigation without backend se
 test('serves each route directly and lets the keyboard reach its main content', async ({
   page,
 }) => {
-  for (const route of ['/login', '/booking', '/booking/result']) {
+  for (const route of [
+    '/login',
+    '/home',
+    '/booking',
+    '/booking/result',
+    '/appointments',
+    '/appointments/unknown',
+  ]) {
     const response = await page.goto(route);
     expect(response?.status()).toBe(200);
     await page.keyboard.press('Tab');

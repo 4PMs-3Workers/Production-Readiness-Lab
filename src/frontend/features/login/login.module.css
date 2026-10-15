@@ -1,0 +1,126 @@
+.description,
+.signedIn p {
+  color: var(--muted);
+  font-size: 14px;
+}
+.notice {
+  padding: 12px 14px;
+  background: #f0f6fb;
+  border-radius: 8px;
+  color: #42647e;
+  font-size: 12px;
+}
+.form {
+  margin-top: 24px;
+}
+.form fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+  display: grid;
+  gap: 18px;
+}
+.field {
+  display: grid;
+  gap: 7px;
+}
+.field label,
+.controls label {
+  font-size: 13px;
+  font-weight: 700;
+}
+.field input,
+.controls select {
+  width: 100%;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #c8d6e2;
+  border-radius: 7px;
+  background: white;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+}
+.field input[aria-invalid='true'] {
+  border-color: #b33c3c;
+}
+.form button,
+.controls button {
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  border-radius: 8px;
+}
+.submit {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 16px;
+  border: 1px solid var(--primary);
+  background: var(--primary);
+  color: white;
+  font-weight: 700 !important;
+}
+.submit:hover {
+  background: #103f61;
+}
+.form :focus-visible,
+.controls :focus-visible {
+  outline: 3px solid #2475b3;
+  outline-offset: 3px;
+}
+.form :disabled,
+.controls :disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+.sessionNote {
+  margin: 12px 0 0;
+  font-size: 11px;
+  color: #667b8d;
+}
+.error {
+  margin-bottom: 18px;
+  padding: 12px;
+  border: 1px solid #e9b8b8;
+  background: #fff5f4;
+  border-radius: 8px;
+  color: #9b3030;
+  font-size: 13px;
+}
+.fieldError {
+  font-size: 12px;
+  color: #a33535;
+}
+.controls {
+  margin-top: 24px;
+  font-size: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+.controls summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.controls summary span {
+  display: block;
+  margin: 4px 0 0 15px;
+  font-size: 11px;
+  color: #4d718c;
+}
+.controls > div {
+  display: grid;
+  gap: 10px;
+  padding-top: 14px;
+}
+.controls p {
+  margin: 0;
+  color: var(--muted);
+}
+.controls button {
+  background: white;
+  border: 1px solid #c8d6e2;
+  padding: 9px 12px;
+  color: var(--primary);
+}

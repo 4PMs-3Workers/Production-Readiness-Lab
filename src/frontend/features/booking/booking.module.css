@@ -671,6 +671,12 @@
 .error p {
   margin: 4px 0 0;
 }
+.error:focus,
+.feedback:focus {
+  outline: 3px solid #3784be;
+  outline-offset: 3px;
+  border-radius: 6px;
+}
 .spinner {
   width: 14px;
   height: 14px;
@@ -802,6 +808,81 @@
   color: #8a9ba9;
   margin-bottom: 24px;
 }
+.emptyHistoryLink {
+  display: block;
+  width: fit-content;
+  margin: 18px auto 0;
+  color: #185b8c;
+  font-size: 13px;
+  text-underline-offset: 4px;
+}
+.historyCount {
+  color: #61778a;
+  font-size: 13px;
+  margin: 0 0 18px;
+}
+.historyList {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  list-style: none;
+  padding: 0;
+  margin: 0 0 24px;
+}
+.historyList li {
+  min-width: 0;
+}
+.historyCard {
+  height: 100%;
+  padding: 24px;
+  background: white;
+  border: 1px solid #dbe5ee;
+  border-radius: 10px;
+}
+.historyHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #527e72;
+  font-size: 11px;
+}
+.historyReference {
+  background: #edf5fb;
+  color: #185b8c;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-weight: 700;
+}
+.historyCard h2 {
+  font-size: 18px;
+  margin: 18px 0;
+}
+.historyDetails {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin: 0 0 22px;
+}
+.historyDetails dt {
+  color: #687f93;
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+.historyDetails dd {
+  color: #294960;
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.historyActions {
+  display: flex;
+  justify-content: flex-end;
+  border-top: 1px solid #e3ebf1;
+  padding-top: 16px;
+}
 @media (min-width: 1550px) {
   .choice {
     padding: 23px 18px;
@@ -836,6 +917,9 @@
   }
 }
 @media (max-width: 960px) {
+  .historyList {
+    grid-template-columns: 1fr;
+  }
   .contentGrid {
     grid-template-columns: 1fr;
   }
@@ -855,6 +939,13 @@
   }
 }
 @media (max-width: 600px) {
+  .historyCard {
+    padding: 20px;
+  }
+  .historyDetails {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
   .pageHeading {
     margin-bottom: 18px;
   }
