@@ -1,7 +1,7 @@
 # Session authentication — Issue #5
 
 Branch: `feature/session-authentication`, từ `origin/develop` tại `e416ffd`.
-Ngày thực hiện: 15/10/2026. Không push, mở PR, merge hoặc đóng Issue trong lượt này.
+Ngày thực hiện: 15/10/2026. Branch đã push và mở PR #12 vào `develop`; chưa merge hoặc đóng Issue.
 
 ## Phạm vi và module
 
@@ -171,8 +171,8 @@ Tests bao phủ login/me/csrf/logout/replay, failure đồng nhất/dummy, cooki
 session invalid/expired/revoked/inactive, origin/CSRF sai và cross-session, limiter TTL/capacity,
 chunked payload, DB errors, commit rollback, lock timeout, race login/deactivate hai thứ tự,
 đổi hash giữa verify và lock, caller rollback và hủy worker lặp. Tests routes chỉ ở tests.
-CI hiện có đã chạy toàn tests/backend, MySQL 8.4, Alembic smoke, zero-skips gate và OpenAPI diff,
-nên không thêm workflow trùng lặp. Vì chưa push, chưa có CI run cho branch này.
+CI hiện có chạy toàn tests/backend, MySQL 8.4, Alembic smoke, zero-skips gate và OpenAPI diff,
+nên không thêm workflow trùng lặp. Kết quả của từng commit xem trong PR #12.
 
 Chưa kiểm chứng browser frontend thật, gateway HTTPS/TLS/cookie qua proxy, multi-process rate
 limits, production provisioning hoặc tải demo. Cookie Secure được kiểm bằng HTTP headers/test
@@ -231,7 +231,10 @@ trước khi đếm, giữ email chuẩn hóa cho tài khoản chưa biết; mid
 path tương ứng với Starlette. Regression HTTP chạy với cả root path rỗng và `/prefix`, gồm
 body chunked, IP throttle, timeout, response cache thành công và lỗi. Test tích hợp MySQL kiểm
 tra sáu cách viết cùng resolve một user, attempt thứ sáu nhận 429/Retry-After và không gọi
-Argon2 lần thứ sáu. Kết quả MySQL 8.4/CI của commit sửa đang chờ sau push.
+Argon2 lần thứ sáu. CI MySQL 8.4 trên `632250d` chạy 271 tests: 270 passed,
+1 failed ở test timeout commit cũ do timeout 0,2 giây vẫn được giữ cho lần login kiểm tra phục hồi.
+Test đã được sửa để trả timeout DB về giá trị gốc trước khi kiểm tra phục hồi; giới hạn 0,2 giây
+vẫn áp dụng cho lần commit được cố ý làm treo. Kết quả CI của head cuối xem trực tiếp trong PR #12.
 
 ## Quyết định thực thi so với kế hoạch
 

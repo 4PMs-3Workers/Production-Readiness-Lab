@@ -80,6 +80,7 @@ async def test_timeout_awaiting_commit_dispatch_rolls_back_and_releases_lock(aut
     targets = set()
     entered_commit = asyncio.Event()
     original = engine.sync_engine.dialect.do_commit
+    original_query_timeout = app.state.settings.db_query_timeout_seconds
     app.state.settings.db_query_timeout_seconds = 0.2
 
     def mark_write_connection(db):
@@ -102,6 +103,7 @@ async def test_timeout_awaiting_commit_dispatch_rolls_back_and_releases_lock(aut
     finally:
         event.remove(SyncSession, "before_commit", mark_write_connection)
         monkeypatch.setattr(engine.sync_engine.dialect, "do_commit", original)
+        app.state.settings.db_query_timeout_seconds = original_query_timeout
     assert entered_commit.is_set()
     assert response.status_code == 503
     assert response.headers["X-Error-Class"] == "service"
