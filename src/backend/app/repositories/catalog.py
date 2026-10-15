@@ -35,15 +35,19 @@ async def read_purpose_page(
 ) -> tuple[tuple[Purpose, ...], int]:
     active = Purpose.is_active.is_(True)
     total = await db.scalar(select(func.count()).select_from(Purpose).where(active))
+    total_count = int(total or 0)
+    offset = (query.page - 1) * query.page_size
+    if offset >= total_count:
+        return (), total_count
     statement = (
         select(Purpose)
         .where(active)
         .order_by(Purpose.code.asc(), Purpose.id.asc())
-        .offset((query.page - 1) * query.page_size)
+        .offset(offset)
         .limit(query.page_size)
     )
     rows = tuple((await db.scalars(statement)).all())
-    return rows, int(total or 0)
+    return rows, total_count
 
 
 async def read_staff_page(
@@ -62,15 +66,19 @@ async def read_staff_page(
         .where(*eligible)
     )
     total = await db.scalar(count_statement)
+    total_count = int(total or 0)
+    offset = (query.page - 1) * query.page_size
+    if offset >= total_count:
+        return (), total_count
     rows_statement = (
         select(User.id, User.name)
         .join(StaffPurpose, StaffPurpose.staff_id == User.id)
         .where(*eligible)
         .order_by(User.name.asc(), User.id.asc())
-        .offset((query.page - 1) * query.page_size)
+        .offset(offset)
         .limit(query.page_size)
     )
     rows = tuple(
         (cast(UUID, user_id), name) for user_id, name in (await db.execute(rows_statement))
     )
-    return rows, int(total or 0)
+    return rows, total_count
