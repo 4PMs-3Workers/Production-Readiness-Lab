@@ -1,4 +1,6 @@
 # Runtime dependencies pinned for the model layer (Python 3.11+).
+argon2-cffi==25.1.0
+argon2-cffi-bindings==26.1.0
 SQLAlchemy==2.0.44
 asyncmy==0.2.10
 # MySQL 8.4 defaults to caching_sha2_password; asyncmy needs RSA support without TLS.
