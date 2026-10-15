@@ -76,3 +76,37 @@ async def test_repeated_cancellation_keeps_worker_slot_until_thread_finishes(mon
     finally:
         release.set()
         await asyncio.gather(first, return_exceptions=True)
+
+
+async def test_cancelled_queued_password_does_not_execute(monkeypatch):
+    from app.core.passwords import PasswordPolicy, PasswordService
+
+    service = await PasswordService.create(PasswordPolicy(), 1)
+    started, release = threading.Event(), threading.Event()
+    executed = []
+
+    def blocked(self, password):
+        executed.append(password)
+        started.set()
+        release.wait(5)
+        return "hash"
+
+    monkeypatch.setattr("argon2.PasswordHasher.hash", blocked)
+    active = asyncio.create_task(service.hash("active"))
+    queued = None
+    try:
+        async with asyncio.timeout(2):
+            while not started.is_set():
+                await asyncio.sleep(0.001)
+        queued = asyncio.create_task(service.hash("cancelled-waiter"))
+        await asyncio.sleep(0)
+        queued.cancel()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert queued.done()
+    finally:
+        release.set()
+        await asyncio.gather(
+            active, *([queued] if queued is not None else []), return_exceptions=True
+        )
+    assert executed == ["active"]

@@ -28,6 +28,7 @@ class PasswordService:
             type=Type.ID,
         )
         self._limiter = anyio.CapacityLimiter(max_concurrency)
+        self._slots = asyncio.Semaphore(max_concurrency)
         self._dummy = ""
 
     @classmethod
@@ -37,17 +38,18 @@ class PasswordService:
         return service
 
     async def _run(self, operation: Callable[[], T]) -> T:
-        task = asyncio.create_task(anyio.to_thread.run_sync(operation, limiter=self._limiter))
-        try:
-            return await asyncio.shield(task)
-        except asyncio.CancelledError:
-            # A cancelled request must not release a slot while Argon2 still runs.
-            while not task.done():
-                try:
-                    await asyncio.shield(task)
-                except asyncio.CancelledError:
-                    continue
-            raise
+        # Cancel waiters before admission; shield only admitted native work.
+        async with self._slots:
+            task = asyncio.create_task(anyio.to_thread.run_sync(operation, limiter=self._limiter))
+            try:
+                return await asyncio.shield(task)
+            except asyncio.CancelledError:
+                while not task.done():
+                    try:
+                        await asyncio.shield(task)
+                    except asyncio.CancelledError:
+                        continue
+                raise
 
     async def hash(self, password: str) -> str:
         return await self._run(lambda: self._hasher.hash(password))

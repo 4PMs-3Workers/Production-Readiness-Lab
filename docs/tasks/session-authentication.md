@@ -52,6 +52,8 @@ Unknown account chạy dummy verify; inactive account cũng verify trước cùn
 
 Hash/verify chạy trong thread với CapacityLimiter chung. Hủy request, kể cả hủy lặp, chờ worker
 thực sự xong trước khi kết thúc tác vụ chờ; không giải phóng slot trong khi thread còn dùng RAM.
+Request còn xếp hàng chờ admission slot có thể hủy ngay và không chạy hash sau đó;
+chỉ công việc đã được admission mới được shield tới lúc native worker kết thúc.
 Vì vậy cleanup Argon2 có thể kéo dài hơn deadline nếu thư viện/hash tốn thời gian bất thường.
 Không diễn giải deadline 3 giây là cơ chế cưỡng bức dừng native Argon2 thread.
 
@@ -173,6 +175,15 @@ limits, production provisioning hoặc tải demo. Cookie Secure được kiểm
 client; không suy ra đã kiểm tra HTTPS deployment. Seed #8 và tích hợp frontend #7 là việc khác.
 Review/CI/merge vào develop là điều kiện đóng Issue sau này; Issue vẫn mở ở lượt bàn giao local.
 
+Review độc lập trên `6e8d1e2` tìm được hai điểm Important: hash đã hủy khi còn trong queue vẫn
+chạy, và thiếu kiểm chứng cancellation ở commit boundary. Điểm đầu được tái hiện RED rồi sửa
+bằng cancellable admission trước shield; điểm sau được bổ sung test MySQL hủy sau INSERT/flush
+và timeout tại dialect do_commit trước dispatch. Cả hai kiểm tra lại row bằng connection mới,
+không cấp cookie và lấy được khóa user sau cleanup. Test không mô phỏng mất acknowledgement
+sau khi COMMIT thực sự tới server; trường hợp đó vẫn là kết quả chưa xác định đã ghi ở trên.
+Không có finding Minor bị hoãn. Các fix được xác minh bằng tests và full suite, chưa review lại
+độc lập lần hai hoặc có CI approval; không dùng kết quả local thay review/CI của nhóm.
+
 ## Phối hợp
 
 - #8 dùng PasswordService/PasswordPolicy trực tiếp, không dựng hash implementation khác.
@@ -181,11 +192,34 @@ Review/CI/merge vào develop là điều kiện đóng Issue sau này; Issue v�
 - Account administration dùng caller-owned transaction và cùng khóa user; business services
   kiểm quyền trên từng đối tượng. Request-ID/audit-column mismatch của #4 không sửa trong #5.
 
+## Kết quả cuối sau lượt sửa review — 15/10/2026
+
+| Kiểm tra | Kết quả |
+|---|---|
+| Full backend, JUnit, MySQL 8.4.11 | **255 passed, 0 failed, 0 skipped**, 91.88 giây |
+| Black | 68 Python files không cần format lại |
+| Ruff | All checks passed |
+| Pyright 1.1.407 | 0 errors, 0 warnings |
+| Editable package + pip check | Cài bằng build isolation chuẩn; No broken requirements found |
+| OpenAPI export + git diff | Exit 0, artifact deterministic; đủ health và 4 auth paths |
+| Uvicorn thực trên loopback | Readiness/origin/login/me/csrf/logout/replay/repeated logout đạt |
+| Cleanup smoke | Uvicorn process kết thúc; schema smoke riêng được xóa trong finally |
+
+Suite dùng Python 3.11.4 ngoài Windows sandbox (sandbox chặn runtime/async DLL); MySQL container
+riêng dùng tmpfs, schema test qua Alembic. JUnit `build/backend-tests.xml` ghi zero skips. Có 89
+warnings thuộc các loại deprecation Starlette TestClient/httpx và Alembic path_separator của
+nền hiện có. Không nâng dependency ngoài Argon2 để xử lý các cảnh báo không thuộc Issue này.
+Log kiểm chứng local nằm trong `build/session-auth/` (gitignored); kết quả trên không phải CI.
+Tài liệu này và các local commits là handoff; chưa push/PR/merge/đóng Issue.
+
 ## Quyết định thực thi so với kế hoạch
 
 - Dùng branch mới trong checkout đã được người dùng yêu cầu; hai file kế hoạch local giữ nguyên.
 - Ledger/logs PowerShell trong build/session-auth thay bash-only Superpowers scratch helpers.
 - Gộp các utilities liên quan vào một commit; tests tập trung theo module, HTTP/services dùng
   chung fixtures trong integration/conftest thay tạo nhiều bộ setup/schema dư thừa.
+- Ví dụ HTTPX/getpass thay curl/cookie jar để không ghi password/token ra file; cần môi trường
+  dev có httpx. Rủi ro của các điều chỉnh quy trình: không cách ly thư mục như worktree, ít điểm
+  commit trung gian hơn và ledger PowerShell cần giữ thủ công; thay đổi local cũ vẫn giữ nguyên.
 - Sửa bổ sung nhánh cache 500 và mô tả OpenAPI sau khi tests tái hiện fail; regression hủy lặp
   Argon2 được chứng minh RED→GREEN. Không thay scope/DB schema hoặc thêm tài khoản seed.

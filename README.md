@@ -204,7 +204,7 @@ có thể liệt kê nhiều revision tương thích, cách nhau bằng dấu ph
 | `ENVIRONMENT`                       | `local`             | `local`, `test`, `demo`, `production`.                                                                                |
 | `APPLICATION_ORIGIN`                | Bắt buộc            | Origin HTTP(S), không có path/query/credentials; demo/production phải HTTPS.                                          |
 | `COOKIE_SECRET`, `CSRF_SECRET`      | Bắt buộc            | Hai secret không rỗng, độc lập; không đưa vào Git/log.                                                                |
-| `COOKIE_SECURE`                     | `true`              | Boolean; bắt buộc `true` trong demo/production và khi SameSite là `none`. Local HTTP đặt `false`.                     |
+| `COOKIE_SECURE` | `true` | Demo/production bắt buộc HTTPS và Secure; local HTTP đặt false. |
 | `COOKIE_SAMESITE` | `lax` | Chỉ `lax` cho session authentication. |
 | `COOKIE_DOMAIN` | Không đặt | Bắt buộc host-only; không đặt domain cho auth cookies. |
 | `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`   | `5`, `5`            | Số kết nối cơ bản >0 và kết nối vượt mức >=0 trên mỗi API process.                                                    |
