@@ -135,6 +135,7 @@ Production-Readiness-Lab/
 | [Thiết kế cơ sở dữ liệu](docs/architecture/database-design.md)        | Mô hình 11 bảng, ràng buộc, chỉ mục và xử lý giao dịch cạnh tranh.          |
 | [Models cơ sở dữ liệu](docs/architecture/database-models.md)          | Ánh xạ SQLAlchemy, chuyển đổi kiểu dữ liệu và hướng dẫn chạy kiểm tra.      |
 | [Task database models](docs/tasks/database-models.md)                 | Phạm vi triển khai, kiểm thử và bàn giao bộ models.                         |
+| [Catalog và availability](docs/tasks/catalog-availability.md)           | Hợp đồng ba API đọc, cách gọi bằng session và bằng chứng/giới hạn nghiệm thu. |
 | [Task frontend bootstrap](docs/tasks/frontend-bootstrap.md)           | Nền tảng, routes, các mốc triển khai, cài đặt và kiểm chứng.                 |
 | [Mock services và UI đặt lịch](docs/tasks/frontend-mock-services.md)  | Chi tiết fixtures, preset, clock và thao tác đặt lịch bằng dữ liệu demo.    |
 | [Đăng nhập demo và Home](docs/tasks/frontend-login.md)               | Mốc 3: form đăng nhập, phiên trong bộ nhớ, Home và đăng xuất.               |
@@ -216,6 +217,102 @@ Chạy migration theo `docs/tasks/database-migrations.md` trước khi mong read
 Phiên bản schema ban đầu được chấp nhận là `a1b2c3d4e5f6`. `ACCEPTED_SCHEMA_REVISIONS`
 có thể liệt kê nhiều revision tương thích, cách nhau bằng dấu phẩy; revision khác luôn trả 503.
 
+Ba API đọc catalog/availability mới là `GET /api/v1/purposes`,
+`GET /api/v1/staff?purpose_id=...` và
+`GET /api/v1/availability?purpose_id=...&staff_id=...&date=YYYY-MM-DD`.
+Chúng chỉ dành cho sinh viên có session hợp lệ; GET không cần CSRF. Dữ liệu nhu cầu,
+nhân viên, giờ phục vụ và singleton `service_settings` phải được cấp trong MySQL riêng.
+API không tự seed cấu hình; singleton thiếu hoặc không hợp lệ trả `503`, không giả làm
+danh sách/giờ trống. Ngày khả dụng phải nằm trong cửa sổ D+1 đến D+`booking_horizon_days`
+theo timezone trong DB. Xem [bàn giao catalog và availability](docs/tasks/catalog-availability.md)
+để biết quy tắc slot, lỗi, giới hạn và ma trận kiểm thử.
+
+Ví dụ sau dùng tài khoản `STUDENT` đã được cấp cho môi trường của bạn. Với `.env.example`,
+API chạy trực tiếp trên `http://localhost:8000`, còn `APPLICATION_ORIGIN` là
+`http://localhost:3000`; nếu đổi cấu hình, sửa hai giá trị tương ứng. Mật khẩu được nhập
+bằng `getpass`; HTTPX giữ cookie trong bộ nhớ và script không in cookie hay thông tin đăng nhập.
+Ngày cần chọn là ngày hợp lệ theo cửa sổ nghiệp vụ, không nhất thiết là ngày trong ví dụ.
+
+```bash
+python - <<'PY'
+import asyncio
+from getpass import getpass
+
+import httpx
+
+API_URL = "http://localhost:8000"
+APPLICATION_ORIGIN = "http://localhost:3000"
+
+
+def read_json(response: httpx.Response) -> dict:
+    if response.is_error:
+        try:
+            error = response.json().get("error", {})
+        except ValueError:
+            error = {}
+        raise RuntimeError(
+            f"HTTP {response.status_code}: {error.get('code', 'REQUEST_FAILED')} "
+            f"(request_id={error.get('request_id', 'unavailable')})"
+        )
+    return response.json()
+
+
+async def main() -> None:
+    email = input("Email sinh viên: ").strip()
+    password = getpass("Mật khẩu: ")
+
+    async with httpx.AsyncClient(base_url=API_URL, timeout=4.0) as client:
+        login = await client.post(
+            "/api/v1/auth/login",
+            json={"email": email, "password": password},
+            headers={"Origin": APPLICATION_ORIGIN},
+        )
+        read_json(login)
+
+        purpose_page = read_json(await client.get("/api/v1/purposes"))
+        purposes = purpose_page["items"]
+        if not purposes:
+            print("Không có nhu cầu đang hoạt động.")
+            return
+        for number, purpose in enumerate(purposes, start=1):
+            print(f"{number}. {purpose['code']} — {purpose['name']}")
+        purpose = purposes[int(input("Chọn nhu cầu: ")) - 1]
+
+        staff_page = read_json(
+            await client.get("/api/v1/staff", params={"purpose_id": purpose["id"]})
+        )
+        staff_members = staff_page["items"]
+        if not staff_members:
+            print("Chưa có nhân viên nhận nhu cầu này.")
+            return
+        for number, member in enumerate(staff_members, start=1):
+            print(f"{number}. {member['name']}")
+        staff = staff_members[int(input("Chọn nhân viên: ")) - 1]
+        selected_date = input("Ngày muốn xem (YYYY-MM-DD): ").strip()
+
+        result = read_json(
+            await client.get(
+                "/api/v1/availability",
+                params={
+                    "purpose_id": purpose["id"],
+                    "staff_id": staff["id"],
+                    "date": selected_date,
+                },
+            )
+        )
+        print(f"Ngày {result['date']} — {result['timezone']}")
+        for slot in result["slots"]:
+            print(f"{slot['starts_at']} – {slot['ends_at']}")
+        if not result["slots"]:
+            print("Không có giờ trống phù hợp.")
+
+
+asyncio.run(main())
+PY
+```
+
+Đây là cách gọi dự kiến, chưa phải kết quả smoke test của môi trường MySQL trong lượt này.
+
 | Biến môi trường                     | Bắt buộc / mặc định | Ý nghĩa và giá trị hợp lệ                                                                                             |
 | ----------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`                      | Bắt buộc            | URL `mysql+asyncmy` có tên database; chỉ cung cấp qua môi trường hoặc `.env` local.                                   |
@@ -229,9 +326,9 @@ có thể liệt kê nhiều revision tương thích, cách nhau bằng dấu ph
 | `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`   | `5`, `5`            | Số kết nối cơ bản >0 và kết nối vượt mức >=0 trên mỗi API process.                                                    |
 | `DB_CONNECT_TIMEOUT_SECONDS`        | `1` giây            | Timeout kết nối hữu hạn, >0.                                                                                          |
 | `DB_POOL_TIMEOUT_SECONDS`           | `0.5` giây          | Timeout chờ pool hữu hạn, >0.                                                                                         |
-| `DB_QUERY_TIMEOUT_SECONDS`          | `1` giây            | Timeout truy vấn hữu hạn, >0; dành cho services sau này.                                                              |
+| `DB_QUERY_TIMEOUT_SECONDS`          | `1` giây            | Timeout truy vấn hữu hạn, >0; bao transaction đọc của catalog/availability.                                           |
 | `DB_LOCK_TIMEOUT_SECONDS`           | `0.5` giây          | Timeout chờ khóa hữu hạn, >0; dành cho services sau này.                                                              |
-| `REQUEST_TIMEOUT_SECONDS`           | `3` giây            | Ngân sách request hữu hạn, >0; dành cho business routes sau này.                                                      |
+| `REQUEST_TIMEOUT_SECONDS`           | `3` giây            | Ngân sách request hữu hạn, >0; áp cho request catalog/availability.                                                  |
 | `READINESS_TIMEOUT_SECONDS`         | `2` giây            | Deadline hữu hạn, >0 cho toàn bộ readiness, gồm chờ pool, kết nối và cả hai query.                                    |
 | `MAX_DEADLOCK_RETRIES`              | `2`                 | Số lần retry >=0, dành cho services sau này.                                                                          |
 | `WORKER_POLL_INTERVAL_SECONDS`      | `5` giây            | Chu kỳ quét hữu hạn, >0; dành cho worker sau này.                                                                     |
