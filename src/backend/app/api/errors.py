@@ -6,6 +6,7 @@ from typing import Literal
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette._utils import get_route_path
 from starlette.exceptions import HTTPException
 
 from app.core.request_context import get_request_id
@@ -53,8 +54,11 @@ def error_response(request: Request, error: AppError) -> JSONResponse:
         )
     )
     headers = dict(error.headers or {})
-    if request.url.path in {"/health/live", "/health/ready"}:
+    route_path = get_route_path(request.scope)
+    if route_path in {"/health/live", "/health/ready"}:
         headers["Cache-Control"] = "no-store"
+    elif route_path.startswith("/api/v1/auth/"):
+        headers["Cache-Control"] = "private, no-store"
     headers["X-Error-Class"] = error.error_class
     headers["X-Request-ID"] = get_request_id(request)
     return JSONResponse(status_code=error.status_code, content=body.model_dump(), headers=headers)

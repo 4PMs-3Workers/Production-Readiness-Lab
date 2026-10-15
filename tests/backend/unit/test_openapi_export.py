@@ -21,7 +21,28 @@ def test_openapi_export_is_deterministic_without_database(tmp_path):
     subprocess.run(command, cwd=root, env=env, check=True, capture_output=True, text=True)
     assert output.read_bytes() == first
     document = yaml.safe_load(first)
-    assert set(document["paths"]) == {"/health/live", "/health/ready"}
+    assert set(document["paths"]) == {
+        "/health/live",
+        "/health/ready",
+        "/api/v1/auth/login",
+        "/api/v1/auth/me",
+        "/api/v1/auth/csrf",
+        "/api/v1/auth/logout",
+    }
+    schemes = document["components"]["securitySchemes"]
+    assert any(
+        s["type"] == "apiKey" and s["in"] == "cookie" and s["name"] == "prl_session"
+        for s in schemes.values()
+    )
+    for path in (
+        "/api/v1/auth/login",
+        "/api/v1/auth/me",
+        "/api/v1/auth/csrf",
+        "/api/v1/auth/logout",
+    ):
+        method = "get" if path.endswith(("/me", "/csrf")) else "post"
+        assert "ErrorResponse" in str(document["paths"][path][method]["responses"])
+    assert "Retry-After" in str(document["paths"]["/api/v1/auth/login"]["post"]["responses"]["429"])
     assert "200" in document["paths"]["/health/live"]["get"]["responses"]
     assert "503" in document["paths"]["/health/ready"]["get"]["responses"]
     assert "ErrorResponse" in document["components"]["schemas"]

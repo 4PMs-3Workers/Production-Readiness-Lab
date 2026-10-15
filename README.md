@@ -1,4 +1,4 @@
-# Production Readiness Lab
+﻿# Production Readiness Lab
 
 Ứng dụng đặt lịch tư vấn tại trường đại học, kết hợp môi trường thực hành xây dựng và vận hành hệ thống phần mềm: từ thiết kế nghiệp vụ, bảo vệ dữ liệu đến triển khai, giám sát và phục hồi khi có sự cố.
 
@@ -204,9 +204,9 @@ có thể liệt kê nhiều revision tương thích, cách nhau bằng dấu ph
 | `ENVIRONMENT`                       | `local`             | `local`, `test`, `demo`, `production`.                                                                                |
 | `APPLICATION_ORIGIN`                | Bắt buộc            | Origin HTTP(S), không có path/query/credentials; demo/production phải HTTPS.                                          |
 | `COOKIE_SECRET`, `CSRF_SECRET`      | Bắt buộc            | Hai secret không rỗng, độc lập; không đưa vào Git/log.                                                                |
-| `COOKIE_SECURE`                     | `true`              | Boolean; bắt buộc `true` trong demo/production và khi SameSite là `none`. Local HTTP đặt `false`.                     |
-| `COOKIE_SAMESITE`                   | `lax`               | `lax`, `strict`, `none`.                                                                                              |
-| `COOKIE_DOMAIN`                     | Không đặt           | Hostname cookie; không đặt để cookie host-only.                                                                       |
+| `COOKIE_SECURE` | `true` | Demo/production bắt buộc HTTPS và Secure; local HTTP đặt false. |
+| `COOKIE_SAMESITE` | `lax` | Chỉ `lax` cho session authentication. |
+| `COOKIE_DOMAIN` | Không đặt | Bắt buộc host-only; không đặt domain cho auth cookies. |
 | `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`   | `5`, `5`            | Số kết nối cơ bản >0 và kết nối vượt mức >=0 trên mỗi API process.                                                    |
 | `DB_CONNECT_TIMEOUT_SECONDS`        | `1` giây            | Timeout kết nối hữu hạn, >0.                                                                                          |
 | `DB_POOL_TIMEOUT_SECONDS`           | `0.5` giây          | Timeout chờ pool hữu hạn, >0.                                                                                         |
@@ -261,6 +261,18 @@ Bài cạnh tranh kiểm tra 50 sinh viên cùng đặt một khoảng giờ c�
 Bằng chứng nghiệm thu gồm cấu hình môi trường, commit/image digest, kết quả kiểm thử và bài tải, trace mẫu, trạng thái cảnh báo và timeline phục hồi.
 
 ## Đóng góp
+
+Nền tảng xác thực backend (Issue #5) cung cấp `POST /api/v1/auth/login`,
+`GET /api/v1/auth/me`, `GET /api/v1/auth/csrf` và `POST /api/v1/auth/logout`.
+Dùng session cookie host-only `prl_session` (HttpOnly) và `prl_csrf`, Path=/,
+SameSite=Lax; cookie domain phải để trống. Demo/production cần HTTPS/Secure.
+Login nhận JSON và Origin/Referer hợp lệ; thao tác ghi có phiên cần signed CSRF
+cookie + `X-CSRF-Token`. Xem [hướng dẫn auth](docs/tasks/session-authentication.md)
+cho cấu hình, ví dụ HTTP chạy được, API lỗi và giới hạn throttle theo process.
+Lifetime mặc định 86400 giây; body login tối đa 4096 byte; mặc định 30 attempts/IP
+và 5 attempts/email trong 60 giây, tối đa 10000 mục mỗi loại, 2 worker Argon2.
+Biến cấu hình tương ứng có trong `.env.example`; mật khẩu/seed demo được cung cấp
+ở task riêng, không có tài khoản mặc định do API tự tạo.
 
 1. Đọc [coding convention](docs/other/CONVENTION.md) và [Git Flow](docs/other/GITFLOW.md).
 2. Tạo branch theo loại thay đổi và phạm vi công việc.
