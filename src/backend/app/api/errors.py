@@ -10,6 +10,7 @@ from starlette._utils import get_route_path
 from starlette.exceptions import HTTPException
 
 from app.core.request_context import get_request_id
+from app.core.response_policy import requires_private_response
 from app.schemas.common import ErrorDetail, ErrorResponse
 
 ErrorClass = Literal["input", "business", "service"]
@@ -57,7 +58,7 @@ def error_response(request: Request, error: AppError) -> JSONResponse:
     route_path = get_route_path(request.scope)
     if route_path in {"/health/live", "/health/ready"}:
         headers["Cache-Control"] = "no-store"
-    elif route_path.startswith("/api/v1/auth/"):
+    elif requires_private_response(request.scope):
         headers["Cache-Control"] = "private, no-store"
     headers["X-Error-Class"] = error.error_class
     headers["X-Request-ID"] = get_request_id(request)
