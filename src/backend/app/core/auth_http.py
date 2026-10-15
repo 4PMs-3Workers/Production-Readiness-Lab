@@ -2,6 +2,7 @@
 
 import asyncio
 
+from starlette._utils import get_route_path
 from starlette.datastructures import MutableHeaders
 from starlette.requests import Request
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -18,7 +19,11 @@ class AuthHttpMiddleware:
         self.app, self.settings, self.throttle = app, settings, throttle
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or not scope["path"].startswith("/api/v1/auth/"):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        route_path = get_route_path(scope)
+        if not route_path.startswith("/api/v1/auth/"):
             await self.app(scope, receive, send)
             return
         started = False
@@ -33,7 +38,7 @@ class AuthHttpMiddleware:
         request = Request(scope)
         try:
             async with asyncio.timeout(self.settings.request_timeout_seconds):
-                if scope["path"] == "/api/v1/auth/login" and scope["method"] == "POST":
+                if route_path == "/api/v1/auth/login" and scope["method"] == "POST":
                     self.throttle.check_ip(request.client.host if request.client else "unknown")
                     require_same_origin(request, self.settings)
                     media = request.headers.get("content-type", "").split(";")[0].strip().lower()

@@ -71,6 +71,42 @@ async def test_login_failures_share_one_public_error(auth_env, kind):
         assert (await db.scalars(select(Session))).all() == []
 
 
+async def test_collation_equivalent_emails_share_login_budget(auth_env, auth_settings, monkeypatch):
+    from app.core.login_throttle import LoginThrottle
+    from app.repositories import users
+
+    client, factory, user_id, app = auth_env
+    app.state.login_throttle = LoginThrottle(auth_settings)
+    original_verify = app.state.passwords.verify
+    verifications = 0
+
+    async def counted_verify(password, encoded_hash):
+        nonlocal verifications
+        verifications += 1
+        return await original_verify(password, encoded_hash)
+
+    monkeypatch.setattr(app.state.passwords, "verify", counted_verify)
+    emails = ["student@example.invalid"] + [
+        "student" + "\u200b" * count + "@example.invalid" for count in range(1, 6)
+    ]
+    for index, email in enumerate(emails):
+        async with factory() as db:
+            account = await users.find_by_email(db, email)
+            assert account is not None and account.id == user_id
+        response = await client.post(
+            "/api/v1/auth/login",
+            json={"email": email, "password": "wrong-password"},
+            headers=ORIGIN,
+        )
+        assert response.status_code == (429 if index == 5 else 401)
+        assert response.json()["error"]["code"] == (
+            "LOGIN_THROTTLED" if index == 5 else "INVALID_CREDENTIALS"
+        )
+        if index == 5:
+            assert int(response.headers["Retry-After"]) > 0
+    assert verifications == 5
+
+
 @pytest.mark.parametrize(
     "state", ["missing", "malformed", "unknown", "expired", "revoked", "inactive"]
 )

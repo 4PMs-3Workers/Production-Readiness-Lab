@@ -32,7 +32,7 @@ COOKIE_SECRET được giữ vì hợp đồng #4; bearer session không cần k
 | SESSION_LIFETIME_SECONDS | 86400 giây; integer 1..2592000; absolute lifetime, không sliding |
 | LOGIN_MAX_BODY_BYTES | 4096 byte; integer >0; byte thực tế trước JSON parser, kể cả chunked/no Content-Length |
 | LOGIN_IP_ATTEMPTS | 30 attempts/cửa sổ; integer >0 |
-| LOGIN_EMAIL_ATTEMPTS | 5 attempts/email chuẩn hóa/cửa sổ; integer >0 |
+| LOGIN_EMAIL_ATTEMPTS | 5 attempts/email canonical từ DB cho tài khoản đã biết, email chuẩn hóa đã gửi cho tài khoản chưa biết/cửa sổ; integer >0 |
 | LOGIN_WINDOW_SECONDS | 60 giây; integer >0; fixed window tính từ attempt đầu |
 | LOGIN_STATE_MAX_ENTRIES | 10000 mục mỗi loại IP/email; integer >0 |
 | PASSWORD_MAX_CONCURRENCY | 2 tác vụ Argon2 chạy đồng thời mỗi process; integer >0 |
@@ -98,7 +98,9 @@ hoặc expiry, các token CSRF đó cũng không dùng được vì authenticati
 Logout với session hợp lệ cần origin + CSRF. Không/invalid/expired/revoked/inactive session có thể
 logout 204 và clear cookies sau origin validation; DB lookup lỗi vẫn 503, không giả báo thành công.
 
-IP limit áp trước body/JSON; email limit áp sau validation trước DB/Argon2. Đếm cả thành công;
+IP limit áp trước body/JSON; email limit áp sau validation và DB lookup, trước Argon2. Tài khoản
+đã biết dùng `User.email` canonical nên các cách viết được collation MySQL xem là cùng tài khoản
+chia sẻ một bucket; tài khoản chưa biết dùng email đã chuẩn hóa từ request. Đếm cả thành công;
 429 kèm Retry-After nguyên dương. Counter fixed-window dùng monotonic clock và khóa để atomic;
 mục hết hạn bị dọn khi truy cập, không tạo background worker. Khi capacity đầy không evict mục
 đang chặn: từ chối key mới tới cửa sổ có chỗ. Email được lưu dưới dạng digest, không plaintext.
@@ -115,6 +117,8 @@ INVALID_ORIGIN (403), LOGIN_THROTTLED (429), PAYLOAD_TOO_LARGE (413), UNSUPPORTE
 VALIDATION_ERROR (422). Các lỗi này thuộc input; DB/timeout là SERVICE_UNAVAILABLE (503)/service.
 Error body request_id khớp X-Request-ID; giữ Retry-After và Allow. Không trả SQL, stack trace,
 credential, hash hay bearer token trong JSON. CSRF bootstrap chủ ý trả token CSRF cho frontend.
+Middleware và error handler so đường dẫn route theo cách Starlette xử lý `root_path`, vì vậy
+body limit, IP throttle, request deadline và cache policy vẫn áp dụng khi API nằm dưới URL prefix.
 
 Chạy Uvicorn theo README, dùng tài khoản đã được cấp với hash hợp lệ; Issue này không tạo tài
 khoản demo. Ví dụ Python dùng httpx trong requirements-dev, nhập password qua getpass, không in
@@ -192,7 +196,7 @@ Không có finding Minor bị hoãn. Các fix được xác minh bằng tests v�
 - Account administration dùng caller-owned transaction và cùng khóa user; business services
   kiểm quyền trên từng đối tượng. Request-ID/audit-column mismatch của #4 không sửa trong #5.
 
-## Kết quả cuối sau lượt sửa review — 15/10/2026
+## Kết quả trên commit 340bbe3 trước phản hồi PR #12 — 15/10/2026
 
 | Kiểm tra | Kết quả |
 |---|---|
@@ -210,12 +214,24 @@ riêng dùng tmpfs, schema test qua Alembic. JUnit `build/backend-tests.xml` ghi
 warnings thuộc các loại deprecation Starlette TestClient/httpx và Alembic path_separator của
 nền hiện có. Không nâng dependency ngoài Argon2 để xử lý các cảnh báo không thuộc Issue này.
 Log kiểm chứng local nằm trong `build/session-auth/` (gitignored); kết quả trên không phải CI.
-Tài liệu này và các local commits là handoff; chưa push/PR/merge/đóng Issue.
+Commit này đã được push trong PR #12; backend và frontend CI trên commit 340bbe3 đều đạt.
+Issue chưa merge/đóng. Kết quả mới cho bản sửa sau phản hồi PR sẽ được ghi riêng bên dưới.
 
 Lượt rà soát diff cuối tái hiện việc Origin và APPLICATION_ORIGIN chấp nhận dấu `?`/`#` rỗng
 ở cuối URL. Đã bổ sung regression tests và từ chối các chuỗi này; Referer có path/query hợp lệ
 vẫn được chấp nhận làm fallback. Full suite 260 tests và Black/Ruff/Pyright đạt sau sửa;
-OpenAPI export không đổi. Chưa có CI run cho commit sửa này.
+OpenAPI export không đổi.
+
+## Phản hồi PR #12
+
+Nhóm trưởng xác nhận hai lỗi P2 trên 340bbe3: email khác chuỗi nhưng cùng user theo collation
+MySQL có thể né email throttle, và ASGI `root_path` làm middleware auth bỏ qua các giới hạn HTTP.
+Tests mới tái hiện cả hai lỗi trước sửa. Service hiện lấy email canonical của user sau DB lookup
+trước khi đếm, giữ email chuẩn hóa cho tài khoản chưa biết; middleware/error handler dùng route
+path tương ứng với Starlette. Regression HTTP chạy với cả root path rỗng và `/prefix`, gồm
+body chunked, IP throttle, timeout, response cache thành công và lỗi. Test tích hợp MySQL kiểm
+tra sáu cách viết cùng resolve một user, attempt thứ sáu nhận 429/Retry-After và không gọi
+Argon2 lần thứ sáu. Kết quả MySQL 8.4/CI của commit sửa đang chờ sau push.
 
 ## Quyết định thực thi so với kế hoạch
 
