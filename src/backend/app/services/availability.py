@@ -37,8 +37,13 @@ from app.services.availability_rules import (
 async def _read_transaction(db: AsyncSession, settings: Settings) -> AsyncIterator[None]:
     try:
         async with asyncio.timeout(settings.db_query_timeout_seconds):
-            async with db.begin():
+            transaction = db.begin()
+            await transaction.start()
+            try:
                 yield
+            finally:
+                if transaction.is_active:
+                    await transaction.rollback()
     except (SQLAlchemyError, TimeoutError):
         if db.in_transaction():
             await db.rollback()

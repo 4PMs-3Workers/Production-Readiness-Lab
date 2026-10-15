@@ -1,7 +1,6 @@
 """Availability orchestration contracts and MySQL-backed behavior."""
 
 import asyncio
-from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, time, timedelta
 from typing import cast
 from uuid import uuid4
@@ -46,25 +45,53 @@ class CountingClock:
         return self.value
 
 
-@asynccontextmanager
-async def _transaction(session):
-    session._active = True
-    try:
-        yield session
-    except BaseException:
-        session.rollbacks += 1
-        raise
-    finally:
-        session._active = False
+class _FakeTransaction:
+    def __init__(self, session):
+        self.session = session
+        self.active = False
+
+    @property
+    def is_active(self):
+        return self.active
+
+    async def start(self, is_ctxmanager: bool = False):
+        self.active = True
+        self.session._active = True
+        return self
+
+    async def commit(self):
+        if self.active:
+            self.session.commits += 1
+            self.active = False
+            self.session._active = False
+
+    async def rollback(self):
+        if self.active:
+            self.session.rollbacks += 1
+            self.active = False
+            self.session._active = False
+
+    async def __aenter__(self):
+        await self.start(is_ctxmanager=True)
+        return self
+
+    async def __aexit__(self, error_type, error, traceback):
+        if not self.active:
+            return
+        if error_type is None:
+            await self.commit()
+        else:
+            await self.rollback()
 
 
 class _FakeSession:
     def __init__(self):
         self._active = False
+        self.commits = 0
         self.rollbacks = 0
 
     def begin(self):
-        return _transaction(self)
+        return _FakeTransaction(self)
 
     def in_transaction(self):
         return self._active
@@ -131,6 +158,8 @@ async def test_service_samples_clock_once_and_returns_pure_rule_output(monkeypat
         {"starts_at": "2026-10-16T01:25:00Z", "ends_at": "2026-10-16T01:55:00Z"},
         {"starts_at": "2026-10-16T01:40:00Z", "ends_at": "2026-10-16T02:10:00Z"},
     ]
+    assert db.commits == 0
+    assert db.rollbacks == 1
     assert not db.in_transaction()
 
 
