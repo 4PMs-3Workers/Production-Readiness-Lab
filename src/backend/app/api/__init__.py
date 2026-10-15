@@ -22,3 +22,12 @@ def _register_catalog() -> None:
 
 
 _register_catalog()
+
+
+def _register_availability() -> None:
+    from app.api.availability import router
+
+    api_v1_router.include_router(router)
+
+
+_register_availability()

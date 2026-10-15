@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from typing import Generic, TypeVar
 
-from pydantic import AwareDatetime, BaseModel, Field, RootModel, field_serializer
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, field_serializer
 
 
 class ErrorDetail(BaseModel):
@@ -32,6 +32,8 @@ class PageResponse(BaseModel, Generic[T]):
 
 
 class UtcTimestamp(RootModel[AwareDatetime]):
+    model_config = ConfigDict(json_schema_extra={"format": "date-time"})
+
     @field_serializer("root", when_used="json")
     def serialize_utc(self, value: datetime) -> str:
         return value.astimezone(UTC).isoformat().replace("+00:00", "Z")

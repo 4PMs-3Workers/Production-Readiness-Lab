@@ -30,6 +30,7 @@ def test_openapi_export_is_deterministic_without_database(tmp_path):
         "/api/v1/auth/logout",
         "/api/v1/purposes",
         "/api/v1/staff",
+        "/api/v1/availability",
     }
     schemes = document["components"]["securitySchemes"]
     assert any(
@@ -70,6 +71,39 @@ def test_openapi_export_is_deterministic_without_database(tmp_path):
             assert {"Cache-Control", "X-Error-Class", "X-Request-ID"} <= set(
                 operation["responses"][status]["headers"]
             )
+    availability = document["paths"]["/api/v1/availability"]["get"]
+    assert availability["security"] == [{"prl_session": []}]
+    availability_parameters = {
+        parameter["name"]: parameter for parameter in availability["parameters"]
+    }
+    assert set(availability_parameters) == {"purpose_id", "staff_id", "date"}
+    assert availability_parameters["purpose_id"]["required"] is True
+    assert availability_parameters["staff_id"]["required"] is True
+    assert availability_parameters["date"]["required"] is True
+    assert availability_parameters["purpose_id"]["schema"]["format"] == "uuid"
+    assert availability_parameters["staff_id"]["schema"]["format"] == "uuid"
+    assert availability_parameters["date"]["schema"]["format"] == "date"
+    availability_schema_ref = availability["responses"]["200"]["content"]["application/json"][
+        "schema"
+    ]["$ref"]
+    assert availability_schema_ref.endswith("AvailabilityResponse")
+    schemas = document["components"]["schemas"]
+    availability_schema = schemas[availability_schema_ref.rsplit("/", 1)[-1]]
+    assert set(availability_schema["properties"]) == {"date", "timezone", "slots"}
+    assert availability_schema["properties"]["date"]["format"] == "date"
+    slot_schema_ref = availability_schema["properties"]["slots"]["items"]["$ref"]
+    slot_schema = schemas[slot_schema_ref.rsplit("/", 1)[-1]]
+    assert set(slot_schema["properties"]) == {"starts_at", "ends_at"}
+    for property_name in ("starts_at", "ends_at"):
+        timestamp_ref = slot_schema["properties"][property_name]["$ref"]
+        timestamp_schema = schemas[timestamp_ref.rsplit("/", 1)[-1]]
+        assert timestamp_schema["format"] == "date-time"
+    assert "student_id" not in availability_parameters
+    assert not {"slot_id", "student_id", "other_reason"} & set(schemas)
+    for status in ("401", "403", "404", "422", "500", "503"):
+        response = availability["responses"][status]
+        assert "ErrorResponse" in str(response["content"])
+        assert {"Cache-Control", "X-Error-Class", "X-Request-ID"} <= set(response["headers"])
     assert "Retry-After" in str(document["paths"]["/api/v1/auth/login"]["post"]["responses"]["429"])
     assert "200" in document["paths"]["/health/live"]["get"]["responses"]
     assert "503" in document["paths"]["/health/ready"]["get"]["responses"]

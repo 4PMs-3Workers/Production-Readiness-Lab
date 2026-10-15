@@ -1,5 +1,36 @@
 components:
   schemas:
+    AvailabilityResponse:
+      properties:
+        date:
+          format: date
+          title: Date
+          type: string
+        slots:
+          items:
+            $ref: '#/components/schemas/AvailableSlot'
+          title: Slots
+          type: array
+        timezone:
+          title: Timezone
+          type: string
+      required:
+      - date
+      - timezone
+      - slots
+      title: AvailabilityResponse
+      type: object
+    AvailableSlot:
+      properties:
+        ends_at:
+          $ref: '#/components/schemas/UtcTimestamp'
+        starts_at:
+          $ref: '#/components/schemas/UtcTimestamp'
+      required:
+      - starts_at
+      - ends_at
+      title: AvailableSlot
+      type: object
     CsrfResponse:
       properties:
         csrf_token:
@@ -192,6 +223,10 @@ components:
       - name
       title: StaffItem
       type: object
+    UtcTimestamp:
+      format: date-time
+      title: UtcTimestamp
+      type: string
   securitySchemes:
     prl_session:
       in: cookie
@@ -624,6 +659,166 @@ paths:
       summary: Me
       tags:
       - authentication
+  /api/v1/availability:
+    get:
+      operationId: availability_api_v1_availability_get
+      parameters:
+      - in: query
+        name: purpose_id
+        required: true
+        schema:
+          format: uuid
+          title: Purpose Id
+          type: string
+      - in: query
+        name: staff_id
+        required: true
+        schema:
+          format: uuid
+          title: Staff Id
+          type: string
+      - in: query
+        name: date
+        required: true
+        schema:
+          format: date
+          title: Date
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AvailabilityResponse'
+          description: Successful Response
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized catalog error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Classification of the sanitized error
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized catalog error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Classification of the sanitized error
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized catalog error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Classification of the sanitized error
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized catalog error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Classification of the sanitized error
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized catalog error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Classification of the sanitized error
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized catalog error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Classification of the sanitized error
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+      security:
+      - prl_session: []
+      summary: Availability
+      tags:
+      - availability
   /api/v1/purposes:
     get:
       operationId: purposes_api_v1_purposes_get
