@@ -1,5 +1,14 @@
 components:
   schemas:
+    CsrfResponse:
+      properties:
+        csrf_token:
+          title: Csrf Token
+          type: string
+      required:
+      - csrf_token
+      title: CsrfResponse
+      type: object
     ErrorDetail:
       properties:
         code:
@@ -35,6 +44,50 @@ components:
       - status
       title: LiveResponse
       type: object
+    LoginRequest:
+      additionalProperties: false
+      properties:
+        email:
+          title: Email
+          type: string
+        password:
+          format: password
+          maxLength: 1024
+          minLength: 1
+          title: Password
+          type: string
+          writeOnly: true
+      required:
+      - email
+      - password
+      title: LoginRequest
+      type: object
+    PublicUser:
+      properties:
+        email:
+          title: Email
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        name:
+          title: Name
+          type: string
+        role:
+          enum:
+          - STUDENT
+          - STAFF
+          - ADMIN
+          title: Role
+          type: string
+      required:
+      - id
+      - email
+      - name
+      - role
+      title: PublicUser
+      type: object
     ReadyResponse:
       properties:
         status:
@@ -45,11 +98,438 @@ components:
       - status
       title: ReadyResponse
       type: object
+  securitySchemes:
+    prl_session:
+      in: cookie
+      name: prl_session
+      type: apiKey
 info:
   title: FastAPI
   version: 0.1.0
 openapi: 3.1.0
 paths:
+  /api/v1/auth/csrf:
+    get:
+      operationId: csrf_api_v1_auth_csrf_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CsrfResponse'
+          description: Successful Response
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized authentication error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized authentication error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized authentication error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+      security:
+      - prl_session: []
+      summary: Csrf
+      tags:
+      - authentication
+  /api/v1/auth/login:
+    post:
+      description: 'JSON credentials and valid Origin (or Referer fallback); no existing
+        CSRF required.
+
+
+        Issues fresh prl_session (HttpOnly) and prl_csrf cookies after commit.
+
+        Other sessions remain active.'
+      operationId: login_api_v1_auth_login_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicUser'
+          description: Successful Response
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized authentication error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized authentication error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '413':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized authentication error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '415':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized authentication error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized authentication error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized authentication error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            Retry-After:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized authentication error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized authentication error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+      summary: Login
+      tags:
+      - authentication
+  /api/v1/auth/logout:
+    post:
+      description: 'Origin or acceptable Referer is always required, including repeated
+        logout.
+
+
+        Valid sessions require matching signed prl_csrf cookie and X-CSRF-Token header.
+
+        Missing/invalid sessions return 204 and clear cookies after origin validation.'
+      operationId: logout_api_v1_auth_logout_post
+      parameters:
+      - description: Signed token matching prl_csrf; required for a valid session
+        in: header
+        name: x-csrf-token
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Signed token matching prl_csrf; required for a valid session
+          title: X-Csrf-Token
+      responses:
+        '204':
+          description: Successful Response
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized authentication error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized authentication error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized authentication error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized authentication error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized authentication error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+      security:
+      - prl_session: []
+      - prl_session: []
+      - {}
+      summary: Logout
+      tags:
+      - authentication
+  /api/v1/auth/me:
+    get:
+      operationId: me_api_v1_auth_me_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicUser'
+          description: Successful Response
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized authentication error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized authentication error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized authentication error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+      security:
+      - prl_session: []
+      summary: Me
+      tags:
+      - authentication
   /health/live:
     get:
       operationId: live_health_live_get

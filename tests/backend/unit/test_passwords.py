@@ -48,3 +48,31 @@ async def test_password_workers_are_offloaded_and_bounded(monkeypatch):
         release.set()
         await asyncio.gather(*tasks)
     assert maximum == 1
+
+
+async def test_repeated_cancellation_keeps_worker_slot_until_thread_finishes(monkeypatch):
+    from app.core.passwords import PasswordPolicy, PasswordService
+
+    service = await PasswordService.create(PasswordPolicy(), 1)
+    started, release = threading.Event(), threading.Event()
+
+    def blocked(self, password):
+        started.set()
+        release.wait(5)
+        return "hash"
+
+    monkeypatch.setattr("argon2.PasswordHasher.hash", blocked)
+    first = asyncio.create_task(service.hash("a"))
+    try:
+        async with asyncio.timeout(2):
+            while not started.is_set():
+                await asyncio.sleep(0.001)
+        first.cancel()
+        await asyncio.sleep(0)
+        first.cancel()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert not first.done()
+    finally:
+        release.set()
+        await asyncio.gather(first, return_exceptions=True)

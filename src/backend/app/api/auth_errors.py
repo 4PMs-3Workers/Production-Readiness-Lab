@@ -1,6 +1,9 @@
 """Stable auth errors layered on the shared HTTP contract."""
 
+from typing import Any
+
 from app.api.errors import AppError
+from app.schemas.common import ErrorResponse
 
 ERRORS = {
     "INVALID_CREDENTIALS": (401, "Invalid email or password"),
@@ -20,3 +23,18 @@ def auth_error(code: str, *, retry_after: int | None = None) -> AppError:
     if retry_after is not None:
         headers["Retry-After"] = str(max(1, retry_after))
     return AppError(status, code, message, "input", headers)
+
+
+def auth_responses(success: int, *statuses: int) -> dict[int | str, dict[str, Any]]:
+    headers = {name: {"schema": {"type": "string"}} for name in ("X-Request-ID", "Cache-Control")}
+    result: dict[int | str, dict[str, Any]] = {success: {"headers": headers}}
+    for status in statuses:
+        error_headers = headers | {"X-Error-Class": {"schema": {"type": "string"}}}
+        if status == 429:
+            error_headers["Retry-After"] = {"schema": {"type": "string"}}
+        result[status] = {
+            "model": ErrorResponse,
+            "headers": error_headers,
+            "description": "Sanitized authentication error",
+        }
+    return result

@@ -42,7 +42,11 @@ class PasswordService:
             return await asyncio.shield(task)
         except asyncio.CancelledError:
             # A cancelled request must not release a slot while Argon2 still runs.
-            await task
+            while not task.done():
+                try:
+                    await asyncio.shield(task)
+                except asyncio.CancelledError:
+                    continue
             raise
 
     async def hash(self, password: str) -> str:

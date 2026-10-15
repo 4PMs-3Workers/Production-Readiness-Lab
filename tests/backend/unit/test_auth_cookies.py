@@ -1,13 +1,16 @@
 from datetime import UTC, datetime, timedelta
 from http.cookies import SimpleCookie
 
+import pytest
 from fastapi import Response
 
 
-def test_cookie_issue_and_delete_scope(auth_settings):
+@pytest.mark.parametrize("secure", [False, True])
+def test_cookie_issue_and_delete_scope(auth_settings, secure):
     from app.core.auth_cookies import clear_auth_cookies, set_auth_cookies
 
     now = datetime(2026, 10, 15, tzinfo=UTC)
+    auth_settings = auth_settings.model_copy(update={"cookie_secure": secure})
     response = Response()
     set_auth_cookies(
         response,
@@ -27,7 +30,7 @@ def test_cookie_issue_and_delete_scope(auth_settings):
         assert value["domain"] == ""
         assert value["samesite"] == "lax"
         assert value["max-age"] == "100"
-        assert not value["secure"]
+        assert bool(value["secure"]) is secure
     response = Response()
     clear_auth_cookies(response, auth_settings)
     for value in response.headers.getlist("set-cookie"):

@@ -12,6 +12,7 @@ def test_throttle_limits_expire_and_state_is_bounded(auth_settings):
         limiter.check_ip("127.0.0.1")
     with pytest.raises(AppError) as caught:
         limiter.check_ip("127.0.0.1")
+    assert caught.value.headers is not None
     assert caught.value.headers["Retry-After"] == "60"
     for _ in range(5):
         limiter.check_email("a@example.invalid")

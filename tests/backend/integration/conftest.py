@@ -14,15 +14,20 @@ Safety boundaries (unchanged from the original design):
 import os
 from uuid import uuid4
 
+import httpx
 import pytest
 import pytest_asyncio
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import Connection, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.pool import NullPool
 
 from app.core.database import create_database_engine
+from app.core.passwords import PasswordPolicy, PasswordService
+from app.factory import create_app
+from app.models import User
 
 
 def _run_alembic_upgrade(connection: Connection) -> None:
@@ -72,3 +77,27 @@ async def mysql_engine():
             async with admin.begin() as connection:
                 await connection.execute(text(f"DROP DATABASE `{schema}`"))
         await admin.dispose()
+
+
+@pytest_asyncio.fixture
+async def auth_env(mysql_engine, auth_settings):
+    settings = auth_settings.model_copy(
+        update={"login_ip_attempts": 100, "login_email_attempts": 100}
+    )
+    passwords = await PasswordService.create(PasswordPolicy(), 2)
+    factory = async_sessionmaker(mysql_engine, expire_on_commit=False)
+    async with factory.begin() as db:
+        user = User(
+            email="student@example.invalid",
+            name="Test Student",
+            role="STUDENT",
+            password_hash=await passwords.hash("  Good-password!  "),
+            is_active=True,
+        )
+        db.add(user)
+    app = create_app(settings, engine_factory=lambda *a, **kw: mysql_engine)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://localhost:3000"
+        ) as client:
+            yield client, factory, user.id, app

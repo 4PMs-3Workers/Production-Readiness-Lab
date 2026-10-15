@@ -13,8 +13,11 @@ from starlette.types import Message, Receive, Scope, Send
 from app.api import api_v1_router
 from app.api.errors import AppError, error_response, install_error_handlers
 from app.api.health import router as health_router
+from app.core.auth_http import AuthHttpMiddleware
 from app.core.config import Settings, load_settings
 from app.core.database import create_database_engine
+from app.core.login_throttle import LoginThrottle
+from app.core.passwords import PasswordPolicy, PasswordService
 from app.core.request_context import RequestIdMiddleware
 
 EngineFactory = Callable[..., AsyncEngine]
@@ -84,6 +87,9 @@ def create_app(
         app.state.pending_readiness_tasks = pending_readiness_tasks
         try:
             app.state.session_factory = async_sessionmaker(engine, expire_on_commit=False)
+            app.state.passwords = await PasswordService.create(
+                PasswordPolicy(), config.password_max_concurrency
+            )
             yield
         finally:
             try:
@@ -95,12 +101,16 @@ def create_app(
             finally:
                 if hasattr(app.state, "session_factory"):
                     del app.state.session_factory
+                if hasattr(app.state, "passwords"):
+                    del app.state.passwords
                 del app.state.pending_readiness_tasks
                 del app.state.engine
 
     app = SanitizedFastAPI(lifespan=lifespan)
     app.state.settings = config
+    app.state.login_throttle = LoginThrottle(config)
     install_error_handlers(app)
+    app.add_middleware(AuthHttpMiddleware, settings=config, throttle=app.state.login_throttle)
     app.add_middleware(RequestIdMiddleware, trusted_gateway_cidrs=config.trusted_gateway_cidrs)
     app.include_router(health_router)
     app.include_router(api_v1_router)

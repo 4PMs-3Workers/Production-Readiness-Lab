@@ -55,6 +55,8 @@ def error_response(request: Request, error: AppError) -> JSONResponse:
     headers = dict(error.headers or {})
     if request.url.path in {"/health/live", "/health/ready"}:
         headers["Cache-Control"] = "no-store"
+    elif request.url.path.startswith("/api/v1/auth/"):
+        headers["Cache-Control"] = "private, no-store"
     headers["X-Error-Class"] = error.error_class
     headers["X-Request-ID"] = get_request_id(request)
     return JSONResponse(status_code=error.status_code, content=body.model_dump(), headers=headers)

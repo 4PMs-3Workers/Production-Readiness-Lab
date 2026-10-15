@@ -5,7 +5,6 @@ from pydantic import ValidationError
 
 from app.core.config import Settings
 
-
 VALUES = {
     "DATABASE_URL": "mysql+asyncmy://test:placeholder@127.0.0.1:1/test",
     "APPLICATION_ORIGIN": "http://localhost:3000",
@@ -19,7 +18,7 @@ VALUES = {
 def test_login_preserves_password_and_normalizes_email():
     from app.schemas.auth import LoginRequest
 
-    value = LoginRequest(email=" A@Example.invalid ", password="  AbC!  ")
+    value = LoginRequest.model_validate({"email": " A@Example.invalid ", "password": "  AbC!  "})
     assert value.email == "a@example.invalid"
     assert value.password.get_secret_value() == "  AbC!  "
     assert "AbC!" not in repr(value)
@@ -80,5 +79,6 @@ def test_auth_error_uses_shared_envelope_contract():
 
     error = auth_error("LOGIN_THROTTLED", retry_after=60)
     assert (error.status_code, error.error_class) == (429, "input")
+    assert error.headers is not None
     assert error.headers["Retry-After"] == "60"
     assert auth_error("INVALID_CREDENTIALS").message == "Invalid email or password"
