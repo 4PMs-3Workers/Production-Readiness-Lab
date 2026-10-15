@@ -53,6 +53,15 @@ class Settings(BaseSettings):
         default="lax", alias="COOKIE_SAMESITE"
     )
     cookie_domain: str | None = Field(default=None, alias="COOKIE_DOMAIN")
+    session_lifetime_seconds: int = Field(
+        default=86400, gt=0, le=2592000, alias="SESSION_LIFETIME_SECONDS"
+    )
+    login_max_body_bytes: int = Field(default=4096, gt=0, alias="LOGIN_MAX_BODY_BYTES")
+    login_ip_attempts: int = Field(default=30, gt=0, alias="LOGIN_IP_ATTEMPTS")
+    login_email_attempts: int = Field(default=5, gt=0, alias="LOGIN_EMAIL_ATTEMPTS")
+    login_window_seconds: int = Field(default=60, gt=0, alias="LOGIN_WINDOW_SECONDS")
+    login_state_max_entries: int = Field(default=10000, gt=0, alias="LOGIN_STATE_MAX_ENTRIES")
+    password_max_concurrency: int = Field(default=2, gt=0, alias="PASSWORD_MAX_CONCURRENCY")
     db_pool_size: int = Field(default=5, gt=0, alias="DB_POOL_SIZE")
     db_max_overflow: int = Field(default=5, ge=0, alias="DB_MAX_OVERFLOW")
     db_connect_timeout_seconds: float = Field(default=1, gt=0, alias="DB_CONNECT_TIMEOUT_SECONDS")
@@ -179,6 +188,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def require_secure_cookie_policy(self) -> Self:
+        if self.cookie_domain is not None or self.cookie_samesite != "lax":
+            raise ValueError("Authentication requires host-only SameSite=Lax cookies")
         if self.cookie_samesite == "none" and not self.cookie_secure:
             raise ValueError("SameSite=None requires secure cookies")
         if self.environment in {"demo", "production"}:
