@@ -35,11 +35,39 @@ def test_pagination_defaults_and_public_fields():
         (StaffQuery, {}),
         (StaffQuery, {"purpose_id": "not-a-uuid"}),
         (StaffQuery, {"purpose_id": str(UUID(int=1)), "student_id": str(UUID(int=2))}),
-        (AvailabilityQuery, {"purpose_id": str(UUID(int=1)), "staff_id": str(UUID(int=2)), "date": "20261016"}),
-        (AvailabilityQuery, {"purpose_id": str(UUID(int=1)), "staff_id": str(UUID(int=2)), "date": "2026-10-16T00:00:00Z"}),
-        (AvailabilityQuery, {"purpose_id": str(UUID(int=1)), "staff_id": str(UUID(int=2)), "date": "2026-02-30"}),
-        (AvailabilityQuery, {"purpose_id": str(UUID(int=1)), "staff_id": str(UUID(int=2)), "date": "２０２６-１０-１６"}),
-        (AvailabilityQuery, {"purpose_id": str(UUID(int=1)), "staff_id": str(UUID(int=2)), "date": "2026-10-16", "student_id": "x"}),
+        (
+            AvailabilityQuery,
+            {"purpose_id": str(UUID(int=1)), "staff_id": str(UUID(int=2)), "date": "20261016"},
+        ),
+        (
+            AvailabilityQuery,
+            {
+                "purpose_id": str(UUID(int=1)),
+                "staff_id": str(UUID(int=2)),
+                "date": "2026-10-16T00:00:00Z",
+            },
+        ),
+        (
+            AvailabilityQuery,
+            {"purpose_id": str(UUID(int=1)), "staff_id": str(UUID(int=2)), "date": "2026-02-30"},
+        ),
+        (
+            AvailabilityQuery,
+            {
+                "purpose_id": str(UUID(int=1)),
+                "staff_id": str(UUID(int=2)),
+                "date": "２０２６-１０-１６",
+            },
+        ),
+        (
+            AvailabilityQuery,
+            {
+                "purpose_id": str(UUID(int=1)),
+                "staff_id": str(UUID(int=2)),
+                "date": "2026-10-16",
+                "student_id": "x",
+            },
+        ),
     ],
 )
 def test_invalid_query_values_are_rejected(model, values):
@@ -53,10 +81,12 @@ def test_purpose_query_accepts_page_size_bounds(page_size):
 
 
 def test_queries_accept_non_v4_uuids_and_exact_iso_date():
-    query = AvailabilityQuery(
-        purpose_id="00000000-0000-0000-0000-000000000001",
-        staff_id="00000000-0000-0000-0000-000000000002",
-        date="2026-10-16",
+    query = AvailabilityQuery.model_validate(
+        {
+            "purpose_id": "00000000-0000-0000-0000-000000000001",
+            "staff_id": "00000000-0000-0000-0000-000000000002",
+            "date": "2026-10-16",
+        }
     )
     assert query.date.isoformat() == "2026-10-16"
 
@@ -64,6 +94,23 @@ def test_queries_accept_non_v4_uuids_and_exact_iso_date():
 def test_page_response_preserves_metadata():
     response = PageResponse[StaffItem](items=[], page=50, page_size=20, total=2)
     assert response.model_dump() == {"items": [], "page": 50, "page_size": 20, "total": 2}
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"page": 0},
+        {"page_size": 0},
+        {"page_size": 101},
+        {"total": -1},
+    ],
+)
+def test_page_response_rejects_invalid_metadata(metadata):
+    values = {"items": [], "page": 1, "page_size": 20, "total": 0}
+    values.update(metadata)
+
+    with pytest.raises(ValidationError):
+        PageResponse[StaffItem].model_validate(values)
 
 
 def test_available_slot_serializes_aware_time_as_utc_with_microseconds():

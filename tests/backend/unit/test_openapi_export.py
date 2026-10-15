@@ -48,14 +48,15 @@ def test_openapi_export_is_deterministic_without_database(tmp_path):
         operation = document["paths"][path]["get"]
         assert operation["security"] == [{"prl_session": []}]
         assert "ErrorResponse" in str(operation["responses"])
-        for parameter in operation["parameters"]:
-            if parameter["name"] == "page":
-                assert parameter["schema"]["default"] == 1
-                assert parameter["schema"]["minimum"] == 1
-            if parameter["name"] == "page_size":
-                assert parameter["schema"]["default"] == 20
-                assert parameter["schema"]["minimum"] == 1
-                assert parameter["schema"]["maximum"] == 100
+        parameters = {parameter["name"]: parameter for parameter in operation["parameters"]}
+        assert {"page", "page_size"} <= parameters.keys()
+        page = parameters["page"]["schema"]
+        page_size = parameters["page_size"]["schema"]
+        assert page["default"] == 1
+        assert page["minimum"] == 1
+        assert page_size["default"] == 20
+        assert page_size["minimum"] == 1
+        assert page_size["maximum"] == 100
         if path.endswith("/staff"):
             purpose_id = next(p for p in operation["parameters"] if p["name"] == "purpose_id")
             assert purpose_id["schema"]["format"] == "uuid"
