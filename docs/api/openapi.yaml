@@ -347,8 +347,13 @@ openapi: 3.1.0
 paths:
   /api/v1/appointments:
     post:
-      description: Create a booking with session identity and replay a matching key's
-        receipt.
+      description: 'Create a booking and replay a matching key''s receipt.
+
+
+        Origin or Referer must match the configured application origin. Origin takes
+        precedence when
+
+        both are sent. The X-CSRF-Token header must match the signed prl_csrf cookie.'
       operationId: create_appointment_api_v1_appointments_post
       parameters:
       - in: header
@@ -357,7 +362,31 @@ paths:
         schema:
           maxLength: 128
           minLength: 1
+          pattern: \S
           title: Idempotency-Key
+          type: string
+      - description: Signed token matching the prl_csrf cookie; required for this
+          POST.
+        in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+      - description: Preferred same-origin header. If present, it takes precedence
+          over Referer and must match the configured application origin.
+        in: header
+        name: Origin
+        required: false
+        schema:
+          format: uri
+          type: string
+      - description: Accepted only when Origin is absent; its origin must match the
+          configured application origin.
+        in: header
+        name: Referer
+        required: false
+        schema:
+          format: uri
           type: string
       requestBody:
         content:

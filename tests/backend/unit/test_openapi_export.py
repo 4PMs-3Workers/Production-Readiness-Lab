@@ -111,6 +111,16 @@ def test_openapi_export_is_deterministic_without_database(tmp_path):
     appointment_parameters = {p["name"]: p for p in appointments["parameters"]}
     assert appointment_parameters["Idempotency-Key"]["in"] == "header"
     assert appointment_parameters["Idempotency-Key"]["required"] is True
+    assert appointment_parameters["Idempotency-Key"]["schema"]["maxLength"] == 128
+    assert appointment_parameters["Idempotency-Key"]["schema"]["pattern"] == r"\S"
+    assert appointment_parameters["X-CSRF-Token"]["required"] is True
+    assert "prl_csrf" in appointment_parameters["X-CSRF-Token"]["description"]
+    assert appointment_parameters["Origin"]["required"] is False
+    assert appointment_parameters["Referer"]["required"] is False
+    assert "Origin or Referer" in appointments["description"]
+    assert "Origin takes precedence" in appointments["description"]
+    assert "Referer" in appointment_parameters["Origin"]["description"]
+    assert "Origin" in appointment_parameters["Referer"]["description"]
     assert appointments["requestBody"]["required"] is True
     assert "student_id" not in str(appointments["requestBody"])
     for status in ("200", "201"):

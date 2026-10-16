@@ -25,7 +25,7 @@ def _reject_blank_key(value: str) -> str:
 
 IdempotencyKey = Annotated[
     str,
-    StringConstraints(min_length=1, max_length=128, strip_whitespace=False),
+    StringConstraints(min_length=1, max_length=128, pattern=r"\S", strip_whitespace=False),
     AfterValidator(_reject_blank_key),
 ]
 AppointmentStatus = Literal["UPCOMING", "CHANGE_PENDING", "CANCELLED", "COMPLETED", "NO_SHOW"]

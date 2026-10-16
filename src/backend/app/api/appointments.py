@@ -75,6 +75,37 @@ def _not_found() -> AppError:
         503,
     ),
     summary="Create a student appointment",
+    openapi_extra={
+        "parameters": [
+            {
+                "name": "X-CSRF-Token",
+                "in": "header",
+                "required": True,
+                "description": "Signed token matching the prl_csrf cookie; required for this POST.",
+                "schema": {"type": "string"},
+            },
+            {
+                "name": "Origin",
+                "in": "header",
+                "required": False,
+                "description": (
+                    "Preferred same-origin header. If present, it takes precedence over Referer "
+                    "and must match the configured application origin."
+                ),
+                "schema": {"type": "string", "format": "uri"},
+            },
+            {
+                "name": "Referer",
+                "in": "header",
+                "required": False,
+                "description": (
+                    "Accepted only when Origin is absent; its origin must match the configured "
+                    "application origin."
+                ),
+                "schema": {"type": "string", "format": "uri"},
+            },
+        ]
+    },
 )
 async def create_appointment(
     request: Request,
@@ -85,7 +116,11 @@ async def create_appointment(
     _csrf_context: Annotated[AuthContext, Depends(require_csrf)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> AppointmentCreateResponse:
-    """Create a booking with session identity and replay a matching key's receipt."""
+    """Create a booking and replay a matching key's receipt.
+
+    Origin or Referer must match the configured application origin. Origin takes precedence when
+    both are sent. The X-CSRF-Token header must match the signed prl_csrf cookie.
+    """
     del _csrf_context
     settings = request.app.state.settings
     deadline = getattr(request.state, "request_deadline", None)
