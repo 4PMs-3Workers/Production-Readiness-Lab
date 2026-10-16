@@ -24,10 +24,12 @@ class CleanSession:
 
 
 class TransactionSession(CleanSession):
-    def __init__(self):
+    def __init__(self, *, commit_error=None):
         self.active = False
         self.commits = 0
         self.rollbacks = 0
+        self.invalidations = 0
+        self.commit_error = commit_error
         self.added = []
 
     def begin(self):
@@ -43,6 +45,10 @@ class TransactionSession(CleanSession):
 
     async def rollback(self):
         self.rollbacks += 1
+        self.active = False
+
+    async def invalidate(self):
+        self.invalidations += 1
         self.active = False
 
 
@@ -69,6 +75,8 @@ class FakeTransaction:
 
     async def commit(self):
         self.session.commits += 1
+        if self.session.commit_error is not None:
+            raise self.session.commit_error
         self.session.active = False
 
     async def rollback(self):
@@ -94,11 +102,14 @@ def _context() -> AuthContext:
     )
 
 
-def _retryable_lock_timeout() -> OperationalError:
-    return OperationalError("SELECT ... FOR UPDATE", {}, Exception(1205, "lock wait timeout"))
+def _retryable_lock_error(code: int) -> OperationalError:
+    return OperationalError("SELECT ... FOR UPDATE", {}, Exception(code, "retryable lock failure"))
 
 
-async def test_mysql_lock_timeout_retries_a_fresh_attempt(monkeypatch, auth_settings):
+@pytest.mark.parametrize("mysql_error_code", [1205, 1213], ids=["lock-timeout", "deadlock"])
+async def test_mysql_lock_errors_retry_a_fresh_attempt(
+    monkeypatch, auth_settings, mysql_error_code
+):
     attempts = 0
     payload = _request()
     context = _context()
@@ -113,7 +124,7 @@ async def test_mysql_lock_timeout_retries_a_fresh_attempt(monkeypatch, auth_sett
         nonlocal attempts
         attempts += 1
         if attempts == 1:
-            raise _retryable_lock_timeout()
+            raise _retryable_lock_error(mysql_error_code)
         return receipt, False
 
     monkeypatch.setattr(booking, "_read_committed_key", no_committed_row)
@@ -144,7 +155,7 @@ async def test_retry_budget_is_bounded_and_database_failure_stays_service_error(
     async def always_times_out(*_args, **_kwargs):
         nonlocal attempts
         attempts += 1
-        raise _retryable_lock_timeout()
+        raise _retryable_lock_error(1205)
 
     monkeypatch.setattr(booking, "_read_committed_key", no_committed_row)
     monkeypatch.setattr(booking, "_run_attempt_with_commit_safety", always_times_out)
@@ -326,3 +337,108 @@ async def test_booking_service_stages_one_appointment_audit_and_two_notification
     assert all(row.appointment_id == result.id for row in notifications)
     assert fake_db.commits == 1
     assert fake_db.rollbacks == 0
+
+
+async def test_uncertain_commit_invalidates_connection_and_is_never_retried(
+    monkeypatch, auth_settings
+):
+    payload = _request()
+    context = _context()
+    lost_connection = OperationalError("COMMIT", {}, Exception(2013, "lost connection"))
+    fake_db = TransactionSession(commit_error=lost_connection)
+    setting = ServiceSetting(
+        timezone="Asia/Ho_Chi_Minh", start_step_minutes=15, booking_horizon_days=7
+    )
+    purpose = Purpose(
+        id=payload.purpose_id,
+        code="TEST",
+        name="Test purpose",
+        duration_minutes=30,
+        requires_free_text=False,
+        is_active=True,
+    )
+    fake_student = User(
+        id=context.user_id,
+        email="student@example.invalid",
+        name="Student",
+        role="STUDENT",
+        password_hash="unused",
+        is_active=True,
+    )
+    fake_staff = User(
+        id=payload.staff_id,
+        email="staff@example.invalid",
+        name="Staff",
+        role="STAFF",
+        password_hash="unused",
+        is_active=True,
+    )
+    now = datetime(2026, 10, 15, 1, 0, tzinfo=UTC)
+
+    async def no_row(*_args, **_kwargs):
+        return None
+
+    async def lock_user(_db, user_id):
+        return {context.user_id: fake_student, payload.staff_id: fake_staff}[user_id]
+
+    async def accepting_staff(_db, _purpose_id, staff_id):
+        return staff_id
+
+    async def no_busy_time(*_args, **_kwargs):
+        return ()
+
+    async def read_windows(_db, _weekday):
+        return (ServiceWindow(opens_at=time(8), closes_at=time(10)),)
+
+    async def stage_bundle(db, *, appointment, audit_event, notifications):
+        db.added.extend((appointment, audit_event, *notifications))
+
+    monkeypatch.setattr(booking, "_read_committed_key", no_row)
+    monkeypatch.setattr(
+        booking.appointments, "lock_service_settings", lambda _db: _async_value(setting)
+    )
+    monkeypatch.setattr(booking.appointments, "find_creation_request", no_row)
+    monkeypatch.setattr(
+        booking.appointments, "count_blocking_for_student", lambda *_a, **_k: _async_value(0)
+    )
+    monkeypatch.setattr(booking.appointments, "add_creation_bundle", stage_bundle)
+    monkeypatch.setattr(booking.users, "lock_by_id", lock_user)
+    monkeypatch.setattr(booking.users, "utc_now", lambda _db: _async_value(now))
+    monkeypatch.setattr(
+        booking.catalog, "find_active_purpose", lambda *_a, **_k: _async_value(purpose)
+    )
+    monkeypatch.setattr(booking.catalog, "find_accepting_staff", accepting_staff)
+    monkeypatch.setattr(booking.availability, "read_windows", read_windows)
+    monkeypatch.setattr(booking.availability, "read_unavailability", no_busy_time)
+    monkeypatch.setattr(booking.availability, "read_staff_appointments", no_busy_time)
+    monkeypatch.setattr(booking.availability, "read_student_appointments", no_busy_time)
+
+    attempts = 0
+    run_attempt = booking._run_attempt_with_commit_safety
+
+    async def count_attempt(*args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        return await run_attempt(*args, **kwargs)
+
+    monkeypatch.setattr(booking, "_run_attempt_with_commit_safety", count_attempt)
+    with pytest.raises(AppError) as caught:
+        await booking.create_appointment(
+            fake_db,
+            payload,
+            context=context,
+            idempotency_key="uncertain-commit-key",
+            request_id="uncertain-commit-request",
+            settings=auth_settings.model_copy(update={"max_deadlock_retries": 2}),
+            deadline=asyncio.get_running_loop().time() + 2,
+        )
+
+    assert (caught.value.status_code, caught.value.code) == (503, "SERVICE_UNAVAILABLE")
+    assert attempts == 1
+    assert fake_db.commits == 1
+    assert fake_db.invalidations == 1
+    assert fake_db.rollbacks == 1
+
+
+async def _async_value(value):
+    return value

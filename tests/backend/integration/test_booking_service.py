@@ -2,12 +2,11 @@
 
 import asyncio
 from datetime import UTC, datetime, time, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 import pytest
-import pytest_asyncio
-from sqlalchemy import delete, event, func, select
+from sqlalchemy import event, func, select
 
 from app.api.errors import AppError
 from app.domain.auth import AuthContext
@@ -16,8 +15,6 @@ from app.models import (
     AuditEvent,
     Notification,
     Purpose,
-    ServiceHour,
-    ServiceSetting,
     StaffPurpose,
     User,
 )
@@ -26,33 +23,6 @@ from app.schemas.appointments import AppointmentCreateRequest
 from app.services import booking as service
 
 ZONE = ZoneInfo("Asia/Ho_Chi_Minh")
-
-
-@pytest_asyncio.fixture
-async def booking_env(availability_env):
-    env = availability_env
-    async with env.factory() as db:
-        now = await users.utc_now(db)
-    selected_date = now.astimezone(ZONE).date() + timedelta(days=1)
-    async with env.factory.begin() as db:
-        await db.execute(delete(ServiceHour))
-        db.add(
-            ServiceHour(
-                weekday=selected_date.isoweekday(),
-                opens_at=time(8, 0),
-                closes_at=time(10, 0),
-            )
-        )
-        setting = await db.get(ServiceSetting, 1)
-        assert setting is not None
-        setting.timezone = "Asia/Ho_Chi_Minh"
-        setting.start_step_minutes = 15
-        setting.booking_horizon_days = 7
-        purpose = await db.get(Purpose, env.purpose_id)
-        assert purpose is not None
-        purpose.duration_minutes = 30
-    start = datetime.combine(selected_date, time(8, 0), ZONE).astimezone(UTC)
-    return env, selected_date, start
 
 
 def _context(student_id):
@@ -353,8 +323,9 @@ async def test_settings_and_accounts_are_locked_before_the_separate_database_clo
     statements = []
     sync_engine = env.factory.kw["bind"].sync_engine
 
-    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
-        statements.append(statement.upper())
+    def capture(_connection, _cursor, statement, parameters, _context, _executemany):
+        normalized = statement.upper()
+        statements.append((normalized, parameters))
 
     event.listen(sync_engine, "before_cursor_execute", capture)
     try:
@@ -364,22 +335,29 @@ async def test_settings_and_accounts_are_locked_before_the_separate_database_clo
 
     settings_lock = next(
         index
-        for index, statement in enumerate(statements)
+        for index, (statement, _parameters) in enumerate(statements)
         if "SERVICE_SETTINGS" in statement
         and ("FOR SHARE" in statement or "LOCK IN SHARE MODE" in statement)
     )
     account_locks = [
-        index
-        for index, statement in enumerate(statements)
+        (index, parameters)
+        for index, (statement, parameters) in enumerate(statements)
         if "FROM USERS" in statement and "FOR UPDATE" in statement
     ]
     clock_read = next(
         index
-        for index, statement in enumerate(statements)
+        for index, (statement, _parameters) in enumerate(statements)
         if "SELECT UTC_TIMESTAMP(6)" in statement
     )
     assert len(account_locks) == 2
-    assert settings_lock < min(account_locks) < max(account_locks) < clock_read
+    account_ids = []
+    for _, parameters in account_locks:
+        values = list(parameters.values()) if isinstance(parameters, dict) else list(parameters)
+        bound_id = next(value for value in values if isinstance(value, (bytes, bytearray)))
+        account_ids.append(UUID(bytes=bytes(bound_id)))
+    assert account_ids == sorted({env.student_id, env.staff_id}, key=lambda value: value.bytes)
+    lock_indexes = [index for index, _ in account_locks]
+    assert settings_lock < min(lock_indexes) < max(lock_indexes) < clock_read
 
 
 async def test_same_student_concurrent_same_key_creates_one_bundle(booking_env, auth_settings):

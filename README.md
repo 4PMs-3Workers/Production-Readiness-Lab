@@ -136,6 +136,7 @@ Production-Readiness-Lab/
 | [Models cơ sở dữ liệu](docs/architecture/database-models.md)          | Ánh xạ SQLAlchemy, chuyển đổi kiểu dữ liệu và hướng dẫn chạy kiểm tra.      |
 | [Task database models](docs/tasks/database-models.md)                 | Phạm vi triển khai, kiểm thử và bàn giao bộ models.                         |
 | [Catalog và availability](docs/tasks/catalog-availability.md)           | Hợp đồng ba API đọc, cách gọi bằng session và bằng chứng/giới hạn nghiệm thu. |
+| [Đặt lịch appointment](docs/tasks/appointment-booking.md)               | API tạo lịch, xem chi tiết, idempotency và khôi phục khi mất phản hồi.       |
 | [Task frontend bootstrap](docs/tasks/frontend-bootstrap.md)           | Nền tảng, routes, các mốc triển khai, cài đặt và kiểm chứng.                 |
 | [Mock services và UI đặt lịch](docs/tasks/frontend-mock-services.md)  | Chi tiết fixtures, preset, clock và thao tác đặt lịch bằng dữ liệu demo.    |
 | [Đăng nhập demo và Home](docs/tasks/frontend-login.md)               | Mốc 3: form đăng nhập, phiên trong bộ nhớ, Home và đăng xuất.               |
@@ -226,6 +227,14 @@ API không tự seed cấu hình; singleton thiếu hoặc không hợp lệ tr�
 danh sách/giờ trống. Ngày khả dụng phải nằm trong cửa sổ D+1 đến D+`booking_horizon_days`
 theo timezone trong DB. Xem [bàn giao catalog và availability](docs/tasks/catalog-availability.md)
 để biết quy tắc slot, lỗi, giới hạn và ma trận kiểm thử.
+
+`POST /api/v1/appointments` tạo lịch cho sinh viên đã đăng nhập; request cần same-origin,
+CSRF và `Idempotency-Key`. `GET /api/v1/appointments/{appointment_id}` chỉ trả chi tiết
+lịch thuộc sinh viên hiện tại. Preview availability không giữ chỗ: backend kiểm tra lại
+slot trong transaction khi tạo. Nếu kết quả POST không đến được trình duyệt, frontend phải
+giữ nguyên cả key lẫn body và gửi lại đúng request để nhận receipt gốc. Xem
+[hợp đồng đặt lịch và khôi phục](docs/tasks/appointment-booking.md) để biết ví dụ, lỗi,
+quy tắc key và cách kiểm thử MySQL 8.4.
 
 Ví dụ sau dùng tài khoản `STUDENT` đã được cấp cho môi trường của bạn. Với `.env.example`,
 API chạy trực tiếp trên `http://localhost:8000`, còn `APPLICATION_ORIGIN` là

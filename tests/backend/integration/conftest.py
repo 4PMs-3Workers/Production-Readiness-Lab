@@ -13,16 +13,17 @@ Safety boundaries (unchanged from the original design):
 
 import os
 from dataclasses import dataclass
-from datetime import time
+from datetime import UTC, datetime, time, timedelta
 from typing import Any
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
 import pytest_asyncio
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import Connection, text
+from sqlalchemy import Connection, delete, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.pool import NullPool
@@ -31,6 +32,7 @@ from app.core.database import create_database_engine
 from app.core.passwords import PasswordPolicy, PasswordService
 from app.factory import create_app
 from app.models import Purpose, ServiceHour, ServiceSetting, StaffPurpose, User
+from app.repositories import users
 
 
 def _run_alembic_upgrade(connection: Connection) -> None:
@@ -194,3 +196,32 @@ async def availability_env(auth_env):
         purpose_id=purpose_id,
         other_purpose_id=other_purpose_id,
     )
+
+
+@pytest_asyncio.fixture
+async def booking_env(availability_env):
+    """Seed one current service day and return a valid upcoming appointment slot."""
+    env = availability_env
+    zone = ZoneInfo("Asia/Ho_Chi_Minh")
+    async with env.factory() as db:
+        now = await users.utc_now(db)
+    selected_date = now.astimezone(zone).date() + timedelta(days=1)
+    async with env.factory.begin() as db:
+        await db.execute(delete(ServiceHour))
+        db.add(
+            ServiceHour(
+                weekday=selected_date.isoweekday(),
+                opens_at=time(8, 0),
+                closes_at=time(10, 0),
+            )
+        )
+        setting = await db.get(ServiceSetting, 1)
+        assert setting is not None
+        setting.timezone = "Asia/Ho_Chi_Minh"
+        setting.start_step_minutes = 15
+        setting.booking_horizon_days = 7
+        purpose = await db.get(Purpose, env.purpose_id)
+        assert purpose is not None
+        purpose.duration_minutes = 30
+    starts_at = datetime.combine(selected_date, time(8, 0), zone).astimezone(UTC)
+    return env, selected_date, starts_at
