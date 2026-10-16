@@ -476,7 +476,12 @@ async def test_mysql_lock_timeout_rolls_back_then_retries_within_deadline(
 ):
     env, _, start = booking_env
     settings = auth_settings.model_copy(
-        update={"request_timeout_seconds": 5.0, "max_deadlock_retries": 2}
+        update={
+            "request_timeout_seconds": 5.0,
+            "db_query_timeout_seconds": 4.0,
+            "db_lock_timeout_seconds": 2.0,
+            "max_deadlock_retries": 2,
+        }
     )
     lock_acquired = asyncio.Event()
     release_lock = asyncio.Event()

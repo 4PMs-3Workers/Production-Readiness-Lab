@@ -96,6 +96,8 @@ Lỗi không chứa SQL, stack trace, secret, token hoặc description. Request 
 
 Trước khi đánh giá quota hoặc slot, service kiểm tra key đã commit để replay kể cả khi trạng thái appointment hiện tại đã thay đổi. Transaction tạo sau đó khóa singleton `service_settings` ở chế độ chia sẻ, rồi khóa các user student/staff theo thứ tự UUID byte tăng dần. Sau các khóa, service đọc `UTC_TIMESTAMP(6)` riêng, nạp lại eligibility, cấu hình, quota, unavailability và lịch đang chiếm chỗ, rồi xác nhận slot. Preview không khóa hoặc giữ chỗ.
 
+Mỗi transaction đọc key hoặc tạo lịch áp dụng `DB_QUERY_TIMEOUT_SECONDS`, bao gồm flush và commit. Mỗi lần chờ khóa cấu hình hoặc account áp dụng thêm `DB_LOCK_TIMEOUT_SECONDS`. Các giới hạn này cùng chịu deadline request ban đầu; retry không làm mới deadline tổng. Timeout phía ứng dụng trả `503 SERVICE_UNAVAILABLE` và giải phóng transaction; nếu xảy ra trong lúc commit, connection bị invalidate và service không tự thử lại thao tác ghi.
+
 Một transaction ghi đồng thời appointment `UPCOMING`, một audit event `APPOINTMENT_CREATED` không chứa mô tả, và đúng hai notification cho sinh viên cùng nhân viên. Bất kỳ lỗi nào trước commit đều rollback cả ba loại ghi. MySQL deadlock `1213` và lock timeout `1205` được retry có giới hạn trong deadline request. Nếu kết quả commit không xác định, connection bị invalidate và service trả lỗi đã sanitize; service không tự chạy lại thao tác ghi. Client có thể gửi lại cùng key/body để xác định receipt đã commit hay chưa.
 
 ## Cài đặt và kiểm chứng
@@ -104,7 +106,7 @@ Integration tests cần MySQL 8.4. URL test không chỉ định database mặc 
 
 ```powershell
 $env:MYSQL_TEST_URL = "mysql+asyncmy://test_user:test_password@127.0.0.1:3306"
-python -m pytest tests/backend/integration/test_booking_concurrency.py tests/backend/integration/test_booking_failures.py tests/backend/integration/test_booking_service.py -q
+python -m pytest tests/backend/integration/test_booking_concurrency.py tests/backend/integration/test_booking_failures.py tests/backend/integration/test_booking_service.py tests/backend/integration/test_booking_timeouts.py -q
 ```
 
 Để chạy migration smoke test, cấu hình `DATABASE_URL` trỏ tới database migration riêng rồi chạy:

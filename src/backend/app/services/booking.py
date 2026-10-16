@@ -111,10 +111,12 @@ async def _read_committed_key(
     student_id: UUID,
     key: str,
     expected_hash: bytes,
+    settings: Settings,
 ) -> tuple[AppointmentCreateResponse, bool] | None:
-    async with db.begin():
-        row = await appointments.find_creation_request(db, student_id=student_id, key=key)
-        return _resolve_replay(row, expected_hash=expected_hash)
+    async with asyncio.timeout(settings.db_query_timeout_seconds):
+        async with db.begin():
+            row = await appointments.find_creation_request(db, student_id=student_id, key=key)
+            return _resolve_replay(row, expected_hash=expected_hash)
 
 
 async def _rollback(db: AsyncSession) -> None:
@@ -142,19 +144,22 @@ async def _run_attempt_with_commit_safety(
     idempotency_key: str,
     request_id: str,
     request_hash: bytes,
+    settings: Settings,
 ) -> tuple[AppointmentCreateResponse, bool]:
     """Run one complete transaction and distinguish deterministic aborts from uncertain commit."""
     # The low-level attempt owns rollback for statement errors. A commit-time transport failure
     # can leave the server outcome unknown, so invalidate the connection and never replay writes.
     transaction = await db.begin()
     try:
-        setting = await appointments.lock_service_settings(db)
+        async with asyncio.timeout(settings.db_lock_timeout_seconds):
+            setting = await appointments.lock_service_settings(db)
         if setting is None:
             raise ServiceUnavailable()
         account_ids = sorted({context.user_id, payload.staff_id}, key=lambda value: value.bytes)
         locked_users: dict[UUID, User | None] = {}
         for account_id in account_ids:
-            locked_users[account_id] = await users.lock_by_id(db, account_id)
+            async with asyncio.timeout(settings.db_lock_timeout_seconds):
+                locked_users[account_id] = await users.lock_by_id(db, account_id)
 
         existing = await appointments.find_creation_request(
             db, student_id=context.user_id, key=idempotency_key
@@ -338,6 +343,7 @@ async def create_appointment(
                     student_id=context.user_id,
                     key=idempotency_key,
                     expected_hash=request_hash,
+                    settings=settings,
                 )
             except AppError:
                 raise
@@ -350,14 +356,18 @@ async def create_appointment(
             retries = settings.max_deadlock_retries
             for attempt in range(retries + 1):
                 try:
-                    return await _run_attempt_with_commit_safety(
-                        db,
-                        payload,
-                        context=context,
-                        idempotency_key=idempotency_key,
-                        request_id=request_id,
-                        request_hash=request_hash,
-                    )
+                    # Match the existing services' transaction query budget. The outer
+                    # request deadline also caps every attempt, lookup, lock, and retry.
+                    async with asyncio.timeout(settings.db_query_timeout_seconds):
+                        return await _run_attempt_with_commit_safety(
+                            db,
+                            payload,
+                            context=context,
+                            idempotency_key=idempotency_key,
+                            request_id=request_id,
+                            request_hash=request_hash,
+                            settings=settings,
+                        )
                 except _NamedDuplicate:
                     try:
                         replay = await _read_committed_key(
@@ -365,6 +375,7 @@ async def create_appointment(
                             student_id=context.user_id,
                             key=idempotency_key,
                             expected_hash=request_hash,
+                            settings=settings,
                         )
                     except AppError:
                         raise
