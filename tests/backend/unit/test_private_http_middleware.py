@@ -42,4 +42,5 @@ async def test_appointment_middleware_uses_the_configured_stress_deadline(auth_s
     await middleware(scope, receive, send)
 
     assert captured["deadline"] > captured["observed_at"]
-    assert 19.9 <= captured["deadline"] - started_at <= 20.0
+    # Deadline creation falls between the pre-call and in-app clock samples.
+    assert started_at + 20.0 <= captured["deadline"] <= captured["observed_at"] + 20.0
