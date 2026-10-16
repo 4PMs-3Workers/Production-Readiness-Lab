@@ -37,6 +37,10 @@ htmlcov/
 playwright-report/
 test-results/
 
+# Local Superpowers plans and execution artifacts
+/.superpowers/
+/docs/superpowers/
+
 # Logs and local OS/editor files
 *.log
 npm-debug.log*
