@@ -79,3 +79,19 @@ def test_create_response_contains_immutable_creation_receipt_fields():
     )
     assert response.status == "UPCOMING"
     assert set(AppointmentCreateResponse.model_fields) == {"id", "status", "created_at"}
+
+
+@pytest.mark.parametrize(
+    "starts_at",
+    [
+        "0001-01-01T00:00:00+01:00",
+        "9999-12-31T23:59:59-01:00",
+    ],
+)
+def test_create_request_rejects_timestamps_outside_utc_range(starts_at):
+    with pytest.raises(ValidationError):
+        AppointmentCreateRequest(
+            purpose_id=PURPOSE_ID,
+            staff_id=STAFF_ID,
+            starts_at=starts_at,
+        )
