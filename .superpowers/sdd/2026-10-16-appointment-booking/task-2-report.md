@@ -20,3 +20,10 @@
 
 - Canonical bytes include only documented business fields. Timestamp normalization occurs before serialization. Valid idempotency key text is retained exactly by validation.
 - Required description is not decided in the DTO because it depends on the database-loaded purpose; the pure `require_description` helper supports the next service task.
+
+## Review fix: UTC conversion overflow (commit `9a26f39`)
+
+- Added DTO validation that converts `starts_at` to UTC before accepting it and turns conversion overflow into a Pydantic input validation error. The original aware timestamp remains unchanged for accepted requests; canonicalization for representable values is unchanged.
+- Added regression cases for `0001-01-01T00:00:00+01:00` and `9999-12-31T23:59:59-01:00`.
+- RED: both new cases failed because validation accepted the out-of-range instants. GREEN: focused schema/contract tests — **13 passed**.
+- Full backend suite — **305 passed, 142 skipped, 2 warnings** in 30.09s. Black check, Ruff check, and `git diff --check` passed. The two websockets warnings and unavailable MySQL integration environment are unchanged.
