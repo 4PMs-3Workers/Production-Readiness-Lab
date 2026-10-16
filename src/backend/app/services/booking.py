@@ -1,0 +1,408 @@
+"""Transaction-owning student appointment creation with exact-key idempotency."""
+
+import asyncio
+import re
+from datetime import UTC, timedelta
+from uuid import UUID, uuid4
+
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.errors import AppError, ServiceUnavailable
+from app.core.config import Settings
+from app.domain.auth import AuthContext
+from app.domain.availability import (
+    AvailabilityConfigurationError,
+    AvailabilityPolicy,
+    BookingDateError,
+)
+from app.domain.booking import booking_request_hash, require_description
+from app.models import Appointment, AuditEvent, Notification, User
+from app.repositories import appointments, availability, catalog, users
+from app.schemas.appointments import AppointmentCreateRequest, AppointmentCreateResponse
+from app.services.availability_rules import (
+    business_day_bounds,
+    generate_slots,
+    validate_booking_date,
+    validate_policy,
+)
+
+_IDEMPOTENCY_CONSTRAINT = "uq_appointments_creation_request"
+_CONSTRAINT_KEY = re.compile(r"for key\s+['\"`]([^'\"`]+)['\"`]", re.IGNORECASE)
+_RETRYABLE_MYSQL_ERRORS = {1205, 1213}
+
+
+class _NamedDuplicate(Exception):
+    """The exact student/idempotency-key unique constraint rejected this insert."""
+
+
+class _CommitOutcomeUnknown(Exception):
+    """The connection failed during commit, so the write outcome cannot be inferred."""
+
+
+def _mysql_error_code(error: SQLAlchemyError) -> int | None:
+    original = getattr(error, "orig", None)
+    if original is None:
+        return None
+    code = getattr(original, "errno", None)
+    if isinstance(code, int):
+        return code
+    args = getattr(original, "args", ())
+    return args[0] if args and isinstance(args[0], int) else None
+
+
+def _is_named_creation_duplicate(error: SQLAlchemyError) -> bool:
+    if _mysql_error_code(error) != 1062:
+        return False
+    original = getattr(error, "orig", None)
+    message = str(original or "")
+    match = _CONSTRAINT_KEY.search(message)
+    return bool(match and match.group(1).rsplit(".", 1)[-1] == _IDEMPOTENCY_CONSTRAINT)
+
+
+def _receipt(row: Appointment) -> AppointmentCreateResponse:
+    return AppointmentCreateResponse(id=row.id, status="UPCOMING", created_at=row.created_at)
+
+
+def _not_found() -> AppError:
+    return AppError(404, "NOT_FOUND", "Requested booking data was not found", "input")
+
+
+def _booking_conflict() -> AppError:
+    return AppError(
+        409,
+        "BOOKING_CONFLICT",
+        "The requested appointment slot is no longer available",
+        "business",
+    )
+
+
+def _quota_conflict() -> AppError:
+    return AppError(
+        409,
+        "BOOKING_QUOTA_EXCEEDED",
+        "The maximum number of upcoming appointments has been reached",
+        "business",
+    )
+
+
+def _idempotency_conflict() -> AppError:
+    return AppError(
+        409,
+        "IDEMPOTENCY_CONFLICT",
+        "This Idempotency-Key was already used for different booking details",
+        "business",
+    )
+
+
+def _resolve_replay(
+    row: Appointment | None, *, expected_hash: bytes
+) -> tuple[AppointmentCreateResponse, bool] | None:
+    if row is None:
+        return None
+    if row.creation_request_hash != expected_hash:
+        raise _idempotency_conflict()
+    return _receipt(row), True
+
+
+async def _read_committed_key(
+    db: AsyncSession,
+    *,
+    student_id: UUID,
+    key: str,
+    expected_hash: bytes,
+) -> tuple[AppointmentCreateResponse, bool] | None:
+    async with db.begin():
+        row = await appointments.find_creation_request(db, student_id=student_id, key=key)
+        return _resolve_replay(row, expected_hash=expected_hash)
+
+
+async def _rollback(db: AsyncSession) -> None:
+    if not db.in_transaction():
+        return
+    try:
+        await db.rollback()
+    except SQLAlchemyError:
+        await _invalidate(db)
+
+
+async def _invalidate(db: AsyncSession) -> None:
+    try:
+        await db.invalidate()
+    except SQLAlchemyError:
+        # The caller is already returning a sanitized service failure; no DB detail is safe here.
+        pass
+
+
+async def _run_attempt_with_commit_safety(
+    db: AsyncSession,
+    payload: AppointmentCreateRequest,
+    *,
+    context: AuthContext,
+    idempotency_key: str,
+    request_id: str,
+    request_hash: bytes,
+) -> tuple[AppointmentCreateResponse, bool]:
+    """Run one complete transaction and distinguish deterministic aborts from uncertain commit."""
+    # The low-level attempt owns rollback for statement errors. A commit-time transport failure
+    # can leave the server outcome unknown, so invalidate the connection and never replay writes.
+    transaction = await db.begin()
+    try:
+        setting = await appointments.lock_service_settings(db)
+        if setting is None:
+            raise ServiceUnavailable()
+        account_ids = sorted({context.user_id, payload.staff_id}, key=lambda value: value.bytes)
+        locked_users: dict[UUID, User | None] = {}
+        for account_id in account_ids:
+            locked_users[account_id] = await users.lock_by_id(db, account_id)
+
+        existing = await appointments.find_creation_request(
+            db, student_id=context.user_id, key=idempotency_key
+        )
+        replay = _resolve_replay(existing, expected_hash=request_hash)
+        if replay is not None:
+            await transaction.commit()
+            return replay
+
+        student = locked_users.get(context.user_id)
+        staff = locked_users.get(payload.staff_id)
+        if (
+            student is None
+            or student.role != "STUDENT"
+            or not student.is_active
+            or staff is None
+            or staff.role != "STAFF"
+            or not staff.is_active
+        ):
+            raise _not_found()
+
+        # This separate SQL read deliberately follows every lock and is the sole booking clock.
+        now = await users.utc_now(db)
+        policy = AvailabilityPolicy(
+            timezone=setting.timezone,
+            start_step_minutes=setting.start_step_minutes,
+            booking_horizon_days=setting.booking_horizon_days,
+        )
+        zone = validate_policy(policy)
+        try:
+            starts_at = payload.starts_at.astimezone(UTC)
+            selected_date = starts_at.astimezone(zone).date()
+        except OverflowError:
+            raise _booking_conflict() from None
+        validate_booking_date(selected_date=selected_date, now=now, policy=policy)
+
+        purpose = await catalog.find_active_purpose(db, payload.purpose_id)
+        if purpose is None:
+            raise _not_found()
+        eligible_staff = await catalog.find_accepting_staff(
+            db, payload.purpose_id, payload.staff_id
+        )
+        if eligible_staff is None:
+            raise _not_found()
+        try:
+            description = require_description(
+                payload.description, required=purpose.requires_free_text
+            )
+        except ValueError:
+            raise AppError(422, "VALIDATION_ERROR", "Invalid request", "input") from None
+
+        if await appointments.count_blocking_for_student(db, student_id=context.user_id) >= 3:
+            raise _quota_conflict()
+
+        bounds = business_day_bounds(selected_date=selected_date, zone=zone)
+        windows = await availability.read_windows(db, selected_date.isoweekday())
+        unavailability = await availability.read_unavailability(
+            db, staff_id=payload.staff_id, bounds=bounds
+        )
+        staff_busy = await availability.read_staff_appointments(
+            db, staff_id=payload.staff_id, bounds=bounds
+        )
+        student_busy = await availability.read_student_appointments(
+            db, student_id=context.user_id, bounds=bounds
+        )
+        slots = generate_slots(
+            selected_date=selected_date,
+            now=now,
+            policy=policy,
+            duration_minutes=purpose.duration_minutes,
+            windows=windows,
+            busy=(*unavailability, *staff_busy, *student_busy),
+        )
+        chosen_slot = next((slot for slot in slots if slot.starts_at == starts_at), None)
+        if chosen_slot is None:
+            raise _booking_conflict()
+        ends_at = starts_at + timedelta(minutes=purpose.duration_minutes)
+        if chosen_slot.ends_at != ends_at:
+            raise ServiceUnavailable()
+
+        appointment = Appointment(
+            id=uuid4(),
+            student_id=context.user_id,
+            staff_id=payload.staff_id,
+            purpose_id=payload.purpose_id,
+            duration_minutes=purpose.duration_minutes,
+            other_reason=description,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            status="UPCOMING",
+            creation_request_key=idempotency_key,
+            creation_request_hash=request_hash,
+        )
+        audit = AuditEvent(
+            actor_id=context.user_id,
+            action="APPOINTMENT_CREATED",
+            entity_type="APPOINTMENT",
+            entity_id=str(appointment.id),
+            request_id=request_id,
+            event_metadata={
+                "purpose_id": str(payload.purpose_id),
+                "staff_id": str(payload.staff_id),
+                "duration_minutes": purpose.duration_minutes,
+            },
+        )
+        notification_rows = (
+            Notification(
+                recipient_id=context.user_id,
+                appointment_id=appointment.id,
+                event_type="APPOINTMENT_CREATED",
+            ),
+            Notification(
+                recipient_id=payload.staff_id,
+                appointment_id=appointment.id,
+                event_type="APPOINTMENT_CREATED",
+            ),
+        )
+        await appointments.add_creation_bundle(
+            db,
+            appointment=appointment,
+            audit_event=audit,
+            notifications=notification_rows,
+        )
+        await db.flush()
+        result = (_receipt(appointment), False)
+        try:
+            await transaction.commit()
+        except SQLAlchemyError as error:
+            if _is_named_creation_duplicate(error):
+                await _rollback(db)
+                raise _NamedDuplicate() from error
+            if _mysql_error_code(error) in _RETRYABLE_MYSQL_ERRORS:
+                await _rollback(db)
+                raise
+            await _rollback(db)
+            await _invalidate(db)
+            raise _CommitOutcomeUnknown() from error
+        except asyncio.CancelledError:
+            await _invalidate(db)
+            raise
+        return result
+    except SQLAlchemyError as error:
+        await _rollback(db)
+        if _is_named_creation_duplicate(error):
+            raise _NamedDuplicate() from error
+        if _mysql_error_code(error) in _RETRYABLE_MYSQL_ERRORS:
+            raise
+        raise
+    except asyncio.CancelledError:
+        await _rollback(db)
+        raise
+    except BaseException:
+        await _rollback(db)
+        raise
+
+
+async def create_appointment(
+    db: AsyncSession,
+    payload: AppointmentCreateRequest,
+    *,
+    context: AuthContext,
+    idempotency_key: str,
+    request_id: str,
+    settings: Settings,
+    deadline: float,
+) -> tuple[AppointmentCreateResponse, bool]:
+    """Create one appointment transactionally, returning the immutable receipt and replay flag.
+
+    ``deadline`` is an absolute event-loop deadline shared with the HTTP request. All retries
+    spend from that same budget; an uncertain commit is never retried automatically.
+    """
+    if context.role != "STUDENT":
+        raise AppError(403, "FORBIDDEN_ROLE", "This operation is not allowed", "business")
+
+    request_hash = booking_request_hash(payload)
+    try:
+        async with asyncio.timeout_at(deadline):
+            try:
+                replay = await _read_committed_key(
+                    db,
+                    student_id=context.user_id,
+                    key=idempotency_key,
+                    expected_hash=request_hash,
+                )
+            except AppError:
+                raise
+            except SQLAlchemyError:
+                await _rollback(db)
+                raise ServiceUnavailable() from None
+            if replay is not None:
+                return replay
+
+            retries = settings.max_deadlock_retries
+            for attempt in range(retries + 1):
+                try:
+                    return await _run_attempt_with_commit_safety(
+                        db,
+                        payload,
+                        context=context,
+                        idempotency_key=idempotency_key,
+                        request_id=request_id,
+                        request_hash=request_hash,
+                    )
+                except _NamedDuplicate:
+                    try:
+                        replay = await _read_committed_key(
+                            db,
+                            student_id=context.user_id,
+                            key=idempotency_key,
+                            expected_hash=request_hash,
+                        )
+                    except AppError:
+                        raise
+                    except SQLAlchemyError:
+                        await _rollback(db)
+                        raise ServiceUnavailable() from None
+                    if replay is not None:
+                        return replay
+                    raise ServiceUnavailable() from None
+                except _CommitOutcomeUnknown:
+                    raise ServiceUnavailable() from None
+                except SQLAlchemyError as error:
+                    await _rollback(db)
+                    if _mysql_error_code(error) not in _RETRYABLE_MYSQL_ERRORS:
+                        raise ServiceUnavailable() from None
+                    if attempt >= retries:
+                        raise ServiceUnavailable() from None
+                    remaining = deadline - asyncio.get_running_loop().time()
+                    delay = min(0.01 * (2**attempt), max(0.0, remaining))
+                    if delay <= 0:
+                        raise ServiceUnavailable() from None
+                    await asyncio.sleep(delay)
+                except AppError:
+                    await _rollback(db)
+                    raise
+            raise ServiceUnavailable() from None
+    except TimeoutError:
+        await _rollback(db)
+        raise ServiceUnavailable() from None
+    except asyncio.CancelledError:
+        await _rollback(db)
+        raise
+    except AvailabilityConfigurationError:
+        await _rollback(db)
+        raise ServiceUnavailable() from None
+    except BookingDateError:
+        await _rollback(db)
+        raise _booking_conflict() from None
+    except SQLAlchemyError:
+        await _rollback(db)
+        raise ServiceUnavailable() from None
