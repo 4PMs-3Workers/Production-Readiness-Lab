@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 from starlette.types import Message, Receive, Scope, Send
 
 from app.api import api_v1_router
+from app.api.booking_context import router as booking_context_router
 from app.api.errors import AppError, error_response, install_error_handlers
 from app.api.health import router as health_router
 from app.core.auth_http import AuthHttpMiddleware
@@ -116,4 +117,5 @@ def create_app(
     app.add_middleware(RequestIdMiddleware, trusted_gateway_cidrs=config.trusted_gateway_cidrs)
     app.include_router(health_router)
     app.include_router(api_v1_router)
+    app.include_router(booking_context_router, prefix="/api/v1")
     return app

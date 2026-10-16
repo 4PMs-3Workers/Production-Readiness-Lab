@@ -34,20 +34,32 @@ def validate_policy(policy: AvailabilityPolicy) -> ZoneInfo:
         raise AvailabilityConfigurationError("Availability timezone is invalid") from exc
 
 
+def booking_date_window(*, now: datetime, policy: AvailabilityPolicy) -> tuple[date, date, date]:
+    """Return the server business date and inclusive D+1 through D+horizon bounds."""
+    zone = validate_policy(policy)
+    if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
+        raise AvailabilityConfigurationError("Clock must return an aware datetime")
+    try:
+        business_date = now.astimezone(zone).date()
+        return (
+            business_date,
+            business_date + timedelta(days=1),
+            business_date + timedelta(days=policy.booking_horizon_days),
+        )
+    except (OverflowError, ValueError) as exc:
+        raise AvailabilityConfigurationError("Booking window is out of range") from exc
+
+
 def validate_booking_date(
     *, selected_date: date, now: datetime, policy: AvailabilityPolicy
 ) -> None:
     """Ensure a selected business date is D+1 through D+horizon inclusive."""
-    zone = validate_policy(policy)
     if not isinstance(selected_date, date) or isinstance(selected_date, datetime):
         raise BookingDateError("Booking date is invalid")
-    if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
-        raise AvailabilityConfigurationError("Clock must return an aware datetime")
     if selected_date == date.max:
         raise BookingDateError("Booking date has no representable next day")
-    business_date = now.astimezone(zone).date()
-    days_ahead = (selected_date - business_date).days
-    if not 1 <= days_ahead <= policy.booking_horizon_days:
+    _, min_date, max_date = booking_date_window(now=now, policy=policy)
+    if not min_date <= selected_date <= max_date:
         raise BookingDateError("Booking date is outside the configured horizon")
 
 

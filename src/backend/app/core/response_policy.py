@@ -3,7 +3,9 @@
 from starlette._utils import get_route_path
 from starlette.types import Scope
 
-CATALOG_PATHS = frozenset({"/api/v1/purposes", "/api/v1/staff", "/api/v1/availability"})
+CATALOG_PATHS = frozenset(
+    {"/api/v1/purposes", "/api/v1/staff", "/api/v1/availability", "/api/v1/booking-context"}
+)
 APPOINTMENT_COLLECTION_PATH = "/api/v1/appointments"
 
 
