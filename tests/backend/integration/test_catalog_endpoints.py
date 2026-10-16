@@ -56,7 +56,7 @@ async def seed_catalog(factory):
             db.add(
                 User(
                     id=staff_ids[key],
-                    email=f"{key}@example.invalid",
+                    email=f"catalog-{key}@example.invalid",
                     name=name,
                     role="STUDENT" if key == "student" else "ADMIN" if key == "admin" else "STAFF",
                     password_hash="unused-test-hash",
