@@ -13,3 +13,21 @@ def _register_auth() -> None:
 
 
 _register_auth()
+
+
+def _register_catalog() -> None:
+    from app.api.catalog import router
+
+    api_v1_router.include_router(router)
+
+
+_register_catalog()
+
+
+def _register_availability() -> None:
+    from app.api.availability import router
+
+    api_v1_router.include_router(router)
+
+
+_register_availability()

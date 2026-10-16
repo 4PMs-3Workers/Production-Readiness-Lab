@@ -1,4 +1,4 @@
-"""Export the health API contract without starting lifespan or accessing MySQL."""
+"""Export the FastAPI API contract without starting lifespan or accessing MySQL."""
 
 import argparse
 import sys

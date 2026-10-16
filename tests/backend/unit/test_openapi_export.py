@@ -28,6 +28,9 @@ def test_openapi_export_is_deterministic_without_database(tmp_path):
         "/api/v1/auth/me",
         "/api/v1/auth/csrf",
         "/api/v1/auth/logout",
+        "/api/v1/purposes",
+        "/api/v1/staff",
+        "/api/v1/availability",
     }
     schemes = document["components"]["securitySchemes"]
     assert any(
@@ -42,6 +45,65 @@ def test_openapi_export_is_deterministic_without_database(tmp_path):
     ):
         method = "get" if path.endswith(("/me", "/csrf")) else "post"
         assert "ErrorResponse" in str(document["paths"][path][method]["responses"])
+    for path in ("/api/v1/purposes", "/api/v1/staff"):
+        operation = document["paths"][path]["get"]
+        assert operation["security"] == [{"prl_session": []}]
+        assert "ErrorResponse" in str(operation["responses"])
+        parameters = {parameter["name"]: parameter for parameter in operation["parameters"]}
+        assert {"page", "page_size"} <= parameters.keys()
+        page = parameters["page"]["schema"]
+        page_size = parameters["page_size"]["schema"]
+        assert page["default"] == 1
+        assert page["minimum"] == 1
+        assert page_size["default"] == 20
+        assert page_size["minimum"] == 1
+        assert page_size["maximum"] == 100
+        if path.endswith("/staff"):
+            purpose_id = next(p for p in operation["parameters"] if p["name"] == "purpose_id")
+            assert purpose_id["schema"]["format"] == "uuid"
+        response_schema = operation["responses"]["200"]["content"]["application/json"]["schema"]
+        assert (
+            response_schema["$ref"].endswith("PageResponse_PurposeItem_")
+            if path.endswith("/purposes")
+            else response_schema["$ref"].endswith("PageResponse_StaffItem_")
+        )
+        for status in ("401", "403", "404", "422", "500", "503"):
+            assert {"Cache-Control", "X-Error-Class", "X-Request-ID"} <= set(
+                operation["responses"][status]["headers"]
+            )
+    availability = document["paths"]["/api/v1/availability"]["get"]
+    assert availability["security"] == [{"prl_session": []}]
+    availability_parameters = {
+        parameter["name"]: parameter for parameter in availability["parameters"]
+    }
+    assert set(availability_parameters) == {"purpose_id", "staff_id", "date"}
+    assert availability_parameters["purpose_id"]["required"] is True
+    assert availability_parameters["staff_id"]["required"] is True
+    assert availability_parameters["date"]["required"] is True
+    assert availability_parameters["purpose_id"]["schema"]["format"] == "uuid"
+    assert availability_parameters["staff_id"]["schema"]["format"] == "uuid"
+    assert availability_parameters["date"]["schema"]["format"] == "date"
+    availability_schema_ref = availability["responses"]["200"]["content"]["application/json"][
+        "schema"
+    ]["$ref"]
+    assert availability_schema_ref.endswith("AvailabilityResponse")
+    schemas = document["components"]["schemas"]
+    availability_schema = schemas[availability_schema_ref.rsplit("/", 1)[-1]]
+    assert set(availability_schema["properties"]) == {"date", "timezone", "slots"}
+    assert availability_schema["properties"]["date"]["format"] == "date"
+    slot_schema_ref = availability_schema["properties"]["slots"]["items"]["$ref"]
+    slot_schema = schemas[slot_schema_ref.rsplit("/", 1)[-1]]
+    assert set(slot_schema["properties"]) == {"starts_at", "ends_at"}
+    for property_name in ("starts_at", "ends_at"):
+        timestamp_ref = slot_schema["properties"][property_name]["$ref"]
+        timestamp_schema = schemas[timestamp_ref.rsplit("/", 1)[-1]]
+        assert timestamp_schema["format"] == "date-time"
+    assert "student_id" not in availability_parameters
+    assert not {"slot_id", "student_id", "other_reason"} & set(schemas)
+    for status in ("401", "403", "404", "422", "500", "503"):
+        response = availability["responses"][status]
+        assert "ErrorResponse" in str(response["content"])
+        assert {"Cache-Control", "X-Error-Class", "X-Request-ID"} <= set(response["headers"])
     assert "Retry-After" in str(document["paths"]["/api/v1/auth/login"]["post"]["responses"]["429"])
     assert "200" in document["paths"]["/health/live"]["get"]["responses"]
     assert "503" in document["paths"]["/health/ready"]["get"]["responses"]

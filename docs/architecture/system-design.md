@@ -224,7 +224,7 @@ API dùng tiền tố `/api/v1`, hợp đồng OpenAPI và JSON request/response
 | Nhóm API | Quyền và trách nhiệm |
 |---|---|
 | Xác thực | Đăng nhập, đăng xuất, đọc tài khoản hiện tại; thu hồi phiên khi đăng xuất hoặc vô hiệu hóa tài khoản. |
-| Danh mục và khả dụng | Người dùng đã đăng nhập đọc nhu cầu hoạt động, nhân viên tiếp nhận và giờ có thể đặt. |
+| Danh mục và khả dụng | `GET /api/v1/purposes`, `/api/v1/staff` và `/api/v1/availability` chỉ dành cho `STUDENT`, xác thực bằng session cookie; đọc nhu cầu hoạt động, nhân viên đang nhận và bản xem trước giờ trống. |
 | Lịch hẹn | Sinh viên tạo lịch qua `POST /appointments`; sinh viên/nhân viên đọc và hủy lịch trong phạm vi của mình. |
 | Đề nghị đổi lịch | Nhân viên của lịch tạo/thay đề nghị; sinh viên của lịch chấp thuận hoặc từ chối. |
 | Kết quả buổi gặp | Chỉ nhân viên nhận lịch ghi hoàn thành hoặc vắng mặt sau giờ kết thúc. |
@@ -233,10 +233,20 @@ API dùng tiền tố `/api/v1`, hợp đồng OpenAPI và JSON request/response
 | Quản trị | `ADMIN` quản lý tài khoản, nhu cầu, cấu hình và giờ phục vụ chung. |
 
 - Pydantic kiểm tra kiểu, độ dài và trường bắt buộc; service kiểm tra điều kiện nghiệp vụ.
-- Actor lấy từ phiên. Truy vấn lịch/đề nghị/thông báo luôn kèm điều kiện quyền của người đang đăng nhập.
-- Phân trang dùng `page`, `page_size`, giới hạn 100; truy vấn availability bị giới hạn bởi cửa sổ đặt.
+- Actor lấy từ phiên. Ba API catalog/availability nêu trên chỉ chấp nhận `STUDENT`; không nhận
+  `student_id` từ client và GET không yêu cầu CSRF/Origin. Truy vấn lịch/đề nghị/thông báo luôn
+  kèm điều kiện quyền của người đang đăng nhập.
+- Catalog phân trang bằng `page`, `page_size` (tối đa 100), trả `items`, metadata phân trang
+  và `total`; staff sắp theo tên rồi ID. Availability chỉ đọc trong ngày được chọn và cửa sổ
+  đặt lấy từ cấu hình DB.
 - Lỗi có `code`, thông điệp phù hợp người dùng và `request_id`. `401` cho phiên không hợp lệ; `403` cho thiếu vai trò/quyền thao tác; đối tượng ngoài phạm vi xem trả `404`; xung đột nghiệp vụ trả `409`.
 - Gateway tạo request ID và truyền xuống API; API ghi vào logs/traces và trả `X-Request-ID`, kể cả nhánh lỗi. Lần retry có request ID mới nhưng giữ nguyên idempotency key.
+
+Các endpoint catalog trả tên trường `snake_case`; adapter frontend khi tích hợp cần đổi sang
+DTO `camelCase` hiện dùng, gồm `name` thành `displayName`, đồng thời giữ metadata phân trang
+khi hiển thị/tải thêm. Slot availability chỉ có `starts_at` và `ends_at`: API không phát hành
+slot ID ổn định hoặc địa điểm. Kết quả availability là preview có thể thay đổi; thao tác
+booking sau này phải kiểm tra lại quyền, quota và xung đột trong transaction trước khi ghi.
 
 OpenAPI được tạo từ schema/routes FastAPI, xuất thành `docs/api/openapi.yaml` khi triển khai API và được kiểm tra trong CI. Frontend tích hợp theo hợp đồng này. API giữ quy tắc nghiệp vụ tại backend và đóng vai trò nguồn xác nhận kết quả.
 
