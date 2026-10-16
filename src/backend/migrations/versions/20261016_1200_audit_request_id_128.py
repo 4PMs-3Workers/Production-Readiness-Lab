@@ -1,13 +1,13 @@
 """Expand audit request IDs to match the gateway contract.
 
-Revision ID: 20261016_1200_audit_request_id_128
+Revision ID: 20261016_1200_audit_reqid128
 Revises: a1b2c3d4e5f6
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "20261016_1200_audit_request_id_128"
+revision = "20261016_1200_audit_reqid128"
 down_revision = "a1b2c3d4e5f6"
 branch_labels = None
 depends_on = None

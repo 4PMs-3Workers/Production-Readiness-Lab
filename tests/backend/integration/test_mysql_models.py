@@ -399,7 +399,27 @@ async def test_migration_records_correct_revision(mysql_engine):
             .scalars()
             .all()
         )
-    assert rows == ["20261016_1200_audit_request_id_128"], f"Unexpected revision rows: {rows}"
+    assert rows == ["20261016_1200_audit_reqid128"], f"Unexpected revision rows: {rows}"
+
+
+def test_audit_request_id_revision_fits_alembic_version_column():
+    """Alembic revision IDs must fit its default VARCHAR(32) storage."""
+    from importlib.util import module_from_spec, spec_from_file_location
+    from pathlib import Path
+
+    migration_path = (
+        Path(__file__).parents[3]
+        / "src"
+        / "backend"
+        / "migrations"
+        / "versions"
+        / "20261016_1200_audit_request_id_128.py"
+    )
+    spec = spec_from_file_location("audit_request_id_migration", migration_path)
+    assert spec is not None and spec.loader is not None
+    migration = module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    assert len(migration.revision) <= 32
 
 
 async def test_audit_request_id_orm_contract_accepts_128_characters():
@@ -414,7 +434,7 @@ async def test_audit_request_id_migration_round_trip_and_safe_downgrade(mysql_en
     from app.models import AuditEvent
 
     request_id = "r" * 128
-    async with AsyncSession(mysql_engine) as session:
+    async with AsyncSession(mysql_engine, expire_on_commit=False) as session:
         event = AuditEvent(action="TEST", entity_type="USER", entity_id="1", request_id=request_id)
         session.add(event)
         await session.commit()
@@ -456,7 +476,7 @@ async def test_second_upgrade_head_is_idempotent(mysql_engine, graph):
         version = (
             await connection.execute(text("SELECT version_num FROM alembic_version"))
         ).scalar_one()
-    assert version == "20261016_1200_audit_request_id_128"
+    assert version == "20261016_1200_audit_reqid128"
 
     # Sample data inserted by ``graph`` must still be present.
     async with AsyncSession(mysql_engine, expire_on_commit=False) as check_session:
