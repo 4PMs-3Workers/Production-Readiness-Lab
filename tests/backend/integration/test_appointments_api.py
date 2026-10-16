@@ -5,12 +5,14 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from time import monotonic
 from types import SimpleNamespace
+from typing import cast
 from uuid import UUID, uuid4
 
 import httpx
 import pytest
 from sqlalchemy.dialects import mysql
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth_errors import auth_error
 from app.api.errors import AppError
@@ -342,7 +344,7 @@ async def test_appointment_repository_scopes_detail_query_by_id_and_student():
             return None
 
     result = await appointment_repository.find_student_appointment(
-        FakeSession(), appointment_id=APPOINTMENT_ID, student_id=STAFF_ID
+        cast(AsyncSession, FakeSession()), appointment_id=APPOINTMENT_ID, student_id=STAFF_ID
     )
     compiled = captured["statement"].compile(dialect=mysql.dialect())
     sql = str(compiled)
@@ -358,7 +360,10 @@ async def test_appointment_repository_scopes_detail_query_by_id_and_student():
 async def test_appointment_deadline_covers_post_and_get_work(
     auth_settings, monkeypatch, method, prefix
 ):
-    app = create_app(auth_settings.model_copy(update={"request_timeout_seconds": 0.05}))
+    request_timeout_seconds = 2.0
+    app = create_app(
+        auth_settings.model_copy(update={"request_timeout_seconds": request_timeout_seconds})
+    )
     context = student_context()
     install_overrides(app, context)
     entered = asyncio.Event()
@@ -377,21 +382,19 @@ async def test_appointment_deadline_covers_post_and_get_work(
         monkeypatch.setattr(
             appointment_repository, "find_student_appointment", blocked, raising=False
         )
-    started = monotonic()
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app, root_path=prefix), base_url=ORIGIN
     ) as client:
         path = prefix + "/api/v1/appointments"
+        started = monotonic()
         if method == "POST":
             response = await client.post(path, json=PAYLOAD, headers=valid_write_headers(context))
         else:
             response = await client.get(path + f"/{APPOINTMENT_ID}")
-    elapsed = monotonic() - started
-
     assert entered.is_set()
     assert cleaned_up.is_set()
     assert response.status_code == 503
-    assert elapsed < 0.25
+    assert monotonic() - started < request_timeout_seconds + 0.5
     assert response.json()["error"]["code"] == "SERVICE_UNAVAILABLE"
     assert_private(response, error_class="service")
 

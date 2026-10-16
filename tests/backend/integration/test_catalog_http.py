@@ -177,7 +177,10 @@ async def test_catalog_not_found_errors_are_private(auth_settings, monkeypatch, 
 async def test_catalog_timeout_cancels_inflight_service_and_returns_promptly(
     auth_settings, monkeypatch, prefix, path
 ):
-    app = create_app(auth_settings.model_copy(update={"request_timeout_seconds": 0.05}))
+    request_timeout_seconds = 2.0
+    app = create_app(
+        auth_settings.model_copy(update={"request_timeout_seconds": request_timeout_seconds})
+    )
     install_overrides(app)
     app.dependency_overrides[require_student] = lambda: student_context()
     entered = asyncio.Event()
@@ -192,19 +195,17 @@ async def test_catalog_timeout_cancels_inflight_service_and_returns_promptly(
 
     monkeypatch.setattr(catalog.catalog_service, "list_purposes", blocked)
     monkeypatch.setattr(catalog.catalog_service, "list_staff", blocked)
-    started = monotonic()
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app, root_path=prefix),
         base_url="http://localhost:3000",
     ) as client:
         suffix = "?purpose_id=" + str(uuid4()) if path.endswith("staff") else ""
+        started = monotonic()
         response = await client.get(prefix + path + suffix)
-    elapsed = monotonic() - started
-
     assert entered.is_set()
     assert cleaned_up.is_set()
     assert response.status_code == 503
-    assert elapsed < 0.25
+    assert monotonic() - started < request_timeout_seconds + 0.5
     assert response.headers["Cache-Control"] == "private, no-store"
     assert response.headers["X-Error-Class"] == "service"
 

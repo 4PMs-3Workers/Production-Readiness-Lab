@@ -22,15 +22,15 @@ from app.schemas.appointments import (
     AppointmentStatus,
     IdempotencyKey,
 )
-from app.schemas.common import ErrorResponse
+from app.schemas.common import ErrorResponse, UtcTimestamp
 from app.services import booking as booking_service
 
 router = APIRouter(tags=["appointments"])
 
 
 def appointment_responses(
-    success_models: dict[int, type[BaseModel]], *error_statuses: int
-) -> dict[int, dict[str, Any]]:
+    success_models: dict[int | str, type[BaseModel]], *error_statuses: int
+) -> dict[int | str, dict[str, Any]]:
     request_id = {"schema": {"type": "string"}, "description": "Identifier for this request"}
     cache_control = {
         "schema": {"type": "string"},
@@ -43,7 +43,7 @@ def appointment_responses(
             "description": "Classification of the sanitized error",
         }
     }
-    responses: dict[int, dict[str, Any]] = {
+    responses: dict[int | str, dict[str, Any]] = {
         status: {"model": model, "headers": success_headers}
         for status, model in success_models.items()
     }
@@ -165,10 +165,10 @@ async def get_appointment(
         purpose_id=appointment.purpose_id,
         staff_id=appointment.staff_id,
         duration_minutes=appointment.duration_minutes,
-        starts_at=appointment.starts_at,
-        ends_at=appointment.ends_at,
+        starts_at=UtcTimestamp.model_validate(appointment.starts_at),
+        ends_at=UtcTimestamp.model_validate(appointment.ends_at),
         description=appointment.other_reason,
         location=appointment.location,
         status=cast(AppointmentStatus, appointment.status),
-        created_at=appointment.created_at,
+        created_at=UtcTimestamp.model_validate(appointment.created_at),
     )

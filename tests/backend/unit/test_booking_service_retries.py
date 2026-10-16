@@ -2,10 +2,12 @@
 
 import asyncio
 from datetime import UTC, datetime, time, timedelta
+from typing import cast
 from uuid import uuid4
 
 import pytest
 from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
 from app.domain.auth import AuthContext
@@ -16,7 +18,7 @@ from app.services import booking
 
 
 class CleanSession:
-    def in_transaction(self):
+    def in_transaction(self) -> bool:
         return False
 
     async def rollback(self):
@@ -83,6 +85,11 @@ class FakeTransaction:
         await self.session.rollback()
 
 
+def _as_async_session(session: CleanSession) -> AsyncSession:
+    """Cast a deliberately small test double at the production service boundary."""
+    return cast(AsyncSession, session)
+
+
 def _request() -> AppointmentCreateRequest:
     return AppointmentCreateRequest(
         purpose_id=uuid4(),
@@ -131,7 +138,7 @@ async def test_mysql_lock_errors_retry_a_fresh_attempt(
     monkeypatch.setattr(booking, "_run_attempt_with_commit_safety", retry_once)
     settings = auth_settings.model_copy(update={"max_deadlock_retries": 2})
     result = await booking.create_appointment(
-        CleanSession(),
+        _as_async_session(CleanSession()),
         payload,
         context=context,
         idempotency_key="retryable-key",
@@ -163,7 +170,7 @@ async def test_retry_budget_is_bounded_and_database_failure_stays_service_error(
 
     with pytest.raises(AppError) as caught:
         await booking.create_appointment(
-            CleanSession(),
+            _as_async_session(CleanSession()),
             _request(),
             context=_context(),
             idempotency_key="bounded-retry-key",
@@ -197,7 +204,7 @@ async def test_only_the_named_idempotency_unique_constraint_is_resolved_as_a_rep
     monkeypatch.setattr(booking, "_read_committed_key", lookup)
     monkeypatch.setattr(booking, "_run_attempt_with_commit_safety", named_duplicate)
     result = await booking.create_appointment(
-        CleanSession(),
+        _as_async_session(CleanSession()),
         payload,
         context=context,
         idempotency_key="winner-key",
@@ -311,7 +318,7 @@ async def test_booking_service_stages_one_appointment_audit_and_two_notification
     monkeypatch.setattr(booking.availability, "read_student_appointments", no_busy_time)
 
     result, replayed = await booking.create_appointment(
-        fake_db,
+        _as_async_session(fake_db),
         payload,
         context=context,
         idempotency_key="unit-key",
@@ -424,7 +431,7 @@ async def test_uncertain_commit_invalidates_connection_and_is_never_retried(
     monkeypatch.setattr(booking, "_run_attempt_with_commit_safety", count_attempt)
     with pytest.raises(AppError) as caught:
         await booking.create_appointment(
-            fake_db,
+            _as_async_session(fake_db),
             payload,
             context=context,
             idempotency_key="uncertain-commit-key",

@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from starlette.middleware import Middleware
 
 from app.core.catalog_http import PrivateApiHttpMiddleware
+from app.core.config import Settings
 from app.core.csrf import issue_csrf_token
 from app.core.session_tokens import hash_session_token, new_session_token
 from app.models import Appointment, AuditEvent, Notification, Session, User
@@ -102,6 +103,7 @@ def _assert_bounded_stress_budget_wired_before_middleware(env):
     )
     assert isinstance(private_api_middleware, Middleware)
     captured_settings = private_api_middleware.kwargs["settings"]
+    assert isinstance(captured_settings, Settings)
     assert captured_settings.request_timeout_seconds == 20.0
     assert captured_settings.db_query_timeout_seconds == 10.0
     assert captured_settings.db_lock_timeout_seconds == 5.0

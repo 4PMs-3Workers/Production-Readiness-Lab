@@ -86,7 +86,7 @@ async def mysql_engine():
 
 @pytest_asyncio.fixture
 async def auth_env(mysql_engine, auth_settings, request):
-    updates = {"login_ip_attempts": 100, "login_email_attempts": 100}
+    updates: dict[str, Any] = {"login_ip_attempts": 100, "login_email_attempts": 100}
     if request.node.get_closest_marker("booking_stress") is not None:
         updates.update(
             {

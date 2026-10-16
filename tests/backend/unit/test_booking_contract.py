@@ -15,11 +15,13 @@ STAFF_ID = UUID("00000000-0000-0000-0000-000000000002")
 
 
 def request(*, starts_at: str, description: str | None = None) -> AppointmentCreateRequest:
-    return AppointmentCreateRequest(
-        purpose_id=PURPOSE_ID,
-        staff_id=STAFF_ID,
-        starts_at=starts_at,
-        description=description,
+    return AppointmentCreateRequest.model_validate(
+        {
+            "purpose_id": PURPOSE_ID,
+            "staff_id": STAFF_ID,
+            "starts_at": starts_at,
+            "description": description,
+        }
     )
 
 
