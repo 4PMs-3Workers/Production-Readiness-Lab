@@ -31,3 +31,12 @@ def _register_availability() -> None:
 
 
 _register_availability()
+
+
+def _register_appointments() -> None:
+    from app.api.appointments import router
+
+    api_v1_router.include_router(router)
+
+
+_register_appointments()

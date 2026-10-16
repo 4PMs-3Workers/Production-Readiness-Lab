@@ -25,6 +25,18 @@ async def find_creation_request(
     return await db.scalar(statement)
 
 
+async def find_student_appointment(
+    db: AsyncSession, *, appointment_id: UUID, student_id: UUID
+) -> Appointment | None:
+    """Find current detail only when both the record and authenticated owner match."""
+    statement = (
+        select(Appointment)
+        .where(Appointment.id == appointment_id, Appointment.student_id == student_id)
+        .execution_options(populate_existing=True)
+    )
+    return await db.scalar(statement)
+
+
 async def lock_service_settings(db: AsyncSession) -> ServiceSetting | None:
     """Take the shared policy lock before any account lock in a booking transaction."""
     statement = (

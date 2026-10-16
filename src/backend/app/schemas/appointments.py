@@ -14,6 +14,8 @@ from pydantic import (
     field_validator,
 )
 
+from app.schemas.common import UtcTimestamp
+
 
 def _reject_blank_key(value: str) -> str:
     if not value.strip():
@@ -26,6 +28,7 @@ IdempotencyKey = Annotated[
     StringConstraints(min_length=1, max_length=128, strip_whitespace=False),
     AfterValidator(_reject_blank_key),
 ]
+AppointmentStatus = Literal["UPCOMING", "CHANGE_PENDING", "CANCELLED", "COMPLETED", "NO_SHOW"]
 
 
 class AppointmentCreateRequest(BaseModel):
@@ -54,3 +57,20 @@ class AppointmentCreateResponse(BaseModel):
     id: UUID
     status: Literal["UPCOMING"]
     created_at: AwareDatetime
+
+
+class AppointmentDetailResponse(BaseModel):
+    """Student-visible current booking details, excluding persistence metadata."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    purpose_id: UUID
+    staff_id: UUID
+    duration_minutes: int
+    starts_at: UtcTimestamp
+    ends_at: UtcTimestamp
+    description: str | None
+    location: str | None
+    status: AppointmentStatus
+    created_at: UtcTimestamp

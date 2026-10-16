@@ -1,4 +1,4 @@
-"""Private caching and whole-request deadlines for catalog endpoints."""
+"""Private caching and whole-request deadlines for catalog and appointment APIs."""
 
 import asyncio
 
@@ -8,16 +8,16 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.api.errors import AppError, ServiceUnavailable, error_response
 from app.core.config import Settings
-from app.core.response_policy import is_catalog_path
+from app.core.response_policy import requires_request_deadline, uses_private_api_middleware
 
 
-class CatalogHttpMiddleware:
+class PrivateApiHttpMiddleware:
     def __init__(self, app: ASGIApp, *, settings: Settings) -> None:
         self.app = app
         self.settings = settings
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if not is_catalog_path(scope):
+        if not uses_private_api_middleware(scope):
             await self.app(scope, receive, send)
             return
 
@@ -32,8 +32,10 @@ class CatalogHttpMiddleware:
 
         request = Request(scope)
         try:
-            if scope["method"] == "GET":
-                async with asyncio.timeout(self.settings.request_timeout_seconds):
+            if requires_request_deadline(scope):
+                deadline = asyncio.get_running_loop().time() + self.settings.request_timeout_seconds
+                scope.setdefault("state", {})["request_deadline"] = deadline
+                async with asyncio.timeout_at(deadline):
                     await self.app(scope, receive, private_send)
             else:
                 await self.app(scope, receive, private_send)

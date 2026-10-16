@@ -14,7 +14,7 @@ from app.api import api_v1_router
 from app.api.errors import AppError, error_response, install_error_handlers
 from app.api.health import router as health_router
 from app.core.auth_http import AuthHttpMiddleware
-from app.core.catalog_http import CatalogHttpMiddleware
+from app.core.catalog_http import PrivateApiHttpMiddleware
 from app.core.config import Settings, load_settings
 from app.core.database import create_database_engine
 from app.core.login_throttle import LoginThrottle
@@ -112,7 +112,7 @@ def create_app(
     app.state.login_throttle = LoginThrottle(config)
     install_error_handlers(app)
     app.add_middleware(AuthHttpMiddleware, settings=config, throttle=app.state.login_throttle)
-    app.add_middleware(CatalogHttpMiddleware, settings=config)
+    app.add_middleware(PrivateApiHttpMiddleware, settings=config)
     app.add_middleware(RequestIdMiddleware, trusted_gateway_cidrs=config.trusted_gateway_cidrs)
     app.include_router(health_router)
     app.include_router(api_v1_router)
