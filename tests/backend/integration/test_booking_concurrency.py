@@ -5,8 +5,11 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import httpx
+import pytest
 from sqlalchemy import func, select
+from starlette.middleware import Middleware
 
+from app.core.catalog_http import PrivateApiHttpMiddleware
 from app.core.csrf import issue_csrf_token
 from app.core.session_tokens import hash_session_token, new_session_token
 from app.models import Appointment, AuditEvent, Notification, Session, User
@@ -89,15 +92,19 @@ def _payload(env, starts_at, *, staff_id=None):
     }
 
 
-def _allow_bounded_stress_budget(env):
-    """Give only these integration requests a bounded, stress-appropriate deadline."""
-    env.app.state.settings = env.app.state.settings.model_copy(
-        update={
-            "request_timeout_seconds": 20.0,
-            "db_query_timeout_seconds": 10.0,
-            "db_lock_timeout_seconds": 5.0,
-        }
+def _assert_bounded_stress_budget_wired_before_middleware(env):
+    """Check FastAPI captured the stress deadline before building its middleware stack."""
+    assert env.app.state.settings.request_timeout_seconds == 20.0
+    private_api_middleware = next(
+        middleware
+        for middleware in env.app.user_middleware
+        if middleware.cls is PrivateApiHttpMiddleware
     )
+    assert isinstance(private_api_middleware, Middleware)
+    captured_settings = private_api_middleware.kwargs["settings"]
+    assert captured_settings.request_timeout_seconds == 20.0
+    assert captured_settings.db_query_timeout_seconds == 10.0
+    assert captured_settings.db_lock_timeout_seconds == 5.0
 
 
 async def _assert_created_bundle(factory, *, starts_at, expected_count=1):
@@ -143,11 +150,12 @@ async def _close_clients(clients):
     await asyncio.gather(*(client.aclose() for client, _ in clients))
 
 
+@pytest.mark.booking_stress
 async def test_fifty_students_racing_for_one_staff_slot_create_exactly_one_bundle(
     booking_env,
 ):
     env, _, starts_at = booking_env
-    _allow_bounded_stress_budget(env)
+    _assert_bounded_stress_budget_wired_before_middleware(env)
     clients = await _clients(booking_env, await _distinct_student_ids(booking_env, 50))
     barrier = asyncio.Barrier(50)
     payload = _payload(env, starts_at)
@@ -179,9 +187,10 @@ async def test_fifty_students_racing_for_one_staff_slot_create_exactly_one_bundl
         await _close_clients(clients)
 
 
+@pytest.mark.booking_stress
 async def test_fifty_sessions_for_one_student_serialize_quota_at_three(booking_env):
     env, _, starts_at = booking_env
-    _allow_bounded_stress_budget(env)
+    _assert_bounded_stress_budget_wired_before_middleware(env)
     for offset in (2, 3):
         await _seed_existing_appointment(
             env,

@@ -85,10 +85,17 @@ async def mysql_engine():
 
 
 @pytest_asyncio.fixture
-async def auth_env(mysql_engine, auth_settings):
-    settings = auth_settings.model_copy(
-        update={"login_ip_attempts": 100, "login_email_attempts": 100}
-    )
+async def auth_env(mysql_engine, auth_settings, request):
+    updates = {"login_ip_attempts": 100, "login_email_attempts": 100}
+    if request.node.get_closest_marker("booking_stress") is not None:
+        updates.update(
+            {
+                "request_timeout_seconds": 20.0,
+                "db_query_timeout_seconds": 10.0,
+                "db_lock_timeout_seconds": 5.0,
+            }
+        )
+    settings = auth_settings.model_copy(update=updates)
     passwords = await PasswordService.create(PasswordPolicy(), 2)
     factory = async_sessionmaker(mysql_engine, expire_on_commit=False)
     async with factory.begin() as db:
