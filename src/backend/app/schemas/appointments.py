@@ -90,3 +90,17 @@ class AppointmentDetailResponse(AppointmentListItem):
     description: str | None
     cancelled_at: UtcTimestamp | None
     cancel_reason: str | None
+
+
+class AppointmentCancelRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    reason: str | None = Field(default=None, max_length=2000)
+
+
+class AppointmentCancelResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    status: Literal["CANCELLED"]
+    cancelled_at: AwareDatetime

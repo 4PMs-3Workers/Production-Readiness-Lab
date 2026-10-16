@@ -13,6 +13,8 @@ from app.dependencies.catalog import reject_duplicate_catalog_query, require_stu
 from app.dependencies.database import get_db_session
 from app.domain.auth import AuthContext
 from app.schemas.appointments import (
+    AppointmentCancelRequest,
+    AppointmentCancelResponse,
     AppointmentCreateRequest,
     AppointmentCreateResponse,
     AppointmentDetailResponse,
@@ -22,7 +24,7 @@ from app.schemas.appointments import (
 )
 from app.schemas.common import ErrorResponse, PageResponse
 from app.services import booking as booking_service
-from app.services import student_appointments
+from app.services import cancellation, student_appointments
 
 router = APIRouter(tags=["appointments"])
 
@@ -133,6 +135,39 @@ async def create_appointment(
     if replayed:
         response.status_code = 200
     return receipt
+
+
+@router.post(
+    "/appointments/{appointment_id}/cancel",
+    response_model=AppointmentCancelResponse,
+    responses=appointment_responses(
+        {200: AppointmentCancelResponse}, 401, 403, 404, 409, 422, 500, 503
+    ),
+    summary="Cancel an owned student appointment",
+)
+async def cancel_appointment(
+    appointment_id: UUID,
+    request: Request,
+    payload: AppointmentCancelRequest,
+    context: Annotated[AuthContext, Depends(require_student)],
+    _csrf_context: Annotated[AuthContext, Depends(require_csrf)],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
+) -> AppointmentCancelResponse:
+    """Require same-origin Origin/Referer and a signed matching X-CSRF-Token cookie pair."""
+    del _csrf_context
+    settings = request.app.state.settings
+    deadline = getattr(request.state, "request_deadline", None)
+    if deadline is None:
+        deadline = asyncio.get_running_loop().time() + settings.request_timeout_seconds
+    return await cancellation.cancel_appointment(
+        db,
+        appointment_id=appointment_id,
+        payload=payload,
+        context=context,
+        request_id=request.state.request_id,
+        settings=settings,
+        deadline=deadline,
+    )
 
 
 @router.get(

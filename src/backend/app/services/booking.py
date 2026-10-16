@@ -10,6 +10,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError, ServiceUnavailable
 from app.core.config import Settings
+from app.core.transactions import (
+    RETRYABLE_MYSQL_ERRORS as _RETRYABLE_MYSQL_ERRORS,
+)
+from app.core.transactions import (
+    CommitOutcomeUnknown as _CommitOutcomeUnknown,
+)
+from app.core.transactions import (
+    commit_safely,
+)
+from app.core.transactions import (
+    mysql_error_code as _mysql_error_code,
+)
+from app.core.transactions import (
+    rollback as _rollback,
+)
 from app.domain.auth import AuthContext
 from app.domain.availability import (
     AvailabilityConfigurationError,
@@ -29,26 +44,10 @@ from app.services.availability_rules import (
 
 _IDEMPOTENCY_CONSTRAINT = "uq_appointments_creation_request"
 _CONSTRAINT_KEY = re.compile(r"for key\s+['\"`]([^'\"`]+)['\"`]", re.IGNORECASE)
-_RETRYABLE_MYSQL_ERRORS = {1205, 1213}
 
 
 class _NamedDuplicate(Exception):
     """The exact student/idempotency-key unique constraint rejected this insert."""
-
-
-class _CommitOutcomeUnknown(Exception):
-    """The connection failed during commit, so the write outcome cannot be inferred."""
-
-
-def _mysql_error_code(error: SQLAlchemyError) -> int | None:
-    original = getattr(error, "orig", None)
-    if original is None:
-        return None
-    code = getattr(original, "errno", None)
-    if isinstance(code, int):
-        return code
-    args = getattr(original, "args", ())
-    return args[0] if args and isinstance(args[0], int) else None
 
 
 def _is_named_creation_duplicate(error: SQLAlchemyError) -> bool:
@@ -117,23 +116,6 @@ async def _read_committed_key(
         async with db.begin():
             row = await appointments.find_creation_request(db, student_id=student_id, key=key)
             return _resolve_replay(row, expected_hash=expected_hash)
-
-
-async def _rollback(db: AsyncSession) -> None:
-    if not db.in_transaction():
-        return
-    try:
-        await db.rollback()
-    except SQLAlchemyError:
-        await _invalidate(db)
-
-
-async def _invalidate(db: AsyncSession) -> None:
-    try:
-        await db.invalidate()
-    except SQLAlchemyError:
-        # The caller is already returning a sanitized service failure; no DB detail is safe here.
-        pass
 
 
 async def _run_attempt_with_commit_safety(
@@ -285,21 +267,7 @@ async def _run_attempt_with_commit_safety(
         )
         await db.flush()
         result = (_receipt(appointment), False)
-        try:
-            await transaction.commit()
-        except SQLAlchemyError as error:
-            if _is_named_creation_duplicate(error):
-                await _rollback(db)
-                raise _NamedDuplicate() from error
-            if _mysql_error_code(error) in _RETRYABLE_MYSQL_ERRORS:
-                await _rollback(db)
-                raise
-            await _rollback(db)
-            await _invalidate(db)
-            raise _CommitOutcomeUnknown() from error
-        except asyncio.CancelledError:
-            await _invalidate(db)
-            raise
+        await commit_safely(db, transaction, known_abort=_is_named_creation_duplicate)
         return result
     except SQLAlchemyError as error:
         await _rollback(db)

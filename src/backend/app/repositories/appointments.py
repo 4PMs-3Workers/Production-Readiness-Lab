@@ -7,7 +7,15 @@ from uuid import UUID
 from sqlalchemy import Row, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Appointment, AuditEvent, Notification, Purpose, ServiceSetting, User
+from app.models import (
+    Appointment,
+    AuditEvent,
+    ChangeProposal,
+    Notification,
+    Purpose,
+    ServiceSetting,
+    User,
+)
 from app.schemas.appointments import AppointmentListQuery
 
 BLOCKING_STATUSES = ("UPCOMING", "CHANGE_PENDING")
@@ -104,3 +112,31 @@ async def add_creation_bundle(
 ) -> None:
     """Stage the appointment and its two required side effects in one transaction."""
     db.add_all([appointment, audit_event, *notifications])
+
+
+async def find_cancellation_accounts(
+    db: AsyncSession, *, appointment_id: UUID, student_id: UUID
+) -> Row[Any] | None:
+    """Discover lock identities only; all mutable facts are re-read under locks."""
+    statement = select(Appointment.student_id, Appointment.staff_id).where(
+        Appointment.id == appointment_id, Appointment.student_id == student_id
+    )
+    return (await db.execute(statement)).one_or_none()
+
+
+async def lock_appointment(db: AsyncSession, appointment_id: UUID) -> Appointment | None:
+    return await db.scalar(
+        select(Appointment)
+        .where(Appointment.id == appointment_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
+async def lock_pending_proposal(db: AsyncSession, appointment_id: UUID) -> ChangeProposal | None:
+    return await db.scalar(
+        select(ChangeProposal)
+        .where(ChangeProposal.appointment_id == appointment_id, ChangeProposal.status == "PENDING")
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
