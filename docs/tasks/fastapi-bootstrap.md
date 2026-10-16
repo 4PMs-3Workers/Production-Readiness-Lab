@@ -42,8 +42,10 @@ Migration commands and recovery remain in `docs/tasks/database-migrations.md`.
 The complete variable table with names, units, allowed values, defaults and required flags is in
 `README.md` under “Chạy nền tảng FastAPI”. `.env.example` contains placeholders; secrets and
 credential-bearing URLs belong in local `.env` or the deployment environment, never in Git.
-Initial `ACCEPTED_SCHEMA_REVISIONS` is `a1b2c3d4e5f6`. A release can list another revision only
-after compatibility review. The API does not infer compatibility from a newer Alembic head.
+The initial schema revision is `a1b2c3d4e5f6`. After migration #14, the current release expects
+`20261016_1200_audit_reqid128` because audit request IDs support 128 characters. `.env.example`
+uses that revision. A release may list multiple revisions only after compatibility review; do not
+accept a schema that cannot support its writes.
 
 Use `python -m uvicorn app.main:app --app-dir src/backend --no-proxy-headers` from the repo root.
 Keep the immediate Nginx peer visible to the ASGI app and configure only that peer's CIDR as
@@ -105,9 +107,7 @@ before merge.
 
 - No business routes, authentication/CSRF enforcement, appointment transactions, expiry worker
   or telemetry stack are implemented here. `api_v1_router` reserves `/api/v1` for those tasks.
-- `audit_events.request_id` is currently `varchar(100)` while the HTTP contract permits 128
-  characters. The future audit/schema task must resolve how to persist a full request ID;
-  this task does not modify the database schema or silently shorten the HTTP limit.
+- `audit_events.request_id` uses `varchar(128)` to match the HTTP contract's maximum length.
 - The current Starlette test client emits a deprecation warning for `httpx`; it does not affect
   test behavior. Alembic emits an existing `path_separator` warning from its configuration.
 - Windows sandboxing on this workstation blocks even an empty asyncio event loop. Async tests

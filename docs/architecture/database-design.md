@@ -344,7 +344,7 @@ Lưu sự kiện để đối chiếu người thực hiện và thay đổi ngh
 | `action` | `varchar(60)` | NN | Mã hành động như `APPOINTMENT_CREATED`, `CHANGE_ACCEPTED`. |
 | `entity_type` | `varchar(50)` | NN | Loại đối tượng: lịch, đề nghị, nhu cầu, cấu hình, thời gian không nhận. |
 | `entity_id` | `varchar(100)` | NN | ID đối tượng được ghi nhận. |
-| `request_id` | `varchar(100)` | NN | Mã đối chiếu request hoặc lần chạy worker. |
+| `request_id` | `varchar(128)` | NN | Mã đối chiếu request hoặc lần chạy worker. |
 | `metadata` | `json` | NN, backend gán `{}` khi không có metadata | Trạng thái/khoảng giờ trước và sau, ID liên quan cần thiết. |
 | `created_at` | `datetime(6)` | NN | Lúc xảy ra hành động. |
 

@@ -1,5 +1,113 @@
 components:
   schemas:
+    AppointmentCreateRequest:
+      additionalProperties: false
+      properties:
+        description:
+          anyOf:
+          - maxLength: 2000
+            type: string
+          - type: 'null'
+          title: Description
+        purpose_id:
+          format: uuid
+          title: Purpose Id
+          type: string
+        staff_id:
+          format: uuid
+          title: Staff Id
+          type: string
+        starts_at:
+          format: date-time
+          title: Starts At
+          type: string
+      required:
+      - purpose_id
+      - staff_id
+      - starts_at
+      title: AppointmentCreateRequest
+      type: object
+    AppointmentCreateResponse:
+      additionalProperties: false
+      description: Original creation receipt returned on both create and idempotent
+        replay.
+      properties:
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        status:
+          const: UPCOMING
+          title: Status
+          type: string
+      required:
+      - id
+      - status
+      - created_at
+      title: AppointmentCreateResponse
+      type: object
+    AppointmentDetailResponse:
+      additionalProperties: false
+      description: Student-visible current booking details, excluding persistence
+        metadata.
+      properties:
+        created_at:
+          $ref: '#/components/schemas/UtcTimestamp'
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        duration_minutes:
+          title: Duration Minutes
+          type: integer
+        ends_at:
+          $ref: '#/components/schemas/UtcTimestamp'
+        id:
+          format: uuid
+          title: Id
+          type: string
+        location:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Location
+        purpose_id:
+          format: uuid
+          title: Purpose Id
+          type: string
+        staff_id:
+          format: uuid
+          title: Staff Id
+          type: string
+        starts_at:
+          $ref: '#/components/schemas/UtcTimestamp'
+        status:
+          enum:
+          - UPCOMING
+          - CHANGE_PENDING
+          - CANCELLED
+          - COMPLETED
+          - NO_SHOW
+          title: Status
+          type: string
+      required:
+      - id
+      - purpose_id
+      - staff_id
+      - duration_minutes
+      - starts_at
+      - ends_at
+      - description
+      - location
+      - status
+      - created_at
+      title: AppointmentDetailResponse
+      type: object
     AvailabilityResponse:
       properties:
         date:
@@ -237,6 +345,371 @@ info:
   version: 0.1.0
 openapi: 3.1.0
 paths:
+  /api/v1/appointments:
+    post:
+      description: 'Create a booking and replay a matching key''s receipt.
+
+
+        Origin or Referer must match the configured application origin. Origin takes
+        precedence when
+
+        both are sent. The X-CSRF-Token header must match the signed prl_csrf cookie.'
+      operationId: create_appointment_api_v1_appointments_post
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          maxLength: 128
+          minLength: 1
+          pattern: \S
+          title: Idempotency-Key
+          type: string
+      - description: Signed token matching the prl_csrf cookie; required for this
+          POST.
+        in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+      - description: Preferred same-origin header. If present, it takes precedence
+          over Referer and must match the configured application origin.
+        in: header
+        name: Origin
+        required: false
+        schema:
+          format: uri
+          type: string
+      - description: Accepted only when Origin is absent; its origin must match the
+          configured application origin.
+        in: header
+        name: Referer
+        required: false
+        schema:
+          format: uri
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppointmentCreateRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppointmentCreateResponse'
+          description: OK
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppointmentCreateResponse'
+          description: Successful Response
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized appointment error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Classification of the sanitized error
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized appointment error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Classification of the sanitized error
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized appointment error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Classification of the sanitized error
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized appointment error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Classification of the sanitized error
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized appointment error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Classification of the sanitized error
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized appointment error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Classification of the sanitized error
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized appointment error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Classification of the sanitized error
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+      security:
+      - prl_session: []
+      summary: Create a student appointment
+      tags:
+      - appointments
+  /api/v1/appointments/{appointment_id}:
+    get:
+      description: Return current booking details only for the authenticated student.
+      operationId: get_appointment_api_v1_appointments__appointment_id__get
+      parameters:
+      - in: path
+        name: appointment_id
+        required: true
+        schema:
+          format: uuid
+          title: Appointment Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppointmentDetailResponse'
+          description: Successful Response
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized appointment error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Classification of the sanitized error
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized appointment error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Classification of the sanitized error
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized appointment error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Classification of the sanitized error
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized appointment error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Classification of the sanitized error
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized appointment error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Classification of the sanitized error
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized appointment error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Classification of the sanitized error
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+      security:
+      - prl_session: []
+      summary: Get an owned appointment
+      tags:
+      - appointments
   /api/v1/auth/csrf:
     get:
       operationId: csrf_api_v1_auth_csrf_get

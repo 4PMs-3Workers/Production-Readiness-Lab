@@ -31,6 +31,8 @@ def test_openapi_export_is_deterministic_without_database(tmp_path):
         "/api/v1/purposes",
         "/api/v1/staff",
         "/api/v1/availability",
+        "/api/v1/appointments",
+        "/api/v1/appointments/{appointment_id}",
     }
     schemes = document["components"]["securitySchemes"]
     assert any(
@@ -102,6 +104,56 @@ def test_openapi_export_is_deterministic_without_database(tmp_path):
     assert not {"slot_id", "student_id", "other_reason"} & set(schemas)
     for status in ("401", "403", "404", "422", "500", "503"):
         response = availability["responses"][status]
+        assert "ErrorResponse" in str(response["content"])
+        assert {"Cache-Control", "X-Error-Class", "X-Request-ID"} <= set(response["headers"])
+    appointments = document["paths"]["/api/v1/appointments"]["post"]
+    assert appointments["security"] == [{"prl_session": []}]
+    appointment_parameters = {p["name"]: p for p in appointments["parameters"]}
+    assert appointment_parameters["Idempotency-Key"]["in"] == "header"
+    assert appointment_parameters["Idempotency-Key"]["required"] is True
+    assert appointment_parameters["Idempotency-Key"]["schema"]["maxLength"] == 128
+    assert appointment_parameters["Idempotency-Key"]["schema"]["pattern"] == r"\S"
+    assert appointment_parameters["X-CSRF-Token"]["required"] is True
+    assert "prl_csrf" in appointment_parameters["X-CSRF-Token"]["description"]
+    assert appointment_parameters["Origin"]["required"] is False
+    assert appointment_parameters["Referer"]["required"] is False
+    assert "Origin or Referer" in appointments["description"]
+    assert "Origin takes precedence" in appointments["description"]
+    assert "Referer" in appointment_parameters["Origin"]["description"]
+    assert "Origin" in appointment_parameters["Referer"]["description"]
+    assert appointments["requestBody"]["required"] is True
+    assert "student_id" not in str(appointments["requestBody"])
+    for status in ("200", "201"):
+        assert appointments["responses"][status]["content"]["application/json"]["schema"][
+            "$ref"
+        ].endswith("AppointmentCreateResponse")
+    for status in ("401", "403", "404", "409", "422", "500", "503"):
+        response = appointments["responses"][status]
+        assert "ErrorResponse" in str(response["content"])
+        assert {"Cache-Control", "X-Error-Class", "X-Request-ID"} <= set(response["headers"])
+    detail = document["paths"]["/api/v1/appointments/{appointment_id}"]["get"]
+    assert detail["security"] == [{"prl_session": []}]
+    detail_parameters = {p["name"]: p for p in detail["parameters"]}
+    assert detail_parameters["appointment_id"]["required"] is True
+    assert detail_parameters["appointment_id"]["schema"]["format"] == "uuid"
+    detail_schema_ref = detail["responses"]["200"]["content"]["application/json"]["schema"]["$ref"]
+    assert detail_schema_ref.endswith("AppointmentDetailResponse")
+    detail_schema = schemas[detail_schema_ref.rsplit("/", 1)[-1]]
+    assert set(detail_schema["properties"]) == {
+        "id",
+        "purpose_id",
+        "staff_id",
+        "duration_minutes",
+        "starts_at",
+        "ends_at",
+        "description",
+        "location",
+        "status",
+        "created_at",
+    }
+    assert "creation_request_hash" not in str(schemas)
+    for status in ("401", "403", "404", "422", "500", "503"):
+        response = detail["responses"][status]
         assert "ErrorResponse" in str(response["content"])
         assert {"Cache-Control", "X-Error-Class", "X-Request-ID"} <= set(response["headers"])
     assert "Retry-After" in str(document["paths"]["/api/v1/auth/login"]["post"]["responses"]["429"])

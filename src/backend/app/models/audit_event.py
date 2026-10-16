@@ -25,7 +25,7 @@ class AuditEvent(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     action: Mapped[str] = mapped_column(String(60, collation=CODE_COLLATION))
     entity_type: Mapped[str] = mapped_column(String(50, collation=CODE_COLLATION))
     entity_id: Mapped[str] = mapped_column(String(100, collation=CODE_COLLATION))
-    request_id: Mapped[str] = mapped_column(String(100, collation=CODE_COLLATION))
+    request_id: Mapped[str] = mapped_column(String(128, collation=CODE_COLLATION))
     # DeclarativeBase reserves `metadata`; keep the SQL column name unchanged.
     event_metadata: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSON(none_as_null=True), default=dict

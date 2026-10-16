@@ -40,7 +40,10 @@ testpaths = ["tests/backend"]
 pythonpath = ["src/backend"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-markers = ["mysql: requires a dedicated MySQL 8.4 test database"]
+markers = [
+    "mysql: requires a dedicated MySQL 8.4 test database",
+    "booking_stress: use bounded extended HTTP deadlines for high-concurrency booking tests",
+]
 
 [tool.black]
 line-length = 100
