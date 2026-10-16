@@ -1,29 +1,28 @@
 """Student appointment creation and owned current-detail endpoints."""
 
 import asyncio
-from typing import Annotated, Any, cast
+from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Request, Response
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from pydantic import BaseModel
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.errors import AppError, ServiceUnavailable
 from app.dependencies.auth import require_csrf
-from app.dependencies.catalog import require_student
+from app.dependencies.catalog import reject_duplicate_catalog_query, require_student
 from app.dependencies.database import get_db_session
 from app.domain.auth import AuthContext
-from app.repositories import appointments as appointment_repository
 from app.schemas.appointments import (
     AppointmentCreateRequest,
     AppointmentCreateResponse,
     AppointmentDetailResponse,
-    AppointmentStatus,
+    AppointmentListItem,
+    AppointmentListQuery,
     IdempotencyKey,
 )
-from app.schemas.common import ErrorResponse, UtcTimestamp
+from app.schemas.common import ErrorResponse, PageResponse
 from app.services import booking as booking_service
+from app.services import student_appointments
 
 router = APIRouter(tags=["appointments"])
 
@@ -54,10 +53,6 @@ def appointment_responses(
             "description": "Sanitized appointment error",
         }
     return responses
-
-
-def _not_found() -> AppError:
-    return AppError(404, "NOT_FOUND", "Requested booking data was not found", "input")
 
 
 @router.post(
@@ -141,6 +136,26 @@ async def create_appointment(
 
 
 @router.get(
+    "/appointments",
+    response_model=PageResponse[AppointmentListItem],
+    responses=appointment_responses(
+        {200: PageResponse[AppointmentListItem]}, 401, 403, 422, 500, 503
+    ),
+    summary="List owned appointment history",
+)
+async def list_appointments(
+    query: Annotated[AppointmentListQuery, Query()],
+    context: Annotated[AuthContext, Depends(require_student)],
+    _query_guard: Annotated[None, Depends(reject_duplicate_catalog_query)],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
+) -> PageResponse[AppointmentListItem]:
+    del _query_guard
+    return await student_appointments.list_student_appointments(
+        db, query, student_id=context.user_id
+    )
+
+
+@router.get(
     "/appointments/{appointment_id}",
     response_model=AppointmentDetailResponse,
     responses=appointment_responses({200: AppointmentDetailResponse}, 401, 403, 404, 422, 500, 503),
@@ -152,23 +167,6 @@ async def get_appointment(
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> AppointmentDetailResponse:
     """Return current booking details only for the authenticated student."""
-    try:
-        appointment = await appointment_repository.find_student_appointment(
-            db, appointment_id=appointment_id, student_id=context.user_id
-        )
-    except SQLAlchemyError:
-        raise ServiceUnavailable() from None
-    if appointment is None:
-        raise _not_found()
-    return AppointmentDetailResponse(
-        id=appointment.id,
-        purpose_id=appointment.purpose_id,
-        staff_id=appointment.staff_id,
-        duration_minutes=appointment.duration_minutes,
-        starts_at=UtcTimestamp.model_validate(appointment.starts_at),
-        ends_at=UtcTimestamp.model_validate(appointment.ends_at),
-        description=appointment.other_reason,
-        location=appointment.location,
-        status=cast(AppointmentStatus, appointment.status),
-        created_at=UtcTimestamp.model_validate(appointment.created_at),
+    return await student_appointments.get_student_appointment(
+        db, appointment_id=appointment_id, student_id=context.user_id
     )

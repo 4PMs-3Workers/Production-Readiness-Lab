@@ -259,6 +259,11 @@ async def test_get_returns_only_current_student_detail_fields(auth_settings, mon
         student_id=context.user_id,
         purpose_id=PURPOSE_ID,
         staff_id=STAFF_ID,
+        purpose_code="SELECTED",
+        purpose_name="Selected purpose",
+        staff_name="Selected Staff",
+        cancelled_at=None,
+        cancel_reason=None,
         duration_minutes=30,
         starts_at=STARTS_AT,
         ends_at=STARTS_AT + timedelta(minutes=30),
@@ -285,6 +290,11 @@ async def test_get_returns_only_current_student_detail_fields(auth_settings, mon
         "id": str(APPOINTMENT_ID),
         "purpose_id": str(PURPOSE_ID),
         "staff_id": str(STAFF_ID),
+        "purpose_code": "SELECTED",
+        "purpose_name": "Selected purpose",
+        "staff_name": "Selected Staff",
+        "cancelled_at": None,
+        "cancel_reason": None,
         "duration_minutes": 30,
         "starts_at": "2026-10-16T01:10:00Z",
         "ends_at": "2026-10-16T01:40:00Z",
@@ -339,9 +349,9 @@ async def test_appointment_repository_scopes_detail_query_by_id_and_student():
     captured = {}
 
     class FakeSession:
-        async def scalar(self, statement):
+        async def execute(self, statement):
             captured["statement"] = statement
-            return None
+            return SimpleNamespace(one_or_none=lambda: None)
 
     result = await appointment_repository.find_student_appointment(
         cast(AsyncSession, FakeSession()), appointment_id=APPOINTMENT_ID, student_id=STAFF_ID

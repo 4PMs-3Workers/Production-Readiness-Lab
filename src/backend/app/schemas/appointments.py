@@ -14,7 +14,7 @@ from pydantic import (
     field_validator,
 )
 
-from app.schemas.common import UtcTimestamp
+from app.schemas.common import PaginationParams, UtcTimestamp
 
 
 def _reject_blank_key(value: str) -> str:
@@ -59,18 +59,34 @@ class AppointmentCreateResponse(BaseModel):
     created_at: AwareDatetime
 
 
-class AppointmentDetailResponse(BaseModel):
-    """Student-visible current booking details, excluding persistence metadata."""
+class AppointmentListQuery(PaginationParams):
+    model_config = ConfigDict(extra="forbid")
+
+    status: AppointmentStatus | None = None
+
+
+class AppointmentListItem(BaseModel):
+    """Student-visible history fields, excluding private persistence metadata."""
 
     model_config = ConfigDict(extra="forbid")
 
     id: UUID
     purpose_id: UUID
+    purpose_code: str
+    purpose_name: str
     staff_id: UUID
+    staff_name: str
     duration_minutes: int
     starts_at: UtcTimestamp
     ends_at: UtcTimestamp
-    description: str | None
     location: str | None
     status: AppointmentStatus
     created_at: UtcTimestamp
+
+
+class AppointmentDetailResponse(AppointmentListItem):
+    """Current owned detail including description and cancellation information."""
+
+    description: str | None
+    cancelled_at: UtcTimestamp | None
+    cancel_reason: str | None

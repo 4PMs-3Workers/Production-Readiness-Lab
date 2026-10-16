@@ -5,6 +5,7 @@ from uuid import UUID
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
+from app.schemas import appointments
 from app.schemas.appointments import (
     AppointmentCreateRequest,
     AppointmentCreateResponse,
@@ -13,6 +14,26 @@ from app.schemas.appointments import (
 
 PURPOSE_ID = UUID("AABBCCDD-0000-0000-0000-000000000001")
 STAFF_ID = UUID("00000000-0000-0000-0000-000000000002")
+
+
+def test_list_query_defaults_and_maximum_page_size():
+    query_type = getattr(appointments, "AppointmentListQuery", None)
+    assert query_type is not None
+    assert query_type().model_dump() == {"page": 1, "page_size": 20, "status": None}
+    assert query_type(page_size=100).page_size == 100
+    for payload in ({"page_size": 101}, {"page_size": 0}, {"page": 0}, {"student_id": STAFF_ID}):
+        with pytest.raises(ValidationError):
+            query_type.model_validate(payload)
+
+
+def test_list_query_accepts_only_existing_statuses():
+    query_type = getattr(appointments, "AppointmentListQuery", None)
+    assert query_type is not None
+    for status in ("UPCOMING", "CHANGE_PENDING", "CANCELLED", "COMPLETED", "NO_SHOW"):
+        assert query_type(status=status).status == status
+    for status in ("upcoming", "", "UNKNOWN"):
+        with pytest.raises(ValidationError):
+            query_type(status=status)
 
 
 def test_create_request_requires_timezone_aware_timestamp():
