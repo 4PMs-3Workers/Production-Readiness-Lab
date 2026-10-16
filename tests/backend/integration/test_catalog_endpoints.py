@@ -63,6 +63,7 @@ async def seed_catalog(factory):
                     is_active=key != "inactive",
                 )
             )
+        await db.flush()
         db.add_all(
             [
                 StaffPurpose(staff_id=staff_ids["tie_first"], purpose_id=purpose_ids["ALPHA"]),

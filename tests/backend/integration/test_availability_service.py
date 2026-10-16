@@ -26,7 +26,7 @@ from app.models import (
     User,
 )
 from app.repositories import availability
-from app.schemas.availability import AvailabilityQuery
+from app.schemas.availability import AvailabilityQuery, AvailabilityResponse
 from app.services import availability as service
 
 DAY = date(2026, 10, 16)
@@ -157,6 +157,11 @@ async def test_service_samples_clock_once_and_returns_pure_rule_output(monkeypat
         {"starts_at": "2026-10-16T01:10:00Z", "ends_at": "2026-10-16T01:40:00Z"},
         {"starts_at": "2026-10-16T01:25:00Z", "ends_at": "2026-10-16T01:55:00Z"},
         {"starts_at": "2026-10-16T01:40:00Z", "ends_at": "2026-10-16T02:10:00Z"},
+    ]
+    assert _slot_starts(result) == [
+        datetime(2026, 10, 16, 1, 10, tzinfo=UTC),
+        datetime(2026, 10, 16, 1, 25, tzinfo=UTC),
+        datetime(2026, 10, 16, 1, 40, tzinfo=UTC),
     ]
     assert db.commits == 0
     assert db.rollbacks == 1
@@ -331,8 +336,8 @@ async def _mysql_service(env, auth_settings, *, day: date = DAY, clock=None):
             raise
 
 
-def _slot_starts(result):
-    return [slot.starts_at.astimezone(UTC) for slot in result.slots]
+def _slot_starts(result: AvailabilityResponse) -> list[datetime]:
+    return [slot.starts_at.root.astimezone(UTC) for slot in result.slots]
 
 
 async def _add_appointment(
