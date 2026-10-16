@@ -20,6 +20,12 @@ def test_settings_accept_initial_revision_and_empty_gateway_list():
     assert settings.readiness_timeout_seconds == 2
 
 
+def test_settings_accepts_revision_ids_with_underscores():
+    revision = "20261016_1200_audit_reqid128"
+    settings = Settings.model_validate({**VALID, "ACCEPTED_SCHEMA_REVISIONS": revision})
+    assert settings.accepted_schema_revisions == frozenset({revision})
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
@@ -28,6 +34,7 @@ def test_settings_accept_initial_revision_and_empty_gateway_list():
         ("COOKIE_SECRET", "   "),
         ("CSRF_SECRET", ""),
         ("ACCEPTED_SCHEMA_REVISIONS", " "),
+        ("ACCEPTED_SCHEMA_REVISIONS", "revision-with-dash"),
         ("TRUSTED_GATEWAY_CIDRS", "not-a-cidr"),
         ("DB_POOL_SIZE", 0),
         ("DB_MAX_OVERFLOW", -1),

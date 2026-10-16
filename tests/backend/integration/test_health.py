@@ -213,11 +213,15 @@ def test_readiness_sanitizes_query_failure_and_closes_connection():
 
 @pytest.mark.asyncio
 async def test_readiness_on_migrated_mysql_schema(mysql_engine):
-    app = create_app(settings(), engine_factory=lambda *args, **kwargs: mysql_engine)
+    current_revision = "20261016_1200_audit_reqid128"
+    app = create_app(
+        settings(accepted=current_revision),
+        engine_factory=lambda *args, **kwargs: mysql_engine,
+    )
     async with mysql_engine.connect() as connection:
         assert (
             await connection.execute(text("SELECT version_num FROM alembic_version"))
-        ).scalar_one() == "a1b2c3d4e5f6"
+        ).scalar_one() == current_revision
     with TestClient(app) as client:
         result = client.get("/health/ready")
     assert result.status_code == 200

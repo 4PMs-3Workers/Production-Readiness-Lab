@@ -148,8 +148,7 @@ class Settings(BaseSettings):
     def require_revisions(cls, value: str) -> str:
         revisions = [part.strip() for part in value.split(",")]
         if not revisions or any(
-            not revision or not revision.isascii() or not revision.isalnum()
-            for revision in revisions
+            not re.fullmatch(r"[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*", revision) for revision in revisions
         ):
             raise ValueError("ACCEPTED_SCHEMA_REVISIONS must contain revision IDs")
         return value
