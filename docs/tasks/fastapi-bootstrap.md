@@ -105,9 +105,7 @@ before merge.
 
 - No business routes, authentication/CSRF enforcement, appointment transactions, expiry worker
   or telemetry stack are implemented here. `api_v1_router` reserves `/api/v1` for those tasks.
-- `audit_events.request_id` is currently `varchar(100)` while the HTTP contract permits 128
-  characters. The future audit/schema task must resolve how to persist a full request ID;
-  this task does not modify the database schema or silently shorten the HTTP limit.
+- `audit_events.request_id` uses `varchar(128)` to match the HTTP contract's maximum length.
 - The current Starlette test client emits a deprecation warning for `httpx`; it does not affect
   test behavior. Alembic emits an existing `path_separator` warning from its configuration.
 - Windows sandboxing on this workstation blocks even an empty asyncio event loop. Async tests

@@ -392,14 +392,47 @@ async def test_migration_creates_all_tables_plus_alembic_version(mysql_engine):
 
 
 async def test_migration_records_correct_revision(mysql_engine):
-    """alembic_version must contain exactly one row with the initial revision ID."""
+    """alembic_version must contain exactly one row with the head revision ID."""
     async with mysql_engine.connect() as connection:
         rows = (
             (await connection.execute(text("SELECT version_num FROM alembic_version")))
             .scalars()
             .all()
         )
-    assert rows == ["a1b2c3d4e5f6"], f"Unexpected revision rows: {rows}"
+    assert rows == ["20261016_1200_audit_request_id_128"], f"Unexpected revision rows: {rows}"
+
+
+async def test_audit_request_id_orm_contract_accepts_128_characters():
+    """The ORM contract matches the gateway's maximum request ID length."""
+    request_id = "r" * 128
+    event = AuditEvent(action="TEST", entity_type="USER", entity_id="1", request_id=request_id)
+    assert len(event.request_id) == 128
+
+
+async def test_audit_request_id_migration_round_trip_and_safe_downgrade(mysql_engine):
+    """Full-length IDs persist, and downgrade refuses to truncate existing values."""
+    from app.models import AuditEvent
+
+    request_id = "r" * 128
+    async with AsyncSession(mysql_engine) as session:
+        event = AuditEvent(action="TEST", entity_type="USER", entity_id="1", request_id=request_id)
+        session.add(event)
+        await session.commit()
+        event_id = event.id
+
+    async with AsyncSession(mysql_engine) as session:
+        loaded = await session.get(AuditEvent, event_id)
+        assert loaded is not None
+        assert loaded.request_id == request_id
+
+    def downgrade(connection):  # type: ignore[no-untyped-def]
+        cfg = Config("alembic.ini")
+        cfg.attributes["connection"] = connection
+        command.downgrade(cfg, "a1b2c3d4e5f6")
+
+    with pytest.raises(RuntimeError, match="request_id.*longer than 100"):
+        async with mysql_engine.begin() as connection:
+            await connection.run_sync(downgrade)
 
 
 async def test_second_upgrade_head_is_idempotent(mysql_engine, graph):
@@ -423,7 +456,7 @@ async def test_second_upgrade_head_is_idempotent(mysql_engine, graph):
         version = (
             await connection.execute(text("SELECT version_num FROM alembic_version"))
         ).scalar_one()
-    assert version == "a1b2c3d4e5f6"
+    assert version == "20261016_1200_audit_request_id_128"
 
     # Sample data inserted by ``graph`` must still be present.
     async with AsyncSession(mysql_engine, expire_on_commit=False) as check_session:
