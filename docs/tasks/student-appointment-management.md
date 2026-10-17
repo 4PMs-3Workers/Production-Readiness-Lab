@@ -221,13 +221,20 @@ số passed/failed/skipped, lệnh đã chạy và kiểm tra còn giới hạn.
 ### Kết quả nghiệm thu
 
 Mã API và kiểm thử đã được xác nhận tại commit
-`6310e7d64f7083f882bbb557cdf1b094cde00370` trên nhánh
+`998ecbad5c42812922a3a26265b26740ef0ad8f5` trên nhánh
 `feature/student-appointment-management`. MySQL server là 8.4.11. Bộ integration race,
 failure/recovery và transaction helper của Task 4 đạt 30 passed; regression appointment/
-booking đạt 184 passed. Lượt xác nhận backend đầy đủ trên cùng commit đạt 627 passed,
-0 failed, 0 errors và 0 skipped trong 689,44 giây; báo cáo JUnit xác nhận cùng số liệu.
+booking đạt 184 passed. Lượt xác nhận backend đầy đủ trên cùng commit đạt 628 passed,
+0 failed, 0 errors và 0 skipped trong 692,33 giây; báo cáo JUnit xác nhận cùng số lượng.
 
-`pip check`, Ruff, Pyright (0 errors/warnings/informations), Black (13 file không cần sửa),
+Regression import chạy trong subprocess mới, kiểm tra các transaction helper gồm
+`read_transaction` và `commit_safely` không khởi tạo package API. Nhóm transaction/import
+đạt 14 passed; hai nhóm timeout cùng transaction/import đạt 36 passed. Fixture đọc winner
+tách thời gian chuẩn bị khỏi budget đọc 250 ms. Fixture hủy giữ budget 250 ms và giới hạn
+kiểm tra nhả khóa 2 giây, với query giả lập chậm 1 giây. Probe thêm độ trễ chuẩn bị 350 ms
+cho đọc winner cũng đạt.
+
+`pip check`, Ruff, Pyright (0 errors/warnings/informations), Black (6 file không cần sửa),
 `git diff --check` và so sánh byte OpenAPI exporter/artifact đều đạt. Migration smoke trên
 schema riêng chạy thành công `alembic upgrade head`, `alembic current`, `alembic heads` và
 lặp lại `alembic upgrade head`; schema tạm đã được xóa sau kiểm tra. Frontend format, lint,
