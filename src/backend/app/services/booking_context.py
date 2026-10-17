@@ -7,10 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import ServiceUnavailable
 from app.core.config import Settings
+from app.core.transactions import read_transaction
 from app.domain.availability import AvailabilityConfigurationError, AvailabilityPolicy
 from app.repositories import availability
 from app.schemas.booking_context import BookingContextResponse
-from app.services.availability import _read_transaction
 from app.services.availability_rules import booking_date_window
 
 
@@ -19,7 +19,7 @@ async def get_booking_context(
 ) -> BookingContextResponse:
     """Use one policy read and one clock sample within a bounded read transaction."""
     try:
-        async with _read_transaction(db, settings):
+        async with read_transaction(db, settings):
             setting = await availability.read_settings(db)
             if setting is None:
                 raise AvailabilityConfigurationError("Availability settings are missing")

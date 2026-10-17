@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.catalog_errors import catalog_error
 from app.dependencies.auth import require_csrf
 from app.dependencies.catalog import reject_duplicate_catalog_query, require_student
 from app.dependencies.database import get_db_session
@@ -27,6 +28,38 @@ from app.services import booking as booking_service
 from app.services import cancellation, student_appointments
 
 router = APIRouter(tags=["appointments"])
+
+STUDENT_WRITE_OPENAPI = {
+    "parameters": [
+        {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": True,
+            "description": "Signed token matching the prl_csrf cookie; required for this POST.",
+            "schema": {"type": "string"},
+        },
+        {
+            "name": "Origin",
+            "in": "header",
+            "required": False,
+            "description": (
+                "Preferred same-origin header. If present, it takes precedence over Referer "
+                "and must match the configured application origin."
+            ),
+            "schema": {"type": "string", "format": "uri"},
+        },
+        {
+            "name": "Referer",
+            "in": "header",
+            "required": False,
+            "description": (
+                "Accepted only when Origin is absent; its origin must match the configured "
+                "application origin."
+            ),
+            "schema": {"type": "string", "format": "uri"},
+        },
+    ]
+}
 
 
 def appointment_responses(
@@ -72,37 +105,7 @@ def appointment_responses(
         503,
     ),
     summary="Create a student appointment",
-    openapi_extra={
-        "parameters": [
-            {
-                "name": "X-CSRF-Token",
-                "in": "header",
-                "required": True,
-                "description": "Signed token matching the prl_csrf cookie; required for this POST.",
-                "schema": {"type": "string"},
-            },
-            {
-                "name": "Origin",
-                "in": "header",
-                "required": False,
-                "description": (
-                    "Preferred same-origin header. If present, it takes precedence over Referer "
-                    "and must match the configured application origin."
-                ),
-                "schema": {"type": "string", "format": "uri"},
-            },
-            {
-                "name": "Referer",
-                "in": "header",
-                "required": False,
-                "description": (
-                    "Accepted only when Origin is absent; its origin must match the configured "
-                    "application origin."
-                ),
-                "schema": {"type": "string", "format": "uri"},
-            },
-        ]
-    },
+    openapi_extra=STUDENT_WRITE_OPENAPI,
 )
 async def create_appointment(
     request: Request,
@@ -144,6 +147,7 @@ async def create_appointment(
         {200: AppointmentCancelResponse}, 401, 403, 404, 409, 422, 500, 503
     ),
     summary="Cancel an owned student appointment",
+    openapi_extra=STUDENT_WRITE_OPENAPI,
 )
 async def cancel_appointment(
     appointment_id: UUID,
@@ -153,8 +157,14 @@ async def cancel_appointment(
     _csrf_context: Annotated[AuthContext, Depends(require_csrf)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> AppointmentCancelResponse:
-    """Require same-origin Origin/Referer and a signed matching X-CSRF-Token cookie pair."""
+    """Cancel a booking owned by the authenticated student.
+
+    Origin or Referer must match the configured application origin. Origin takes precedence when
+    both are sent. The X-CSRF-Token header must match the signed prl_csrf cookie.
+    """
     del _csrf_context
+    if request.query_params:
+        raise catalog_error("VALIDATION_ERROR")
     settings = request.app.state.settings
     deadline = getattr(request.state, "request_deadline", None)
     if deadline is None:
@@ -179,6 +189,7 @@ async def cancel_appointment(
     summary="List owned appointment history",
 )
 async def list_appointments(
+    request: Request,
     query: Annotated[AppointmentListQuery, Query()],
     context: Annotated[AuthContext, Depends(require_student)],
     _query_guard: Annotated[None, Depends(reject_duplicate_catalog_query)],
@@ -186,7 +197,7 @@ async def list_appointments(
 ) -> PageResponse[AppointmentListItem]:
     del _query_guard
     return await student_appointments.list_student_appointments(
-        db, query, student_id=context.user_id
+        db, query, student_id=context.user_id, settings=request.app.state.settings
     )
 
 
@@ -198,10 +209,14 @@ async def list_appointments(
 )
 async def get_appointment(
     appointment_id: UUID,
+    request: Request,
     context: Annotated[AuthContext, Depends(require_student)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> AppointmentDetailResponse:
     """Return current booking details only for the authenticated student."""
     return await student_appointments.get_student_appointment(
-        db, appointment_id=appointment_id, student_id=context.user_id
+        db,
+        appointment_id=appointment_id,
+        student_id=context.user_id,
+        settings=request.app.state.settings,
     )

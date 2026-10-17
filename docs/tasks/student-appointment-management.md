@@ -90,6 +90,10 @@ có items, page, page_size và total; total dùng cùng điều kiện chủ s�
 Lịch sắp theo starts_at giảm dần rồi id giảm dần. Trang ngoài phạm vi trả items rỗng và
 total không đổi.
 
+List và detail dùng transaction chỉ đọc với DB_QUERY_TIMEOUT_SECONDS, độc lập với deadline
+HTTP tổng. Quá ngân sách DB trả 503 SERVICE_UNAVAILABLE và kết thúc transaction trước khi
+trả phản hồi; session có thể tiếp tục được sử dụng sau cleanup.
+
 Mỗi item có các trường: id, purpose_id, purpose_code, purpose_name, staff_id, staff_name,
 duration_minutes, starts_at, ends_at, location, status và created_at. Timestamp trả về UTC
 với hậu tố Z. GET /api/v1/appointments/{appointment_id} trả cùng các trường cùng với
@@ -136,7 +140,8 @@ POST /api/v1/appointments/{appointment_id}/cancel nhận body strict:
 | reason | Không | Chuỗi hoặc null, tối đa 2.000 ký tự. |
 
 Body JSON là bắt buộc; `{}` được chấp nhận khi không có lý do, còn bỏ hẳn body trả 422.
-Không nhận trường khác. Thành công trả 200 với id, status = CANCELLED và cancelled_at.
+Không nhận trường khác hoặc query parameter; query thừa/lặp trả 422 trước khi thay đổi dữ
+liệu. Thành công trả 200 với id, status = CANCELLED và cancelled_at.
 Ví dụ request:
 
 ```json

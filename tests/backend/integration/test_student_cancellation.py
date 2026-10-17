@@ -62,6 +62,30 @@ async def seed(env, start, status="UPCOMING"):
         return row.id
 
 
+@pytest.mark.parametrize("query", ["actor=unexpected", "reason=first&reason=second"])
+async def test_cancel_rejects_extra_and_duplicate_queries_without_writes(booking_env, query):
+    from tests.backend.integration.test_appointments_api import ORIGIN, assert_private
+    from tests.backend.integration.test_booking_context import sign_in
+
+    env, _, start = booking_env
+    appointment_id = await seed(env, start)
+    await sign_in(env)
+    response = await env.client.post(
+        f"/api/v1/appointments/{appointment_id}/cancel?{query}",
+        json={},
+        headers={"Origin": ORIGIN, "X-CSRF-Token": env.client.cookies["prl_csrf"]},
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert_private(response, error_class="input")
+    async with env.factory() as db:
+        row = await db.get(Appointment, appointment_id)
+        assert row.status == "UPCOMING"
+        assert row.cancelled_at is row.cancelled_by is row.cancel_reason is None
+        assert await db.scalar(select(func.count()).select_from(AuditEvent)) == 0
+        assert await db.scalar(select(func.count()).select_from(Notification)) == 0
+
+
 @pytest.mark.parametrize("status", ["UPCOMING", "CHANGE_PENDING"])
 async def test_cancellation_commits_bundle_and_resolves_proposal(
     booking_env, auth_settings, status

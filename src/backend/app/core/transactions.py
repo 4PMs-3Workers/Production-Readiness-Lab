@@ -1,10 +1,14 @@
 """Shared abort and commit-outcome safety for transaction-owning services."""
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, AsyncSessionTransaction
+
+from app.api.errors import ServiceUnavailable
+from app.core.config import Settings
 
 RETRYABLE_MYSQL_ERRORS = {1205, 1213}
 
@@ -38,6 +42,23 @@ async def rollback(db: AsyncSession) -> None:
         await db.rollback()
     except SQLAlchemyError:
         await invalidate(db)
+
+
+@asynccontextmanager
+async def read_transaction(db: AsyncSession, settings: Settings) -> AsyncIterator[None]:
+    """Bound a read-only transaction and release it before returning or propagating errors."""
+    try:
+        async with asyncio.timeout(settings.db_query_timeout_seconds):
+            transaction = db.begin()
+            await transaction.start()
+            try:
+                yield
+            finally:
+                if transaction.is_active:
+                    await transaction.rollback()
+    except (SQLAlchemyError, TimeoutError):
+        await rollback(db)
+        raise ServiceUnavailable() from None
 
 
 async def commit_safely(

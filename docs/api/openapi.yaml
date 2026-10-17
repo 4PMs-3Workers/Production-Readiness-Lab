@@ -1030,8 +1030,13 @@ paths:
       - appointments
   /api/v1/appointments/{appointment_id}/cancel:
     post:
-      description: Require same-origin Origin/Referer and a signed matching X-CSRF-Token
-        cookie pair.
+      description: 'Cancel a booking owned by the authenticated student.
+
+
+        Origin or Referer must match the configured application origin. Origin takes
+        precedence when
+
+        both are sent. The X-CSRF-Token header must match the signed prl_csrf cookie.'
       operationId: cancel_appointment_api_v1_appointments__appointment_id__cancel_post
       parameters:
       - in: path
@@ -1040,6 +1045,29 @@ paths:
         schema:
           format: uuid
           title: Appointment Id
+          type: string
+      - description: Signed token matching the prl_csrf cookie; required for this
+          POST.
+        in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+      - description: Preferred same-origin header. If present, it takes precedence
+          over Referer and must match the configured application origin.
+        in: header
+        name: Origin
+        required: false
+        schema:
+          format: uri
+          type: string
+      - description: Accepted only when Origin is absent; its origin must match the
+          configured application origin.
+        in: header
+        name: Referer
+        required: false
+        schema:
+          format: uri
           type: string
       requestBody:
         content:

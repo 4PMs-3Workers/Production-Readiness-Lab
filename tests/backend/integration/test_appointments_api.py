@@ -134,7 +134,8 @@ def student_context(role: Role = "STUDENT"):
 
 
 async def fake_database():
-    yield object()
+    async with AsyncSession() as session:
+        yield session
 
 
 def install_overrides(app, context=None):
