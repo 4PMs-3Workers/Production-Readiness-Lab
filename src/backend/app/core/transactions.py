@@ -7,8 +7,8 @@ from contextlib import asynccontextmanager
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, AsyncSessionTransaction
 
-from app.api.errors import ServiceUnavailable
 from app.core.config import Settings
+from app.core.errors import ServiceUnavailable
 
 RETRYABLE_MYSQL_ERRORS = {1205, 1213}
 

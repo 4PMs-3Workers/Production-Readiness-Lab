@@ -1,51 +1,18 @@
 """Stable, sanitized HTTP errors with service-level classification."""
 
-from collections.abc import Mapping
-from typing import Literal
-
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette._utils import get_route_path
 from starlette.exceptions import HTTPException
 
+from app.core.errors import AppError as AppError
+from app.core.errors import BusinessConflict as BusinessConflict
+from app.core.errors import ErrorClass as ErrorClass
+from app.core.errors import ServiceUnavailable as ServiceUnavailable
 from app.core.request_context import get_request_id
 from app.core.response_policy import requires_private_response
 from app.schemas.common import ErrorDetail, ErrorResponse
-
-ErrorClass = Literal["input", "business", "service"]
-
-
-class AppError(Exception):
-    def __init__(
-        self,
-        status_code: int,
-        code: str,
-        message: str,
-        error_class: ErrorClass,
-        headers: Mapping[str, str] | None = None,
-    ) -> None:
-        self.status_code = status_code
-        self.code = code
-        self.message = message
-        self.error_class = error_class
-        self.headers = headers
-
-
-class BusinessConflict(AppError):
-    def __init__(self, code: str, message: str) -> None:
-        super().__init__(409, code, message, "business")
-
-
-class ServiceUnavailable(AppError):
-    def __init__(self) -> None:
-        super().__init__(
-            503,
-            "SERVICE_UNAVAILABLE",
-            "Service temporarily unavailable",
-            "service",
-            {"Cache-Control": "no-store"},
-        )
 
 
 def error_response(request: Request, error: AppError) -> JSONResponse:
