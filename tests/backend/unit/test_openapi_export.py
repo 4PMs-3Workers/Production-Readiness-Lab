@@ -33,6 +33,8 @@ def test_openapi_export_is_deterministic_without_database(tmp_path):
         "/api/v1/availability",
         "/api/v1/appointments",
         "/api/v1/appointments/{appointment_id}",
+        "/api/v1/appointments/{appointment_id}/cancel",
+        "/api/v1/booking-context",
     }
     schemes = document["components"]["securitySchemes"]
     assert any(
@@ -142,7 +144,10 @@ def test_openapi_export_is_deterministic_without_database(tmp_path):
     assert set(detail_schema["properties"]) == {
         "id",
         "purpose_id",
+        "purpose_code",
+        "purpose_name",
         "staff_id",
+        "staff_name",
         "duration_minutes",
         "starts_at",
         "ends_at",
@@ -150,6 +155,8 @@ def test_openapi_export_is_deterministic_without_database(tmp_path):
         "location",
         "status",
         "created_at",
+        "cancelled_at",
+        "cancel_reason",
     }
     assert "creation_request_hash" not in str(schemas)
     for status in ("401", "403", "404", "422", "500", "503"):
