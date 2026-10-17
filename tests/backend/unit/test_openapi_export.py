@@ -5,6 +5,27 @@ from pathlib import Path
 
 import yaml
 
+from app.factory import create_app
+
+
+def test_cancellation_openapi_declares_required_csrf_and_origin_fallback(auth_settings):
+    operation = create_app(auth_settings).openapi()["paths"][
+        "/api/v1/appointments/{appointment_id}/cancel"
+    ]["post"]
+    parameters = {parameter["name"]: parameter for parameter in operation["parameters"]}
+    assert "X-CSRF-Token" in parameters
+    csrf = parameters["X-CSRF-Token"]
+    assert csrf["in"] == "header"
+    assert csrf["required"] is True
+    assert "prl_csrf" in csrf["description"]
+    assert parameters["Origin"]["required"] is False
+    assert parameters["Referer"]["required"] is False
+    assert "Referer" in parameters["Origin"]["description"]
+    assert "Origin" in parameters["Referer"]["description"]
+    assert "Origin or Referer" in operation["description"]
+    assert "Origin takes precedence" in operation["description"]
+    assert operation["requestBody"]["required"] is True
+
 
 def test_openapi_export_is_deterministic_without_database(tmp_path):
     root = Path(__file__).resolve().parents[3]
@@ -33,6 +54,8 @@ def test_openapi_export_is_deterministic_without_database(tmp_path):
         "/api/v1/availability",
         "/api/v1/appointments",
         "/api/v1/appointments/{appointment_id}",
+        "/api/v1/appointments/{appointment_id}/cancel",
+        "/api/v1/booking-context",
     }
     schemes = document["components"]["securitySchemes"]
     assert any(
@@ -142,7 +165,10 @@ def test_openapi_export_is_deterministic_without_database(tmp_path):
     assert set(detail_schema["properties"]) == {
         "id",
         "purpose_id",
+        "purpose_code",
+        "purpose_name",
         "staff_id",
+        "staff_name",
         "duration_minutes",
         "starts_at",
         "ends_at",
@@ -150,6 +176,8 @@ def test_openapi_export_is_deterministic_without_database(tmp_path):
         "location",
         "status",
         "created_at",
+        "cancelled_at",
+        "cancel_reason",
     }
     assert "creation_request_hash" not in str(schemas)
     for status in ("401", "403", "404", "422", "500", "503"):

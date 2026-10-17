@@ -1,17 +1,15 @@
 """Availability service using one bounded, read-only transaction."""
 
-import asyncio
-from collections.abc import AsyncIterator, Callable
-from contextlib import asynccontextmanager
+from collections.abc import Callable
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.catalog_errors import catalog_error
 from app.api.errors import ServiceUnavailable
 from app.core.config import Settings
+from app.core.transactions import read_transaction
 from app.domain.availability import (
     AvailabilityConfigurationError,
     AvailabilityPolicy,
@@ -33,23 +31,6 @@ from app.services.availability_rules import (
 )
 
 
-@asynccontextmanager
-async def _read_transaction(db: AsyncSession, settings: Settings) -> AsyncIterator[None]:
-    try:
-        async with asyncio.timeout(settings.db_query_timeout_seconds):
-            transaction = db.begin()
-            await transaction.start()
-            try:
-                yield
-            finally:
-                if transaction.is_active:
-                    await transaction.rollback()
-    except (SQLAlchemyError, TimeoutError):
-        if db.in_transaction():
-            await db.rollback()
-        raise ServiceUnavailable() from None
-
-
 async def get_availability(
     db: AsyncSession,
     query: AvailabilityQuery,
@@ -60,7 +41,7 @@ async def get_availability(
 ) -> AvailabilityResponse:
     """Calculate a student's current slots from bounded database reads."""
     try:
-        async with _read_transaction(db, settings):
+        async with read_transaction(db, settings):
             setting = await availability.read_settings(db)
             if setting is None:
                 raise AvailabilityConfigurationError("Availability settings are missing")

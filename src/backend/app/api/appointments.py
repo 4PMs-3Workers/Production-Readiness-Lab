@@ -1,31 +1,65 @@
 """Student appointment creation and owned current-detail endpoints."""
 
 import asyncio
-from typing import Annotated, Any, cast
+from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Request, Response
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from pydantic import BaseModel
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.errors import AppError, ServiceUnavailable
+from app.api.catalog_errors import catalog_error
 from app.dependencies.auth import require_csrf
-from app.dependencies.catalog import require_student
+from app.dependencies.catalog import reject_duplicate_catalog_query, require_student
 from app.dependencies.database import get_db_session
 from app.domain.auth import AuthContext
-from app.repositories import appointments as appointment_repository
 from app.schemas.appointments import (
+    AppointmentCancelRequest,
+    AppointmentCancelResponse,
     AppointmentCreateRequest,
     AppointmentCreateResponse,
     AppointmentDetailResponse,
-    AppointmentStatus,
+    AppointmentListItem,
+    AppointmentListQuery,
     IdempotencyKey,
 )
-from app.schemas.common import ErrorResponse, UtcTimestamp
+from app.schemas.common import ErrorResponse, PageResponse
 from app.services import booking as booking_service
+from app.services import cancellation, student_appointments
 
 router = APIRouter(tags=["appointments"])
+
+STUDENT_WRITE_OPENAPI = {
+    "parameters": [
+        {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": True,
+            "description": "Signed token matching the prl_csrf cookie; required for this POST.",
+            "schema": {"type": "string"},
+        },
+        {
+            "name": "Origin",
+            "in": "header",
+            "required": False,
+            "description": (
+                "Preferred same-origin header. If present, it takes precedence over Referer "
+                "and must match the configured application origin."
+            ),
+            "schema": {"type": "string", "format": "uri"},
+        },
+        {
+            "name": "Referer",
+            "in": "header",
+            "required": False,
+            "description": (
+                "Accepted only when Origin is absent; its origin must match the configured "
+                "application origin."
+            ),
+            "schema": {"type": "string", "format": "uri"},
+        },
+    ]
+}
 
 
 def appointment_responses(
@@ -56,10 +90,6 @@ def appointment_responses(
     return responses
 
 
-def _not_found() -> AppError:
-    return AppError(404, "NOT_FOUND", "Requested booking data was not found", "input")
-
-
 @router.post(
     "/appointments",
     response_model=AppointmentCreateResponse,
@@ -75,37 +105,7 @@ def _not_found() -> AppError:
         503,
     ),
     summary="Create a student appointment",
-    openapi_extra={
-        "parameters": [
-            {
-                "name": "X-CSRF-Token",
-                "in": "header",
-                "required": True,
-                "description": "Signed token matching the prl_csrf cookie; required for this POST.",
-                "schema": {"type": "string"},
-            },
-            {
-                "name": "Origin",
-                "in": "header",
-                "required": False,
-                "description": (
-                    "Preferred same-origin header. If present, it takes precedence over Referer "
-                    "and must match the configured application origin."
-                ),
-                "schema": {"type": "string", "format": "uri"},
-            },
-            {
-                "name": "Referer",
-                "in": "header",
-                "required": False,
-                "description": (
-                    "Accepted only when Origin is absent; its origin must match the configured "
-                    "application origin."
-                ),
-                "schema": {"type": "string", "format": "uri"},
-            },
-        ]
-    },
+    openapi_extra=STUDENT_WRITE_OPENAPI,
 )
 async def create_appointment(
     request: Request,
@@ -140,6 +140,67 @@ async def create_appointment(
     return receipt
 
 
+@router.post(
+    "/appointments/{appointment_id}/cancel",
+    response_model=AppointmentCancelResponse,
+    responses=appointment_responses(
+        {200: AppointmentCancelResponse}, 401, 403, 404, 409, 422, 500, 503
+    ),
+    summary="Cancel an owned student appointment",
+    openapi_extra=STUDENT_WRITE_OPENAPI,
+)
+async def cancel_appointment(
+    appointment_id: UUID,
+    request: Request,
+    payload: AppointmentCancelRequest,
+    context: Annotated[AuthContext, Depends(require_student)],
+    _csrf_context: Annotated[AuthContext, Depends(require_csrf)],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
+) -> AppointmentCancelResponse:
+    """Cancel a booking owned by the authenticated student.
+
+    Origin or Referer must match the configured application origin. Origin takes precedence when
+    both are sent. The X-CSRF-Token header must match the signed prl_csrf cookie.
+    """
+    del _csrf_context
+    if request.query_params:
+        raise catalog_error("VALIDATION_ERROR")
+    settings = request.app.state.settings
+    deadline = getattr(request.state, "request_deadline", None)
+    if deadline is None:
+        deadline = asyncio.get_running_loop().time() + settings.request_timeout_seconds
+    return await cancellation.cancel_appointment(
+        db,
+        appointment_id=appointment_id,
+        payload=payload,
+        context=context,
+        request_id=request.state.request_id,
+        settings=settings,
+        deadline=deadline,
+    )
+
+
+@router.get(
+    "/appointments",
+    response_model=PageResponse[AppointmentListItem],
+    responses=appointment_responses(
+        {200: PageResponse[AppointmentListItem]}, 401, 403, 422, 500, 503
+    ),
+    summary="List owned appointment history",
+)
+async def list_appointments(
+    request: Request,
+    query: Annotated[AppointmentListQuery, Query()],
+    context: Annotated[AuthContext, Depends(require_student)],
+    _query_guard: Annotated[None, Depends(reject_duplicate_catalog_query)],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
+) -> PageResponse[AppointmentListItem]:
+    del _query_guard
+    return await student_appointments.list_student_appointments(
+        db, query, student_id=context.user_id, settings=request.app.state.settings
+    )
+
+
 @router.get(
     "/appointments/{appointment_id}",
     response_model=AppointmentDetailResponse,
@@ -148,27 +209,14 @@ async def create_appointment(
 )
 async def get_appointment(
     appointment_id: UUID,
+    request: Request,
     context: Annotated[AuthContext, Depends(require_student)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> AppointmentDetailResponse:
     """Return current booking details only for the authenticated student."""
-    try:
-        appointment = await appointment_repository.find_student_appointment(
-            db, appointment_id=appointment_id, student_id=context.user_id
-        )
-    except SQLAlchemyError:
-        raise ServiceUnavailable() from None
-    if appointment is None:
-        raise _not_found()
-    return AppointmentDetailResponse(
-        id=appointment.id,
-        purpose_id=appointment.purpose_id,
-        staff_id=appointment.staff_id,
-        duration_minutes=appointment.duration_minutes,
-        starts_at=UtcTimestamp.model_validate(appointment.starts_at),
-        ends_at=UtcTimestamp.model_validate(appointment.ends_at),
-        description=appointment.other_reason,
-        location=appointment.location,
-        status=cast(AppointmentStatus, appointment.status),
-        created_at=UtcTimestamp.model_validate(appointment.created_at),
+    return await student_appointments.get_student_appointment(
+        db,
+        appointment_id=appointment_id,
+        student_id=context.user_id,
+        settings=request.app.state.settings,
     )

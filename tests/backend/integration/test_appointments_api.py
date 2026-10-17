@@ -40,6 +40,88 @@ PAYLOAD = {
 }
 
 
+@pytest.mark.parametrize(
+    "role,kind,status,code",
+    [
+        (None, "missing", 401, "INVALID_SESSION"),
+        ("STAFF", "missing", 403, "FORBIDDEN_ROLE"),
+        ("STUDENT", "missing", 403, "INVALID_CSRF"),
+        ("STUDENT", "foreign", 403, "INVALID_ORIGIN"),
+    ],
+)
+async def test_cancel_requires_student_origin_and_csrf(auth_settings, role, kind, status, code):
+    app = create_app(auth_settings)
+    context = None if role is None else student_context(role)
+    install_overrides(app, context)
+    headers = {"Origin": ORIGIN}
+    if kind == "foreign":
+        headers = valid_write_headers(context, origin="https://attacker.invalid")
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=ORIGIN) as client:
+        result = await client.post(
+            f"/api/v1/appointments/{APPOINTMENT_ID}/cancel", json={}, headers=headers
+        )
+    assert result.status_code == status
+    assert result.json()["error"]["code"] == code
+    assert_private(result, error_class="input")
+
+
+@pytest.mark.parametrize("prefix", ["", "/gateway"])
+async def test_cancel_routes_owned_context_and_returns_commit_receipt(
+    auth_settings, monkeypatch, prefix
+):
+    from app.schemas.appointments import AppointmentCancelResponse
+    from app.services import cancellation
+
+    app = create_app(auth_settings)
+    context = student_context()
+    install_overrides(app, context)
+    received = []
+
+    async def cancel(db, **kwargs):
+        received.append(kwargs)
+        return AppointmentCancelResponse(
+            id=APPOINTMENT_ID, status="CANCELLED", cancelled_at=CREATED_AT
+        )
+
+    monkeypatch.setattr(cancellation, "cancel_appointment", cancel)
+    headers = valid_write_headers(context)
+    del headers["Idempotency-Key"]
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app, root_path=prefix), base_url=ORIGIN
+    ) as client:
+        result = await client.post(
+            prefix + f"/api/v1/appointments/{APPOINTMENT_ID}/cancel",
+            json={"reason": "private"},
+            headers=headers,
+        )
+    assert result.status_code == 200
+    assert result.json() == {
+        "id": str(APPOINTMENT_ID),
+        "status": "CANCELLED",
+        "cancelled_at": "2026-10-15T01:00:00Z",
+    }
+    assert received[0]["context"] is context
+    assert received[0]["payload"].reason == "private"
+    assert received[0]["request_id"] == result.headers["X-Request-ID"]
+    assert received[0]["deadline"] > asyncio.get_running_loop().time()
+    assert_private(result)
+
+
+@pytest.mark.parametrize("payload", [{"reason": 7}, {"reason": "x" * 2001}, {"student_id": "bad"}])
+async def test_cancel_rejects_invalid_payload(auth_settings, payload):
+    app = create_app(auth_settings)
+    context = student_context()
+    install_overrides(app, context)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=ORIGIN) as client:
+        result = await client.post(
+            f"/api/v1/appointments/{APPOINTMENT_ID}/cancel",
+            json=payload,
+            headers=valid_write_headers(context),
+        )
+    assert result.status_code == 422
+    assert_private(result, error_class="input")
+
+
 def student_context(role: Role = "STUDENT"):
     return AuthContext(
         session_id=uuid4(),
@@ -52,7 +134,8 @@ def student_context(role: Role = "STUDENT"):
 
 
 async def fake_database():
-    yield object()
+    async with AsyncSession() as session:
+        yield session
 
 
 def install_overrides(app, context=None):
@@ -259,6 +342,11 @@ async def test_get_returns_only_current_student_detail_fields(auth_settings, mon
         student_id=context.user_id,
         purpose_id=PURPOSE_ID,
         staff_id=STAFF_ID,
+        purpose_code="SELECTED",
+        purpose_name="Selected purpose",
+        staff_name="Selected Staff",
+        cancelled_at=None,
+        cancel_reason=None,
         duration_minutes=30,
         starts_at=STARTS_AT,
         ends_at=STARTS_AT + timedelta(minutes=30),
@@ -285,6 +373,11 @@ async def test_get_returns_only_current_student_detail_fields(auth_settings, mon
         "id": str(APPOINTMENT_ID),
         "purpose_id": str(PURPOSE_ID),
         "staff_id": str(STAFF_ID),
+        "purpose_code": "SELECTED",
+        "purpose_name": "Selected purpose",
+        "staff_name": "Selected Staff",
+        "cancelled_at": None,
+        "cancel_reason": None,
         "duration_minutes": 30,
         "starts_at": "2026-10-16T01:10:00Z",
         "ends_at": "2026-10-16T01:40:00Z",
@@ -339,9 +432,9 @@ async def test_appointment_repository_scopes_detail_query_by_id_and_student():
     captured = {}
 
     class FakeSession:
-        async def scalar(self, statement):
+        async def execute(self, statement):
             captured["statement"] = statement
-            return None
+            return SimpleNamespace(one_or_none=lambda: None)
 
     result = await appointment_repository.find_student_appointment(
         cast(AsyncSession, FakeSession()), appointment_id=APPOINTMENT_ID, student_id=STAFF_ID

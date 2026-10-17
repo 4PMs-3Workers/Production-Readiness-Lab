@@ -1,11 +1,22 @@
 """Caller-transaction appointment reads and atomic booking writes."""
 
+from collections.abc import Sequence
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import Row, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Appointment, AuditEvent, Notification, ServiceSetting
+from app.models import (
+    Appointment,
+    AuditEvent,
+    ChangeProposal,
+    Notification,
+    Purpose,
+    ServiceSetting,
+    User,
+)
+from app.schemas.appointments import AppointmentListQuery
 
 BLOCKING_STATUSES = ("UPCOMING", "CHANGE_PENDING")
 
@@ -27,14 +38,45 @@ async def find_creation_request(
 
 async def find_student_appointment(
     db: AsyncSession, *, appointment_id: UUID, student_id: UUID
-) -> Appointment | None:
+) -> Row[Any] | None:
     """Find current detail only when both the record and authenticated owner match."""
     statement = (
-        select(Appointment)
+        _student_detail_statement()
         .where(Appointment.id == appointment_id, Appointment.student_id == student_id)
         .execution_options(populate_existing=True)
     )
-    return await db.scalar(statement)
+    return (await db.execute(statement)).one_or_none()
+
+
+def _student_detail_statement():
+    # Historical eligibility is deliberately independent of current catalog flags.
+    return (
+        select(
+            *Appointment.__table__.c,
+            Purpose.code.label("purpose_code"),
+            Purpose.name.label("purpose_name"),
+            User.name.label("staff_name"),
+        )
+        .join(Purpose, Purpose.id == Appointment.purpose_id)
+        .join(User, User.id == Appointment.staff_id)
+    )
+
+
+async def read_student_appointment_page(
+    db: AsyncSession, query: AppointmentListQuery, *, student_id: UUID
+) -> tuple[Sequence[Row[Any]], int]:
+    filters = [Appointment.student_id == student_id]
+    if query.status is not None:
+        filters.append(Appointment.status == query.status)
+    total = int(await db.scalar(select(func.count()).select_from(Appointment).where(*filters)) or 0)
+    statement = (
+        _student_detail_statement()
+        .where(*filters)
+        .order_by(Appointment.starts_at.desc(), Appointment.id.desc())
+        .limit(query.page_size)
+        .offset((query.page - 1) * query.page_size)
+    )
+    return (await db.execute(statement)).all(), total
 
 
 async def lock_service_settings(db: AsyncSession) -> ServiceSetting | None:
@@ -70,3 +112,31 @@ async def add_creation_bundle(
 ) -> None:
     """Stage the appointment and its two required side effects in one transaction."""
     db.add_all([appointment, audit_event, *notifications])
+
+
+async def find_cancellation_accounts(
+    db: AsyncSession, *, appointment_id: UUID, student_id: UUID
+) -> Row[Any] | None:
+    """Discover lock identities only; all mutable facts are re-read under locks."""
+    statement = select(Appointment.student_id, Appointment.staff_id).where(
+        Appointment.id == appointment_id, Appointment.student_id == student_id
+    )
+    return (await db.execute(statement)).one_or_none()
+
+
+async def lock_appointment(db: AsyncSession, appointment_id: UUID) -> Appointment | None:
+    return await db.scalar(
+        select(Appointment)
+        .where(Appointment.id == appointment_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
+async def lock_pending_proposal(db: AsyncSession, appointment_id: UUID) -> ChangeProposal | None:
+    return await db.scalar(
+        select(ChangeProposal)
+        .where(ChangeProposal.appointment_id == appointment_id, ChangeProposal.status == "PENDING")
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
