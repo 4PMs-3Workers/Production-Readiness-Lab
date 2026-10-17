@@ -137,6 +137,7 @@ Production-Readiness-Lab/
 | [Task database models](docs/tasks/database-models.md)                 | Phạm vi triển khai, kiểm thử và bàn giao bộ models.                         |
 | [Catalog và availability](docs/tasks/catalog-availability.md)           | Hợp đồng ba API đọc, cách gọi bằng session và bằng chứng/giới hạn nghiệm thu. |
 | [Đặt lịch appointment](docs/tasks/appointment-booking.md)               | API tạo lịch, xem chi tiết, idempotency và khôi phục khi mất phản hồi.       |
+| [Lịch sử và quản lý lịch hẹn](docs/tasks/student-appointment-management.md) | API lịch sử, ngữ cảnh ngày đặt, hủy lịch và hành vi retry.                  |
 | [Task frontend bootstrap](docs/tasks/frontend-bootstrap.md)           | Nền tảng, routes, các mốc triển khai, cài đặt và kiểm chứng.                 |
 | [Mock services và UI đặt lịch](docs/tasks/frontend-mock-services.md)  | Chi tiết fixtures, preset, clock và thao tác đặt lịch bằng dữ liệu demo.    |
 | [Đăng nhập demo và Home](docs/tasks/frontend-login.md)               | Mốc 3: form đăng nhập, phiên trong bộ nhớ, Home và đăng xuất.               |
@@ -238,6 +239,15 @@ slot trong transaction khi tạo. Nếu kết quả POST không đến được 
 giữ nguyên cả key lẫn body và gửi lại đúng request để nhận receipt gốc. Xem
 [hợp đồng đặt lịch và khôi phục](docs/tasks/appointment-booking.md) để biết ví dụ, lỗi,
 quy tắc key và cách kiểm thử MySQL 8.4.
+
+GET /api/v1/booking-context trả múi giờ nghiệp vụ, ngày hiện tại và hai biên ngày đặt
+bao gồm cả D+1 đến D+N lấy từ cấu hình DB; frontend không dùng đồng hồ trình duyệt để
+xác định cửa sổ. GET /api/v1/appointments phân trang lịch sử của sinh viên; GET chi tiết
+trả trạng thái hiện tại. POST /api/v1/appointments/{appointment_id}/cancel hủy lịch còn
+đang chiếm chỗ trước nửa đêm theo múi giờ nghiệp vụ. Các GET không cần CSRF; toàn bộ phản hồi thành công hoặc lỗi của nhóm API này đều có
+Cache-Control: private, no-store. Ghi chú về trường strict,
+lỗi, tên hiển thị lịch sử, khóa giao dịch và kết quả commit chưa rõ nằm trong
+[hợp đồng quản lý lịch hẹn](docs/tasks/student-appointment-management.md).
 
 Ví dụ sau dùng tài khoản `STUDENT` đã được cấp cho môi trường của bạn. Với `.env.example`,
 API chạy trực tiếp trên `http://localhost:8000`, còn `APPLICATION_ORIGIN` là

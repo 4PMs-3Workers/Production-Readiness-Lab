@@ -224,8 +224,8 @@ API dùng tiền tố `/api/v1`, hợp đồng OpenAPI và JSON request/response
 | Nhóm API | Quyền và trách nhiệm |
 |---|---|
 | Xác thực | Đăng nhập, đăng xuất, đọc tài khoản hiện tại; thu hồi phiên khi đăng xuất hoặc vô hiệu hóa tài khoản. |
-| Danh mục và khả dụng | `GET /api/v1/purposes`, `/api/v1/staff` và `/api/v1/availability` chỉ dành cho `STUDENT`, xác thực bằng session cookie; đọc nhu cầu hoạt động, nhân viên đang nhận và bản xem trước giờ trống. |
-| Lịch hẹn | Sinh viên tạo lịch qua `POST /appointments`; sinh viên/nhân viên đọc và hủy lịch trong phạm vi của mình. |
+| Danh mục và khả dụng | GET /api/v1/purposes, /api/v1/staff, /api/v1/availability và /api/v1/booking-context chỉ dành cho STUDENT, xác thực bằng session cookie; đọc nhu cầu, nhân viên, giờ trống và cửa sổ ngày đặt do server xác định. |
+| Lịch hẹn | Sinh viên tạo qua POST /api/v1/appointments, xem lịch sử bằng GET /api/v1/appointments, xem chi tiết bằng GET /api/v1/appointments/{appointment_id} và hủy lịch bằng POST /api/v1/appointments/{appointment_id}/cancel. |
 | Đề nghị đổi lịch | Nhân viên của lịch tạo/thay đề nghị; sinh viên của lịch chấp thuận hoặc từ chối. |
 | Kết quả buổi gặp | Chỉ nhân viên nhận lịch ghi hoàn thành hoặc vắng mặt sau giờ kết thúc. |
 | Khả năng tiếp nhận | Nhân viên quản lý nhu cầu và khoảng không nhận của chính mình. |
@@ -233,9 +233,9 @@ API dùng tiền tố `/api/v1`, hợp đồng OpenAPI và JSON request/response
 | Quản trị | `ADMIN` quản lý tài khoản, nhu cầu, cấu hình và giờ phục vụ chung. |
 
 - Pydantic kiểm tra kiểu, độ dài và trường bắt buộc; service kiểm tra điều kiện nghiệp vụ.
-- Actor lấy từ phiên. Ba API catalog/availability nêu trên chỉ chấp nhận `STUDENT`; không nhận
-  `student_id` từ client và GET không yêu cầu CSRF/Origin. Truy vấn lịch/đề nghị/thông báo luôn
-  kèm điều kiện quyền của người đang đăng nhập.
+- Actor lấy từ phiên. API catalog, availability, booking context và các endpoint lịch hẹn sinh viên
+  chỉ chấp nhận STUDENT; không nhận student_id từ client. GET không yêu cầu CSRF, còn POST
+  tạo/hủy lịch yêu cầu same-origin và cặp CSRF đã ký.
 - Catalog phân trang bằng `page`, `page_size` (tối đa 100), trả `items`, metadata phân trang
   và `total`; staff sắp theo tên rồi ID. Availability chỉ đọc trong ngày được chọn và cửa sổ
   đặt lấy từ cấu hình DB.
@@ -247,6 +247,14 @@ DTO `camelCase` hiện dùng, gồm `name` thành `displayName`, đồng thời 
 khi hiển thị/tải thêm. Slot availability chỉ có `starts_at` và `ends_at`: API không phát hành
 slot ID ổn định hoặc địa điểm. Kết quả availability là preview có thể thay đổi; thao tác
 booking sau này phải kiểm tra lại quyền, quota và xung đột trong transaction trước khi ghi.
+
+Booking context trả ngày nghiệp vụ theo timezone trong service_settings, ngày đặt nhỏ nhất
+D+1 và ngày lớn nhất D+booking_horizon_days, đều bao gồm biên. Cùng một hàm ngày dùng để
+hiển thị cửa sổ và xác thực booking; cấu hình thiếu hoặc sai trả lỗi dịch vụ đã sanitize. Lịch
+sử vẫn hiển thị khi nhu cầu hoặc nhân viên ngừng hoạt động hay nhân viên không còn nhận nhu cầu.
+Mã/tên nhu cầu và tên nhân viên được đọc từ các bản ghi liên quan hiện tại; thời lượng là snapshot
+đã lưu trên appointment lúc tạo. GET lịch hẹn cũng trả Cache-Control: private, no-store, kể
+cả khi có lỗi. Xem [hợp đồng quản lý lịch hẹn](../tasks/student-appointment-management.md).
 
 OpenAPI được tạo từ schema/routes FastAPI, xuất thành `docs/api/openapi.yaml` khi triển khai API và được kiểm tra trong CI. Frontend tích hợp theo hợp đồng này. API giữ quy tắc nghiệp vụ tại backend và đóng vai trò nguồn xác nhận kết quả.
 
@@ -297,6 +305,11 @@ Giờ trống được tính từ lịch phục vụ tuần, thời lượng nhu
 | Hết hạn | Khi `now >= expires_at`, từ chối phản hồi và để worker kết thúc đề nghị bằng `EXPIRED`, lịch bằng `CANCELLED`. |
 | Ghi kết quả | Nhân viên nhận lịch ghi `COMPLETED` hoặc `NO_SHOW` trên lịch `UPCOMING` khi thời điểm hiện tại đã qua `ends_at`. |
 
+GET /api/v1/booking-context là nguồn ngày nghiệp vụ cho giao diện: nó dùng một lần lấy giờ
+server và cấu hình timezone/horizon từ DB; đồng hồ trình duyệt không quyết định ngày hiện tại.
+Giá trị trả về là snapshot tại lúc đọc, vì vậy backend vẫn xác thực lại starts_at trong
+transaction tạo lịch bằng thời gian DB sau khi lấy khóa.
+
 Thời lượng nhu cầu, giờ phục vụ và địa điểm là dữ liệu cấu hình của trường. Ngày không có khoảng phục vụ không có giờ trống. Thêm khoảng không nhận của nhân viên phải từ chối nếu giao với lịch đang chiếm chỗ.
 
 ### 6.3. Khóa và chống gửi lặp
@@ -309,6 +322,21 @@ Các thao tác ghi dùng transaction `READ COMMITTED` và lấy khóa theo cùng
 4. Đọc lại vai trò, trạng thái, thời gian, hạn mức và khả dụng trước khi ghi.
 
 Khóa hàng tài khoản bảo vệ cả trường hợp nhân viên hoặc sinh viên chưa có lịch nào. Giới hạn ba lịch được đếm sau khi có khóa sinh viên. Database dùng generated column và UNIQUE để bảo đảm tối đa một đề nghị chờ trên mỗi lịch.
+
+Khi sinh viên hủy lịch, service lấy khóa theo thứ tự: service_settings FOR SHARE, các user
+student/staff theo UUID byte tăng dần, appointment, rồi proposal PENDING nếu lịch ở trạng thái
+CHANGE_PENDING. Sau khóa cuối cùng, service đọc UTC_TIMESTAMP(6) từ DB và chỉ cho hủy khi
+thời điểm này nhỏ hơn nửa đêm địa phương của ngày hẹn. Vì vậy yêu cầu chờ khóa qua mốc này bị
+từ chối. Lịch đã hủy trả lại thời điểm hủy ban đầu, không đổi người hủy/lý do và không ghi thêm
+audit hay notification; lịch COMPLETED/NO_SHOW trả xung đột trạng thái.
+
+Việc đổi trạng thái, hủy proposal đang chờ, một audit APPOINTMENT_CANCELLED và hai notification
+commit trong cùng transaction. Lý do tự do không đi vào audit metadata/logs/traces. Nếu DB trả
+kết quả commit chưa xác định, connection bị invalidate và API trả 503; service không tự phát lại
+ghi. Client không được suy luận 503 là rollback. Gửi lại yêu cầu hủy trả kết quả đã lưu nếu commit
+đã xảy ra, không nhân đôi side effects; nếu lần trước rollback, yêu cầu được đánh giá lại theo
+trạng thái và hạn hủy hiện tại. Xem hợp đồng chi tiết trong
+[tài liệu lịch sử và quản lý lịch hẹn](../tasks/student-appointment-management.md).
 
 `POST /appointments` nhận `Idempotency-Key`. Client tạo key mới cho thao tác mới và giữ nguyên key/nội dung khi retry. Backend lưu key cùng hash nội dung đã chuẩn hóa, dùng UNIQUE `(student_id, creation_request_key)`.
 
