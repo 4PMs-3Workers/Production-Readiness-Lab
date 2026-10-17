@@ -91,6 +91,18 @@ async def test_query_budget_cancels_database_work_and_cleans_transaction(
     settings = auth_settings.model_copy(
         update={"db_query_timeout_seconds": 0.25 if limiter == "query" else 3.0}
     )
+    if stage == "duplicate-winner":
+        # Reaching the winner read requires a complete write/unique-error cycle.
+        # Keep the short budget on the reads under test, not on that setup work.
+        read_settings = settings
+        settings = settings.model_copy(update={"db_query_timeout_seconds": 3.0})
+        original_read = booking._read_committed_key
+
+        async def read_with_short_budget(db, **kwargs):
+            kwargs["settings"] = read_settings
+            return await original_read(db, **kwargs)
+
+        monkeypatch.setattr(booking, "_read_committed_key", read_with_short_budget)
     entered = asyncio.Event()
     completed = asyncio.Event()
 

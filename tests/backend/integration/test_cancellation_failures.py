@@ -151,7 +151,9 @@ async def test_query_timeout_after_flush_rolls_back_all_written_rows(
             assert await db.scalar(select(func.count()).select_from(AuditEvent)) == 1
             assert await db.scalar(select(func.count()).select_from(Notification)) == 2
             entered.set()
-            await db.execute(text("SELECT SLEEP(2)"))
+            # Leave headroom for the separate two-second lock-release assertion:
+            # the server may finish this query before noticing the client disconnect.
+            await db.execute(text("SELECT SLEEP(1)"))
             completed.set()
 
         monkeypatch.setattr(db, "flush", flush_then_query)
