@@ -221,11 +221,11 @@ số passed/failed/skipped, lệnh đã chạy và kiểm tra còn giới hạn.
 ### Kết quả nghiệm thu
 
 Mã API và kiểm thử đã được xác nhận tại commit
-`8d0f6996b1762a2b91034bd4976c3921bd76db05` trên nhánh
+`6310e7d64f7083f882bbb557cdf1b094cde00370` trên nhánh
 `feature/student-appointment-management`. MySQL server là 8.4.11. Bộ integration race,
 failure/recovery và transaction helper của Task 4 đạt 30 passed; regression appointment/
-booking đạt 184 passed. Lượt xác nhận backend đầy đủ trên cùng commit đạt 621 passed,
-0 failed, 0 errors và 0 skipped trong 692,04 giây; báo cáo JUnit xác nhận cùng số liệu.
+booking đạt 184 passed. Lượt xác nhận backend đầy đủ trên cùng commit đạt 627 passed,
+0 failed, 0 errors và 0 skipped trong 689,44 giây; báo cáo JUnit xác nhận cùng số liệu.
 
 `pip check`, Ruff, Pyright (0 errors/warnings/informations), Black (13 file không cần sửa),
 `git diff --check` và so sánh byte OpenAPI exporter/artifact đều đạt. Migration smoke trên
@@ -233,4 +233,4 @@ schema riêng chạy thành công `alembic upgrade head`, `alembic current`, `al
 lặp lại `alembic upgrade head`; schema tạm đã được xóa sau kiểm tra. Frontend format, lint,
 typecheck, unit (70), build và E2E (66/66) đã đạt trước đó trong cùng nhánh. Backend phát ra
 các warning deprecation có sẵn từ Alembic `path_separator` và Starlette TestClient; không có
-test skip. Không push và không tạo pull request.
+test skip.
