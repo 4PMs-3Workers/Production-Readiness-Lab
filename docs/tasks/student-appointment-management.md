@@ -205,19 +205,22 @@ Exporter OpenAPI lấy contract từ schema và route FastAPI. Từ thư mục g
     python tools/scripts/export_openapi.py
     git diff --exit-code -- docs/api/openapi.yaml
 
-Các lệnh kiểm thử migration, backend đầy đủ và frontend được ghi trong plan issue #18.
+Chạy backend đầy đủ sau khi cấu hình MYSQL_TEST_URL trỏ đến máy chủ MySQL test:
+
+    python -m pytest tests/backend -q --tb=short
+
 Chạy integration với MySQL 8.4.11 trên schema test riêng được khởi tạo qua Alembic; không
 thay race/failure tests bằng SQLite. Bản ghi nghiệm thu cần ghi SHA cuối, phiên bản MySQL,
 số passed/failed/skipped, lệnh đã chạy và kiểm tra còn giới hạn.
 
 ### Kết quả nghiệm thu
 
-Mã API và kiểm thử đã được xác nhận tại commit `95d1479` trên nhánh
+Mã API và kiểm thử đã được xác nhận tại commit
+`8d0f6996b1762a2b91034bd4976c3921bd76db05` trên nhánh
 `feature/student-appointment-management`. MySQL server là 8.4.11. Bộ integration race,
 failure/recovery và transaction helper của Task 4 đạt 30 passed; regression appointment/
-booking đạt 184 passed. Lượt backend đầy đủ đạt 620 passed và không có test bị skip; test
-OpenAPI duy nhất ban đầu thất bại vì expectation cũ chưa liệt kê hai endpoint và các trường
-detail mới. Sau khi cập nhật expectation, cả hai test trong module OpenAPI đạt 2 passed.
+booking đạt 184 passed. Lượt xác nhận backend đầy đủ trên cùng commit đạt 621 passed,
+0 failed, 0 errors và 0 skipped trong 692,04 giây; báo cáo JUnit xác nhận cùng số liệu.
 
 `pip check`, Ruff, Pyright (0 errors/warnings/informations), Black (13 file không cần sửa),
 `git diff --check` và so sánh byte OpenAPI exporter/artifact đều đạt. Migration smoke trên
