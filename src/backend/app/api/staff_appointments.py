@@ -25,6 +25,7 @@ from app.schemas.staff_appointments import (
     StaffAppointmentOutcomeRequest,
     StaffAppointmentOutcomeResponse,
 )
+from app.services import staff_appointments
 
 router = APIRouter(tags=["staff appointments"])
 
@@ -44,8 +45,10 @@ async def list_staff_appointments(
     _query_guard: Annotated[None, Depends(reject_duplicate_staff_query)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> PageResponse[StaffAppointmentListItem]:
-    del request, query, context, _query_guard, db
-    raise ServiceUnavailable()
+    del _query_guard
+    return await staff_appointments.list_staff_appointments(
+        db, query, staff_id=context.user_id, settings=request.app.state.settings
+    )
 
 
 @router.get(
@@ -62,8 +65,12 @@ async def get_staff_appointment(
     context: Annotated[AuthContext, Depends(require_staff)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> StaffAppointmentDetailResponse:
-    del appointment_id, request, context, db
-    raise ServiceUnavailable()
+    return await staff_appointments.get_staff_appointment(
+        db,
+        appointment_id=appointment_id,
+        staff_id=context.user_id,
+        settings=request.app.state.settings,
+    )
 
 
 @router.post(

@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from importlib import import_module, util
 from uuid import uuid4
 
 import httpx
@@ -13,6 +14,11 @@ from tests.backend.integration.test_appointments_api import (
 from app.domain.auth import AuthContext
 from app.factory import create_app
 from app.schemas.auth import Role
+from app.schemas.common import PageResponse
+from app.schemas.staff_appointments import (
+    StaffAppointmentDetailResponse,
+    StaffAppointmentListItem,
+)
 
 
 def staff_context(role: Role = "STAFF"):
@@ -85,3 +91,74 @@ async def test_staff_outcome_rejects_client_actor_and_unknown_status(auth_settin
         )
     assert response.status_code == 422
     assert_private(response, error_class="input")
+
+
+def _staff_service():
+    assert (
+        util.find_spec("app.services.staff_appointments") is not None
+    ), "staff read service is missing"
+    return import_module("app.services.staff_appointments")
+
+
+async def test_staff_list_routes_session_actor_and_filters(auth_settings, monkeypatch):
+    app = create_app(auth_settings)
+    context = staff_context()
+    install_overrides(app, context)
+    received = []
+    page = PageResponse[StaffAppointmentListItem](items=[], total=0, page=2, page_size=5)
+
+    async def list_appointments(db, query, *, staff_id, settings):
+        received.append((db, query, staff_id, settings))
+        return page
+
+    monkeypatch.setattr(_staff_service(), "list_staff_appointments", list_appointments)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=ORIGIN) as client:
+        response = await client.get(
+            "/api/v1/staff/me/appointments?page=2&page_size=5&status=COMPLETED&date=2026-10-20"
+        )
+    assert response.status_code == 200
+    assert response.json() == {"items": [], "total": 0, "page": 2, "page_size": 5}
+    assert received[0][1].status == "COMPLETED"
+    assert received[0][1].date.isoformat() == "2026-10-20"
+    assert received[0][2] == context.user_id
+    assert_private(response)
+
+
+async def test_staff_detail_routes_only_the_authenticated_assignment(auth_settings, monkeypatch):
+    app = create_app(auth_settings)
+    context = staff_context()
+    install_overrides(app, context)
+    appointment_id = uuid4()
+    result = StaffAppointmentDetailResponse(
+        id=appointment_id,
+        purpose_id=uuid4(),
+        purpose_code="TEST",
+        purpose_name="Test purpose",
+        student_id=uuid4(),
+        student_name="Test student",
+        duration_minutes=30,
+        starts_at=datetime(2026, 10, 20, 7, tzinfo=UTC),
+        ends_at=datetime(2026, 10, 20, 7, 30, tzinfo=UTC),
+        location="Room 2",
+        status="UPCOMING",
+        created_at=datetime(2026, 10, 15, tzinfo=UTC),
+        cancelled_at=None,
+        outcome_at=None,
+        description="private detail",
+        cancelled_by=None,
+        cancel_reason=None,
+        outcome_by=None,
+    )
+    received = []
+
+    async def get_appointment(db, *, appointment_id, staff_id, settings):
+        received.append((appointment_id, staff_id))
+        return result
+
+    monkeypatch.setattr(_staff_service(), "get_staff_appointment", get_appointment)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=ORIGIN) as client:
+        response = await client.get(f"/api/v1/staff/me/appointments/{appointment_id}")
+    assert response.status_code == 200
+    assert response.json()["description"] == "private detail"
+    assert received == [(appointment_id, context.user_id)]
+    assert_private(response)

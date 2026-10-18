@@ -79,6 +79,58 @@ async def read_student_appointment_page(
     return (await db.execute(statement)).all(), total
 
 
+def _staff_detail_statement():
+    """Select the historical appointment snapshot and its current display names."""
+    student = User.__table__.alias("appointment_student")
+    return (
+        select(
+            *Appointment.__table__.c,
+            Purpose.code.label("purpose_code"),
+            Purpose.name.label("purpose_name"),
+            student.c.name.label("student_name"),
+        )
+        .join(Purpose, Purpose.id == Appointment.purpose_id)
+        .join(student, student.c.id == Appointment.student_id)
+    )
+
+
+async def read_staff_appointment_page(
+    db: AsyncSession,
+    query: Any,
+    *,
+    staff_id: UUID,
+    date_bounds: tuple[Any, Any] | None = None,
+) -> tuple[Sequence[Row[Any]], int]:
+    """Read one staff member's assigned history without catalog eligibility filters."""
+    filters = [Appointment.staff_id == staff_id]
+    if query.status is not None:
+        filters.append(Appointment.status == query.status)
+    if date_bounds is not None:
+        starts_at, ends_at = date_bounds
+        filters.extend((Appointment.starts_at >= starts_at, Appointment.starts_at < ends_at))
+    total = int(await db.scalar(select(func.count()).select_from(Appointment).where(*filters)) or 0)
+    statement = (
+        _staff_detail_statement()
+        .where(*filters)
+        .order_by(Appointment.starts_at.asc(), Appointment.id.asc())
+        .limit(query.page_size)
+        .offset((query.page - 1) * query.page_size)
+    )
+    return (await db.execute(statement)).all(), total
+
+
+async def find_staff_appointment(
+    db: AsyncSession, *, appointment_id: UUID, staff_id: UUID
+) -> Row[Any] | None:
+    """Find detail only when the authenticated staff member owns the assignment."""
+    statement = (
+        _staff_detail_statement()
+        .where(Appointment.id == appointment_id, Appointment.staff_id == staff_id)
+        .execution_options(populate_existing=True)
+    )
+    return (await db.execute(statement)).one_or_none()
+
+
 async def lock_service_settings(db: AsyncSession) -> ServiceSetting | None:
     """Take the shared policy lock before any account lock in a booking transaction."""
     statement = (
