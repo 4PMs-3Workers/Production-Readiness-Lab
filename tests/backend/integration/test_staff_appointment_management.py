@@ -582,7 +582,7 @@ async def test_staff_outcome_requires_time_strictly_after_end_and_is_idempotent(
     monkeypatch.setattr(cancellation.users, "utc_now", db_now)
     if expected == 200:
         result = await _record_outcome(env, appointment_id, "COMPLETED")
-        assert (result.status, result.outcome_at) == ("COMPLETED", now)
+        assert (result.status, result.outcome_at.root) == ("COMPLETED", now)
         async with env.factory() as db:
             row = await db.get(Appointment, appointment_id)
             assert (row.outcome_by, row.outcome_at) == (env.staff_id, now)
