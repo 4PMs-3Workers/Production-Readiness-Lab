@@ -1,6 +1,6 @@
 """Real frontend E2E harness. Owns one disposable, Alembic-initialized MySQL schema.
 
-No application routes or business rules are replaced. The explicit loss probe truncates
+No application routes or business rules are replaced. Explicit probes truncate or hold
 one successful HTTP response *after* the real application has finished and committed.
 Never run against a shared database; MYSQL_TEST_URL must allow schema creation.
 """
@@ -45,6 +45,8 @@ from app.models import (
 RUNTIME = Path("build/frontend-api")
 FIXTURE = RUNTIME / "fixture.json"
 LOSS = RUNTIME / "lose-next-response"
+HOLD = RUNTIME / "hold-next-response"
+HELD = RUNTIME / "held-response"
 PASSWORD = os.getenv("FRONTEND_E2E_PASSWORD", "Fictional-e2e-password!42")
 
 
@@ -169,9 +171,11 @@ async def cleanup(fixture):
         await engine.dispose()
         FIXTURE.unlink(missing_ok=True)
         LOSS.unlink(missing_ok=True)
+        HOLD.unlink(missing_ok=True)
+        HELD.unlink(missing_ok=True)
 
 
-class LoseOneCommittedResponse:
+class ProbeCommittedResponse:
     def __init__(self, app):
         self.app = app
 
@@ -180,18 +184,31 @@ class LoseOneCommittedResponse:
             scope["type"] != "http"
             or scope["method"] != "POST"
             or scope["path"] != "/api/v1/appointments"
-            or not LOSS.exists()
+            or not (LOSS.exists() or HOLD.exists())
         ):
             await self.app(scope, receive, send)
             return
-        LOSS.unlink()
+        hold = HOLD.exists()
+        (HOLD if hold else LOSS).unlink()
         messages: list[Message] = []
 
         async def capture(message: Message):
             messages.append(message)
 
         await self.app(scope, receive, capture)
-        if messages and messages[0].get("status") in (200, 201):
+        if hold and messages and messages[0].get("status") in (200, 201):
+            HELD.write_text("committed", encoding="ascii")
+            try:
+                async with asyncio.timeout(30):
+                    while HELD.exists():
+                        await asyncio.sleep(0.025)
+            except TimeoutError:
+                pass
+            finally:
+                HELD.unlink(missing_ok=True)
+            for message in messages:
+                await send(message)
+        elif messages and messages[0].get("status") in (200, 201):
             headers = [
                 (key, value) for key, value in messages[0]["headers"] if key != b"content-length"
             ]
@@ -218,6 +235,13 @@ async def operate(args):
     if args.action == "arm-loss":
         LOSS.write_text("once", encoding="ascii")
         return
+    if args.action == "arm-hold":
+        HELD.unlink(missing_ok=True)
+        HOLD.write_text("once", encoding="ascii")
+        return
+    if args.action == "release-response":
+        HELD.unlink(missing_ok=True)
+        return
     engine = engine_for(fixture)
     try:
         async with async_sessionmaker(engine, expire_on_commit=False).begin() as db:
@@ -225,6 +249,8 @@ async def operate(args):
                 for model in (Notification, AuditEvent, ChangeProposal, Appointment, Session):
                     await db.execute(delete(model))
                 LOSS.unlink(missing_ok=True)
+                HOLD.unlink(missing_ok=True)
+                HELD.unlink(missing_ok=True)
             elif args.action == "manual-catalog":
                 # Expand only this disposable schema for human UI review. Keep the
                 # original purpose for existing appointment history and default E2E.
@@ -331,6 +357,8 @@ def main():
             "inspect",
             "history",
             "arm-loss",
+            "arm-hold",
+            "release-response",
             "manual-catalog",
             "cleanup",
         ),
@@ -359,7 +387,7 @@ def main():
     )
     try:
         uvicorn.run(
-            LoseOneCommittedResponse(create_app(settings)),
+            ProbeCommittedResponse(create_app(settings)),
             host="127.0.0.1",
             port=8101,
             # Longer than Node's idle socket window; avoid reusing a socket as

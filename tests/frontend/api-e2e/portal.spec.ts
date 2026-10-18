@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const root = resolve(__dirname, '../../..');
@@ -47,6 +48,122 @@ async function book(page: Page) {
 
 test.beforeEach(() => {
   harness('reset');
+});
+
+test('session loss while the first committed receipt is pending preserves its original intent', async ({
+  page,
+  context,
+}) => {
+  await login(page);
+  await selectBooking(page);
+  const posted: { key: string | undefined; body: string | null }[] = [];
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/appointments')
+      posted.push({ key: request.headers()['idempotency-key'], body: request.postData() });
+  });
+  harness('arm-hold');
+  try {
+    await page.getByRole('button', { name: 'Xác nhận đặt lịch' }).click();
+    await expect
+      .poll(() => existsSync(resolve(root, 'build/frontend-api/held-response')))
+      .toBe(true);
+    const history = await context.request.get('/api/v1/appointments');
+    expect(history.status()).toBe(200);
+    const committed = (await history.json()).items;
+    expect(committed).toHaveLength(1);
+    const id = committed[0].id as string;
+    expect(JSON.parse(harness('inspect', '--id', id))).toMatchObject({
+      appointments: 1,
+      APPOINTMENT_CREATED: 1,
+      APPOINTMENT_CREATED_notifications: 2,
+    });
+    harness('expire', '--user', 'student');
+    // The first response is still pending; no earlier unknown outcome is required.
+    await expect(page.getByText('Đang xác nhận…', { exact: true })).toBeVisible();
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect(page).toHaveURL(/\/login\?returnTo=%2Fbooking/);
+    harness('release-response');
+    await expect(page.getByText(description, { exact: true })).toHaveCount(0);
+    await page.getByLabel('Email', { exact: true }).fill('student@frontend.example.invalid');
+    await page.getByLabel('Mật khẩu', { exact: true }).fill(password);
+    await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click();
+    await expect(page).toHaveURL('/booking');
+    await page.getByRole('button', { name: 'Thử lại cùng yêu cầu' }).click();
+    await expect(page.getByRole('heading', { name: 'Chi tiết lịch hẹn' })).toBeVisible();
+    expect(new URL(page.url()).searchParams.get('id')).toBe(id);
+    expect(posted).toHaveLength(2);
+    expect(posted[0].key).toBeTruthy();
+    expect(posted[1]).toEqual(posted[0]);
+    expect(JSON.parse(harness('inspect', '--id', id))).toMatchObject({
+      appointments: 1,
+      APPOINTMENT_CREATED: 1,
+      APPOINTMENT_CREATED_notifications: 2,
+    });
+  } finally {
+    harness('release-response');
+  }
+});
+
+test('an authoritative conflict after an unknown POST unlocks another slot and a fresh intent', async ({
+  page,
+  context,
+}) => {
+  await login(page);
+  await selectBooking(page);
+  const posted: { key: string | undefined; body: string | null }[] = [];
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/appointments')
+      posted.push({ key: request.headers()['idempotency-key'], body: request.postData() });
+  });
+  // Abort before the backend sees the first POST; retain its actual key/body.
+  await page.route('**/api/v1/appointments', (route) => route.abort('failed'), { times: 1 });
+  await page.getByRole('button', { name: 'Xác nhận đặt lịch' }).click();
+  const retry = page.getByRole('button', { name: 'Thử lại cùng yêu cầu' });
+  await expect(retry).toBeVisible();
+  expect(posted).toHaveLength(1);
+  expect((await (await context.request.get('/api/v1/appointments')).json()).items).toEqual([]);
+  const csrf = await context.request.get('/api/v1/auth/csrf');
+  const independent = await context.request.post('/api/v1/appointments', {
+    headers: {
+      Origin: 'http://127.0.0.1:3101',
+      'X-CSRF-Token': (await csrf.json()).csrf_token as string,
+      'Idempotency-Key': 'independent-winner',
+    },
+    data: JSON.parse(posted[0].body!),
+  });
+  expect(independent.status()).toBe(201);
+  const id = (await independent.json()).id as string;
+  const rejection = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === '/api/v1/appointments' &&
+      response.status() === 409,
+  );
+  await retry.click();
+  expect((await (await rejection).json()).error.code).toBe('BOOKING_CONFLICT');
+  const alternative = page.getByRole('radio', { name: /08:30 – 09:00/ });
+  await expect(alternative).toBeVisible();
+  await expect(alternative).not.toBeChecked();
+  await expect(page.getByRole('radio', { name: /08:00 – 08:30/ })).toHaveCount(0);
+  await expect(retry).toHaveCount(0);
+  expect(posted[1]).toEqual(posted[0]);
+  await alternative.check();
+  await page.getByRole('button', { name: 'Tiếp tục' }).click();
+  await page.getByRole('button', { name: 'Xác nhận đặt lịch' }).click();
+  await expect(page.getByRole('heading', { name: 'Chi tiết lịch hẹn' })).toBeVisible();
+  const replacementId = new URL(page.url()).searchParams.get('id');
+  expect(replacementId).not.toBe(id);
+  expect(posted).toHaveLength(3);
+  expect(posted[2].key).not.toBe(posted[0].key);
+  expect(JSON.parse(posted[2].body!).starts_at).not.toBe(JSON.parse(posted[0].body!).starts_at);
+  const finalHistory = (await (await context.request.get('/api/v1/appointments')).json()).items;
+  expect(finalHistory).toHaveLength(2);
+  for (const appointment of finalHistory)
+    expect(JSON.parse(harness('inspect', '--id', appointment.id))).toMatchObject({
+      appointments: 1,
+      APPOINTMENT_CREATED: 1,
+      APPOINTMENT_CREATED_notifications: 2,
+    });
 });
 
 for (const heldPath of ['/auth/csrf', '/auth/me']) {

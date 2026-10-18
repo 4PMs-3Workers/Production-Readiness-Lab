@@ -89,8 +89,8 @@ Không lưu password/session/CSRF token trong localStorage, sessionStorage hay l
 Quay lại tab thì xác minh lại danh tính trước khi hiện private UI, giữ draft nếu
 vẫn cùng danh tính. Lỗi mạng khi kiểm tra phiên giữ intent chờ xác minh. Đổi tài
 khoản hoặc logout hủy requests và xóa intent/dữ liệu phiên cũ. INVALID_SESSION
-ẩn UI cá nhân, hủy requests; chỉ giữ intent đã có kết quả unknown trong bộ nhớ,
-không cho dùng tiếp trước khi xác minh lại đúng sinh viên sở hữu intent.
+ẩn UI cá nhân, hủy requests; giữ intent unknown hoặc có POST đang chờ receipt
+trong bộ nhớ. Chỉ cho dùng tiếp sau khi xác minh lại đúng sinh viên sở hữu intent.
 Logout lỗi giữ UI cá nhân ở trạng thái đã xóa và báo lỗi, không tuyên bố đã thu hồi
 session nếu backend chưa xác nhận.
 
@@ -105,8 +105,11 @@ người sở hữu từ `/auth/csrf`, rồi xác minh `/auth/me` vẫn là cùn
 Timeout, mất kết nối, abort hoặc lỗi server không rõ commit giữ cùng key/body.
 UI cung cấp “Thử lại cùng yêu cầu” và liên kết kiểm tra lịch sử; điều này hoạt động
 qua điều hướng client/remount. Không tự tạo key mới khi chưa biết kết quả.
-Khi intent đã unknown, lỗi 4xx ở lần thử lại (kể cả INVALID_CSRF hoặc hết phiên)
-không chứng minh lần POST trước chưa commit, nên vẫn giữ nguyên key/body.
+Khi intent đã unknown, lỗi CSRF/session trước replay hoặc lỗi transport không
+chứng minh lần POST trước chưa commit, nên vẫn giữ nguyên key/body. Ngược lại,
+POST trả 409 BOOKING_CONFLICT/BOOKING_QUOTA_EXCEEDED sau kiểm tra idempotency là
+kết quả xác định: giải phóng intent để xử lý chọn lại giờ hoặc quản lý hạn mức.
+Không suy diễn lỗi bootstrap hay lỗi validate trước replay thành kết quả booking.
 Đăng nhập lại cùng sinh viên phục hồi nút thử lại; đăng nhập người khác hoặc
 đăng xuất chủ động xóa intent. IDEMPOTENCY_CONFLICT khóa yêu cầu để kiểm tra.
 Sau receipt, URL `/booking/result?id=<uuid>` gọi GET detail. GET lỗi vẫn giữ ID
@@ -342,3 +345,51 @@ Black/Ruff trên 137 file Python và Pyright đạt. Bộ backend thu thập đ�
 26 API browser desktop/mobile đã chạy lại sau hợp nhất và đạt, không retry.
 CI được kiểm tra trên merge commit mới; không dùng số 644
 trước hợp nhất làm kết quả toàn bộ 716 ca.
+
+## Follow-up review trên `4924297`: POST đang chờ và conflict sau unknown
+
+Theo dõi riêng thời điểm bàn giao POST cho fetch, sau CSRF/identity checks và
+kiểm tra AbortSignal. Nếu phiên mất khi POST đầu tiên đang chờ receipt, store
+chuyển intent sang unknown trước khi hủy operation/version cũ. Body/key giữ
+nguyên trong bộ nhớ; private UI bị ẩn. Login cùng STUDENT phục hồi yêu cầu,
+login khác người hoặc logout vẫn xóa. Response cũ không ghi đè lần phục hồi.
+Mất phiên trong bootstrap đầu tiên khi chưa gửi POST không giữ nhầm intent.
+
+Service phân loại `BookingRejection` chỉ cho response POST 409 với hai mã
+BOOKING_CONFLICT/BOOKING_QUOTA_EXCEEDED, vốn được backend kiểm tra sau replay.
+Store giải phóng intent cho kết quả này. Xử lý BOOKING_CONFLICT sẵn có của wizard
+bỏ slot, tải lại availability và cho chọn giờ khác; key mới chỉ xuất hiện khi
+người dùng xác nhận lựa chọn mới. CSRF/session, lỗi transport và validation trước
+replay không được coi là bằng chứng giải quyết POST trước đó.
+
+Regression component kiểm tra first POST còn pending → focus INVALID_SESSION →
+login cùng/khác người hoặc logout; đồng thời kiểm tra receipt đến muộn. Regression
+wizard đi từ lỗi mạng → retry conflict → availability mới → chọn giờ khác và tạo
+intent mới. Unit bao phủ bootstrap chưa dispatch, conflict/quota terminal và mã
+booking xuất hiện ở sai giai đoạn bootstrap. Các probe chính đã lỗi trước sửa.
+
+Kiểm tra local trước commit follow-up: 141 unit/component, 30 real API E2E
+desktop/mobile đạt, không retry; production build/TypeScript, ESLint, Prettier,
+Black/Ruff của harness đều đạt. Không thay đổi backend business code hoặc schema.
+Các số 131/26/716 ở các mốc trên là bằng chứng lịch sử; CI được kiểm tra riêng
+trên head follow-up sau push.
+
+Đã thử trực tiếp: POST đầu tiên hiển thị Đang xác nhận, harness giữ receipt sau
+commit; expire phiên A rồi mở lịch sử bằng điều hướng client gây INVALID_SESSION.
+Private UI chuyển về login, không reload. Login lại A thấy một lịch đã commit;
+quay về booking vẫn có Thử lại cùng yêu cầu. Retry trả cùng UUID; MySQL vẫn đúng
+1 appointment, 1 creation audit và 2 notifications. Ảnh local không chứa nội dung
+tư vấn: `build/review-followup-manual-restored.png`.
+
+Probe `arm-hold` của harness chỉ giữ response thật sau commit, có giới hạn 30 giây;
+`release-response`, reset và cleanup nhả/dọn probe. Ca expiry phải xảy ra khi UI
+vẫn Đang xác nhận, trước timeout request 15 giây, để không lẫn với ca đã unknown.
+E2E đợi marker commit, xác minh bundle MySQL, expire và phát focus event rồi login
+cùng người. Ca conflict abort POST đầu trước backend, xác minh history rỗng, tạo
+winner bằng key độc lập, rồi kiểm tra 409 thật, giờ mới và key mới.
+
+Sau khi setup/build API như phần trên, chạy riêng bốn probe desktop/mobile bằng:
+
+```powershell
+npm --workspace src/frontend run test:e2e:api -- --grep "session loss while|authoritative conflict"
+```

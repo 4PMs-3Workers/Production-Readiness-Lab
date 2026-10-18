@@ -382,6 +382,33 @@ Bốn file hợp nhất là `src/backend/app/api/__init__.py` (đăng ký cả h
 `docs/api/openapi.yaml` (export lại). Các file staff API còn lại đi theo lịch sử
 `develop`; mô tả của phần đó tại [staff appointment management](staff-appointment-management.md).
 
+## Follow-up review: phục hồi POST đầu tiên và chọn lại giờ sau conflict
+
+Trước commit: 141 unit/component, 30 real API E2E trên desktop/mobile và build/
+TypeScript, lint/format đều đạt; harness Black/Ruff đạt. Thử trực tiếp first
+in-flight expiry đã phục hồi đúng UUID và chỉ có một bundle booking trong MySQL.
+Bằng chứng và lệnh chạy riêng probe được ghi trong tài liệu tích hợp; CI được
+xác nhận trên head mới sau push.
+
+Mốc rà soát `4924297`: theo dõi POST dispatch để giữ cả yêu cầu đầu tiên đang
+chờ receipt khi hết phiên; chỉ phục hồi cho cùng sinh viên. Phân loại response
+POST BOOKING_CONFLICT/quota sau replay thành kết quả xác định và giải phóng intent,
+giúp wizard tải lại availability và chọn giờ khác. Lỗi bootstrap/CSRF/session và
+transport chưa rõ kết quả vẫn giữ key/body; logout/đổi người vẫn xóa dữ liệu.
+
+| File                                                      | Vai trò trong bản sửa follow-up                                                             |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `src/frontend/services/contracts.ts`                      | Callback nội bộ báo thời điểm dispatch POST, không đổi HTTP body.                           |
+| `src/frontend/services/api/client.ts`                     | Báo dispatch sau auth/abort checks, phân loại kết quả POST xác định.                        |
+| `src/frontend/services/api/errors.ts`                     | Kiểu BookingRejection để phân biệt với lỗi trước replay/transport.                          |
+| `src/frontend/services/api/booking-intent.ts`             | Giữ first in-flight intent, version guard và giải phóng kết quả terminal.                   |
+| `tests/frontend/components/api-booking-recovery.test.tsx` | Focus expiry, cùng/khác người/logout, receipt cũ và chọn lại giờ sau conflict.              |
+| `tests/frontend/unit/api-services.test.ts`                | Ranh giới dispatch/bootstrap và terminal/retry không rõ kết quả.                            |
+| `tests/frontend/api-e2e/portal.spec.ts`                   | Hai ca thật × desktop/mobile: receipt còn pending và conflict sau unknown.                  |
+| `tools/scripts/frontend_e2e_backend.py`                   | Giữ một response thật sau commit, release/reset/cleanup có biên; không đổi business routes. |
+| `docs/tasks/frontend-api-integration.md`                  | Cập nhật state/recovery và hướng dẫn kiểm chứng.                                            |
+| `docs/tasks/issue-20-change-description.md`               | Mô tả/manifest của lần follow-up này.                                                       |
+
 Hai lỗi được tái hiện: đổi cookie giữa kiểm tra danh tính và lấy CSRF có thể
 gửi body A dưới phiên B; lỗi 403 của retry xóa intent dù POST trước có thể đã
 commit. Bản sửa ràng buộc chủ sở hữu token/intent và giữ kết quả unknown xuyên
