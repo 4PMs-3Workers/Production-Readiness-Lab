@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
 from importlib import import_module, util
 from uuid import uuid4
@@ -161,4 +162,39 @@ async def test_staff_detail_routes_only_the_authenticated_assignment(auth_settin
     assert response.status_code == 200
     assert response.json()["description"] == "private detail"
     assert received == [(appointment_id, context.user_id)]
+    assert_private(response)
+
+
+async def test_staff_cancel_routes_session_actor_and_private_reason(auth_settings, monkeypatch):
+    from app.schemas.appointments import AppointmentCancelResponse
+    from app.services import cancellation
+
+    app = create_app(auth_settings)
+    context = staff_context()
+    install_overrides(app, context)
+    appointment_id = uuid4()
+    received = []
+
+    async def cancel(db, **kwargs):
+        received.append(kwargs)
+        return AppointmentCancelResponse(
+            id=appointment_id,
+            status="CANCELLED",
+            cancelled_at=datetime(2026, 10, 15, 1, tzinfo=UTC),
+        )
+
+    monkeypatch.setattr(cancellation, "cancel_staff_appointment", cancel)
+    headers = valid_write_headers(context)
+    del headers["Idempotency-Key"]
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=ORIGIN) as client:
+        response = await client.post(
+            f"/api/v1/staff/me/appointments/{appointment_id}/cancel",
+            json={"reason": "private reason"},
+            headers=headers,
+        )
+    assert response.status_code == 200
+    assert received[0]["context"] is context
+    assert received[0]["payload"].reason == "private reason"
+    assert received[0]["request_id"] == response.headers["X-Request-ID"]
+    assert received[0]["deadline"] > asyncio.get_running_loop().time()
     assert_private(response)

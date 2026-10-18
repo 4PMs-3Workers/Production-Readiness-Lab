@@ -1,5 +1,6 @@
 """Staff-only appointment routes; services own reads and state transitions."""
 
+import asyncio
 from typing import Annotated
 from uuid import UUID
 
@@ -25,7 +26,7 @@ from app.schemas.staff_appointments import (
     StaffAppointmentOutcomeRequest,
     StaffAppointmentOutcomeResponse,
 )
-from app.services import staff_appointments
+from app.services import cancellation, staff_appointments
 
 router = APIRouter(tags=["staff appointments"])
 
@@ -91,8 +92,20 @@ async def cancel_staff_appointment(
     _query_guard: Annotated[None, Depends(reject_staff_write_query)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> AppointmentCancelResponse:
-    del appointment_id, request, payload, context, _csrf_context, _query_guard, db
-    raise ServiceUnavailable()
+    del _csrf_context, _query_guard
+    settings = request.app.state.settings
+    deadline = getattr(request.state, "request_deadline", None)
+    if deadline is None:
+        deadline = asyncio.get_running_loop().time() + settings.request_timeout_seconds
+    return await cancellation.cancel_staff_appointment(
+        db,
+        appointment_id=appointment_id,
+        payload=payload,
+        context=context,
+        request_id=getattr(request.state, "request_id", "unknown"),
+        settings=settings,
+        deadline=deadline,
+    )
 
 
 @router.post(
