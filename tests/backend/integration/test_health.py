@@ -213,7 +213,7 @@ def test_readiness_sanitizes_query_failure_and_closes_connection():
 
 @pytest.mark.asyncio
 async def test_readiness_on_migrated_mysql_schema(mysql_engine):
-    current_revision = "20261016_1200_audit_reqid128"
+    current_revision = "20261017_2350_student_profile"
     app = create_app(
         settings(accepted=current_revision),
         engine_factory=lambda *args, **kwargs: mysql_engine,

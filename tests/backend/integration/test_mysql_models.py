@@ -399,7 +399,7 @@ async def test_migration_records_correct_revision(mysql_engine):
             .scalars()
             .all()
         )
-    assert rows == ["20261016_1200_audit_reqid128"], f"Unexpected revision rows: {rows}"
+    assert rows == ["20261017_2350_student_profile"], f"Unexpected revision rows: {rows}"
 
 
 def test_audit_request_id_revision_fits_alembic_version_column():
@@ -476,7 +476,7 @@ async def test_second_upgrade_head_is_idempotent(mysql_engine, graph):
         version = (
             await connection.execute(text("SELECT version_num FROM alembic_version"))
         ).scalar_one()
-    assert version == "20261016_1200_audit_reqid128"
+    assert version == "20261017_2350_student_profile"
 
     # Sample data inserted by ``graph`` must still be present.
     async with AsyncSession(mysql_engine, expire_on_commit=False) as check_session:
