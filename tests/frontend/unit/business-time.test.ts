@@ -12,6 +12,10 @@ import {
 } from '@/lib/business-time';
 
 describe('business time', () => {
+  it('renders microsecond backend timestamps in the server timezone', () => {
+    expect(formatBusinessTime('2026-10-17T19:00:00.123456Z', 'Pacific/Auckland')).toBe('08:00');
+    expect(getBusinessDate('2026-10-17T19:00:00.123456Z', 'Pacific/Auckland')).toBe('2026-10-18');
+  });
   it('uses the Vietnamese calendar day at the UTC date boundary', () => {
     expect(getBusinessDate('2026-10-13T16:59:59Z')).toBe('2026-10-13');
     expect(getBusinessDate('2026-10-13T17:00:00Z')).toBe('2026-10-14');
