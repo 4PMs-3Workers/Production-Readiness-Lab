@@ -23,8 +23,13 @@ from app.models import (
     StaffPurpose,
     User,
 )
+from app.repositories import appointments
 from app.schemas.appointments import AppointmentCancelRequest
-from app.schemas.staff_appointments import StaffAppointmentListQuery
+from app.schemas.staff_appointments import (
+    StaffAppointmentListQuery,
+    StaffAppointmentOutcomeRequest,
+    StaffAppointmentOutcomeStatus,
+)
 from app.services import cancellation, staff_appointments
 
 pytestmark = pytest.mark.mysql
@@ -191,6 +196,23 @@ async def _cancel(env, appointment_id: UUID, db=None):
     )
 
 
+async def _record_outcome(
+    env, appointment_id: UUID, status: StaffAppointmentOutcomeStatus, db=None
+):
+    if db is None:
+        async with env.factory() as session:
+            return await _record_outcome(env, appointment_id, status, session)
+    return await staff_appointments.record_staff_appointment_outcome(
+        db,
+        appointment_id=appointment_id,
+        outcome=StaffAppointmentOutcomeRequest(status=status),
+        context=_staff_context(env.staff_id),
+        request_id="staff-outcome-test",
+        settings=env.app.state.settings,
+        deadline=asyncio.get_running_loop().time() + 5,
+    )
+
+
 @pytest.mark.parametrize(
     "now,expected",
     [
@@ -214,7 +236,7 @@ async def test_staff_cancel_uses_strict_business_midnight_and_atomic_bundle(
     if expected == 200:
         result = await _cancel(env, appointment_id)
         assert result.status == "CANCELLED"
-        assert result.cancelled_at.root == now
+        assert result.cancelled_at == now
         async with env.factory() as db:
             row = await db.get(Appointment, appointment_id)
             assert (row.cancelled_by, row.cancel_reason) == (env.staff_id, "private staff reason")
@@ -523,6 +545,272 @@ async def test_staff_cancel_lost_commit_ack_replays_original_receipt(availabilit
                 select(func.count())
                 .select_from(AuditEvent)
                 .where(AuditEvent.action == "APPOINTMENT_CANCELLED")
+            )
+            == 1
+        )
+        assert (
+            await db.scalar(
+                select(func.count())
+                .select_from(Notification)
+                .where(Notification.appointment_id == appointment_id)
+            )
+            == 2
+        )
+
+
+@pytest.mark.parametrize(
+    "now,expected",
+    [
+        (datetime(2026, 10, 17, 18, 44, 59, 999999, tzinfo=UTC), 409),
+        (datetime(2026, 10, 17, 18, 45, tzinfo=UTC), 409),
+        (datetime(2026, 10, 17, 18, 45, 0, 1, tzinfo=UTC), 200),
+    ],
+)
+async def test_staff_outcome_requires_time_strictly_after_end_and_is_idempotent(
+    availability_env, monkeypatch, now, expected
+):
+    env = availability_env
+    appointment_id = UUID(int=307)
+    starts_at = datetime(2026, 10, 17, 18, tzinfo=UTC)
+    await _seed(env, appointment_id=appointment_id, staff_id=env.staff_id, starts_at=starts_at)
+
+    async def db_now(db):
+        return now
+
+    monkeypatch.setattr(cancellation.users, "utc_now", db_now)
+    if expected == 200:
+        result = await _record_outcome(env, appointment_id, "COMPLETED")
+        assert (result.status, result.outcome_at) == ("COMPLETED", now)
+        async with env.factory() as db:
+            row = await db.get(Appointment, appointment_id)
+            assert (row.outcome_by, row.outcome_at) == (env.staff_id, now)
+            assert (
+                await db.scalar(
+                    select(func.count())
+                    .select_from(AuditEvent)
+                    .where(AuditEvent.action == "APPOINTMENT_OUTCOME_RECORDED")
+                )
+                == 1
+            )
+            assert (
+                await db.scalar(
+                    select(func.count())
+                    .select_from(Notification)
+                    .where(Notification.appointment_id == appointment_id)
+                )
+                == 2
+            )
+
+        async def too_early(db):
+            return starts_at
+
+        monkeypatch.setattr(cancellation.users, "utc_now", too_early)
+        repeated = await _record_outcome(env, appointment_id, "COMPLETED")
+        assert repeated.outcome_at == result.outcome_at
+        with pytest.raises(AppError) as contradictory:
+            await _record_outcome(env, appointment_id, "NO_SHOW")
+        assert (contradictory.value.status_code, contradictory.value.code) == (
+            409,
+            "APPOINTMENT_STATE_CONFLICT",
+        )
+    else:
+        with pytest.raises(AppError) as error:
+            await _record_outcome(env, appointment_id, "NO_SHOW")
+        assert (error.value.status_code, error.value.code) == (409, "APPOINTMENT_NOT_ENDED")
+        async with env.factory() as db:
+            row = await db.get(Appointment, appointment_id)
+            assert row.status == "UPCOMING"
+            assert await db.scalar(select(func.count()).select_from(AuditEvent)) == 0
+            assert await db.scalar(select(func.count()).select_from(Notification)) == 0
+
+
+async def test_competing_staff_outcomes_commit_one_transition(availability_env, monkeypatch):
+    env = availability_env
+    appointment_id = UUID(int=308)
+    starts_at = datetime(2026, 10, 17, 18, tzinfo=UTC)
+    await _seed(env, appointment_id=appointment_id, staff_id=env.staff_id, starts_at=starts_at)
+
+    async def after_end(db):
+        return starts_at + timedelta(minutes=46)
+
+    monkeypatch.setattr(cancellation.users, "utc_now", after_end)
+    barrier = asyncio.Barrier(2)
+
+    async def submit(status: StaffAppointmentOutcomeStatus):
+        await barrier.wait()
+        try:
+            return await _record_outcome(env, appointment_id, status)
+        except AppError as error:
+            return error
+
+    results = await asyncio.gather(submit("COMPLETED"), submit("NO_SHOW"))
+    assert sum(not isinstance(result, AppError) for result in results) == 1
+    error = next(result for result in results if isinstance(result, AppError))
+    assert error.code == "APPOINTMENT_STATE_CONFLICT"
+    async with env.factory() as db:
+        row = await db.get(Appointment, appointment_id)
+        assert row.status in {"COMPLETED", "NO_SHOW"}
+        assert (
+            await db.scalar(
+                select(func.count())
+                .select_from(AuditEvent)
+                .where(AuditEvent.action == "APPOINTMENT_OUTCOME_RECORDED")
+            )
+            == 1
+        )
+        assert (
+            await db.scalar(
+                select(func.count())
+                .select_from(Notification)
+                .where(Notification.appointment_id == appointment_id)
+            )
+            == 2
+        )
+
+
+async def test_outcome_status_controls_quota_without_age_based_release(
+    availability_env, monkeypatch
+):
+    env = availability_env
+    appointment_id = UUID(int=309)
+    starts_at = datetime(2026, 10, 17, 18, tzinfo=UTC)
+    await _seed(env, appointment_id=appointment_id, staff_id=env.staff_id, starts_at=starts_at)
+    past_id = UUID(int=310)
+    await _seed(
+        env,
+        appointment_id=past_id,
+        staff_id=env.staff_id,
+        starts_at=datetime(2026, 10, 1, 18, tzinfo=UTC),
+    )
+
+    async def after_end(db):
+        return starts_at + timedelta(minutes=46)
+
+    monkeypatch.setattr(cancellation.users, "utc_now", after_end)
+    await _record_outcome(env, appointment_id, "COMPLETED")
+    async with env.factory() as db:
+        assert await appointments.count_blocking_for_student(db, student_id=env.student_id) == 1
+        past = await db.get(Appointment, past_id)
+        assert past.status == "UPCOMING"
+
+
+async def test_outcome_hides_foreign_assignment_and_inactive_actor(availability_env):
+    env = availability_env
+    appointment_id = UUID(int=311)
+    await _seed(
+        env,
+        appointment_id=appointment_id,
+        staff_id=env.staff_id,
+        starts_at=datetime(2026, 10, 17, 18, tzinfo=UTC),
+    )
+    async with env.factory() as db:
+        with pytest.raises(AppError) as foreign:
+            await staff_appointments.record_staff_appointment_outcome(
+                db,
+                appointment_id=appointment_id,
+                outcome=StaffAppointmentOutcomeRequest(status="COMPLETED"),
+                context=_staff_context(env.other_staff_id),
+                request_id="staff-outcome-test",
+                settings=env.app.state.settings,
+                deadline=monotonic() + 5,
+            )
+    assert (foreign.value.status_code, foreign.value.code) == (404, "NOT_FOUND")
+    async with env.factory.begin() as db:
+        staff = await db.get(User, env.staff_id)
+        staff.is_active = False
+    async with env.factory() as db:
+        with pytest.raises(AppError) as inactive:
+            await staff_appointments.record_staff_appointment_outcome(
+                db,
+                appointment_id=appointment_id,
+                outcome=StaffAppointmentOutcomeRequest(status="COMPLETED"),
+                context=_staff_context(env.staff_id),
+                request_id="staff-outcome-test",
+                settings=env.app.state.settings,
+                deadline=monotonic() + 5,
+            )
+    assert (inactive.value.status_code, inactive.value.code) == (404, "NOT_FOUND")
+
+
+async def test_staff_outcome_precommit_failure_rolls_back(availability_env, monkeypatch):
+    env = availability_env
+    appointment_id = UUID(int=312)
+    await _seed(
+        env,
+        appointment_id=appointment_id,
+        staff_id=env.staff_id,
+        starts_at=datetime(2026, 10, 17, 18, tzinfo=UTC),
+    )
+
+    async def after_end(db):
+        return datetime(2026, 10, 17, 19, tzinfo=UTC)
+
+    monkeypatch.setattr(cancellation.users, "utc_now", after_end)
+    async with env.factory() as db:
+        original_flush = db.flush
+
+        async def fail_flush():
+            await original_flush()
+            raise SQLAlchemyError("private outcome payload")
+
+        monkeypatch.setattr(db, "flush", fail_flush)
+        with pytest.raises(AppError) as error:
+            await _record_outcome(env, appointment_id, "COMPLETED", db)
+        assert error.value.code == "SERVICE_UNAVAILABLE"
+        assert "private outcome payload" not in error.value.message
+        assert not db.in_transaction()
+    async with env.factory() as db:
+        assert (await db.get(Appointment, appointment_id)).status == "UPCOMING"
+        assert await db.scalar(select(func.count()).select_from(AuditEvent)) == 0
+        assert await db.scalar(select(func.count()).select_from(Notification)) == 0
+
+
+async def test_staff_outcome_lost_commit_ack_replays_without_duplicate_bundle(
+    availability_env, monkeypatch
+):
+    env = availability_env
+    appointment_id = UUID(int=313)
+    starts_at = datetime(2026, 10, 17, 18, tzinfo=UTC)
+    await _seed(env, appointment_id=appointment_id, staff_id=env.staff_id, starts_at=starts_at)
+
+    async def after_end(db):
+        return starts_at + timedelta(minutes=46)
+
+    monkeypatch.setattr(cancellation.users, "utc_now", after_end)
+    original_commit = AsyncSessionTransaction.commit
+    commits = []
+    invalidations = []
+
+    async def lost_ack(transaction):
+        commits.append(True)
+        await original_commit(transaction)
+        raise OperationalError("COMMIT", {}, Exception(2013, "private driver detail"))
+
+    async with env.factory() as db:
+        original_invalidate = db.invalidate
+
+        async def invalidate():
+            invalidations.append(True)
+            await original_invalidate()
+
+        with monkeypatch.context() as patch:
+            patch.setattr(AsyncSessionTransaction, "commit", lost_ack)
+            patch.setattr(db, "invalidate", invalidate)
+            with pytest.raises(AppError) as error:
+                await _record_outcome(env, appointment_id, "NO_SHOW", db)
+        assert error.value.code == "SERVICE_UNAVAILABLE"
+        assert commits == [True]
+        assert invalidations == [True]
+
+    result = await _record_outcome(env, appointment_id, "NO_SHOW")
+    assert result.status == "NO_SHOW"
+    async with env.factory() as db:
+        assert (await db.get(Appointment, appointment_id)).outcome_by == env.staff_id
+        assert (
+            await db.scalar(
+                select(func.count())
+                .select_from(AuditEvent)
+                .where(AuditEvent.action == "APPOINTMENT_OUTCOME_RECORDED")
             )
             == 1
         )

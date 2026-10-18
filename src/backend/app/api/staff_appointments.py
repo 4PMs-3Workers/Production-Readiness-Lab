@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.appointments import STUDENT_WRITE_OPENAPI, appointment_responses
-from app.api.errors import ServiceUnavailable
 from app.dependencies.auth import require_csrf
 from app.dependencies.database import get_db_session
 from app.dependencies.staff import (
@@ -115,6 +114,11 @@ async def cancel_staff_appointment(
         {200: StaffAppointmentOutcomeResponse}, 401, 403, 404, 409, 422, 500, 503
     ),
     summary="Record the outcome of an appointment assigned to the current staff member",
+    description=(
+        "Only an assigned active staff member can record COMPLETED or NO_SHOW for an UPCOMING "
+        "appointment. At or before ends_at the API returns 409 APPOINTMENT_NOT_ENDED; an "
+        "incompatible state or contradictory retry returns 409 APPOINTMENT_STATE_CONFLICT."
+    ),
     openapi_extra=STUDENT_WRITE_OPENAPI,
 )
 async def record_staff_appointment_outcome(
@@ -126,5 +130,17 @@ async def record_staff_appointment_outcome(
     _query_guard: Annotated[None, Depends(reject_staff_write_query)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> StaffAppointmentOutcomeResponse:
-    del appointment_id, request, payload, context, _csrf_context, _query_guard, db
-    raise ServiceUnavailable()
+    del _csrf_context, _query_guard
+    settings = request.app.state.settings
+    deadline = getattr(request.state, "request_deadline", None)
+    if deadline is None:
+        deadline = asyncio.get_running_loop().time() + settings.request_timeout_seconds
+    return await staff_appointments.record_staff_appointment_outcome(
+        db,
+        appointment_id=appointment_id,
+        outcome=payload,
+        context=context,
+        request_id=getattr(request.state, "request_id", "unknown"),
+        settings=settings,
+        deadline=deadline,
+    )

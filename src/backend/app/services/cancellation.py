@@ -50,7 +50,7 @@ async def _attempt(
                 db, appointment_id=appointment_id, student_id=context.user_id
             )
         else:
-            identities = await appointments.find_staff_cancellation_accounts(
+            identities = await appointments.find_staff_appointment_accounts(
                 db, appointment_id=appointment_id, staff_id=context.user_id
             )
         if identities is None:

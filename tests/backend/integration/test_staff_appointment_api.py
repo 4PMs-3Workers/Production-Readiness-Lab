@@ -15,10 +15,11 @@ from tests.backend.integration.test_appointments_api import (
 from app.domain.auth import AuthContext
 from app.factory import create_app
 from app.schemas.auth import Role
-from app.schemas.common import PageResponse
+from app.schemas.common import PageResponse, UtcTimestamp
 from app.schemas.staff_appointments import (
     StaffAppointmentDetailResponse,
     StaffAppointmentListItem,
+    StaffAppointmentOutcomeResponse,
 )
 
 
@@ -138,11 +139,11 @@ async def test_staff_detail_routes_only_the_authenticated_assignment(auth_settin
         student_id=uuid4(),
         student_name="Test student",
         duration_minutes=30,
-        starts_at=datetime(2026, 10, 20, 7, tzinfo=UTC),
-        ends_at=datetime(2026, 10, 20, 7, 30, tzinfo=UTC),
+        starts_at=UtcTimestamp(datetime(2026, 10, 20, 7, tzinfo=UTC)),
+        ends_at=UtcTimestamp(datetime(2026, 10, 20, 7, 30, tzinfo=UTC)),
         location="Room 2",
         status="UPCOMING",
-        created_at=datetime(2026, 10, 15, tzinfo=UTC),
+        created_at=UtcTimestamp(datetime(2026, 10, 15, tzinfo=UTC)),
         cancelled_at=None,
         outcome_at=None,
         description="private detail",
@@ -197,4 +198,38 @@ async def test_staff_cancel_routes_session_actor_and_private_reason(auth_setting
     assert received[0]["payload"].reason == "private reason"
     assert received[0]["request_id"] == response.headers["X-Request-ID"]
     assert received[0]["deadline"] > asyncio.get_running_loop().time()
+    assert_private(response)
+
+
+async def test_staff_outcome_routes_session_actor_and_payload(auth_settings, monkeypatch):
+    from app.services import staff_appointments
+
+    app = create_app(auth_settings)
+    context = staff_context()
+    install_overrides(app, context)
+    appointment_id = uuid4()
+    received = []
+
+    async def record(db, *, appointment_id, outcome, context, request_id, settings, deadline):
+        received.append((appointment_id, outcome.status, context, request_id, deadline))
+        return StaffAppointmentOutcomeResponse(
+            id=appointment_id,
+            status=outcome.status,
+            outcome_at=UtcTimestamp(datetime(2026, 10, 20, 8, tzinfo=UTC)),
+        )
+
+    monkeypatch.setattr(staff_appointments, "record_staff_appointment_outcome", record)
+    headers = valid_write_headers(context)
+    del headers["Idempotency-Key"]
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=ORIGIN) as client:
+        response = await client.post(
+            f"/api/v1/staff/me/appointments/{appointment_id}/outcome",
+            json={"status": "NO_SHOW"},
+            headers=headers,
+        )
+    assert response.status_code == 200
+    assert received[0][:3] == (appointment_id, "NO_SHOW", context)
+    assert received[0][3] == response.headers["X-Request-ID"]
+    assert received[0][4] > asyncio.get_running_loop().time()
+    assert response.json()["status"] == "NO_SHOW"
     assert_private(response)

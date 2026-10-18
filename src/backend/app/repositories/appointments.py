@@ -176,10 +176,10 @@ async def find_cancellation_accounts(
     return (await db.execute(statement)).one_or_none()
 
 
-async def find_staff_cancellation_accounts(
+async def find_staff_appointment_accounts(
     db: AsyncSession, *, appointment_id: UUID, staff_id: UUID
 ) -> Row[Any] | None:
-    """Discover lock identities only for an appointment assigned to this staff member."""
+    """Discover participant lock identities for an assigned staff appointment."""
     statement = select(Appointment.student_id, Appointment.staff_id).where(
         Appointment.id == appointment_id, Appointment.staff_id == staff_id
     )
