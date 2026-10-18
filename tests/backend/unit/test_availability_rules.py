@@ -11,6 +11,7 @@ from app.domain.availability import (
     ServiceWindow,
     TimeInterval,
 )
+from app.services import availability_rules
 from app.services.availability_rules import (
     business_day_bounds,
     generate_slots,
@@ -393,6 +394,40 @@ def test_calendar_rollover_and_leap_day_bounds():
     assert leap_day.ends_at == datetime(2028, 3, 1, tzinfo=UTC)
     assert date(2027, 1, 3).isoweekday() == 7
     assert date(2027, 1, 4).isoweekday() == 1
+
+
+@pytest.mark.parametrize(
+    ("selected_date", "expected_start", "expected_end"),
+    [
+        (
+            date(2026, 3, 7),
+            datetime(2026, 3, 7, 5, tzinfo=UTC),
+            datetime(2026, 3, 8, 5, tzinfo=UTC),
+        ),
+        (
+            date(2026, 3, 8),
+            datetime(2026, 3, 8, 5, tzinfo=UTC),
+            datetime(2026, 3, 9, 4, tzinfo=UTC),
+        ),
+        (
+            date(2026, 10, 31),
+            datetime(2026, 10, 31, 4, tzinfo=UTC),
+            datetime(2026, 11, 1, 4, tzinfo=UTC),
+        ),
+        (
+            date(2026, 11, 1),
+            datetime(2026, 11, 1, 4, tzinfo=UTC),
+            datetime(2026, 11, 2, 5, tzinfo=UTC),
+        ),
+    ],
+)
+def test_history_day_bounds_handle_dst_midnight_gap_and_fold(
+    selected_date, expected_start, expected_end
+):
+    bounds = availability_rules.history_day_bounds(
+        selected_date=selected_date, zone=ZoneInfo("America/Havana")
+    )
+    assert (bounds.starts_at, bounds.ends_at) == (expected_start, expected_end)
 
 
 def test_timezone_is_read_from_policy_not_assumed_to_be_utc_plus_seven():

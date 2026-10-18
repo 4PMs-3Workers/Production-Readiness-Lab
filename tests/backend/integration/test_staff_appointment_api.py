@@ -76,6 +76,24 @@ async def test_staff_list_rejects_date_that_cannot_map_to_utc(auth_settings, mon
 
 
 @pytest.mark.parametrize(
+    "date_value", ["0", "1792454400", "2026-10-20T00:00:00Z", "2026-10-20T00:00:00+14:00"]
+)
+async def test_staff_list_rejects_non_calendar_date_query(auth_settings, monkeypatch, date_value):
+    app = create_app(auth_settings)
+    install_overrides(app, staff_context())
+
+    async def list_appointments(db, query, *, staff_id, settings):
+        return PageResponse[StaffAppointmentListItem](items=[], total=0, page=1, page_size=20)
+
+    monkeypatch.setattr(_staff_service(), "list_staff_appointments", list_appointments)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=ORIGIN) as client:
+        response = await client.get("/api/v1/staff/me/appointments", params={"date": date_value})
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert_private(response, error_class="input")
+
+
+@pytest.mark.parametrize(
     "origin,csrf,expected",
     [(ORIGIN, False, "INVALID_CSRF"), ("https://attacker.invalid", True, "INVALID_ORIGIN")],
 )

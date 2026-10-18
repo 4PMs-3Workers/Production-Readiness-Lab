@@ -33,7 +33,7 @@ from app.schemas.staff_appointments import (
     StaffAppointmentOutcomeRequest,
     StaffAppointmentOutcomeResponse,
 )
-from app.services.availability_rules import business_day_bounds, validate_policy
+from app.services.availability_rules import history_day_bounds, validate_policy
 
 
 def _list_item(row: Any) -> StaffAppointmentListItem:
@@ -63,7 +63,7 @@ async def list_staff_appointments(
                         booking_horizon_days=stored.booking_horizon_days,
                     )
                 )
-                bounds = business_day_bounds(selected_date=query.date, zone=zone)
+                bounds = history_day_bounds(selected_date=query.date, zone=zone)
             except BookingDateError as exc:
                 raise AppError(422, "VALIDATION_ERROR", "Invalid request", "input") from exc
             except AvailabilityConfigurationError as exc:

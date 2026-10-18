@@ -109,12 +109,15 @@ async def read_staff_appointment_page(
         starts_at, ends_at = date_bounds
         filters.extend((Appointment.starts_at >= starts_at, Appointment.starts_at < ends_at))
     total = int(await db.scalar(select(func.count()).select_from(Appointment).where(*filters)) or 0)
+    offset = (query.page - 1) * query.page_size
+    if offset >= total:
+        return (), total
     statement = (
         _staff_detail_statement()
         .where(*filters)
         .order_by(Appointment.starts_at.asc(), Appointment.id.asc())
         .limit(query.page_size)
-        .offset((query.page - 1) * query.page_size)
+        .offset(offset)
     )
     return (await db.execute(statement)).all(), total
 

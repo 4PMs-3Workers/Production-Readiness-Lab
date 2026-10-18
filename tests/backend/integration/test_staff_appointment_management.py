@@ -20,6 +20,7 @@ from app.models import (
     ChangeProposal,
     Notification,
     Purpose,
+    ServiceSetting,
     StaffPurpose,
     User,
 )
@@ -168,6 +169,63 @@ async def test_staff_list_status_filter_and_empty_page(availability_env):
             settings=env.app.state.settings,
         )
     assert (page.total, page.items, page.page, page.page_size) == (0, [], 2, 10)
+
+
+@pytest.mark.parametrize("populated", [False, True])
+async def test_staff_list_huge_out_of_range_page_is_empty(availability_env, populated):
+    env = availability_env
+    if populated:
+        await _seed(
+            env,
+            appointment_id=UUID(int=201),
+            staff_id=env.staff_id,
+            starts_at=datetime(2026, 10, 16, 1, tzinfo=UTC),
+        )
+    async with env.factory() as db:
+        page = await staff_appointments.list_staff_appointments(
+            db,
+            StaffAppointmentListQuery(page=10**18, page_size=100),
+            staff_id=env.staff_id,
+            settings=env.app.state.settings,
+        )
+    assert page.items == []
+    assert (page.total, page.page, page.page_size) == (int(populated), 10**18, 100)
+
+
+async def test_staff_date_filter_handles_repeated_midnight_in_mysql(availability_env):
+    env = availability_env
+    async with env.factory.begin() as db:
+        setting = await db.get(ServiceSetting, 1)
+        assert setting is not None
+        setting.timezone = "America/Havana"
+
+    starts = [
+        datetime(2026, 11, 1, 3, tzinfo=UTC),  # October 31, 23:00 local.
+        datetime(2026, 11, 1, 4, tzinfo=UTC),  # First November 1 midnight.
+        datetime(2026, 11, 1, 5, tzinfo=UTC),  # Repeated November 1 midnight.
+        datetime(2026, 11, 1, 15, tzinfo=UTC),  # November 1, 10:00 local.
+        datetime(2026, 11, 2, 5, tzinfo=UTC),  # November 2 midnight.
+    ]
+    ids = [UUID(int=value) for value in (210, 211, 212, 213, 214)]
+    for appointment_id, starts_at in zip(ids, starts, strict=True):
+        await _seed(env, appointment_id=appointment_id, staff_id=env.staff_id, starts_at=starts_at)
+
+    async with env.factory() as db:
+        previous = await staff_appointments.list_staff_appointments(
+            db,
+            StaffAppointmentListQuery(date=date(2026, 10, 31)),
+            staff_id=env.staff_id,
+            settings=env.app.state.settings,
+        )
+    async with env.factory() as db:
+        transition = await staff_appointments.list_staff_appointments(
+            db,
+            StaffAppointmentListQuery(date=date(2026, 11, 1)),
+            staff_id=env.staff_id,
+            settings=env.app.state.settings,
+        )
+    assert (previous.total, [item.id for item in previous.items]) == (1, ids[:1])
+    assert (transition.total, [item.id for item in transition.items]) == (3, ids[1:4])
 
 
 def _staff_context(staff_id: UUID) -> AuthContext:
@@ -465,6 +523,47 @@ async def test_student_and_staff_cancel_race_commits_one_bundle(availability_env
         )
 
 
+async def test_staff_retry_preserves_student_cancellation_metadata(availability_env, monkeypatch):
+    from tests.backend.integration.test_booking_service import _context
+
+    env = availability_env
+    appointment_id = UUID(int=314)
+    starts_at = datetime(2026, 10, 17, 18, tzinfo=UTC)
+    await _seed(env, appointment_id=appointment_id, staff_id=env.staff_id, starts_at=starts_at)
+    original_time = datetime(2026, 10, 17, 16, tzinfo=UTC)
+
+    async def before_cutoff(db):
+        return original_time
+
+    monkeypatch.setattr(cancellation.users, "utc_now", before_cutoff)
+    async with env.factory() as db:
+        original = await cancellation.cancel_appointment(
+            db,
+            appointment_id=appointment_id,
+            payload=AppointmentCancelRequest(reason="original student reason"),
+            context=_context(env.student_id),
+            request_id="student-first-cancel",
+            settings=env.app.state.settings,
+            deadline=asyncio.get_running_loop().time() + 5,
+        )
+
+    async def after_cutoff(db):
+        return starts_at
+
+    monkeypatch.setattr(cancellation.users, "utc_now", after_cutoff)
+    repeated = await _cancel(env, appointment_id)
+    assert repeated.cancelled_at == original.cancelled_at == original_time
+    async with env.factory() as db:
+        row = await db.get(Appointment, appointment_id)
+        assert (row.cancelled_by, row.cancelled_at, row.cancel_reason) == (
+            env.student_id,
+            original_time,
+            "original student reason",
+        )
+        assert await db.scalar(select(func.count()).select_from(AuditEvent)) == 1
+        assert await db.scalar(select(func.count()).select_from(Notification)) == 2
+
+
 async def test_staff_cancel_precommit_failure_rolls_back(availability_env, monkeypatch):
     env = availability_env
     appointment_id = UUID(int=304)
@@ -624,6 +723,46 @@ async def test_staff_outcome_requires_time_strictly_after_end_and_is_idempotent(
             assert row.status == "UPCOMING"
             assert await db.scalar(select(func.count()).select_from(AuditEvent)) == 0
             assert await db.scalar(select(func.count()).select_from(Notification)) == 0
+
+
+@pytest.mark.parametrize("state", ["CANCELLED", "CHANGE_PENDING"])
+async def test_staff_outcome_rejects_cancelled_and_pending_change(
+    availability_env, monkeypatch, state
+):
+    env = availability_env
+    appointment_id = UUID(int=315)
+    starts_at = datetime(2026, 10, 17, 18, tzinfo=UTC)
+    await _seed(env, appointment_id=appointment_id, staff_id=env.staff_id, starts_at=starts_at)
+    async with env.factory.begin() as db:
+        row = await db.get(Appointment, appointment_id)
+        row.status = state
+        if state == "CANCELLED":
+            row.cancelled_at = starts_at - timedelta(hours=2)
+            row.cancelled_by = env.student_id
+        else:
+            db.add(
+                ChangeProposal(
+                    appointment_id=appointment_id,
+                    created_by=env.staff_id,
+                    proposed_starts_at=starts_at + timedelta(days=1),
+                    proposed_ends_at=starts_at + timedelta(days=1, minutes=45),
+                    proposed_location="Room 5",
+                    expires_at=datetime(2027, 1, 1, tzinfo=UTC),
+                )
+            )
+
+    async def after_end(db):
+        return starts_at + timedelta(hours=1)
+
+    monkeypatch.setattr(cancellation.users, "utc_now", after_end)
+    with pytest.raises(AppError) as error:
+        await _record_outcome(env, appointment_id, "COMPLETED")
+    assert (error.value.status_code, error.value.code) == (409, "APPOINTMENT_STATE_CONFLICT")
+    async with env.factory() as db:
+        row = await db.get(Appointment, appointment_id)
+        assert (row.status, row.outcome_at, row.outcome_by) == (state, None, None)
+        assert await db.scalar(select(func.count()).select_from(AuditEvent)) == 0
+        assert await db.scalar(select(func.count()).select_from(Notification)) == 0
 
 
 async def test_competing_staff_outcomes_commit_one_transition(availability_env, monkeypatch):
@@ -808,6 +947,101 @@ async def test_staff_outcome_lost_commit_ack_replays_without_duplicate_bundle(
     assert result.status == "NO_SHOW"
     async with env.factory() as db:
         assert (await db.get(Appointment, appointment_id)).outcome_by == env.staff_id
+        assert (
+            await db.scalar(
+                select(func.count())
+                .select_from(AuditEvent)
+                .where(AuditEvent.action == "APPOINTMENT_OUTCOME_RECORDED")
+            )
+            == 1
+        )
+        assert (
+            await db.scalar(
+                select(func.count())
+                .select_from(Notification)
+                .where(Notification.appointment_id == appointment_id)
+            )
+            == 2
+        )
+
+
+async def test_staff_outcome_lock_timeout_rolls_back_and_can_retry(availability_env, monkeypatch):
+    env = availability_env
+    appointment_id = UUID(int=316)
+    starts_at = datetime(2026, 10, 17, 18, tzinfo=UTC)
+    await _seed(env, appointment_id=appointment_id, staff_id=env.staff_id, starts_at=starts_at)
+    settings = env.app.state.settings.model_copy(
+        update={"db_lock_timeout_seconds": 0.15, "db_query_timeout_seconds": 3}
+    )
+
+    async def after_end(db):
+        return starts_at + timedelta(minutes=46)
+
+    monkeypatch.setattr(cancellation.users, "utc_now", after_end)
+    async with env.factory() as holder, env.factory() as contender:
+        async with holder.begin():
+            await cancellation.users.lock_by_id(holder, env.student_id)
+            with pytest.raises(AppError) as error:
+                await staff_appointments.record_staff_appointment_outcome(
+                    contender,
+                    appointment_id=appointment_id,
+                    outcome=StaffAppointmentOutcomeRequest(status="COMPLETED"),
+                    context=_staff_context(env.staff_id),
+                    request_id="staff-outcome-lock-timeout",
+                    settings=settings,
+                    deadline=monotonic() + 5,
+                )
+            assert error.value.code == "SERVICE_UNAVAILABLE"
+            assert not contender.in_transaction()
+
+    async with env.factory() as db:
+        assert (await db.get(Appointment, appointment_id)).status == "UPCOMING"
+        assert await db.scalar(select(func.count()).select_from(AuditEvent)) == 0
+        assert await db.scalar(select(func.count()).select_from(Notification)) == 0
+
+    result = await _record_outcome(env, appointment_id, "COMPLETED")
+    assert result.status == "COMPLETED"
+
+
+async def test_staff_outcome_deadlock_retries_once_without_duplicate_bundle(
+    availability_env, monkeypatch
+):
+    env = availability_env
+    appointment_id = UUID(int=317)
+    starts_at = datetime(2026, 10, 17, 18, tzinfo=UTC)
+    await _seed(env, appointment_id=appointment_id, staff_id=env.staff_id, starts_at=starts_at)
+    settings = env.app.state.settings.model_copy(update={"max_deadlock_retries": 1})
+
+    async def after_end(db):
+        return starts_at + timedelta(minutes=46)
+
+    monkeypatch.setattr(cancellation.users, "utc_now", after_end)
+    original_lock = appointments.lock_appointment
+    attempts = []
+
+    async def deadlock_once(db, row_id):
+        attempts.append(row_id)
+        if len(attempts) == 1:
+            raise OperationalError("SELECT", {}, Exception(1213, "deadlock"))
+        return await original_lock(db, row_id)
+
+    monkeypatch.setattr(appointments, "lock_appointment", deadlock_once)
+    async with env.factory() as db:
+        result = await staff_appointments.record_staff_appointment_outcome(
+            db,
+            appointment_id=appointment_id,
+            outcome=StaffAppointmentOutcomeRequest(status="NO_SHOW"),
+            context=_staff_context(env.staff_id),
+            request_id="staff-outcome-deadlock-retry",
+            settings=settings,
+            deadline=monotonic() + 5,
+        )
+        assert not db.in_transaction()
+    assert result.status == "NO_SHOW"
+    assert attempts == [appointment_id, appointment_id]
+    async with env.factory() as db:
+        row = await db.get(Appointment, appointment_id)
+        assert row.status == "NO_SHOW" and row.outcome_by == env.staff_id
         assert (
             await db.scalar(
                 select(func.count())

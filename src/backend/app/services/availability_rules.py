@@ -106,6 +106,41 @@ def business_day_bounds(*, selected_date: date, zone: ZoneInfo) -> TimeInterval:
     return TimeInterval(starts_at=starts_at, ends_at=ends_at)
 
 
+def _first_utc_for_local_date(local_date: date, zone: ZoneInfo) -> datetime:
+    """Find the first instant of a local date, including a midnight gap or fold."""
+    midnight = datetime.combine(local_date, time.min).replace(tzinfo=zone)
+    candidates = sorted({midnight.replace(fold=fold).astimezone(UTC) for fold in (0, 1)})
+    low, high = candidates[0], candidates[-1]
+    if low.astimezone(zone).date() >= local_date:
+        return low
+    if high.astimezone(zone).date() < local_date:
+        raise AvailabilityConfigurationError("Local calendar boundary is invalid")
+    while high - low > timedelta(microseconds=1):
+        middle = low + (high - low) // 2
+        if middle.astimezone(zone).date() >= local_date:
+            high = middle
+        else:
+            low = middle
+    return high
+
+
+def history_day_bounds(*, selected_date: date, zone: ZoneInfo) -> TimeInterval:
+    """Map one local calendar date into UTC for historical appointment reads."""
+    if not isinstance(selected_date, date) or isinstance(selected_date, datetime):
+        raise BookingDateError("Booking date is invalid")
+    if not isinstance(zone, ZoneInfo):
+        raise AvailabilityConfigurationError("Availability timezone is invalid")
+    try:
+        next_date = selected_date + timedelta(days=1)
+        starts_at = _first_utc_for_local_date(selected_date, zone)
+        ends_at = _first_utc_for_local_date(next_date, zone)
+    except OverflowError as exc:
+        raise BookingDateError("Booking date cannot map to UTC") from exc
+    if starts_at > ends_at:
+        raise AvailabilityConfigurationError("Business-day boundaries are invalid")
+    return TimeInterval(starts_at=starts_at, ends_at=ends_at)
+
+
 def _validate_windows(windows: Sequence[ServiceWindow]) -> tuple[ServiceWindow, ...]:
     unique: set[ServiceWindow] = set()
     for window in windows:

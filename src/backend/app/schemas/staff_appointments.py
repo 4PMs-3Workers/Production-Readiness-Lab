@@ -4,9 +4,10 @@ from datetime import date as Date
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from app.schemas.appointments import AppointmentStatus
+from app.schemas.availability import require_ascii_iso_date
 from app.schemas.common import PaginationParams, UtcTimestamp
 
 StaffAppointmentOutcomeStatus = Literal["COMPLETED", "NO_SHOW"]
@@ -17,6 +18,13 @@ class StaffAppointmentListQuery(PaginationParams):
 
     status: AppointmentStatus | None = None
     date: Date | None = None
+
+    @field_validator("date", mode="before")
+    @classmethod
+    def require_calendar_date(cls, value: object) -> Date | str | None:
+        if value is None:
+            return None
+        return require_ascii_iso_date(value)
 
 
 class StaffAppointmentListItem(BaseModel):

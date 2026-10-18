@@ -25,8 +25,9 @@ Lỗi dùng envelope chung và thông báo đã sanitize.
 | `status` | Không lọc | `UPCOMING`, `CHANGE_PENDING`, `CANCELLED`, `COMPLETED`, `NO_SHOW`. |
 | `date` | Không lọc | Ngày `YYYY-MM-DD` theo `service_settings.timezone`. |
 
-Khi có `date`, backend đổi nửa đêm của ngày được chọn và ngày tiếp theo thành khoảng UTC
-nửa mở `[starts_at, ends_at)`. Kết quả xếp theo `starts_at ASC, id ASC`. `total` áp dụng cùng
+Khi có `date`, backend lấy thời điểm UTC đầu tiên của ngày địa phương được chọn và ngày kế
+tiếp thành khoảng nửa mở `[starts_at, ends_at)`. Cách này xử lý cả ngày đổi giờ có nửa đêm
+bị lặp hoặc bị bỏ qua. Kết quả xếp theo `starts_at ASC, id ASC`. `total` áp dụng cùng
 bộ lọc assignment/status/date với items; trang nằm ngoài phạm vi trả danh sách rỗng. Lịch sử
 không phụ thuộc trạng thái hoạt động hiện tại của nhu cầu, nhân viên hay liên kết tiếp nhận.
 Thời lượng đọc từ snapshot lưu cùng appointment.

@@ -34,6 +34,15 @@ def test_staff_list_query_accepts_status_and_business_date():
 
 
 @pytest.mark.parametrize(
+    "value",
+    ["0", "1792454400", "2026-10-20T00:00:00Z", "2026-10-20T00:00:00+14:00", 0],
+)
+def test_staff_list_query_rejects_timestamp_and_datetime_dates(value):
+    with pytest.raises(ValidationError):
+        _schemas().StaffAppointmentListQuery.model_validate({"date": value})
+
+
+@pytest.mark.parametrize(
     "status", ["UPCOMING", "CHANGE_PENDING", "CANCELLED", "COMPLETED", "NO_SHOW"]
 )
 def test_staff_list_query_accepts_every_appointment_status(status):
