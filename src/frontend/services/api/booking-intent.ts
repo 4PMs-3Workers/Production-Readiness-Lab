@@ -1,6 +1,6 @@
 import type { BookingBody, BookingReceipt } from '@/types/api';
 import type { ApiServices } from './client';
-import { ApiError } from './errors';
+import { ApiError, BookingRejection } from './errors';
 
 export interface BookingIntent {
   readonly userId: string;
@@ -17,6 +17,7 @@ export class BookingIntentStore {
   private running: Promise<BookingReceipt> | null = null;
   private controller: AbortController | null = null;
   private recoveringUnknown = false;
+  private postDispatched = false;
   private version = 0;
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -35,6 +36,7 @@ export class BookingIntentStore {
     this.controller?.abort();
     this.controller = null;
     this.recoveringUnknown = false;
+    this.postDispatched = false;
   }
   clear() {
     this.cancelRunning();
@@ -43,7 +45,8 @@ export class BookingIntentStore {
   suspendForSessionLoss() {
     const intent = this.current;
     const unresolved =
-      intent?.phase === 'unknown' || (intent?.phase === 'submitting' && this.recoveringUnknown);
+      intent?.phase === 'unknown' ||
+      (intent?.phase === 'submitting' && (this.recoveringUnknown || this.postDispatched));
     this.cancelRunning();
     // A failed bootstrap/replay cannot determine whether an earlier POST committed.
     // Keep recovery material in memory, hidden until the same student signs back in.
@@ -75,10 +78,15 @@ export class BookingIntentStore {
     const controller = new AbortController();
     this.controller = controller;
     this.recoveringUnknown = intent.phase === 'unknown';
+    this.postDispatched = false;
     const task = (async () => {
       try {
         const receipt = await services.create(intent.body, intent.key, userId, {
           signal: controller.signal,
+          onDispatch: () => {
+            if (this.version === version && this.current?.key === intent.key)
+              this.postDispatched = true;
+          },
         });
         if (this.version !== version || this.current?.key !== intent.key)
           throw new DOMException('Cancelled', 'AbortError');
@@ -92,6 +100,7 @@ export class BookingIntentStore {
             services.invalidateSession();
           } else if (error instanceof ApiError && error.code === 'IDEMPOTENCY_CONFLICT')
             this.update({ ...intent, phase: 'conflict' });
+          else if (error instanceof BookingRejection) this.update(null);
           else if (intent.phase === 'unknown') this.update({ ...intent, phase: 'unknown' });
           else if (error instanceof ApiError && !error.unknownOutcome) this.update(null);
           else this.update({ ...intent, phase: 'unknown' });
@@ -102,6 +111,7 @@ export class BookingIntentStore {
           this.running = null;
           this.controller = null;
           this.recoveringUnknown = false;
+          this.postDispatched = false;
         }
       }
     })();

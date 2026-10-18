@@ -36,6 +36,9 @@ export class ApiError extends Error {
   }
 }
 
+/** A complete booking POST response rejected the request after replay lookup. */
+export class BookingRejection extends ApiError {}
+
 export function errorMessage(error: unknown) {
   if (!(error instanceof ApiError)) return 'Không thể hoàn thành yêu cầu. Vui lòng thử lại.';
   return `${error.message}${error.retryAfter ? ` Thử lại sau: ${error.retryAfter}.` : ''}${error.requestId ? ` Mã hỗ trợ: ${error.requestId}.` : ''}`;

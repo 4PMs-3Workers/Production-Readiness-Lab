@@ -1,4 +1,9 @@
-import type { AvailableSlotsQuery, LoginCredentials, ServiceRequestOptions } from '../contracts';
+import type {
+  AvailableSlotsQuery,
+  BookingRequestOptions,
+  LoginCredentials,
+  ServiceRequestOptions,
+} from '../contracts';
 import type { AvailableSlot, Purpose, Staff } from '@/types/booking';
 import type {
   Appointment,
@@ -11,7 +16,7 @@ import type {
   SessionUser,
   StudentProfile,
 } from '@/types/api';
-import { ApiError } from './errors';
+import { ApiError, BookingRejection } from './errors';
 
 interface WirePage<T> {
   items: T[];
@@ -143,6 +148,7 @@ export class ApiServices {
     path: string,
     options: ServiceRequestOptions = {},
     init: RequestInit = {},
+    onDispatch?: () => void,
   ): Promise<T> {
     const deadline = new AbortController();
     const scopeSignal = this.scope.signal;
@@ -154,6 +160,7 @@ export class ApiServices {
     const timer = setTimeout(() => deadline.abort(), this.timeoutMs);
     try {
       signal.throwIfAborted();
+      onDispatch?.();
       const response = await this.fetcher(`/api/v1${path}`, {
         ...init,
         headers: { Accept: 'application/json', ...init.headers },
@@ -196,6 +203,7 @@ export class ApiServices {
     options?: ServiceRequestOptions,
     headers: Record<string, string> = {},
     expectedUserId?: string,
+    onDispatch?: () => void,
   ): Promise<T> {
     const signal = AbortSignal.any([
       this.scope.signal,
@@ -217,11 +225,20 @@ export class ApiServices {
         throw new ApiError('ACCOUNT_CHANGED', 401);
     }
     signal.throwIfAborted();
-    return this.request(path, scopedOptions, {
-      method: 'POST',
-      body: JSON.stringify(body),
-      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf.csrf_token, ...headers },
-    });
+    return this.request(
+      path,
+      scopedOptions,
+      {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrf.csrf_token,
+          ...headers,
+        },
+      },
+      onDispatch,
+    );
   }
 
   async me(options?: ServiceRequestOptions) {
@@ -312,14 +329,33 @@ export class ApiServices {
       location: null,
     }));
   }
-  async create(body: BookingBody, key: string, userId: string, options?: ServiceRequestOptions) {
-    const receipt = await this.write<BookingReceipt>(
-      '/appointments',
-      body,
-      options,
-      { 'Idempotency-Key': key },
-      userId,
-    );
+  async create(body: BookingBody, key: string, userId: string, options?: BookingRequestOptions) {
+    let dispatched = false;
+    let receipt: BookingReceipt;
+    try {
+      receipt = await this.write<BookingReceipt>(
+        '/appointments',
+        body,
+        options,
+        { 'Idempotency-Key': key },
+        userId,
+        () => {
+          dispatched = true;
+          options?.onDispatch?.();
+        },
+      );
+    } catch (error) {
+      // These business conflicts are evaluated after idempotent replay lookup.
+      // Auth/bootstrap errors, input validation and transport failures remain ambiguous.
+      if (
+        dispatched &&
+        error instanceof ApiError &&
+        error.status === 409 &&
+        ['BOOKING_CONFLICT', 'BOOKING_QUOTA_EXCEEDED'].includes(error.code)
+      )
+        throw new BookingRejection(error.code, error.status, error.requestId, error.retryAfter);
+      throw error;
+    }
     requireContract(
       receipt &&
         typeof receipt.id === 'string' &&

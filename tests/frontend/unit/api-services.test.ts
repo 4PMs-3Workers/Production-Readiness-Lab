@@ -278,6 +278,88 @@ describe('booking intent recovery', () => {
     await first;
     expect(create).toHaveBeenCalledTimes(1);
   });
+  it.each(['/csrf', '/me'])(
+    'discards an initial intent on session loss before POST dispatch while awaiting %s',
+    async (held) => {
+      let finish!: (response: Response) => void;
+      const fetcher = vi.fn<typeof fetch>(async (path) => {
+        if (String(path).endsWith(held))
+          return new Promise((resolve) => {
+            finish = resolve;
+          });
+        return json({ csrf_token: 'csrf', user_id: wireUser.id });
+      });
+      const store = new BookingIntentStore();
+      store.prepare(wireUser.id, body);
+      const pending = store.submit(new ApiServices(fetcher), wireUser.id);
+      await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+      store.suspendForSessionLoss();
+      expect(store.snapshot()).toBeNull();
+      finish(json(held === '/me' ? wireUser : { csrf_token: 'csrf', user_id: wireUser.id }));
+      await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+      expect(fetcher.mock.calls.some(([path]) => String(path).endsWith('/appointments'))).toBe(
+        false,
+      );
+    },
+  );
+  it.each(['BOOKING_CONFLICT', 'BOOKING_QUOTA_EXCEEDED'])(
+    'releases an unknown intent only after an authoritative POST rejection: %s',
+    async (code) => {
+      let attempts = 0;
+      const posted: RequestInit[] = [];
+      const services = new ApiServices(
+        vi.fn<typeof fetch>(async (path, init) => {
+          if (String(path).endsWith('/csrf'))
+            return json({ csrf_token: 'csrf', user_id: wireUser.id });
+          if (String(path).endsWith('/me')) return json(wireUser);
+          posted.push(init!);
+          if (++attempts === 1) throw new TypeError('Unknown delivery');
+          return json({ error: { code } }, 409);
+        }),
+      );
+      const store = new BookingIntentStore();
+      const original = store.prepare(wireUser.id, body);
+      await expect(store.submit(services, wireUser.id)).rejects.toMatchObject({
+        code: 'NETWORK_ERROR',
+      });
+      await expect(store.submit(services, wireUser.id)).rejects.toMatchObject({ code });
+      expect(posted[1].body).toBe(posted[0].body);
+      expect(new Headers(posted[1].headers).get('Idempotency-Key')).toBe(original.key);
+      expect(store.snapshot()).toBeNull();
+      expect(
+        store.prepare(wireUser.id, { ...body, starts_at: '2026-10-20T02:00:00Z' }).key,
+      ).not.toBe(original.key);
+    },
+  );
+  it.each(['/csrf', '/me'])(
+    'does not classify an error while awaiting %s as a terminal booking response',
+    async (failedStage) => {
+      let attempt = 0;
+      let posted = 0;
+      const services = new ApiServices(
+        vi.fn<typeof fetch>(async (path) => {
+          const url = String(path);
+          if (url.endsWith('/csrf')) attempt += 1;
+          if (attempt === 2 && url.endsWith(failedStage))
+            return json({ error: { code: 'BOOKING_CONFLICT' } }, 409);
+          if (url.endsWith('/csrf')) return json({ csrf_token: 'csrf', user_id: wireUser.id });
+          if (url.endsWith('/me')) return json(wireUser);
+          posted += 1;
+          throw new TypeError('Unknown delivery');
+        }),
+      );
+      const store = new BookingIntentStore();
+      const original = store.prepare(wireUser.id, body);
+      await expect(store.submit(services, wireUser.id)).rejects.toMatchObject({
+        code: 'NETWORK_ERROR',
+      });
+      await expect(store.submit(services, wireUser.id)).rejects.toMatchObject({
+        code: 'BOOKING_CONFLICT',
+      });
+      expect(store.snapshot()).toMatchObject({ key: original.key, body, phase: 'unknown' });
+      expect(posted).toBe(1);
+    },
+  );
   it.each(['csrf', 'identity', 'post'])(
     'preserves an unknown result when a retry fails at %s, then reuses the original key/body',
     async (failedStage) => {

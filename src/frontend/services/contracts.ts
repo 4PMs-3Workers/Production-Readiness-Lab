@@ -12,6 +12,11 @@ export interface ServiceRequestOptions {
   readonly signal?: AbortSignal;
 }
 
+export interface BookingRequestOptions extends ServiceRequestOptions {
+  /** Called immediately before handing the booking POST to fetch, after auth checks. */
+  readonly onDispatch?: () => void;
+}
+
 export interface LoginCredentials {
   readonly email: string;
   readonly password: string;
