@@ -375,6 +375,13 @@ tự nháy. Đã tái hiện cố định trước sửa và kiểm tra 23 ca re
 chuỗi giả constraint nằm trong entry. Timeout ứng dụng không thay đổi; kết quả
 full backend/CI được xác minh riêng trên head mới.
 
+Đã đồng bộ `develop` tại `3502047` sau PR #24 để giải quyết xung đột chặn CI.
+Bốn file hợp nhất là `src/backend/app/api/__init__.py` (đăng ký cả hai router),
+`src/backend/app/core/response_policy.py` (privacy/deadline cho cả hai nhóm),
+`tests/backend/unit/test_openapi_export.py` (hợp nhất tập paths) và
+`docs/api/openapi.yaml` (export lại). Các file staff API còn lại đi theo lịch sử
+`develop`; mô tả của phần đó tại [staff appointment management](staff-appointment-management.md).
+
 Hai lỗi được tái hiện: đổi cookie giữa kiểm tra danh tính và lấy CSRF có thể
 gửi body A dưới phiên B; lỗi 403 của retry xóa intent dù POST trước có thể đã
 commit. Bản sửa ràng buộc chủ sở hữu token/intent và giữ kết quả unknown xuyên

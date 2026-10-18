@@ -49,3 +49,12 @@ def _register_student_profile() -> None:
 
 
 _register_student_profile()
+
+
+def _register_staff_appointments() -> None:
+    from app.api.staff_appointments import router
+
+    api_v1_router.include_router(router)
+
+
+_register_staff_appointments()

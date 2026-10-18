@@ -57,7 +57,18 @@ def test_openapi_export_is_deterministic_without_database(tmp_path):
         "/api/v1/appointments/{appointment_id}/cancel",
         "/api/v1/booking-context",
         "/api/v1/students/me",
+        "/api/v1/staff/me/appointments",
+        "/api/v1/staff/me/appointments/{appointment_id}",
+        "/api/v1/staff/me/appointments/{appointment_id}/cancel",
+        "/api/v1/staff/me/appointments/{appointment_id}/outcome",
     }
+    staff_list = document["paths"]["/api/v1/staff/me/appointments"]["get"]
+    assert staff_list["security"] == [{"prl_session": []}]
+    staff_parameters = {parameter["name"]: parameter for parameter in staff_list["parameters"]}
+    assert {"page", "page_size", "status", "date"} <= staff_parameters.keys()
+    outcome = document["paths"]["/api/v1/staff/me/appointments/{appointment_id}/outcome"]["post"]
+    assert "APPOINTMENT_NOT_ENDED" in outcome["description"]
+    assert "X-CSRF-Token" in {parameter["name"] for parameter in outcome["parameters"]}
     schemes = document["components"]["securitySchemes"]
     assert any(
         s["type"] == "apiKey" and s["in"] == "cookie" and s["name"] == "prl_session"

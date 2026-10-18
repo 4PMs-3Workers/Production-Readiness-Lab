@@ -328,3 +328,17 @@ bao gồm hai ca MySQL đó, rollback/lock cleanup và kiểm đếm appointment
 notification. Black, Ruff và Pyright đạt. Không đổi timeout hoặc retry budget.
 Bộ backend đầy đủ có thêm bốn parameter unit, dự kiến 644 ca; kết quả đầy đủ
 và required checks được đối chiếu trên head mới của PR #23 trước khi báo hoàn tất.
+
+## Đồng bộ develop sau PR #24
+
+Bộ backend đầy đủ tại `e0b6ee6` đã đạt 644/644, không skip. Khi kiểm tra PR,
+`develop` đã tiến tới `3502047` (staff appointment management), làm PR xung đột
+và chưa chạy được checks pull_request. Hợp nhất router registry, private response/
+deadline policy và danh sách paths OpenAPI của cả student profile và staff API;
+export lại YAML từ application, không chọn bỏ contract của bên nào.
+
+Sau hợp nhất, 339 ca gồm toàn bộ backend unit và API hồ sơ/lịch cố vấn đã đạt;
+Black/Ruff trên 137 file Python và Pyright đạt. Bộ backend thu thập đủ 716 ca.
+26 API browser desktop/mobile đã chạy lại sau hợp nhất và đạt, không retry.
+CI được kiểm tra trên merge commit mới; không dùng số 644
+trước hợp nhất làm kết quả toàn bộ 716 ca.

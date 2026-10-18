@@ -437,6 +437,18 @@ Thời lượng lấy từ nhu cầu và được lưu tại lúc đặt. Thay �
 
 Lịch mới luôn là `UPCOMING`. `CHANGE_PENDING` có đúng một đề nghị `PENDING`. Các trạng thái kết thúc giữ nguyên khi retry; mọi cập nhật giờ/địa điểm đi qua luồng chấp thuận đề nghị. Chỉ nhân viên nhận lịch được ghi kết quả trên lịch `UPCOMING` sau `ends_at`.
 
+Staff đọc lịch qua `/api/v1/staff/me/appointments`; truy vấn luôn giới hạn `appointments.staff_id`
+theo session. Bộ lọc `date` dùng ngày trong `service_settings.timezone` và khoảng UTC nửa mở.
+Khi hủy hoặc ghi outcome, service khóa settings, student/staff theo UUID byte tăng dần rồi
+appointment. Hủy `CHANGE_PENDING` khóa và kết thúc proposal đang chờ sau appointment.
+
+Hủy lịch cho phép `UPCOMING`/`CHANGE_PENDING` trước nửa đêm địa phương của ngày hẹn; DB clock
+được đọc sau proposal lock. Ghi `COMPLETED`/`NO_SHOW` chỉ áp dụng với lịch `UPCOMING` sau
+`ends_at` (strictly greater). Retry cùng trạng thái cuối trả thời điểm đã lưu; trạng thái đối
+nghịch trả xung đột. Mỗi chuyển trạng thái ghi một audit event và hai notification cùng
+transaction với appointment/proposal. Các cột `cancelled_*`, `outcome_*`, audit, notification và
+proposal đã tồn tại; tính năng không cần migration.
+
 ### 5.3. Một lần đặt lịch
 
 ```text
