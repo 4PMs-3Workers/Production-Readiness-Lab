@@ -12,6 +12,7 @@ from app.dependencies.auth import require_csrf
 from app.dependencies.database import get_db_session
 from app.dependencies.staff import (
     reject_duplicate_staff_query,
+    reject_staff_detail_query,
     reject_staff_write_query,
     require_staff,
 )
@@ -63,8 +64,10 @@ async def get_staff_appointment(
     appointment_id: UUID,
     request: Request,
     context: Annotated[AuthContext, Depends(require_staff)],
+    _query_guard: Annotated[None, Depends(reject_staff_detail_query)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> StaffAppointmentDetailResponse:
+    del _query_guard
     return await staff_appointments.get_staff_appointment(
         db,
         appointment_id=appointment_id,

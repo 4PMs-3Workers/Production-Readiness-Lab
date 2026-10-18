@@ -31,3 +31,13 @@ async def reject_staff_write_query(
     del context
     if request.query_params:
         raise catalog_error("VALIDATION_ERROR")
+
+
+async def reject_staff_detail_query(
+    request: Request,
+    context: Annotated[AuthContext, Depends(require_staff)],
+) -> None:
+    """Staff detail routes do not define query parameters."""
+    del context
+    if request.query_params:
+        raise catalog_error("VALIDATION_ERROR")

@@ -129,7 +129,7 @@ Kiểm chứng cuối trên branch `feature/staff-appointment-management`, từ 
 - `python -m black --check src/backend/app tests/backend tools/scripts/export_openapi.py`: đạt, 126 file không cần format.
 - `python -m ruff check src/backend/app tests/backend tools/scripts/export_openapi.py`: đạt.
 - `python -m pyright --venvpath D:\Production-Readiness-Lab`: đạt, 0 lỗi/cảnh báo.
-- `python -m pytest tests/backend -q --tb=short`: 414 passed, 260 skipped, 0 failed, 1 warning trong 37.07 giây.
+- `python -m pytest tests/backend -q --tb=short`: 416 passed, 260 skipped, 0 failed, 1 warning trong 37.15 giây.
 - Hai lần chạy `python tools/scripts/export_openapi.py` tạo cùng SHA-256 artifact.
 - `git diff --check`: đạt.
 

@@ -166,6 +166,17 @@ async def test_staff_detail_routes_only_the_authenticated_assignment(auth_settin
     assert_private(response)
 
 
+@pytest.mark.parametrize("query", ["actor=unexpected", "page=1&page=1"])
+async def test_staff_detail_rejects_unrecognized_or_repeated_query(auth_settings, query):
+    app = create_app(auth_settings)
+    install_overrides(app, staff_context())
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=ORIGIN) as client:
+        response = await client.get(f"/api/v1/staff/me/appointments/{uuid4()}?{query}")
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert_private(response, error_class="input")
+
+
 async def test_staff_cancel_routes_session_actor_and_private_reason(auth_settings, monkeypatch):
     from app.schemas.appointments import AppointmentCancelResponse
     from app.services import cancellation
