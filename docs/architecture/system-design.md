@@ -225,7 +225,7 @@ API dùng tiền tố `/api/v1`, hợp đồng OpenAPI và JSON request/response
 |---|---|
 | Xác thực | Đăng nhập, đăng xuất, đọc tài khoản hiện tại; thu hồi phiên khi đăng xuất hoặc vô hiệu hóa tài khoản. |
 | Danh mục và khả dụng | GET /api/v1/purposes, /api/v1/staff, /api/v1/availability và /api/v1/booking-context chỉ dành cho STUDENT, xác thực bằng session cookie; đọc nhu cầu, nhân viên, giờ trống và cửa sổ ngày đặt do server xác định. |
-| Lịch hẹn | Sinh viên tạo qua POST /api/v1/appointments, xem lịch sử bằng GET /api/v1/appointments, xem chi tiết bằng GET /api/v1/appointments/{appointment_id} và hủy lịch bằng POST /api/v1/appointments/{appointment_id}/cancel. |
+| Lịch hẹn | Sinh viên tạo/xem/hủy lịch của mình. Nhân viên đọc danh sách/chi tiết lịch được giao, hủy lịch trước hạn và ghi kết quả qua `/api/v1/staff/me/appointments`. |
 | Đề nghị đổi lịch | Nhân viên của lịch tạo/thay đề nghị; sinh viên của lịch chấp thuận hoặc từ chối. |
 | Kết quả buổi gặp | Chỉ nhân viên nhận lịch ghi hoàn thành hoặc vắng mặt sau giờ kết thúc. |
 | Khả năng tiếp nhận | Nhân viên quản lý nhu cầu và khoảng không nhận của chính mình. |
@@ -233,9 +233,10 @@ API dùng tiền tố `/api/v1`, hợp đồng OpenAPI và JSON request/response
 | Quản trị | `ADMIN` quản lý tài khoản, nhu cầu, cấu hình và giờ phục vụ chung. |
 
 - Pydantic kiểm tra kiểu, độ dài và trường bắt buộc; service kiểm tra điều kiện nghiệp vụ.
-- Actor lấy từ phiên. API catalog, availability, booking context và các endpoint lịch hẹn sinh viên
-  chỉ chấp nhận STUDENT; không nhận student_id từ client. GET không yêu cầu CSRF, còn POST
-  tạo/hủy lịch yêu cầu same-origin và cặp CSRF đã ký.
+- Actor lấy từ phiên. API catalog, availability, booking context và endpoint lịch hẹn sinh viên
+  chỉ chấp nhận STUDENT; staff appointment API chỉ chấp nhận STAFF và chỉ trên lịch được giao.
+  ADMIN không có quyền bypass assignment. GET không yêu cầu CSRF, còn POST tạo/hủy/ghi kết quả
+  yêu cầu same-origin và cặp CSRF đã ký.
 - Catalog phân trang bằng `page`, `page_size` (tối đa 100), trả `items`, metadata phân trang
   và `total`; staff sắp theo tên rồi ID. Availability chỉ đọc trong ngày được chọn và cửa sổ
   đặt lấy từ cấu hình DB.
@@ -254,7 +255,9 @@ hiển thị cửa sổ và xác thực booking; cấu hình thiếu hoặc sai 
 sử vẫn hiển thị khi nhu cầu hoặc nhân viên ngừng hoạt động hay nhân viên không còn nhận nhu cầu.
 Mã/tên nhu cầu và tên nhân viên được đọc từ các bản ghi liên quan hiện tại; thời lượng là snapshot
 đã lưu trên appointment lúc tạo. GET lịch hẹn cũng trả Cache-Control: private, no-store, kể
-cả khi có lỗi. Xem [hợp đồng quản lý lịch hẹn](../tasks/student-appointment-management.md).
+cả khi có lỗi. Danh sách của nhân viên xếp theo giờ tăng dần và ngày lọc theo timezone nghiệp
+vụ. Xem [hợp đồng quản lý lịch hẹn sinh viên](../tasks/student-appointment-management.md) và
+[hợp đồng staff appointment](../tasks/staff-appointment-management.md).
 
 OpenAPI được tạo từ schema/routes FastAPI, xuất thành `docs/api/openapi.yaml` khi triển khai API và được kiểm tra trong CI. Frontend tích hợp theo hợp đồng này. API giữ quy tắc nghiệp vụ tại backend và đóng vai trò nguồn xác nhận kết quả.
 
@@ -323,12 +326,18 @@ Các thao tác ghi dùng transaction `READ COMMITTED` và lấy khóa theo cùng
 
 Khóa hàng tài khoản bảo vệ cả trường hợp nhân viên hoặc sinh viên chưa có lịch nào. Giới hạn ba lịch được đếm sau khi có khóa sinh viên. Database dùng generated column và UNIQUE để bảo đảm tối đa một đề nghị chờ trên mỗi lịch.
 
-Khi sinh viên hủy lịch, service lấy khóa theo thứ tự: service_settings FOR SHARE, các user
-student/staff theo UUID byte tăng dần, appointment, rồi proposal PENDING nếu lịch ở trạng thái
-CHANGE_PENDING. Sau khóa cuối cùng, service đọc UTC_TIMESTAMP(6) từ DB và chỉ cho hủy khi
-thời điểm này nhỏ hơn nửa đêm địa phương của ngày hẹn. Vì vậy yêu cầu chờ khóa qua mốc này bị
-từ chối. Lịch đã hủy trả lại thời điểm hủy ban đầu, không đổi người hủy/lý do và không ghi thêm
-audit hay notification; lịch COMPLETED/NO_SHOW trả xung đột trạng thái.
+Khi sinh viên hoặc nhân viên nhận lịch hủy, service lấy khóa theo thứ tự: service_settings FOR
+SHARE, các user student/staff theo UUID byte tăng dần, appointment, rồi proposal PENDING nếu
+lịch ở trạng thái CHANGE_PENDING. Sau khóa cuối cùng, service đọc UTC_TIMESTAMP(6) từ DB và
+chỉ cho hủy khi thời điểm này nhỏ hơn nửa đêm địa phương của ngày hẹn. Vì vậy yêu cầu chờ khóa
+qua mốc này bị từ chối. Lịch đã hủy trả lại thời điểm hủy ban đầu, không đổi người hủy/lý do và
+không ghi thêm audit hay notification; lịch COMPLETED/NO_SHOW trả xung đột trạng thái.
+
+Ghi `COMPLETED`/`NO_SHOW` cũng khóa service settings, hai tài khoản theo UUID byte tăng dần rồi
+appointment. Nhân viên phải còn hoạt động và là người được giao; trạng thái phải `UPCOMING` và
+DB clock phải lớn hơn `ends_at`. Retry cùng kết quả trả timestamp gốc mà không thêm side effect;
+kết quả đối nghịch trả xung đột. Cả hủy và ghi kết quả cập nhật appointment, một audit cùng hai
+notification trong transaction.
 
 Việc đổi trạng thái, hủy proposal đang chờ, một audit APPOINTMENT_CANCELLED và hai notification
 commit trong cùng transaction. Lý do tự do không đi vào audit metadata/logs/traces. Nếu DB trả
