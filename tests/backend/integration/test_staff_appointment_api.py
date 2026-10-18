@@ -1,6 +1,7 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
 from importlib import import_module, util
+from types import SimpleNamespace
 from uuid import uuid4
 
 import httpx
@@ -54,6 +55,23 @@ async def test_staff_list_rejects_duplicate_and_extra_query_parameters(auth_sett
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=ORIGIN) as client:
         response = await client.get("/api/v1/staff/me/appointments?" + query)
     assert response.status_code == 422
+    assert_private(response, error_class="input")
+
+
+async def test_staff_list_rejects_date_that_cannot_map_to_utc(auth_settings, monkeypatch):
+    app = create_app(auth_settings)
+    install_overrides(app, staff_context())
+
+    async def service_setting(db):
+        return SimpleNamespace(
+            timezone="Asia/Ho_Chi_Minh", start_step_minutes=15, booking_horizon_days=30
+        )
+
+    monkeypatch.setattr(_staff_service().appointments, "lock_service_settings", service_setting)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=ORIGIN) as client:
+        response = await client.get("/api/v1/staff/me/appointments?date=0001-01-01")
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
     assert_private(response, error_class="input")
 
 

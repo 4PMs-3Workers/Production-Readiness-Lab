@@ -358,6 +358,8 @@ async def test_staff_cancel_reads_clock_after_waiting_for_proposal_lock(
                 .where(ChangeProposal.appointment_id == appointment_id)
                 .with_for_update()
             )
+            # Observe the contender's query, not the lock acquisition above.
+            proposal_lock_requested.clear()
             task = asyncio.create_task(_cancel(env, appointment_id))
             await asyncio.wait_for(proposal_lock_requested.wait(), timeout=2)
             await asyncio.sleep(0.05)

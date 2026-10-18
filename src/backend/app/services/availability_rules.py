@@ -96,8 +96,11 @@ def business_day_bounds(*, selected_date: date, zone: ZoneInfo) -> TimeInterval:
         next_date = selected_date + timedelta(days=1)
     except OverflowError as exc:
         raise BookingDateError("Booking date has no representable next day") from exc
-    starts_at = _unique_boundary(selected_date, time.min, zone)
-    ends_at = _unique_boundary(next_date, time.min, zone)
+    try:
+        starts_at = _unique_boundary(selected_date, time.min, zone)
+        ends_at = _unique_boundary(next_date, time.min, zone)
+    except OverflowError as exc:
+        raise BookingDateError("Booking date cannot map to UTC") from exc
     if starts_at >= ends_at:
         raise AvailabilityConfigurationError("Business-day boundaries are invalid")
     return TimeInterval(starts_at=starts_at, ends_at=ends_at)
