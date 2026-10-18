@@ -301,7 +301,13 @@ export function DateStep({
   );
 }
 
-export function SelectionSummary({ selection }: { selection: BookingSelection }) {
+export function SelectionSummary({
+  selection,
+  timezone,
+}: {
+  selection: BookingSelection;
+  timezone?: string;
+}) {
   return (
     <dl className={styles.summaryList}>
       <div>
@@ -326,7 +332,7 @@ export function SelectionSummary({ selection }: { selection: BookingSelection })
         <dt>Giờ hẹn</dt>
         <dd>
           {selection.slot
-            ? `${formatBusinessTime(selection.slot.startsAt)} – ${formatBusinessTime(selection.slot.endsAt)}`
+            ? `${formatBusinessTime(selection.slot.startsAt, timezone)} – ${formatBusinessTime(selection.slot.endsAt, timezone)}`
             : 'Chưa chọn giờ'}
         </dd>
       </div>

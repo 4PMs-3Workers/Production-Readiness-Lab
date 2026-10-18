@@ -1,6 +1,18 @@
 .booking {
   font-size: 14px;
 }
+.pagination {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 20px 0;
+}
+.cancelSection {
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid #dce6ee;
+}
 .booking button,
 .booking input,
 .booking select,
