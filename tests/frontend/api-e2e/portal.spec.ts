@@ -1,0 +1,232 @@
+import { expect, test, type Page } from '@playwright/test';
+import { execFileSync } from 'node:child_process';
+import { resolve } from 'node:path';
+
+const root = resolve(__dirname, '../../..');
+const python = process.env.FRONTEND_E2E_PYTHON ?? 'python';
+const password = process.env.FRONTEND_E2E_PASSWORD ?? 'Fictional-e2e-password!42';
+const description = 'Nội dung giả lập cho bộ kiểm thử tự động.';
+const harness = (action: string, ...args: string[]) =>
+  execFileSync(python, ['tools/scripts/frontend_e2e_backend.py', action, ...args], {
+    cwd: root,
+    env: { ...process.env, PYTHONPATH: 'src/backend' },
+    encoding: 'utf8',
+  });
+async function login(page: Page, account = 'student') {
+  await page.goto('/login');
+  await page.getByLabel('Email', { exact: true }).fill(`${account}@frontend.example.invalid`);
+  await page.getByLabel('Mật khẩu', { exact: true }).fill(password);
+  await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click();
+  if (account === 'student' || account === 'other')
+    await expect(page.getByRole('heading', { name: /Chào mừng,/ })).toBeVisible();
+}
+
+async function selectBooking(page: Page) {
+  await page.goto('/booking');
+  await page.getByRole('radio', { name: /Tư vấn học tập kiểm thử/ }).check();
+  await page.getByLabel('Bạn muốn trao đổi về điều gì? *').fill(description);
+  await page.getByRole('button', { name: 'Tiếp tục' }).click();
+  await page.getByRole('radio', { name: /Cố vấn kiểm thử/ }).check();
+  await page.getByRole('button', { name: 'Tiếp tục' }).click();
+  const dates = page.getByRole('radio', { name: /^\d{2}\/\d{2}\/\d{4}$/ });
+  await expect(dates).toHaveCount(7);
+  await expect(page.getByRole('button', { name: 'Tuần sau', exact: true })).toHaveCount(0);
+  await dates.first().check();
+  await page.getByRole('radio', { name: /08:00 – 08:30/ }).check();
+  await page.getByRole('button', { name: 'Tiếp tục' }).click();
+}
+
+async function book(page: Page) {
+  await selectBooking(page);
+  await page.getByRole('button', { name: 'Xác nhận đặt lịch' }).click();
+  await expect(page.getByRole('heading', { name: 'Chi tiết lịch hẹn' })).toBeVisible();
+  const id = new URL(page.url()).searchParams.get('id');
+  expect(id).toMatch(/^[a-f0-9-]{36}$/);
+  return id!;
+}
+
+test.beforeEach(() => {
+  harness('reset');
+});
+
+test('student profile has a sidebar route, survives reload and changes with the account', async ({
+  page,
+}) => {
+  await page.goto('/profile');
+  await expect(page).toHaveURL(/\/login\?returnTo=%2Fprofile/);
+  await login(page);
+  const navigation = page.getByRole('navigation', { name: 'Điều hướng chính' });
+  await navigation.getByRole('link', { name: 'Thông tin sinh viên' }).click();
+  await expect(page).toHaveURL('/profile');
+  await expect(page.getByRole('heading', { name: 'Thông tin sinh viên', level: 1 })).toBeVisible();
+  await expect(navigation.getByRole('link', { name: 'Thông tin sinh viên' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await expect(page.getByText('TEST-STUDENT', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Khoa kiểm thử', { exact: true })).toBeVisible();
+  await expect(page.getByText('Ngành kiểm thử', { exact: true })).toBeVisible();
+  await expect(page.getByText('Không cung cấp', { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('TEST-STUDENT', { exact: true }).first()).toBeVisible();
+  const response = await page.request.get('/api/v1/students/me');
+  expect(response.headers()['cache-control']).toBe('private, no-store');
+  await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
+  await expect(page).toHaveURL(/\/login/);
+  await login(page, 'other');
+  await page
+    .getByRole('navigation', { name: 'Điều hướng chính' })
+    .getByRole('link', { name: 'Thông tin sinh viên' })
+    .click();
+  await expect(page.getByText('TEST-OTHER', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('TEST-STUDENT', { exact: true })).toHaveCount(0);
+});
+
+test('real login → booking → reload → history/detail → cancel → reload persists in MySQL', async ({
+  page,
+  context,
+}, testInfo) => {
+  await page.goto('/appointments');
+  await expect(page).toHaveURL(/\/login\?returnTo=/);
+  await login(page);
+  expect((await context.cookies()).find((cookie) => cookie.name === 'prl_session')?.httpOnly).toBe(
+    true,
+  );
+  const id = await book(page);
+  await expect(page.getByText('Sắp diễn ra', { exact: true })).toBeVisible();
+  await expect(page.getByText('08:00 – 08:30', { exact: true })).toBeVisible();
+  await expect(page.getByText('DEMO', { exact: true })).toHaveCount(0);
+  const screenshot = testInfo.outputPath('real-result.png');
+  await page.screenshot({
+    path: screenshot,
+    fullPage: true,
+    mask: [page.getByText(description, { exact: true })],
+  });
+  await testInfo.attach('real-result-redacted', { path: screenshot, contentType: 'image/png' });
+  await page.reload();
+  await expect(page.getByText('Sắp diễn ra', { exact: true })).toBeVisible();
+  await page.goto('/appointments');
+  await page.getByRole('link', { name: /Xem chi tiết/ }).click();
+  await expect(page).toHaveURL(new RegExp(`/appointments/${id}$`));
+  await page.getByRole('button', { name: 'Hủy lịch hẹn', exact: true }).click();
+  await page.getByLabel('Lý do hủy (không bắt buộc)').fill('Fictional test cancellation');
+  await page.getByRole('button', { name: 'Xác nhận hủy lịch', exact: true }).click();
+  await expect(page.getByText('Đã hủy', { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('Đã hủy', { exact: true })).toBeVisible();
+  const csrf = await context.request.get('/api/v1/auth/csrf');
+  const token = (await csrf.json()).csrf_token as string;
+  const repeated = await context.request.post(`/api/v1/appointments/${id}/cancel`, {
+    headers: { Origin: 'http://127.0.0.1:3101', 'X-CSRF-Token': token },
+    data: {},
+  });
+  expect(repeated.status()).toBe(200);
+  const counts = JSON.parse(harness('inspect', '--id', id));
+  expect(counts).toEqual({
+    appointments: 1,
+    APPOINTMENT_CREATED: 1,
+    APPOINTMENT_CANCELLED: 1,
+    APPOINTMENT_CREATED_notifications: 2,
+    APPOINTMENT_CANCELLED_notifications: 2,
+  });
+});
+
+test('a lost committed response survives route remount and retries exactly once', async ({
+  page,
+}) => {
+  await login(page);
+  await selectBooking(page);
+  harness('arm-loss');
+  await page.getByRole('button', { name: 'Xác nhận đặt lịch' }).click();
+  await expect(page.getByRole('button', { name: 'Thử lại cùng yêu cầu' })).toBeVisible();
+  // Client navigation preserves the UI-session intent; no page reload or new POST.
+  await page.getByRole('link', { name: 'Trang chủ', exact: true }).first().click();
+  await page.getByRole('link', { name: 'Bắt đầu đặt lịch' }).click();
+  await page.getByRole('button', { name: 'Thử lại cùng yêu cầu' }).click();
+  await expect(page.getByRole('heading', { name: 'Chi tiết lịch hẹn' })).toBeVisible();
+  const id = new URL(page.url()).searchParams.get('id')!;
+  expect(JSON.parse(harness('inspect', '--id', id))).toMatchObject({
+    appointments: 1,
+    APPOINTMENT_CREATED: 1,
+    APPOINTMENT_CREATED_notifications: 2,
+  });
+  await page.goto('/appointments');
+  await expect(page.getByRole('link', { name: /Xem chi tiết/ })).toHaveCount(1);
+});
+
+test('two independent students cannot read or cancel each other’s appointments', async ({
+  page,
+  browser,
+}) => {
+  await login(page);
+  const id = await book(page);
+  const second = await browser.newContext({
+    baseURL: 'http://127.0.0.1:3101',
+    timezoneId: 'America/Los_Angeles',
+  });
+  try {
+    const other = await second.newPage();
+    await login(other, 'other');
+    await other.goto(`/appointments/${id}`);
+    await expect(other.getByRole('heading', { name: 'Không tìm thấy lịch hẹn.' })).toBeVisible();
+    const csrf = await second.request.get('/api/v1/auth/csrf');
+    const token = (await csrf.json()).csrf_token as string;
+    const response = await second.request.post(`/api/v1/appointments/${id}/cancel`, {
+      headers: { Origin: 'http://127.0.0.1:3101', 'X-CSRF-Token': token },
+      data: {},
+    });
+    expect(response.status()).toBe(404);
+    expect(JSON.parse(harness('inspect', '--id', id)).APPOINTMENT_CANCELLED).toBe(0);
+  } finally {
+    await second.close();
+  }
+});
+
+test('expiry and logout clear private history before another account signs in', async ({
+  page,
+}) => {
+  await login(page);
+  const id = await book(page);
+  harness('expire');
+  await page.reload();
+  await expect(page).toHaveURL(/\/login\?returnTo=/);
+  await login(page, 'other');
+  await page.goto('/appointments');
+  await expect(page.getByRole('heading', { name: 'Chưa có lịch hẹn phù hợp.' })).toBeVisible();
+  await expect(page.getByText(id, { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
+  await expect(page).toHaveURL(/\/login/);
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Đăng nhập', exact: true })).toBeVisible();
+});
+
+for (const role of ['staff', 'admin']) {
+  test(`unsupported ${role} never receives student controls`, async ({ page }) => {
+    await login(page, role);
+    await expect(page.getByRole('heading', { name: 'Tài khoản chưa được hỗ trợ' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Xác nhận đặt lịch' })).toHaveCount(0);
+  });
+}
+
+test('real pagination, all-state filters, empty result and deep links', async ({ page }) => {
+  harness('history');
+  await login(page);
+  await page.goto('/appointments');
+  await expect(page.getByText('Trang 1 · 24 kết quả')).toBeVisible();
+  await expect(page.getByRole('link', { name: /Xem chi tiết/ })).toHaveCount(20);
+  await page.getByRole('button', { name: 'Trang sau' }).click();
+  await expect(page.getByRole('link', { name: /Xem chi tiết/ })).toHaveCount(4);
+  await page.getByLabel('Trạng thái lịch hẹn').selectOption('UPCOMING');
+  await expect(page.getByRole('heading', { name: 'Chưa có lịch hẹn phù hợp.' })).toBeVisible();
+  await page.getByLabel('Trạng thái lịch hẹn').selectOption('CANCELLED');
+  await expect(page.getByRole('link', { name: /Xem chi tiết/ })).toHaveCount(20);
+  await page
+    .getByRole('link', { name: /Xem chi tiết/ })
+    .first()
+    .click();
+  await expect(page).toHaveURL(/\/appointments\/[a-f0-9-]{36}$/);
+  await page.reload();
+  await expect(page.getByText('Đã hủy', { exact: true })).toBeVisible();
+  await page.goto('/booking/result');
+  await expect(page.getByRole('heading', { name: 'Bạn chưa có kết quả đặt lịch.' })).toBeVisible();
+});
