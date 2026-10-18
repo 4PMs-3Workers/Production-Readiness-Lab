@@ -279,3 +279,75 @@ test('real pagination, all-state filters, empty result and deep links', async ({
   await page.goto('/booking/result');
   await expect(page.getByRole('heading', { name: 'Bạn chưa có kết quả đặt lịch.' })).toBeVisible();
 });
+
+for (const recovery of ['csrf-rejected', 'same-student', 'different-student'] as const) {
+  test(`a lost committed receipt survives ${recovery} without a duplicate appointment`, async ({
+    page,
+    context,
+  }) => {
+    await login(page);
+    await selectBooking(page);
+    const posted: { key: string | undefined; body: string | null }[] = [];
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/appointments')
+        posted.push({ key: request.headers()['idempotency-key'], body: request.postData() });
+    });
+    harness('arm-loss');
+    await page.getByRole('button', { name: 'Xác nhận đặt lịch' }).click();
+    const retry = page.getByRole('button', { name: 'Thử lại cùng yêu cầu' });
+    await expect(retry).toBeVisible();
+    const committedHistory = await context.request.get('/api/v1/appointments');
+    const committed = (await committedHistory.json()).items;
+    expect(committed).toHaveLength(1);
+    const id = committed[0].id as string;
+    if (recovery === 'csrf-rejected') {
+      // Corrupt one request header; let the real server return INVALID_CSRF.
+      await page.route(
+        '**/api/v1/appointments',
+        async (route) => {
+          await route.continue({
+            headers: { ...route.request().headers(), 'x-csrf-token': 'invalid-test-token' },
+          });
+        },
+        { times: 1 },
+      );
+      const rejection = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === '/api/v1/appointments' && response.status() === 403,
+      );
+      await retry.click();
+      expect((await (await rejection).json()).error.code).toBe('INVALID_CSRF');
+      await expect(retry).toBeVisible();
+    } else {
+      harness('expire', '--user', 'student');
+      await retry.click();
+      await expect(page).toHaveURL(/\/login\?returnTo=%2Fbooking/);
+      await expect(page.getByText(description, { exact: true })).toHaveCount(0);
+      const account = recovery === 'same-student' ? 'student' : 'other';
+      await page.getByLabel('Email', { exact: true }).fill(`${account}@frontend.example.invalid`);
+      await page.getByLabel('Mật khẩu', { exact: true }).fill(password);
+      await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click();
+      await expect(page).toHaveURL('/booking');
+      if (recovery === 'different-student') {
+        await expect(page.getByRole('heading', { name: 'Chọn nhu cầu tư vấn' })).toBeVisible();
+        await expect(retry).toHaveCount(0);
+        expect(posted).toHaveLength(1);
+        const otherHistory = await context.request.get('/api/v1/appointments');
+        expect((await otherHistory.json()).items).toEqual([]);
+      }
+    }
+    if (recovery !== 'different-student') {
+      await retry.click();
+      await expect(page.getByRole('heading', { name: 'Chi tiết lịch hẹn' })).toBeVisible();
+      expect(new URL(page.url()).searchParams.get('id')).toBe(id);
+      expect(posted.length).toBe(recovery === 'csrf-rejected' ? 3 : 2);
+      expect(posted[0].key).toBeTruthy();
+      for (const replay of posted) expect(replay).toEqual(posted[0]);
+    }
+    expect(JSON.parse(harness('inspect', '--id', id))).toMatchObject({
+      appointments: 1,
+      APPOINTMENT_CREATED: 1,
+      APPOINTMENT_CREATED_notifications: 2,
+    });
+  });
+}

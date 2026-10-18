@@ -278,6 +278,45 @@ describe('booking intent recovery', () => {
     await first;
     expect(create).toHaveBeenCalledTimes(1);
   });
+  it.each(['csrf', 'identity', 'post'])(
+    'preserves an unknown result when a retry fails at %s, then reuses the original key/body',
+    async (failedStage) => {
+      let attempt = 0;
+      const posted: RequestInit[] = [];
+      const services = new ApiServices(
+        vi.fn<typeof fetch>(async (path, init) => {
+          if (String(path).endsWith('/csrf')) {
+            attempt += 1;
+            if (attempt === 2 && failedStage === 'csrf')
+              return json({ error: { code: 'INVALID_CSRF' } }, 403);
+            return json({ csrf_token: 'csrf', user_id: wireUser.id });
+          }
+          if (String(path).endsWith('/me'))
+            return attempt === 2 && failedStage === 'identity'
+              ? json({ error: { code: 'INVALID_SESSION' } }, 401)
+              : json(wireUser);
+          posted.push(init!);
+          if (attempt === 1) throw new TypeError('Committed receipt was lost');
+          if (attempt === 2) return json({ error: { code: 'INVALID_CSRF' } }, 403);
+          return json(receipt);
+        }),
+      );
+      const store = new BookingIntentStore();
+      const original = store.prepare(wireUser.id, body);
+      await expect(store.submit(services, wireUser.id)).rejects.toMatchObject({
+        code: 'NETWORK_ERROR',
+      });
+      await expect(store.submit(services, wireUser.id)).rejects.toMatchObject({
+        code: failedStage === 'identity' ? 'INVALID_SESSION' : 'INVALID_CSRF',
+      });
+      expect(store.snapshot()).toMatchObject({ key: original.key, body, phase: 'unknown' });
+      expect(await store.submit(services, wireUser.id)).toEqual(receipt);
+      for (const request of posted) {
+        expect(request.body).toBe(JSON.stringify(original.body));
+        expect(new Headers(request.headers).get('Idempotency-Key')).toBe(original.key);
+      }
+    },
+  );
   it('clears the body and never posts after a verified account switch', async () => {
     const create = vi.fn(async () => json(receipt));
     const store = new BookingIntentStore();

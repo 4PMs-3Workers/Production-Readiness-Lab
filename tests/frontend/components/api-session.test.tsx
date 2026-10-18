@@ -1,4 +1,5 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
+import { useEffect } from 'react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiProvider, useApi, useBookingIntent } from '@/features/api/api-provider';
@@ -43,6 +44,87 @@ function PrivateView() {
 }
 
 describe('API session boundaries', () => {
+  it.each(['same-student', 'different-student', 'logout'])(
+    'keeps an unresolved result private through expiry and handles %s recovery',
+    async (recovery) => {
+      let active = user;
+      let expired = false;
+      const posted: RequestInit[] = [];
+      const services = new ApiServices(
+        vi.fn<typeof fetch>(async (path, init) => {
+          if (String(path).endsWith('/login')) {
+            expired = false;
+            return json(active);
+          }
+          if (String(path).endsWith('/logout')) return new Response(null, { status: 204 });
+          if (expired) return error('INVALID_SESSION', 401);
+          if (String(path).endsWith('/csrf'))
+            return json({ csrf_token: 'csrf', user_id: active.id });
+          if (String(path).endsWith('/me')) return json(active);
+          posted.push(init!);
+          if (posted.length === 1) throw new TypeError('Committed response lost');
+          return json({ id: 'receipt', status: 'UPCOMING', created_at: '2026-10-18T01:00:00Z' });
+        }),
+      );
+      let api!: ReturnType<typeof useApi>;
+      function Capture() {
+        const value = useApi();
+        useEffect(() => {
+          api = value;
+        }, [value]);
+        return null;
+      }
+      render(
+        <ApiProvider services={services}>
+          <Capture />
+          <SessionGate>
+            <PrivateView />
+          </SessionGate>
+        </ApiProvider>,
+      );
+      await screen.findByText('private:Fictional Student A');
+      await userEvent.click(screen.getByRole('button', { name: 'draft' }));
+      const original = api.intents.snapshot()!;
+      await act(async () => {
+        await expect(api.intents.submit(services, user.id)).rejects.toMatchObject({
+          code: 'NETWORK_ERROR',
+        });
+      });
+      expired = true;
+      await act(async () => {
+        await expect(api.intents.submit(services, user.id)).rejects.toMatchObject({
+          code: 'INVALID_SESSION',
+        });
+      });
+      expect(api.session.status).toBe('anonymous');
+      expect(screen.queryByText(/private:|pending:/)).not.toBeInTheDocument();
+      expect(api.intents.snapshot()).toMatchObject({ key: original.key, phase: 'unknown' });
+      if (recovery === 'logout') {
+        // Explicit logout discards even an unresolved intent; expired sessions may return 401.
+        await act(async () => api.logout());
+        expect(api.intents.snapshot()).toBeNull();
+        return;
+      }
+      if (recovery === 'different-student') active = { ...user, id: 'b', name: 'Student B' };
+      await act(async () => api.login({ email: active.email, password: 'fictional' }));
+      if (recovery === 'different-student') {
+        expect(api.intents.snapshot()).toBeNull();
+        expect(screen.queryByText('pending:fictional')).not.toBeInTheDocument();
+        expect(posted).toHaveLength(1);
+      } else {
+        expect(screen.getByText('pending:fictional')).toBeVisible();
+        await act(async () => {
+          await expect(api.intents.submit(services, user.id)).resolves.toMatchObject({
+            id: 'receipt',
+          });
+        });
+        expect(posted).toHaveLength(2);
+        expect(posted[1].body).toBe(posted[0].body);
+        expect(new Headers(posted[1].headers).get('Idempotency-Key')).toBe(original.key);
+      }
+    },
+  );
+
   it('opens booking instructions while signed out without navigating to a protected route', async () => {
     const services = new ApiServices(
       vi.fn<typeof fetch>(async () => error('INVALID_SESSION', 401)),

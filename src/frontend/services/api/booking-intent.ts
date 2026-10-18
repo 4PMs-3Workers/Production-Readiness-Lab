@@ -16,6 +16,7 @@ export class BookingIntentStore {
   private listeners = new Set<() => void>();
   private running: Promise<BookingReceipt> | null = null;
   private controller: AbortController | null = null;
+  private recoveringUnknown = false;
   private version = 0;
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -28,12 +29,25 @@ export class BookingIntentStore {
     this.current = value;
     this.listeners.forEach((listener) => listener());
   }
-  clear() {
+  private cancelRunning() {
     this.version += 1;
     this.running = null;
     this.controller?.abort();
     this.controller = null;
+    this.recoveringUnknown = false;
+  }
+  clear() {
+    this.cancelRunning();
     this.update(null);
+  }
+  suspendForSessionLoss() {
+    const intent = this.current;
+    const unresolved =
+      intent?.phase === 'unknown' || (intent?.phase === 'submitting' && this.recoveringUnknown);
+    this.cancelRunning();
+    // A failed bootstrap/replay cannot determine whether an earlier POST committed.
+    // Keep recovery material in memory, hidden until the same student signs back in.
+    this.update(intent && unresolved ? { ...intent, phase: 'unknown' } : null);
   }
   prepare(userId: string, body: BookingBody) {
     if (this.current) return this.current;
@@ -60,6 +74,7 @@ export class BookingIntentStore {
     const version = this.version;
     const controller = new AbortController();
     this.controller = controller;
+    this.recoveringUnknown = intent.phase === 'unknown';
     const task = (async () => {
       try {
         const receipt = await services.create(intent.body, intent.key, userId, {
@@ -77,6 +92,7 @@ export class BookingIntentStore {
             services.invalidateSession();
           } else if (error instanceof ApiError && error.code === 'IDEMPOTENCY_CONFLICT')
             this.update({ ...intent, phase: 'conflict' });
+          else if (intent.phase === 'unknown') this.update({ ...intent, phase: 'unknown' });
           else if (error instanceof ApiError && !error.unknownOutcome) this.update(null);
           else this.update({ ...intent, phase: 'unknown' });
         }
@@ -85,6 +101,7 @@ export class BookingIntentStore {
         if (this.version === version) {
           this.running = null;
           this.controller = null;
+          this.recoveringUnknown = false;
         }
       }
     })();

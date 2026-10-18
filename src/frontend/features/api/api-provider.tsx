@@ -43,20 +43,29 @@ export function ApiProvider({
   const [session, setSession] = useState<Session>({ status: 'loading' });
   const [revision, setRevision] = useState(0);
   const previousUser = useRef<SessionUser | null>(null);
-  const clearPrivate = useCallback(() => {
-    previousUser.current = null;
-    services.clearSession();
-    intents.clear();
-    setRevision((value) => value + 1);
-  }, [services, intents]);
+  const clearPrivate = useCallback(
+    (preserveUnknown = false) => {
+      previousUser.current = null;
+      services.clearSession();
+      if (preserveUnknown) intents.suspendForSessionLoss();
+      else intents.clear();
+      setRevision((value) => value + 1);
+    },
+    [services, intents],
+  );
   const acceptUser = useCallback(
     (user: SessionUser) => {
       const previous = previousUser.current;
-      if (previous && (previous.id !== user.id || previous.role !== user.role)) clearPrivate();
+      const pending = intents.snapshot();
+      if (
+        (previous && (previous.id !== user.id || previous.role !== user.role)) ||
+        (pending && (pending.userId !== user.id || user.role !== 'STUDENT'))
+      )
+        clearPrivate();
       previousUser.current = user;
       setSession({ status: 'authenticated', user });
     },
-    [clearPrivate],
+    [clearPrivate, intents],
   );
   const refreshSession = useCallback(async () => {
     services.clearSession();
@@ -75,7 +84,7 @@ export function ApiProvider({
 
   useEffect(() => {
     services.setInvalidSessionHandler(() => {
-      clearPrivate();
+      clearPrivate(true);
       setSession({ status: 'anonymous' });
     });
     const controller = new AbortController();
@@ -123,7 +132,7 @@ export function ApiProvider({
   }, [session, services, acceptUser]);
 
   async function login(credentials: LoginCredentials, options?: ServiceRequestOptions) {
-    clearPrivate();
+    clearPrivate(true);
     const user = await services.login(credentials, options);
     acceptUser(user);
   }

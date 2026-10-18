@@ -95,6 +95,12 @@ Token CSRF `v1.nonce.mac` có nonce 32 byte, HMAC-SHA256 trên domain prefix + s
 session; dùng compare_digest. Reissue không vô hiệu token CSRF cũ cùng phiên. Sau session revoke
 hoặc expiry, các token CSRF đó cũng không dùng được vì authentication thất bại.
 
+`GET /api/v1/auth/csrf` trả `{csrf_token, user_id}` từ cùng phiên đã xác thực.
+Frontend đặt lịch đối chiếu `user_id` với chủ sở hữu intent, sau đó kiểm tra
+`/auth/me` và POST bằng chính token bootstrap. Không lấy token mới sau xác minh;
+đổi cookie phiên sẽ bị kiểm tra chữ ký CSRF từ chối. Triển khai backend có field
+`user_id` trước frontend dùng contract này; client cũ chỉ đọc `csrf_token` vẫn dùng được.
+
 Logout với session hợp lệ cần origin + CSRF. Không/invalid/expired/revoked/inactive session có thể
 logout 204 và clear cookies sau origin validation; DB lookup lỗi vẫn 503, không giả báo thành công.
 

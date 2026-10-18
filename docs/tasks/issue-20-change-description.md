@@ -2,7 +2,9 @@
 
 Ngày rà soát: **18/10/2026**. Branch: `feature/frontend-api-integration`.
 Nền triển khai: `c865b1e07dd25cca0e1a1269b29ebdff84606637` từ `develop` (PR #19).
-Thay đổi đang ở working tree; **chưa commit, push hoặc tạo PR**.
+Bản mô tả trước commit ban đầu được giữ dưới đây. Thay đổi đã lên
+[PR #23](https://github.com/4PMs-3Workers/Production-Readiness-Lab/pull/23);
+phần bổ sung cuối tài liệu ghi các sửa đổi sau review.
 
 ## Vấn đề và kết quả
 
@@ -38,7 +40,8 @@ nhu cầu có mã tùy ý để kiểm chứng hợp đồng; catalog thử tay 
 - Return path giới hạn trong các route nội bộ được hỗ trợ. STAFF/ADMIN thấy thông
   báo chưa được hỗ trợ, không được giả lập thành sinh viên.
 - Quay lại tab thì ẩn và vô hiệu hóa UI cá nhân trong lúc xác minh. Cùng tài khoản
-  giữ draft; đổi danh tính/vai trò, hết phiên hoặc logout xóa dữ liệu phiên cũ.
+  giữ draft; đổi danh tính/vai trò hoặc logout xóa dữ liệu phiên cũ. Hết phiên ẩn
+  UI cá nhân và chỉ giữ intent unknown trong bộ nhớ để đúng sinh viên phục hồi.
 - Logout lỗi vẫn ẩn dữ liệu riêng và báo lỗi; chỉ xác nhận kết thúc phiên khi backend
   trả thành công hoặc INVALID_SESSION.
 
@@ -49,8 +52,10 @@ nhu cầu có mã tùy ý để kiểm chứng hợp đồng; catalog thử tay 
    tải availability. Đổi lựa chọn loại bỏ giờ cũ và hủy request cũ.
 3. Kiểm tra lại thông tin sinh viên và cuộc hẹn. Khi gửi, tạo một intent gồm user ID,
    khóa ngẫu nhiên và body bất biến; các lần bấm đồng thời dùng chung một Promise.
-4. Xác minh lại danh tính, lấy CSRF rồi gửi body đã duyệt. Lỗi mạng/timeout/5xx giữ
-   khóa và body để thử lại cùng yêu cầu; không tự gửi yêu cầu mới với khóa khác.
+4. Lấy CSRF kèm ID người sở hữu, xác minh lại danh tính rồi gửi body đã duyệt bằng
+   đúng token đó. Lỗi mạng/timeout/5xx giữ khóa và body để thử lại cùng yêu cầu;
+   lỗi CSRF/hết phiên ở retry không xóa kết quả unknown của lần trước. Không tự
+   gửi yêu cầu mới với khóa khác.
 5. Khi có receipt, mở `/booking/result?id=<uuid>` và GET chi tiết hiện tại. GET lỗi
    vẫn giữ UUID để tải lại; receipt lúc tạo không thay thế trạng thái hiện tại.
 
@@ -359,3 +364,27 @@ Các report XML/HTML, bản ghi hash và draft PR trong `build/`, `test-results/
 Bản ghi `build/issue20-verification.json` giữ base SHA, kết quả đã chạy và hash từng
 file; `build/manual-issue20/final-report.md` ghi các bước thử tay đã quan sát.
 Không thực hiện commit/push/PR trong bước rà soát này.
+
+## Bổ sung theo comment review PR #23 ngày 18/10/2026
+
+Hai lỗi được tái hiện: đổi cookie giữa kiểm tra danh tính và lấy CSRF có thể
+gửi body A dưới phiên B; lỗi 403 của retry xóa intent dù POST trước có thể đã
+commit. Bản sửa ràng buộc chủ sở hữu token/intent và giữ kết quả unknown xuyên
+suốt lỗi retry hoặc đăng nhập lại cùng sinh viên. Xem
+[luồng và kiểm chứng mới](frontend-api-integration.md#review-pr-23-giữ-kết-quả-unknown-qua-lỗi-thử-lại).
+
+| File                                               | Thay đổi sau review                                                                    |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `src/backend/app/schemas/auth.py`                  | CSRF response thêm `user_id` bắt buộc.                                                 |
+| `src/backend/app/api/auth.py`                      | Token và ID chủ sở hữu sinh từ cùng AuthContext.                                       |
+| `docs/api/openapi.yaml`                            | Export contract mới; triển khai backend trước frontend.                                |
+| `src/frontend/services/api/client.ts`              | Bootstrap CSRF → kiểm tra owner/identity → POST đúng token; cùng AbortSignal.          |
+| `src/frontend/services/api/booking-intent.ts`      | Abort/version guard; giữ key/body unknown qua lỗi retry và session expiry.             |
+| `src/frontend/features/api/api-provider.tsx`       | Ẩn private UI khi hết phiên; chỉ phục hồi cho cùng STUDENT, xóa khi logout/đổi người.  |
+| `tests/backend/integration/test_auth_endpoints.py` | CSRF owner theo session và từ chối token người khác dù cookie/header khớp.             |
+| `tests/frontend/unit/api-services.test.ts`         | Owner/session races, clear trong request chờ và giữ unknown qua lỗi retry.             |
+| `tests/frontend/components/api-session.test.tsx`   | Global INVALID_SESSION handler, login cùng/khác người và logout.                       |
+| `tests/frontend/api-e2e/portal.spec.ts`            | Giữ request auth để đổi cookie; receipt loss → CSRF/expiry → phục hồi; kiểm đếm MySQL. |
+| `docs/tasks/frontend-api-integration.md`           | Contract, deployment order, dữ liệu riêng tư, recovery và bằng chứng kiểm tra mới.     |
+| `docs/tasks/session-authentication.md`             | Contract CSRF trả owner và thứ tự triển khai tương thích client cũ.                    |
+| `docs/tasks/issue-20-change-description.md`        | Cập nhật luồng và manifest bổ sung này.                                                |

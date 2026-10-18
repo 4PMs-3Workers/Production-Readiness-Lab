@@ -4,8 +4,9 @@ Nền triển khai: `develop` tại `c865b1e07dd25cca0e1a1269b29ebdff84606637`
 (PR #19). Giữ giao diện HUS, bốn bước đặt lịch và tiếng Việt; backend quyết định
 danh tính, quyền, cửa sổ ngày đặt, khả dụng, quota và trạng thái lịch.
 
-Kết quả hiện tại ngày 18/10/2026: **118 unit/component, 66 mock E2E, 16 API E2E,
-638 backend tests đạt**. Phạm vi cuối cùng, danh sách từng file, các điểm đã rà soát
+Kết quả trước review ngày 18/10/2026: **118 unit/component, 66 mock E2E, 16 API E2E,
+638 backend tests đạt**. Kết quả sau review được bổ sung ở cuối tài liệu.
+Phạm vi, danh sách từng file, các điểm đã rà soát
 và cách triển khai nằm trong [mô tả thay đổi issue #20](issue-20-change-description.md).
 Các số liệu ngày 17/10 ở cuối tài liệu được giữ làm lịch sử trước phần bổ sung hồ sơ.
 
@@ -86,8 +87,10 @@ Login gửi JSON và dùng origin validation. Trước booking/cancel/logout, l�
 từ `/auth/csrf` rồi gửi X-CSRF-Token cùng cookie. Session cookie là HttpOnly.
 Không lưu password/session/CSRF token trong localStorage, sessionStorage hay log.
 Quay lại tab thì xác minh lại danh tính trước khi hiện private UI, giữ draft nếu
-vẫn cùng danh tính. Lỗi mạng khi kiểm tra phiên giữ intent chờ xác minh; đổi tài khoản,
-logout hoặc INVALID_SESSION hủy requests và xóa pending intent/dữ liệu phiên cũ.
+vẫn cùng danh tính. Lỗi mạng khi kiểm tra phiên giữ intent chờ xác minh. Đổi tài
+khoản hoặc logout hủy requests và xóa intent/dữ liệu phiên cũ. INVALID_SESSION
+ẩn UI cá nhân, hủy requests; chỉ giữ intent đã có kết quả unknown trong bộ nhớ,
+không cho dùng tiếp trước khi xác minh lại đúng sinh viên sở hữu intent.
 Logout lỗi giữ UI cá nhân ở trạng thái đã xóa và báo lỗi, không tuyên bố đã thu hồi
 session nếu backend chưa xác nhận.
 
@@ -95,12 +98,17 @@ session nếu backend chưa xác nhận.
 
 BookingIntentStore nằm trên route components: user ID, random key, body bất biến,
 phase và receipt chỉ ở bộ nhớ của UI session. Description giữ nguyên whitespace.
-Gửi lặp đồng thời dùng chung một Promise. Trước khi gửi/retry xác minh `/auth/me`
-vẫn là cùng sinh viên; đổi người dùng thì xóa intent, không gửi body cũ.
+Gửi lặp đồng thời dùng chung một Promise. Trước khi gửi/retry lấy CSRF cùng ID
+người sở hữu từ `/auth/csrf`, rồi xác minh `/auth/me` vẫn là cùng sinh viên;
+đổi người dùng thì xóa intent, không gửi body cũ. POST dùng đúng token đã kiểm tra.
 
 Timeout, mất kết nối, abort hoặc lỗi server không rõ commit giữ cùng key/body.
 UI cung cấp “Thử lại cùng yêu cầu” và liên kết kiểm tra lịch sử; điều này hoạt động
 qua điều hướng client/remount. Không tự tạo key mới khi chưa biết kết quả.
+Khi intent đã unknown, lỗi 4xx ở lần thử lại (kể cả INVALID_CSRF hoặc hết phiên)
+không chứng minh lần POST trước chưa commit, nên vẫn giữ nguyên key/body.
+Đăng nhập lại cùng sinh viên phục hồi nút thử lại; đăng nhập người khác hoặc
+đăng xuất chủ động xóa intent. IDEMPOTENCY_CONFLICT khóa yêu cầu để kiểm tra.
 Sau receipt, URL `/booking/result?id=<uuid>` gọi GET detail. GET lỗi vẫn giữ ID
 và cho phép tải lại detail, không POST booking mới. Receipt replay UPCOMING vẫn
 phải hiển thị CANCELLED nếu detail hiện tại đã bị hủy.
@@ -275,3 +283,33 @@ Kiểm tra trước commit: 125 unit/component, 28 auth integration trên MySQL 
 Black/Ruff và Pyright đạt. Đã thử tay bằng trình duyệt: đăng nhập A → chọn nhu cầu,
 cố vấn, ngày/giờ → xác nhận thành công → reload vẫn thấy cùng mã lịch hẹn.
 Ảnh fixture local: `build/review-p1-manual-result.png`.
+
+## Review PR #23: giữ kết quả unknown qua lỗi thử lại
+
+Một retry bị từ chối CSRF hoặc hết phiên không quyết định kết quả của POST trước.
+Store giữ key/body bất biến cùng trạng thái unknown khi retry gặp lỗi; request
+đang chờ bị hủy có version guard để không thay đổi intent mới. INVALID_SESSION
+chỉ giữ phần phục hồi trong bộ nhớ, đồng thời xóa session UI và ẩn nội dung riêng.
+Login cùng ID/vai trò STUDENT cho phép phục hồi. Login khác ID/vai trò hoặc logout
+chủ động xóa phần phục hồi, kể cả khi session trước đã hết hạn.
+
+Sáu regression unit/component được chạy trước sửa và đều thất bại: lỗi ở CSRF,
+identity hoặc POST của retry; session expiry rồi login cùng người, login khác
+người và logout. Sau sửa cả sáu đạt. Bộ API browser thêm mất receipt sau commit →
+retry bị INVALID_CSRF thật → retry thành công; và expiry → login cùng/khác sinh
+viên. Test chỉ sửa một header để server tự từ chối, không tạo response booking
+giả. Các POST phục hồi phải giữ cùng key/body, cùng receipt; MySQL phải có đúng
+1 appointment, 1 creation audit và 2 creation notifications.
+
+Kiểm tra trước commit phục hồi: 131 unit/component, 66 mock E2E và 26 API browser
+desktop/mobile đạt, không retry. Production build API/mock, ESLint, Prettier và
+TypeScript đạt. Đã thử trực tiếp với fixture hư cấu: mất receipt sau commit →
+hiện nút thử lại → làm hết phiên → redirect login, nội dung riêng đã ẩn →
+đăng nhập lại A → nút thử lại vẫn còn → phục hồi lịch thành công. Query MySQL
+có đúng 1 appointment, 1 creation audit và 2 notifications. Ảnh local ở
+`build/review-p2-manual-restored-intent.png` và `build/review-p2-manual-result.png`.
+
+Lượt backend đầy đủ đầu tiên có 639 passed, 1 failed: ca duplicate-winner không
+nhận diện được lỗi unique khi repr của driver escape ký tự nháy trong entry.
+Lỗi này được tái hiện và sửa riêng trong phần kiểm chứng bổ sung; không xem
+lượt chạy này là toàn bộ backend đạt.
