@@ -499,6 +499,61 @@ components:
       - name
       title: StaffItem
       type: object
+    StudentProfileResponse:
+      properties:
+        email:
+          title: Email
+          type: string
+        faculty:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Faculty
+        gender:
+          anyOf:
+          - enum:
+            - MALE
+            - FEMALE
+            - OTHER
+            - UNDISCLOSED
+            type: string
+          - type: 'null'
+          title: Gender
+        id:
+          format: uuid
+          title: Id
+          type: string
+        major:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Major
+        name:
+          title: Name
+          type: string
+        role:
+          enum:
+          - STUDENT
+          - STAFF
+          - ADMIN
+          title: Role
+          type: string
+        student_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Student Code
+      required:
+      - id
+      - email
+      - name
+      - role
+      - student_code
+      - faculty
+      - major
+      - gender
+      title: StudentProfileResponse
+      type: object
     UtcTimestamp:
       format: date-time
       title: UtcTimestamp
@@ -2249,6 +2304,144 @@ paths:
       summary: Staff
       tags:
       - catalog
+  /api/v1/students/me:
+    get:
+      operationId: get_profile_api_v1_students_me_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudentProfileResponse'
+          description: Successful Response
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized catalog error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Classification of the sanitized error
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized catalog error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Classification of the sanitized error
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized catalog error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Classification of the sanitized error
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized catalog error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Classification of the sanitized error
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized catalog error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Classification of the sanitized error
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized catalog error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Classification of the sanitized error
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+      security:
+      - prl_session: []
+      summary: Get Profile
+      tags:
+      - student-profile
   /health/live:
     get:
       operationId: live_health_live_get

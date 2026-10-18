@@ -56,6 +56,7 @@ def test_openapi_export_is_deterministic_without_database(tmp_path):
         "/api/v1/appointments/{appointment_id}",
         "/api/v1/appointments/{appointment_id}/cancel",
         "/api/v1/booking-context",
+        "/api/v1/students/me",
     }
     schemes = document["components"]["securitySchemes"]
     assert any(

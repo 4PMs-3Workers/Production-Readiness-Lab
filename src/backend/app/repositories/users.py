@@ -22,6 +22,12 @@ async def lock_by_id(db: AsyncSession, user_id: UUID) -> User | None:
     )
 
 
+async def find_student_by_id(db: AsyncSession, user_id: UUID) -> User | None:
+    return await db.scalar(
+        select(User).where(User.id == user_id, User.role == "STUDENT", User.is_active.is_(True))
+    )
+
+
 async def utc_now(db: AsyncSession) -> datetime:
     now = await db.scalar(text("SELECT UTC_TIMESTAMP(6)"))
     return now.replace(tzinfo=UTC)
