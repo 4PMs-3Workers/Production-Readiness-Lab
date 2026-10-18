@@ -63,18 +63,19 @@ async def _assert_booking_locks_released(env):
 
 
 @pytest.mark.parametrize(
-    ("stage", "limiter"),
+    ("stage", "limiter", "setup_delay"),
     [
-        ("committed-key", "query"),
-        ("duplicate-winner", "query"),
-        ("eligibility", "query"),
-        ("flush", "query"),
-        ("committed-key", "request"),
-        ("eligibility", "request"),
+        ("committed-key", "query", 0),
+        ("duplicate-winner", "query", 0),
+        pytest.param("duplicate-winner", "query", 0.75, id="duplicate-winner-query-slow-setup"),
+        ("eligibility", "query", 0),
+        ("flush", "query", 0),
+        ("committed-key", "request", 0),
+        ("eligibility", "request", 0),
     ],
 )
 async def test_query_budget_cancels_database_work_and_cleans_transaction(
-    booking_env, auth_settings, monkeypatch, stage, limiter
+    booking_env, auth_settings, monkeypatch, stage, limiter, setup_delay
 ):
     env, _, starts_at = booking_env
     payload = _request(env, starts_at)
@@ -91,20 +92,39 @@ async def test_query_budget_cancels_database_work_and_cleans_transaction(
     settings = auth_settings.model_copy(
         update={"db_query_timeout_seconds": 0.25 if limiter == "query" else 3.0}
     )
+    reads = 0
+    request_budget = 0.25 if limiter == "request" else 3.0
     if stage == "duplicate-winner":
         # Reaching the winner read requires a complete write/unique-error cycle.
-        # Keep the short budget on the reads under test, not on that setup work.
+        # Lock, write and request budgets must not expire before that target read.
+        # Only the winner lookup under test retains the 250 ms query budget.
         read_settings = settings
-        settings = settings.model_copy(update={"db_query_timeout_seconds": 3.0})
+        settings = settings.model_copy(
+            update={"db_query_timeout_seconds": 10.0, "db_lock_timeout_seconds": 5.0}
+        )
+        request_budget = 15.0
         original_read = booking._read_committed_key
 
         async def read_with_short_budget(db, **kwargs):
-            kwargs["settings"] = read_settings
+            # The first lookup is setup; only the post-duplicate winner read is timed.
+            kwargs["settings"] = read_settings if reads >= 2 else settings
             return await original_read(db, **kwargs)
 
         monkeypatch.setattr(booking, "_read_committed_key", read_with_short_budget)
     entered = asyncio.Event()
     completed = asyncio.Event()
+    setup_completed = asyncio.Event()
+
+    if setup_delay:
+        original_lock = booking.appointments.lock_service_settings
+
+        async def delayed_setup(db):
+            await asyncio.sleep(setup_delay)
+            setting = await original_lock(db)
+            setup_completed.set()
+            return setting
+
+        monkeypatch.setattr(booking.appointments, "lock_service_settings", delayed_setup)
 
     async def slow_query(db):
         entered.set()
@@ -113,13 +133,14 @@ async def test_query_budget_cancels_database_work_and_cleans_transaction(
 
     if replay:
         original_lookup = booking.appointments.find_creation_request
-        reads = 0
 
         async def slow_lookup(db, **kwargs):
             nonlocal reads
             reads += 1
             if stage == "duplicate-winner" and reads <= 2:
                 # Model a committed winner becoming visible only after the named unique error.
+                if reads == 1 and setup_delay:
+                    await asyncio.sleep(setup_delay)
                 return None
             await slow_query(db)
             return await original_lookup(db, **kwargs)
@@ -149,10 +170,14 @@ async def test_query_budget_cancels_database_work_and_cleans_transaction(
                 env,
                 payload,
                 settings,
-                request_budget=0.25 if limiter == "request" else 3.0,
+                request_budget=request_budget,
             )
         assert (caught.value.status_code, caught.value.code) == (503, "SERVICE_UNAVAILABLE")
-        assert entered.is_set()
+        if setup_delay:
+            assert setup_completed.is_set()
+        assert entered.is_set(), (reads, repr(caught.value.__context__))
+        if stage == "duplicate-winner":
+            assert reads == 3
         assert not completed.is_set()
         assert not db.in_transaction()
         await _assert_booking_locks_released(env)

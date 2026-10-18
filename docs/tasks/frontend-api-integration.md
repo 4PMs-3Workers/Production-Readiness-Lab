@@ -229,3 +229,22 @@ Các job API E2E trên commit đầu đã đạt. CI của commit sửa cần đ
 trên [PR #23](https://github.com/4PMs-3Workers/Production-Readiness-Lab/pull/23).
 Review approval là điều kiện riêng của branch protection, không được thay thế
 bằng kết quả test hoặc việc tác giả tự kiểm tra.
+
+## Ổn định test deadline sau khi chia lịch sử commit
+
+Trên head `35c29f3`, backend push đạt nhưng lượt PR có 637/638 test đạt. Ca
+`duplicate-winner-query` trả 503 trước khi vào câu SQL chậm cần kiểm tra. Budget
+250 ms còn áp dụng cho lookup đầu tiên; các budget lock/write/request của bước
+chuẩn bị cũng có thể hết trước lần đọc lại sau lỗi trùng khóa.
+
+Test đã tách budget chuẩn bị khỏi budget của lần đọc đích, vẫn giữ 250 ms cho
+truy vấn đó. Thêm ca làm chậm lookup đầu và lấy lock 750 ms mỗi bước; kiểm tra đã
+qua chuẩn bị, đi qua đúng ba lookup, hủy truy vấn chậm, dọn transaction, giải phóng
+lock và giữ nguyên số appointment/audit/notification. Thay đổi nằm trong test,
+không sửa cấu hình hay timeout của ứng dụng.
+
+Đã tái hiện ca lỗi trước sửa trên MySQL 8.4.11 local. Lần chạy cuối của file timeout
+có 12 passed, 0 failed/skipped; Black, Ruff và Pyright đạt. Báo cáo local ở
+`build/booking-timeout-before-fix.xml` và `build/booking-timeout-final.xml`.
+CI của commit sửa được kiểm tra riêng trên PR #23; bộ backend có thêm một ca,
+nên số lượng dự kiến là 639.
