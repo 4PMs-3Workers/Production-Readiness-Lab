@@ -80,6 +80,29 @@
   font-size: 11px;
   color: #667b8d;
 }
+.bookingGuide {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+.bookingGuide summary {
+  cursor: pointer;
+  color: var(--primary);
+  font-weight: 700;
+}
+.bookingGuide summary:focus-visible {
+  outline: 3px solid #2475b3;
+  outline-offset: 3px;
+}
+.bookingGuide ol {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding-left: 20px;
+  color: var(--muted);
+  line-height: 1.6;
+}
 .error {
   margin-bottom: 18px;
   padding: 12px;
