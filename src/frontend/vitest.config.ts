@@ -9,6 +9,7 @@ export default defineConfig({
     alias: { '@': fileURLToPath(new URL('.', import.meta.url)) },
   },
   test: {
+    env: { NEXT_PUBLIC_APP_MODE: 'mock' },
     allowOnly: !process.env.CI,
     environment: 'jsdom',
     setupFiles: ['tests/frontend/setup.ts'],

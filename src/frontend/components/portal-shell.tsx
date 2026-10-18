@@ -1,6 +1,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { isMockMode } from '@/lib/application-mode';
 
 import { PortalAccount, PortalProfile } from './portal-account';
 import styles from './portal-shell.module.css';
@@ -10,7 +11,7 @@ export function PortalShell({
   section = 'booking',
 }: {
   children: ReactNode;
-  section?: 'home' | 'booking' | 'history';
+  section?: 'home' | 'booking' | 'history' | 'profile';
 }) {
   return (
     <div className={styles.portal}>
@@ -38,6 +39,29 @@ export function PortalShell({
       <aside className={styles.sidebar}>
         <div className={styles.sidebarHeading}>KHÔNG GIAN SINH VIÊN</div>
         <nav aria-label="Điều hướng chính">
+          <Link
+            className={`${styles.navLink} ${section === 'profile' ? styles.activeLink : ''}`}
+            href="/profile"
+            aria-current={section === 'profile' ? 'page' : undefined}
+          >
+            <span className={styles.calendarIcon} aria-hidden="true">
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.7"
+              >
+                <circle cx="12" cy="8" r="3.5" />
+                <path d="M5 21v-2a7 7 0 0 1 14 0v2" />
+              </svg>
+            </span>
+            Thông tin sinh viên
+            <span className={styles.chevron} aria-hidden="true">
+              ›
+            </span>
+          </Link>
           <Link
             className={`${styles.navLink} ${section === 'booking' ? styles.activeLink : ''}`}
             href="/booking"
@@ -82,7 +106,9 @@ export function PortalShell({
               ? 'Không gian sinh viên'
               : section === 'history'
                 ? 'Lịch đã đặt'
-                : 'Đặt lịch tư vấn'}
+                : section === 'profile'
+                  ? 'Thông tin sinh viên'
+                  : 'Đặt lịch tư vấn'}
           </strong>
         </div>
         <main id="main-content" tabIndex={-1} className={styles.main}>
@@ -90,7 +116,7 @@ export function PortalShell({
         </main>
         <footer className={styles.footer}>
           <span>HUS · Cổng tư vấn sinh viên</span>
-          <span>Production Readiness Lab · Bản demo</span>
+          <span>Production Readiness Lab{isMockMode() ? ' · Bản demo' : ''}</span>
         </footer>
       </div>
     </div>

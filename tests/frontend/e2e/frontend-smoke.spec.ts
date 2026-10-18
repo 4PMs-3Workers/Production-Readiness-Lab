@@ -34,6 +34,7 @@ test('serves each route directly and lets the keyboard reach its main content', 
   for (const route of [
     '/login',
     '/home',
+    '/profile',
     '/booking',
     '/booking/result',
     '/appointments',

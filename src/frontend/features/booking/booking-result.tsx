@@ -7,8 +7,17 @@ import { useDemo } from '@/features/demo/demo-provider';
 
 import { SelectionSummary } from './booking-steps';
 import styles from './booking.module.css';
+import { isMockMode } from '@/lib/application-mode';
+import { ApiResult } from '@/features/api/api-appointments';
 
 export function BookingResultView({ bookingId }: { bookingId?: string } = {}) {
+  return isMockMode() ? (
+    <MockBookingResultView bookingId={bookingId} />
+  ) : (
+    <ApiResult bookingId={bookingId} />
+  );
+}
+function MockBookingResultView({ bookingId }: { bookingId?: string }) {
   const { result: latest, bookings } = useDemo();
   const result =
     bookingId === undefined

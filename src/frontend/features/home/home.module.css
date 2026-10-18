@@ -35,8 +35,7 @@
   color: #426881;
   font-size: 12px;
 }
-.notice > span,
-.badge {
+.notice > span {
   flex-shrink: 0;
   padding: 3px 7px;
   border-radius: 4px;
@@ -50,12 +49,11 @@
 }
 .grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 24px;
   align-items: start;
 }
 .service,
-.profile,
 .empty {
   background: white;
   border: 1px solid #dfe7ee;
@@ -112,32 +110,6 @@
 .primary:hover {
   background: #10476f;
 }
-.profile h2 {
-  font-size: 17px;
-  margin: 0 0 12px;
-}
-.profile dl {
-  margin: 24px 0;
-  display: grid;
-  gap: 18px;
-}
-.profile dt {
-  font-size: 11px;
-  color: #778999;
-  margin-bottom: 3px;
-}
-.profile dd {
-  margin: 0;
-  font-weight: 700;
-  overflow-wrap: anywhere;
-  font-size: 13px;
-}
-.profile > p {
-  padding-top: 18px;
-  border-top: 1px solid #e3ebf1;
-  color: #6e8293;
-  font-size: 12px;
-}
 .empty {
   max-width: 740px;
 }
@@ -173,7 +145,6 @@
 }
 @media (max-width: 760px) {
   .service,
-  .profile,
   .empty {
     padding: 24px;
   }
