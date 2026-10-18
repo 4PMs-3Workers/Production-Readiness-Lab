@@ -40,3 +40,12 @@ def _register_appointments() -> None:
 
 
 _register_appointments()
+
+
+def _register_staff_appointments() -> None:
+    from app.api.staff_appointments import router
+
+    api_v1_router.include_router(router)
+
+
+_register_staff_appointments()
