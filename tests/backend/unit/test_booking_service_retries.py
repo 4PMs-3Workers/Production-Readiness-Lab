@@ -216,16 +216,29 @@ async def test_only_the_named_idempotency_unique_constraint_is_resolved_as_a_rep
     assert reads == 2
 
 
-def test_mysql_duplicate_detection_requires_the_exact_named_constraint():
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "plain",
+        'contains"quote',
+        "contains'both\"quotes",
+        "contains\\backslash",
+        "decoy for key 'appointments.uq_appointments_creation_request'",
+    ],
+)
+def test_mysql_duplicate_detection_requires_the_exact_named_constraint(entry):
     exact = IntegrityError(
         "INSERT INTO appointments",
         {},
-        Exception(1062, "Duplicate entry for key 'appointments.uq_appointments_creation_request'"),
+        Exception(
+            1062,
+            f"Duplicate entry '{entry}' for key 'appointments.uq_appointments_creation_request'",
+        ),
     )
     unrelated = IntegrityError(
         "INSERT INTO appointments",
         {},
-        Exception(1062, "Duplicate entry for key 'appointments.some_other_unique'"),
+        Exception(1062, f"Duplicate entry '{entry}' for key 'appointments.some_other_unique'"),
     )
 
     assert booking._is_named_creation_duplicate(exact)

@@ -43,7 +43,7 @@ from app.services.availability_rules import (
 )
 
 _IDEMPOTENCY_CONSTRAINT = "uq_appointments_creation_request"
-_CONSTRAINT_KEY = re.compile(r"for key\s+['\"`]([^'\"`]+)['\"`]", re.IGNORECASE)
+_CONSTRAINT_KEY = re.compile(r"for key\s+(['\"`])([^'\"`]+)\1\s*$", re.IGNORECASE)
 
 
 class _NamedDuplicate(Exception):
@@ -54,9 +54,12 @@ def _is_named_creation_duplicate(error: SQLAlchemyError) -> bool:
     if _mysql_error_code(error) != 1062:
         return False
     original = getattr(error, "orig", None)
-    message = str(original or "")
+    # str(DBAPIError) formats args as a tuple and can escape the constraint quotes
+    # when a binary UUID/key contains quotes. Parse the driver's raw message instead.
+    args = getattr(original, "args", ())
+    message = args[1] if len(args) > 1 and isinstance(args[1], str) else str(original or "")
     match = _CONSTRAINT_KEY.search(message)
-    return bool(match and match.group(1).rsplit(".", 1)[-1] == _IDEMPOTENCY_CONSTRAINT)
+    return bool(match and match.group(2).rsplit(".", 1)[-1] == _IDEMPOTENCY_CONSTRAINT)
 
 
 def _receipt(row: Appointment) -> AppointmentCreateResponse:

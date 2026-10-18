@@ -313,3 +313,18 @@ Lượt backend đầy đủ đầu tiên có 639 passed, 1 failed: ca duplicate
 nhận diện được lỗi unique khi repr của driver escape ký tự nháy trong entry.
 Lỗi này được tái hiện và sửa riêng trong phần kiểm chứng bổ sung; không xem
 lượt chạy này là toàn bộ backend đạt.
+
+## Sửa nhận diện unique constraint từ lỗi MySQL
+
+Lỗi duplicate-winner còn lại không do budget: `str(error.orig)` của driver định
+dạng tuple và escape nháy trong tên constraint khi entry chứa nháy kép. UUID nhị
+phân ngẫu nhiên có thể tạo đúng tình huống này. Parser đọc message gốc `args[1]`,
+chỉ nhận tên constraint ở cuối message với dấu nháy đóng/mở khớp; chuỗi giống tên
+constraint nằm trong giá trị entry không được dùng để nhận diện.
+
+Trước sửa: hai regression unit chứa nháy và hai ca MySQL duplicate-winner với key
+chứa nháy đều thất bại. Sau sửa: 23 ca trong unit retry/timeout integration đạt,
+bao gồm hai ca MySQL đó, rollback/lock cleanup và kiểm đếm appointment/audit/
+notification. Black, Ruff và Pyright đạt. Không đổi timeout hoặc retry budget.
+Bộ backend đầy đủ có thêm bốn parameter unit, dự kiến 644 ca; kết quả đầy đủ
+và required checks được đối chiếu trên head mới của PR #23 trước khi báo hoàn tất.

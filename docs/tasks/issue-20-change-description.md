@@ -367,6 +367,14 @@ Không thực hiện commit/push/PR trong bước rà soát này.
 
 ## Bổ sung theo comment review PR #23 ngày 18/10/2026
 
+Lượt full backend phát hiện thêm lỗi parser duplicate-key khi UUID/key chứa ký
+tự nháy. Đã tái hiện cố định trước sửa và kiểm tra 23 ca retry/timeout sau sửa.
+`src/backend/app/services/booking.py` đọc message gốc từ driver; hai file
+`tests/backend/unit/test_booking_service_retries.py` và
+`tests/backend/integration/test_booking_timeouts.py` bao phủ nháy, backslash và
+chuỗi giả constraint nằm trong entry. Timeout ứng dụng không thay đổi; kết quả
+full backend/CI được xác minh riêng trên head mới.
+
 Hai lỗi được tái hiện: đổi cookie giữa kiểm tra danh tính và lấy CSRF có thể
 gửi body A dưới phiên B; lỗi 403 của retry xóa intent dù POST trước có thể đã
 commit. Bản sửa ràng buộc chủ sở hữu token/intent và giữ kết quả unknown xuyên

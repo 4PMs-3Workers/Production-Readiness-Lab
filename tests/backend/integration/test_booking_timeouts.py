@@ -80,9 +80,11 @@ async def test_query_budget_cancels_database_work_and_cleans_transaction(
     env, _, starts_at = booking_env
     payload = _request(env, starts_at)
     replay = stage in {"committed-key", "duplicate-winner"}
+    # Force escaped exception repr, as binary UUID values can do with random fixtures.
+    key = 'timeout-"quoted"-key' if stage == "duplicate-winner" else "timeout-key"
     if replay:
         async with env.factory() as seed:
-            receipt, _ = await _create(seed, env, payload, auth_settings)
+            receipt, _ = await _create(seed, env, payload, auth_settings, key=key)
             if stage == "duplicate-winner":
                 async with seed.begin():
                     row = await seed.get(Appointment, receipt.id)
@@ -170,6 +172,7 @@ async def test_query_budget_cancels_database_work_and_cleans_transaction(
                 env,
                 payload,
                 settings,
+                key=key,
                 request_budget=request_budget,
             )
         assert (caught.value.status_code, caught.value.code) == (503, "SERVICE_UNAVAILABLE")
