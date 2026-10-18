@@ -1,4 +1,4 @@
-"""Locked, deadline-aware student cancellation with atomic private side effects."""
+"""Locked, deadline-aware appointment cancellation with atomic private side effects."""
 
 import asyncio
 from uuid import UUID
@@ -39,14 +39,20 @@ async def _attempt(
     context: AuthContext,
     request_id: str,
     settings: Settings,
+    actor_role: str,
 ) -> AppointmentCancelResponse:
     transaction = await db.begin()
     try:
         async with asyncio.timeout(settings.db_lock_timeout_seconds):
             setting = await appointments.lock_service_settings(db)
-        identities = await appointments.find_cancellation_accounts(
-            db, appointment_id=appointment_id, student_id=context.user_id
-        )
+        if actor_role == "STUDENT":
+            identities = await appointments.find_cancellation_accounts(
+                db, appointment_id=appointment_id, student_id=context.user_id
+            )
+        else:
+            identities = await appointments.find_staff_appointment_accounts(
+                db, appointment_id=appointment_id, staff_id=context.user_id
+            )
         if identities is None:
             raise _not_found()
         locked_users = {}
@@ -60,10 +66,11 @@ async def _attempt(
         actor = locked_users.get(context.user_id)
         if (
             row is None
-            or row.student_id != context.user_id
             or actor is None
-            or actor.role != "STUDENT"
+            or actor.role != actor_role
             or not actor.is_active
+            or (actor_role == "STUDENT" and row.student_id != context.user_id)
+            or (actor_role == "STAFF" and row.staff_id != context.user_id)
         ):
             raise _not_found()
         if row.staff_id != identities.staff_id:
@@ -172,6 +179,61 @@ async def cancel_appointment(
                             context=context,
                             request_id=request_id,
                             settings=settings,
+                            actor_role="STUDENT",
+                        )
+                except SQLAlchemyError as error:
+                    if (
+                        mysql_error_code(error) not in RETRYABLE_MYSQL_ERRORS
+                        or attempt >= settings.max_deadlock_retries
+                    ):
+                        raise ServiceUnavailable() from None
+                    remaining = deadline - asyncio.get_running_loop().time()
+                    delay = min(0.01 * (2**attempt), max(0.0, remaining))
+                    if delay <= 0:
+                        raise ServiceUnavailable() from None
+                    await asyncio.sleep(delay)
+        raise ServiceUnavailable()
+    except (
+        TimeoutError,
+        CommitOutcomeUnknown,
+        AvailabilityConfigurationError,
+        BookingDateError,
+        SQLAlchemyError,
+        OverflowError,
+    ):
+        await rollback(db)
+        raise ServiceUnavailable() from None
+    except asyncio.CancelledError:
+        await rollback(db)
+        raise
+
+
+async def cancel_staff_appointment(
+    db: AsyncSession,
+    *,
+    appointment_id: UUID,
+    payload: AppointmentCancelRequest,
+    context: AuthContext,
+    request_id: str,
+    settings: Settings,
+    deadline: float,
+) -> AppointmentCancelResponse:
+    """Cancel an assigned appointment using the same lock and commit guarantees."""
+    if context.role != "STAFF":
+        raise AppError(403, "FORBIDDEN_ROLE", "This operation is not allowed", "business")
+    try:
+        async with asyncio.timeout_at(deadline):
+            for attempt in range(settings.max_deadlock_retries + 1):
+                try:
+                    async with asyncio.timeout(settings.db_query_timeout_seconds):
+                        return await _attempt(
+                            db,
+                            appointment_id=appointment_id,
+                            payload=payload,
+                            context=context,
+                            request_id=request_id,
+                            settings=settings,
+                            actor_role="STAFF",
                         )
                 except SQLAlchemyError as error:
                     if (

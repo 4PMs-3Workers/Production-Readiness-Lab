@@ -5,6 +5,24 @@ import asyncio
 from starlette.types import Message, Receive, Scope, Send
 
 from app.core.catalog_http import PrivateApiHttpMiddleware
+from app.core.response_policy import (
+    requires_private_response,
+    requires_request_deadline,
+    uses_private_api_middleware,
+)
+
+
+def test_staff_appointment_routes_use_private_headers_and_request_deadlines():
+    for method, path in (
+        ("GET", "/api/v1/staff/me/appointments"),
+        ("GET", "/api/v1/staff/me/appointments/00000000-0000-0000-0000-000000000001"),
+        ("POST", "/api/v1/staff/me/appointments/00000000-0000-0000-0000-000000000001/cancel"),
+        ("POST", "/api/v1/staff/me/appointments/00000000-0000-0000-0000-000000000001/outcome"),
+    ):
+        scope: Scope = {"type": "http", "method": method, "path": path, "root_path": ""}
+        assert uses_private_api_middleware(scope)
+        assert requires_private_response(scope)
+        assert requires_request_deadline(scope)
 
 
 async def test_appointment_middleware_uses_the_configured_stress_deadline(auth_settings):
