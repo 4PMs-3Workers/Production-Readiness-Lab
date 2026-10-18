@@ -162,7 +162,9 @@ Suite chạy browser khác timezone nghiệp vụ, desktop/mobile và chứng mi
 đời login/book/reload/history/cancel, quyền hai tài khoản, session expiry,
 unsupported roles, pagination/empty/deep links. Probe mất phản hồi chỉ làm rỗng
 một HTTP response thành công **sau khi FastAPI thật đã commit**; không thay
-catalog/booking bằng fixture HTTP hay dùng page.route. Query MySQL kiểm chứng
+catalog/booking bằng fixture HTTP. Các regression đổi tài khoản chỉ giữ thời điểm
+gửi request auth bằng `page.route(...).continue()`; response vẫn từ API thật.
+Query MySQL kiểm chứng
 đúng 1 appointment + 1 creation audit + 2 creation notifications; hủy thêm đúng
 1 audit + 2 notifications. Traces và screenshot lỗi tự động tắt để không thu
 credentials/nội dung. Ảnh kết quả chủ động chụp sau login và che description.
@@ -248,3 +250,28 @@ có 12 passed, 0 failed/skipped; Black, Ruff và Pyright đạt. Báo cáo local
 `build/booking-timeout-before-fix.xml` và `build/booking-timeout-final.xml`.
 CI của commit sửa được kiểm tra riêng trên PR #23; bộ backend có thêm một ca,
 nên số lượng dự kiến là 639.
+
+## Review PR #23: ràng buộc người sở hữu booking với CSRF
+
+Comment ngày 18/10/2026 chỉ ra khoảng trống giữa xác minh danh tính và lấy CSRF:
+tab khác có thể đổi cookie từ A sang B, khiến body của A được POST bằng phiên B.
+Luồng tạo lịch nay lấy CSRF trước, kiểm tra chủ sở hữu token và `/auth/me`, rồi
+POST bằng chính token vừa kiểm tra; không lấy token mới sau bước xác minh.
+Token đã được backend ký theo session nên đổi cookie sau đó sẽ bị từ chối.
+
+`GET /api/v1/auth/csrf` bổ sung `user_id` từ cùng AuthContext đã sinh token.
+Frontend đối chiếu ID này với người sở hữu intent, kể cả khi cookie đổi B → A → B
+giữa các request. Không thêm ID người đặt vào body booking. Backend cần được
+triển khai trước frontend; thiếu metadata này thì frontend từ chối tạo lịch.
+OpenAPI được export lại từ schema. Logout/cancel vẫn dùng contract CSRF cũ.
+
+Khi xóa intent, AbortSignal được truyền xuyên suốt bootstrap → xác minh → POST;
+response cũ không thể ghi đè intent mới, kể cả transport không tuân thủ abort.
+Các regression kiểm tra đổi tài khoản lúc chờ CSRF hoặc `/auth/me`, token cũ
+không dùng được với phiên khác, thiếu metadata và việc hủy trong khi chờ.
+
+Kiểm tra trước commit: 125 unit/component, 28 auth integration trên MySQL 8.4.11,
+4 regression API browser desktop/mobile đều đạt; production build API, ESLint,
+Black/Ruff và Pyright đạt. Đã thử tay bằng trình duyệt: đăng nhập A → chọn nhu cầu,
+cố vấn, ngày/giờ → xác nhận thành công → reload vẫn thấy cùng mã lịch hẹn.
+Ảnh fixture local: `build/review-p1-manual-result.png`.

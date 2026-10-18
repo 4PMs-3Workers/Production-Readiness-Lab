@@ -15,6 +15,7 @@ export class BookingIntentStore {
   private current: BookingIntent | null = null;
   private listeners = new Set<() => void>();
   private running: Promise<BookingReceipt> | null = null;
+  private controller: AbortController | null = null;
   private version = 0;
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -30,6 +31,8 @@ export class BookingIntentStore {
   clear() {
     this.version += 1;
     this.running = null;
+    this.controller?.abort();
+    this.controller = null;
     this.update(null);
   }
   prepare(userId: string, body: BookingBody) {
@@ -44,41 +47,45 @@ export class BookingIntentStore {
     return intent;
   }
   submit(services: ApiServices, userId: string): Promise<BookingReceipt> {
-    if (this.running) return this.running;
     const intent = this.current;
     if (!intent || intent.userId !== userId) {
       this.clear();
       return Promise.reject(new ApiError('ACCOUNT_CHANGED'));
     }
+    if (this.running) return this.running;
     if (intent.receipt) return Promise.resolve(intent.receipt);
     if (intent.phase === 'conflict')
       return Promise.reject(new ApiError('IDEMPOTENCY_CONFLICT', 409));
     this.update({ ...intent, phase: 'submitting' });
     const version = this.version;
+    const controller = new AbortController();
+    this.controller = controller;
     const task = (async () => {
       try {
-        const verified = await services.me();
-        if (verified.id !== userId || verified.role !== 'STUDENT') {
-          this.clear();
-          services.clearSession();
-          services.invalidateSession();
-          throw new ApiError('ACCOUNT_CHANGED', 401);
-        }
-        if (this.current?.key !== intent.key) throw new DOMException('Cancelled', 'AbortError');
-        const receipt = await services.create(intent.body, intent.key);
-        if (this.current?.key !== intent.key) throw new DOMException('Cancelled', 'AbortError');
+        const receipt = await services.create(intent.body, intent.key, userId, {
+          signal: controller.signal,
+        });
+        if (this.version !== version || this.current?.key !== intent.key)
+          throw new DOMException('Cancelled', 'AbortError');
         this.update({ ...intent, phase: 'confirmed', receipt });
         return receipt;
       } catch (error) {
-        if (this.current?.key === intent.key) {
-          if (error instanceof ApiError && error.code === 'IDEMPOTENCY_CONFLICT')
+        if (this.version === version && this.current?.key === intent.key) {
+          if (error instanceof ApiError && error.code === 'ACCOUNT_CHANGED') {
+            this.clear();
+            services.clearSession();
+            services.invalidateSession();
+          } else if (error instanceof ApiError && error.code === 'IDEMPOTENCY_CONFLICT')
             this.update({ ...intent, phase: 'conflict' });
           else if (error instanceof ApiError && !error.unknownOutcome) this.update(null);
           else this.update({ ...intent, phase: 'unknown' });
         }
         throw error;
       } finally {
-        if (this.version === version) this.running = null;
+        if (this.version === version) {
+          this.running = null;
+          this.controller = null;
+        }
       }
     })();
     this.running = task;

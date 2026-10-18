@@ -31,3 +31,4 @@ class PublicUser(BaseModel):
 
 class CsrfResponse(BaseModel):
     csrf_token: str
+    user_id: UUID

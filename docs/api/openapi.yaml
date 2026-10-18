@@ -285,8 +285,13 @@ components:
         csrf_token:
           title: Csrf Token
           type: string
+        user_id:
+          format: uuid
+          title: User Id
+          type: string
       required:
       - csrf_token
+      - user_id
       title: CsrfResponse
       type: object
     ErrorDetail:

@@ -195,14 +195,27 @@ export class ApiServices {
     body: object,
     options?: ServiceRequestOptions,
     headers: Record<string, string> = {},
+    expectedUserId?: string,
   ): Promise<T> {
     const signal = AbortSignal.any([
       this.scope.signal,
       ...(options?.signal ? [options.signal] : []),
     ]);
     const scopedOptions = { signal };
-    const csrf = await this.request<{ csrf_token: string }>('/auth/csrf', scopedOptions);
+    const csrf = await this.request<{ csrf_token: string; user_id: string }>(
+      '/auth/csrf',
+      scopedOptions,
+    );
     requireContract(typeof csrf.csrf_token === 'string' && csrf.csrf_token.length > 0);
+    if (expectedUserId !== undefined) {
+      // The owner and signed token come from the same authenticated backend context.
+      // Keep this exact token: a later cookie switch must fail the server's CSRF check.
+      requireContract(typeof csrf.user_id === 'string' && csrf.user_id.length > 0);
+      if (csrf.user_id !== expectedUserId) throw new ApiError('ACCOUNT_CHANGED', 401);
+      const verified = await this.me(scopedOptions);
+      if (verified.id !== expectedUserId || verified.role !== 'STUDENT')
+        throw new ApiError('ACCOUNT_CHANGED', 401);
+    }
     signal.throwIfAborted();
     return this.request(path, scopedOptions, {
       method: 'POST',
@@ -299,10 +312,14 @@ export class ApiServices {
       location: null,
     }));
   }
-  async create(body: BookingBody, key: string, options?: ServiceRequestOptions) {
-    const receipt = await this.write<BookingReceipt>('/appointments', body, options, {
-      'Idempotency-Key': key,
-    });
+  async create(body: BookingBody, key: string, userId: string, options?: ServiceRequestOptions) {
+    const receipt = await this.write<BookingReceipt>(
+      '/appointments',
+      body,
+      options,
+      { 'Idempotency-Key': key },
+      userId,
+    );
     requireContract(
       receipt &&
         typeof receipt.id === 'string' &&

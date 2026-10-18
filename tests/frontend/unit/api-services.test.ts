@@ -124,12 +124,14 @@ describe('real HTTP services', () => {
   it('bootstraps CSRF and sends only the reviewed creation body/key', async () => {
     const fetcher = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(json({ csrf_token: 'test-csrf' }))
+      .mockResolvedValueOnce(json({ csrf_token: 'test-csrf', user_id: wireUser.id }))
+      .mockResolvedValueOnce(json(wireUser))
       .mockResolvedValueOnce(json(receipt, 201));
     const services = new ApiServices(fetcher);
-    expect(await services.create(body, 'key-a')).toEqual(receipt);
+    expect(await services.create(body, 'key-a', wireUser.id)).toEqual(receipt);
     expect(fetcher.mock.calls[0][0]).toBe('/api/v1/auth/csrf');
-    expect(fetcher.mock.calls[1]).toEqual([
+    expect(fetcher.mock.calls[1][0]).toBe('/api/v1/auth/me');
+    expect(fetcher.mock.calls[2]).toEqual([
       '/api/v1/appointments',
       expect.objectContaining({
         headers: {
@@ -230,7 +232,7 @@ describe('booking intent recovery', () => {
         String(path).endsWith('/me')
           ? json(identity)
           : String(path).endsWith('/csrf')
-            ? json({ csrf_token: 'csrf' })
+            ? json({ csrf_token: 'csrf', user_id: identity.id })
             : create(),
       ),
     );
@@ -241,7 +243,8 @@ describe('booking intent recovery', () => {
     const services = new ApiServices(
       vi.fn<typeof fetch>(async (path, init) => {
         if (String(path).endsWith('/me')) return json(wireUser);
-        if (String(path).endsWith('/csrf')) return json({ csrf_token: 'csrf' });
+        if (String(path).endsWith('/csrf'))
+          return json({ csrf_token: 'csrf', user_id: wireUser.id });
         posted.push(init!);
         if (++attempts === 1) throw new TypeError('Connection lost');
         return json(receipt);
@@ -285,6 +288,80 @@ describe('booking intent recovery', () => {
     expect(store.snapshot()).toBeNull();
     expect(create).not.toHaveBeenCalled();
   });
+  it.each([
+    ['student-b', wireUser],
+    [wireUser.id, { ...wireUser, id: 'student-b' }],
+    [wireUser.id, { ...wireUser, role: 'STAFF' }],
+  ])('rejects a different CSRF owner or post-bootstrap identity', async (owner, identity) => {
+    const fetcher = vi.fn<typeof fetch>(async (path) => {
+      if (String(path).endsWith('/csrf')) return json({ csrf_token: 'csrf', user_id: owner });
+      if (String(path).endsWith('/me')) return json(identity);
+      return json(receipt);
+    });
+    const store = new BookingIntentStore();
+    const services = new ApiServices(fetcher);
+    store.prepare(wireUser.id, body);
+    await expect(store.submit(services, wireUser.id)).rejects.toMatchObject({
+      code: 'ACCOUNT_CHANGED',
+    });
+    expect(store.snapshot()).toBeNull();
+    expect(fetcher.mock.calls.some(([path]) => String(path).endsWith('/appointments'))).toBe(false);
+  });
+  it('fails closed when the CSRF bootstrap does not identify its owner', async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => json({ csrf_token: 'csrf' }));
+    await expect(new ApiServices(fetcher).create(body, 'key', wireUser.id)).rejects.toMatchObject({
+      code: 'SERVICE_UNAVAILABLE',
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it('keeps the original signed token when the cookie changes after identity verification', async () => {
+    let activeUser = wireUser.id;
+    let written = false;
+    const fetcher = vi.fn<typeof fetch>(async (path, init) => {
+      if (String(path).endsWith('/csrf'))
+        return json({ csrf_token: `csrf:${activeUser}`, user_id: activeUser });
+      if (String(path).endsWith('/me')) {
+        activeUser = 'student-b';
+        return json(wireUser);
+      }
+      const token = new Headers(init?.headers).get('X-CSRF-Token');
+      expect(token).toBe(`csrf:${wireUser.id}`);
+      if (token !== `csrf:${activeUser}`) return json({ error: { code: 'INVALID_CSRF' } }, 403);
+      written = true;
+      return json(receipt);
+    });
+    const store = new BookingIntentStore();
+    store.prepare(wireUser.id, body);
+    await expect(store.submit(new ApiServices(fetcher), wireUser.id)).rejects.toMatchObject({
+      code: 'INVALID_CSRF',
+    });
+    expect(written).toBe(false);
+  });
+  it.each(['/csrf', '/me'])(
+    'does not POST after clearing an intent while awaiting %s',
+    async (held) => {
+      let finish!: (response: Response) => void;
+      const fetcher = vi.fn<typeof fetch>(async (path) => {
+        if (String(path).endsWith(held))
+          return new Promise((resolve) => {
+            finish = resolve;
+          }); // Deliberately ignores AbortSignal to exercise the post-response guard.
+        return json({ csrf_token: 'csrf', user_id: wireUser.id });
+      });
+      const store = new BookingIntentStore();
+      store.prepare(wireUser.id, body);
+      const pending = store.submit(new ApiServices(fetcher), wireUser.id);
+      await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+      store.clear();
+      const replacement = store.prepare(wireUser.id, { ...body, description: 'replacement' });
+      finish(json(held === '/me' ? wireUser : { csrf_token: 'csrf', user_id: wireUser.id }));
+      await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+      expect(store.snapshot()).toBe(replacement);
+      expect(fetcher.mock.calls.some(([path]) => String(path).endsWith('/appointments'))).toBe(
+        false,
+      );
+    },
+  );
   it.each([
     ['BOOKING_CONFLICT', null],
     ['BOOKING_QUOTA_EXCEEDED', null],

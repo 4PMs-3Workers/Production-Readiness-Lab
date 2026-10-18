@@ -49,6 +49,55 @@ test.beforeEach(() => {
   harness('reset');
 });
 
+for (const heldPath of ['/auth/csrf', '/auth/me']) {
+  test(`an account switch while awaiting ${heldPath} never posts the previous student's booking`, async ({
+    page,
+    context,
+  }) => {
+    await login(page);
+    await selectBooking(page);
+    let release!: () => void;
+    let intercepted!: () => void;
+    const held = new Promise<void>((resolve) => {
+      intercepted = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    // Hold timing only. All responses still come from the real FastAPI/MySQL backend.
+    await page.route(`**/api/v1${heldPath}`, async (route) => {
+      intercepted();
+      await gate;
+      await route.continue();
+    });
+    const posts: string[] = [];
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/appointments')
+        posts.push(request.url());
+    });
+    await page.getByRole('button', { name: 'Xác nhận đặt lịch' }).click();
+    await held;
+    const switched = await context.request.post('/api/v1/auth/login', {
+      headers: { Origin: 'http://127.0.0.1:3101' },
+      data: { email: 'other@frontend.example.invalid', password },
+    });
+    expect(switched.status()).toBe(200);
+    release();
+    await expect(page).toHaveURL(/\/login\?returnTo=/);
+    expect(posts).toHaveLength(0);
+    const otherHistory = await context.request.get('/api/v1/appointments');
+    expect(otherHistory.status()).toBe(200);
+    expect((await otherHistory.json()).items).toEqual([]);
+    const restored = await context.request.post('/api/v1/auth/login', {
+      headers: { Origin: 'http://127.0.0.1:3101' },
+      data: { email: 'student@frontend.example.invalid', password },
+    });
+    expect(restored.status()).toBe(200);
+    const originalHistory = await context.request.get('/api/v1/appointments');
+    expect((await originalHistory.json()).items).toEqual([]);
+  });
+}
+
 test('student profile has a sidebar route, survives reload and changes with the account', async ({
   page,
 }) => {
