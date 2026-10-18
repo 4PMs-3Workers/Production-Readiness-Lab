@@ -1,6 +1,5 @@
-// Provisional frontend DTOs. Reconcile these with reviewed OpenAPI before API integration.
-export type PurposeCode =
-  'CAREER_INTERNSHIP' | 'THESIS_RESEARCH' | 'ACADEMIC_ADVISOR' | 'GENERAL_ADVICE' | 'OTHER';
+// Shared wizard choices and mock-only booking results. Real API DTOs live in api.ts.
+export type PurposeCode = string;
 
 export interface StudentContext {
   readonly id: string;
