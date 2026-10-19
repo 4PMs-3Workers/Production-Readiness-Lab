@@ -17,6 +17,7 @@ import type {
   StudentProfile,
 } from '@/types/api';
 import { ApiError, BookingRejection } from './errors';
+import { parseBookingContext } from './booking-context';
 
 interface WirePage<T> {
   items: T[];
@@ -257,18 +258,7 @@ export class ApiServices {
     return this.write<void>('/auth/logout', {}, options);
   }
   async context(options?: ServiceRequestOptions): Promise<BookingContext> {
-    const data = await this.request<{
-      timezone: string;
-      business_date: string;
-      min_booking_date: string;
-      max_booking_date: string;
-    }>('/booking-context', options);
-    return {
-      timezone: data.timezone,
-      businessDate: data.business_date,
-      minBookingDate: data.min_booking_date,
-      maxBookingDate: data.max_booking_date,
-    };
+    return parseBookingContext(await this.request<unknown>('/booking-context', options));
   }
   async profile(options?: ServiceRequestOptions): Promise<StudentProfile> {
     const data = await this.request<WireStudentProfile>('/students/me', options);

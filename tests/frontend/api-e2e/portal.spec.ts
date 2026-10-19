@@ -430,6 +430,56 @@ test('real pagination, all-state filters, empty result and deep links', async ({
   await expect(page.getByRole('heading', { name: 'Bạn chưa có kết quả đặt lịch.' })).toBeVisible();
 });
 
+test.describe('saved appointment timezone fallback', () => {
+  test.use({ timezoneId: 'America/Los_Angeles' });
+
+  test('timestamps remain available in UTC and recover the service timezone', async ({ page }) => {
+    const { id } = JSON.parse(harness('seed-timezone-appointment')) as { id: string };
+    await login(page);
+    let historyReads = 0;
+    page.on('response', (response) => {
+      if (new URL(response.url()).pathname === '/api/v1/appointments') historyReads += 1;
+    });
+
+    try {
+      harness('settings-off');
+      await page.goto('/appointments');
+      await expect(page.getByRole('heading', { name: 'Lịch đã đặt' })).toBeVisible();
+      await expect(page.getByText('Tư vấn học tập kiểm thử')).toBeVisible();
+      await expect(
+        page.getByText('Đang hiển thị giờ UTC vì chưa lấy được múi giờ dịch vụ.'),
+      ).toBeVisible();
+      await expect(page.getByText('18/10/2026')).toBeVisible();
+      await expect(page.getByText('18:00 – 18:30 · 30 phút')).toBeVisible();
+      expect(historyReads).toBe(1);
+
+      harness('settings-restore');
+      await page.getByRole('button', { name: 'Thử lại múi giờ' }).click();
+      await expect(page.getByText('19/10/2026')).toBeVisible();
+      await expect(page.getByText('01:00 – 01:30 · 30 phút')).toBeVisible();
+      expect(historyReads).toBe(1);
+
+      harness('settings-off');
+      await page.getByRole('link', { name: new RegExp(`Xem chi tiết lịch ${id}`) }).click();
+      await expect(page).toHaveURL(new RegExp(`/appointments/${id}$`));
+      await expect(page.getByRole('heading', { name: 'Chi tiết lịch hẹn' })).toBeVisible();
+      await expect(
+        page.getByText('Đang hiển thị giờ UTC vì chưa lấy được múi giờ dịch vụ.'),
+      ).toBeVisible();
+      await expect(page.getByText('18/10/2026')).toBeVisible();
+      await expect(page.getByText('18:00 – 18:30')).toBeVisible();
+
+      harness('settings-restore');
+      await page.getByRole('button', { name: 'Thử lại múi giờ' }).click();
+      await expect(page.getByText('19/10/2026')).toBeVisible();
+      await expect(page.getByText('01:00 – 01:30')).toBeVisible();
+      expect(historyReads).toBe(1);
+    } finally {
+      harness('settings-restore');
+    }
+  });
+});
+
 for (const recovery of ['csrf-rejected', 'same-student', 'different-student'] as const) {
   test(`a lost committed receipt survives ${recovery} without a duplicate appointment`, async ({
     page,
