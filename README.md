@@ -394,6 +394,26 @@ Các lớp kiểm thử tập trung vào:
 
 Bài cạnh tranh kiểm tra 50 sinh viên cùng đặt một khoảng giờ của một nhân viên: chỉ một lịch được tạo. Bài tải chuẩn sử dụng 20 phiên đồng thời trong 10 phút với dữ liệu seed ít nhất 10 nhân viên và 1.000 lịch.
 
+## Nạp dữ liệu demo (issue #8)
+
+Sau khi cài dependency (`python -m pip install -r requirements-dev.txt` và
+`python -m pip install -e .`), nhờ tài khoản migration chạy `alembic upgrade head`.
+Trong `.env` không commit, đặt `ENVIRONMENT=local` hoặc `demo`, `DATABASE_URL`,
+`DEMO_SEED_DATABASE` trùng tên database trong URL và ba mật khẩu ban đầu
+`DEMO_ADMIN_PASSWORD`, `DEMO_STAFF_PASSWORD`, `DEMO_STUDENT_PASSWORD` (12–1024 ký tự;
+thay toàn bộ placeholder trong `.env.example`). Từ thư mục gốc repo, trước khi chạy
+API/worker:
+
+```sh
+python tools/scripts/seed_demo.py
+```
+
+Lệnh nạp đúng 2 quản trị viên, 10 nhân viên, 30 sinh viên cùng danh mục, phân công và
+giờ phục vụ đã được viết và review từng bản ghi. Chạy lại giữ nguyên tài khoản, hash
+mật khẩu, trạng thái và timestamp; xung đột bị từ chối và lỗi được rollback toàn bộ.
+Không cần API server; không tạo database hay chạy migration tự động.
+Xem [manifest đầy đủ, phân quyền DML và hướng dẫn xử lý lỗi](docs/tasks/demo-seed.md).
+
 ## Vận hành và bảo mật
 
 - Quản lý secret theo môi trường; giữ mật khẩu, token và tệp `.env` ngoài Git.
