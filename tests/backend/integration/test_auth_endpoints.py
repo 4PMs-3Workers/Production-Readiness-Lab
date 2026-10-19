@@ -141,6 +141,68 @@ async def test_collation_equivalent_emails_share_login_budget(auth_env, auth_set
     assert verifications == 5
 
 
+async def test_mysql_email_throttle_identity_follows_collation_for_known_and_unknown(
+    auth_env,
+):
+    from app.repositories import users
+
+    _, factory, user_id, _ = auth_env
+    pairs = (
+        ("student@example.invalid", "student\u200b@example.invalid", user_id),
+        ("missing@example.invalid", "missing\u200b@example.invalid", None),
+    )
+    async with factory() as db:
+        for email, alias, expected_user_id in pairs:
+            original_user = await users.find_by_email(db, email)
+            alias_user = await users.find_by_email(db, alias)
+            assert (original_user.id if original_user else None) == expected_user_id
+            assert (alias_user.id if alias_user else None) == expected_user_id
+            identity = await users.email_throttle_identity(db, email)
+            assert len(identity) == 32
+            assert identity == await users.email_throttle_identity(db, alias)
+
+
+async def test_login_throttle_has_same_public_limit_for_known_and_unknown_aliases(
+    auth_env, auth_settings, monkeypatch
+):
+    from app.core.login_throttle import LoginThrottle
+
+    client, _, _, app = auth_env
+    app.state.login_throttle = LoginThrottle(
+        auth_settings.model_copy(update={"login_ip_attempts": 10, "login_email_attempts": 1})
+    )
+
+    async def reject(password, encoded_hash):
+        return False
+
+    async def reject_dummy(password):
+        return None
+
+    monkeypatch.setattr(app.state.passwords, "verify", reject)
+    monkeypatch.setattr(app.state.passwords, "verify_dummy", reject_dummy)
+    addresses = ("student@example.invalid", "missing@example.invalid")
+    first = []
+    aliases = []
+    for email in addresses:
+        response = await client.post(
+            "/api/v1/auth/login",
+            json={"email": email, "password": "wrong-password"},
+            headers=ORIGIN,
+        )
+        first.append((response.status_code, response.json()["error"]["code"]))
+    for email in addresses:
+        alias = email.replace("@", "\u200b@")
+        response = await client.post(
+            "/api/v1/auth/login",
+            json={"email": alias, "password": "wrong-password"},
+            headers=ORIGIN,
+        )
+        aliases.append((response.status_code, response.json()["error"]["code"]))
+
+    assert first == [(401, "INVALID_CREDENTIALS")] * 2
+    assert aliases == [(429, "LOGIN_THROTTLED")] * 2
+
+
 @pytest.mark.parametrize(
     "state", ["missing", "malformed", "unknown", "expired", "revoked", "inactive"]
 )
