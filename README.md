@@ -137,6 +137,7 @@ Production-Readiness-Lab/
 | [Task database models](docs/tasks/database-models.md)                 | Phạm vi triển khai, kiểm thử và bàn giao bộ models.                         |
 | [Catalog và availability](docs/tasks/catalog-availability.md)           | Hợp đồng ba API đọc, cách gọi bằng session và bằng chứng/giới hạn nghiệm thu. |
 | [Đặt lịch appointment](docs/tasks/appointment-booking.md)               | API tạo lịch, xem chi tiết, idempotency và khôi phục khi mất phản hồi.       |
+| [Đề nghị đổi lịch](docs/tasks/appointment-change-proposals.md)            | API staff/student, replay/precondition, migration và shared expiry transition. |
 | [Lịch sử và quản lý lịch hẹn](docs/tasks/student-appointment-management.md) | API lịch sử, ngữ cảnh ngày đặt, hủy lịch và hành vi retry.                  |
 | [Task frontend bootstrap](docs/tasks/frontend-bootstrap.md)           | Nền tảng, routes, các mốc triển khai, cài đặt và kiểm chứng.                 |
 | [Mock services và UI đặt lịch](docs/tasks/frontend-mock-services.md)  | Chi tiết fixtures, preset, clock và thao tác đặt lịch bằng dữ liệu demo.    |
