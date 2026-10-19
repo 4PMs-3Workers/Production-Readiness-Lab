@@ -299,9 +299,9 @@
   color: #385369;
 }
 .choiceContent > span {
-  font-size: 10px;
-  color: #8b99a6;
-  line-height: 1.7;
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.5;
 }
 .choiceContent small {
   font-size: 10px;
@@ -357,8 +357,9 @@
   color: #98a5b1;
 }
 .descriptionField p {
-  font-size: 11px;
-  color: #8595a3;
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.5;
   margin: 6px 0 0;
 }
 .staffGrid {
@@ -532,8 +533,10 @@
   opacity: 0.5;
 }
 .requiredNote {
-  font-size: 10px;
-  color: #97a5b1;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.5;
 }
 .summaryCard {
   background: white;
@@ -904,7 +907,8 @@
     font-size: 14px;
   }
   .choiceContent > span {
-    font-size: 11px;
+    font-size: 14px;
+    line-height: 1.5;
   }
 }
 @media (max-width: 1200px) {
@@ -1030,14 +1034,16 @@
     font-size: 13px;
   }
   .choiceContent > span {
-    font-size: 11px;
+    font-size: 14px;
+    line-height: 1.5;
   }
   .actions {
     padding: 16px 17px;
   }
   .requiredNote {
-    font-size: 9px;
-    max-width: 100px;
+    min-width: 0;
+    font-size: 14px;
+    line-height: 1.5;
   }
   .primaryButton,
   .secondaryButton {
