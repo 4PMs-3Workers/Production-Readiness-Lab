@@ -5,8 +5,13 @@ import Link from 'next/link';
 import { useDemo } from '@/features/demo/demo-provider';
 
 import styles from './home.module.css';
+import { isMockMode } from '@/lib/application-mode';
+import { ApiHome } from '@/features/api/api-home';
 
 export function HomeView() {
+  return isMockMode() ? <MockHomeView /> : <ApiHome />;
+}
+function MockHomeView() {
   const { student, result, bookings } = useDemo();
   return (
     <div className={styles.home}>
@@ -70,28 +75,6 @@ export function HomeView() {
               </div>
             )}
           </section>
-          <aside className={styles.profile} aria-labelledby="profile-title">
-            <h2 id="profile-title">Thông tin sinh viên</h2>
-            <span className={styles.badge}>Danh tính minh họa</span>
-            <dl>
-              <div>
-                <dt>Họ và tên</dt>
-                <dd>{student.displayName}</dd>
-              </div>
-              <div>
-                <dt>Email demo</dt>
-                <dd>{student.email}</dd>
-              </div>
-              <div>
-                <dt>Vai trò</dt>
-                <dd>Sinh viên (demo)</dd>
-              </div>
-            </dl>
-            <p>
-              Phiên chỉ được giữ trong bộ nhớ. Đăng xuất sẽ xóa thông tin sinh viên, lựa chọn và kết
-              quả đặt lịch của phiên.
-            </p>
-          </aside>
         </div>
       )}
     </div>

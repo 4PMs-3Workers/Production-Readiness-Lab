@@ -6,8 +6,13 @@ import { useRouter } from 'next/navigation';
 import { useDemo } from '@/features/demo/demo-provider';
 
 import styles from './portal-shell.module.css';
+import { isMockMode } from '@/lib/application-mode';
+import { ApiAccount, ApiProfile } from '@/features/api/api-account';
 
 export function PortalAccount() {
+  return isMockMode() ? <MockPortalAccount /> : <ApiAccount />;
+}
+function MockPortalAccount() {
   const { student, logout } = useDemo();
   const router = useRouter();
   if (!student)
@@ -33,6 +38,9 @@ export function PortalAccount() {
 }
 
 export function PortalProfile() {
+  return isMockMode() ? <MockPortalProfile /> : <ApiProfile />;
+}
+function MockPortalProfile() {
   const { student } = useDemo();
   return (
     <div className={styles.profile}>

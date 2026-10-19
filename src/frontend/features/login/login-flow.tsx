@@ -9,8 +9,14 @@ import { DEMO_SCENARIOS, isRequestCancelled } from '@/services';
 import type { DemoScenarioId } from '@/types/demo';
 
 import styles from './login.module.css';
+import { isMockMode } from '@/lib/application-mode';
+import { ApiLogin } from '@/features/api/api-login';
 
 export function LoginFlow() {
+  return isMockMode() ? <MockLoginFlow /> : <ApiLogin />;
+}
+
+function MockLoginFlow() {
   const { revision, student } = useDemo();
   if (student) {
     return (

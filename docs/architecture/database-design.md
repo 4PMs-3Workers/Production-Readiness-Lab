@@ -1,6 +1,6 @@
 # Thiết kế cơ sở dữ liệu — Production Readiness Lab
 
-**Phiên bản:** 1.5 · **Ngày cập nhật:** 13/10/2026 · **Database:** `production_readiness_lab`.
+**Phiên bản:** 1.6 · **Ngày cập nhật:** 18/10/2026 · **Database:** `production_readiness_lab`.
 
 ## Mục lục
 
@@ -58,6 +58,10 @@ erDiagram
         binary(16) id PK
         varchar email UK
         varchar role
+        varchar student_code
+        varchar faculty
+        varchar major
+        varchar gender
         boolean is_active
     }
     sessions {
@@ -143,6 +147,10 @@ Lưu danh tính và vai trò của người sử dụng ứng dụng.
 | `password_hash` | `text` | NN | Hash mật khẩu. |
 | `name` | `varchar(150)` | NN | Tên hiển thị. |
 | `role` | `varchar(10)` | NN | `STUDENT`, `STAFF` hoặc `ADMIN`. |
+| `student_code` | `varchar(50)` | NULL | Mã sinh viên; chưa có dữ liệu thì để NULL. |
+| `faculty` | `varchar(150)` | NULL | Khoa của sinh viên. |
+| `major` | `varchar(150)` | NULL | Ngành học của sinh viên. |
+| `gender` | `varchar(20)` | NULL | `MALE`, `FEMALE`, `OTHER`, `UNDISCLOSED`; không suy đoán từ tên. |
 | `is_active` | `boolean` | NN, `true` | Cho phép đăng nhập và thao tác. |
 | `created_at`, `updated_at` | `datetime(6)` | NN | Thời điểm tạo/sửa. |
 

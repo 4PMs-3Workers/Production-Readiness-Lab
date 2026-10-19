@@ -21,6 +21,7 @@ jobs:
     env:
       CI: 'true'
       NEXT_TELEMETRY_DISABLED: '1'
+      NEXT_PUBLIC_APP_MODE: mock
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -56,4 +57,61 @@ jobs:
             playwright-report/frontend/
             test-results/frontend/
           if-no-files-found: ignore
+          retention-days: 7
+
+  frontend-api:
+    name: Frontend real API checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      mysql:
+        image: mysql:8.4.11
+        env:
+          MYSQL_ROOT_PASSWORD: test-only-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -ptest-only-password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    env:
+      CI: 'true'
+      NEXT_TELEMETRY_DISABLED: '1'
+      NEXT_PUBLIC_APP_MODE: api
+      API_UPSTREAM_URL: http://127.0.0.1:8101
+      MYSQL_TEST_URL: mysql+asyncmy://root:test-only-password@127.0.0.1:3306
+      PYTHONPATH: src/backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: npm install --global npm@12.2.0
+      - run: npm ci
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pip install -e .
+      - name: Check real E2E harness
+        run: |
+          python -m black --check tools/scripts/frontend_e2e_backend.py
+          python -m ruff check tools/scripts/frontend_e2e_backend.py
+      - run: npm --workspace src/frontend run build
+      - run: npx --no-install playwright install --with-deps chromium
+      - name: Real MySQL desktop and mobile E2E (no skipping)
+        id: api-e2e
+        run: npm --workspace src/frontend run test:e2e:api
+      - name: Preserve redacted real-flow evidence
+        if: ${{ !cancelled() && (steps.api-e2e.outcome == 'success' || steps.api-e2e.outcome == 'failure') }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-api-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            playwright-report/frontend-api/
+            test-results/frontend-api/
+          if-no-files-found: error
           retention-days: 7

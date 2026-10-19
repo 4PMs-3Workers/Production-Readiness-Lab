@@ -110,6 +110,9 @@ export function bookingReducer(state: BookingState, action: BookingAction): Book
         ? { ...state, step: action.step }
         : state;
     case 'bookingConflict':
-      return { step: 2, selection: { ...selection, slot: null } };
+      return {
+        step: canVisitStep(selection, 2) ? 2 : canVisitStep(selection, 1) ? 1 : 0,
+        selection: { ...selection, slot: null },
+      };
   }
 }

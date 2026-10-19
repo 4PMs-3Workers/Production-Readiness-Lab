@@ -23,6 +23,9 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             name="email_normalized",
         ),
         CheckConstraint("role IN ('STUDENT', 'STAFF', 'ADMIN')", name="role"),
+        CheckConstraint(
+            "gender IS NULL OR gender IN ('MALE', 'FEMALE', 'OTHER', 'UNDISCLOSED')", name="gender"
+        ),
         CheckConstraint("is_active IN (0, 1)", name="is_active"),
         TABLE_OPTIONS,
     )
@@ -31,6 +34,10 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     password_hash: Mapped[str] = mapped_column(Text)
     name: Mapped[str] = mapped_column(String(150))
     role: Mapped[str] = mapped_column(String(10, collation=CODE_COLLATION))
+    student_code: Mapped[str | None] = mapped_column(String(50))
+    faculty: Mapped[str | None] = mapped_column(String(150))
+    major: Mapped[str | None] = mapped_column(String(150))
+    gender: Mapped[str | None] = mapped_column(String(20, collation=CODE_COLLATION))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("1"))
 
     @validates("email")

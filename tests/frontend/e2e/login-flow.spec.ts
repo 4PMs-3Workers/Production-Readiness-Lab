@@ -19,9 +19,15 @@ test('logs in with the keyboard, books from Home, and clears the session on logo
   );
   await expect(
     page
-      .getByRole('complementary', { name: 'Thông tin sinh viên' })
-      .getByText('student@example.test'),
+      .getByRole('navigation', { name: 'Điều hướng chính' })
+      .getByRole('link', { name: 'Thông tin sinh viên' }),
   ).toBeVisible();
+  await page
+    .getByRole('navigation', { name: 'Điều hướng chính' })
+    .getByRole('link', { name: 'Thông tin sinh viên' })
+    .click();
+  await expect(page).toHaveURL('/profile');
+  await expect(page.getByText('student@example.test', { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole('navigation').getByRole('link', { name: 'Đặt lịch tư vấn' }).click();
   await chooseScenario(page, 'success');

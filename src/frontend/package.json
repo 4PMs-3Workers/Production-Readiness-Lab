@@ -12,7 +12,8 @@
     "lint": "node ../../tools/scripts/lint-frontend.mjs",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run --config vitest.config.ts",
-    "test:e2e": "playwright test --config playwright.config.ts"
+    "test:e2e": "playwright test --config playwright.config.ts",
+    "test:e2e:api": "playwright test --config playwright.api.config.ts"
   },
   "dependencies": {
     "next": "16.4.0",

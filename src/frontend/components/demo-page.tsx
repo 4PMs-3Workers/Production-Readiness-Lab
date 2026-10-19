@@ -6,7 +6,7 @@ interface DemoPageProps {
   title: string;
   description: string;
   children: ReactNode;
-  action: { href: string; label: string };
+  action?: { href: string; label: string };
 }
 
 export function DemoPage({ eyebrow, title, description, children, action }: DemoPageProps) {
@@ -23,10 +23,12 @@ export function DemoPage({ eyebrow, title, description, children, action }: Demo
       </div>
       <div className="content-card">
         {children}
-        <Link className="preview-link" href={action.href}>
-          {action.label}
-          <span aria-hidden="true">→</span>
-        </Link>
+        {action && (
+          <Link className="preview-link" href={action.href}>
+            {action.label}
+            <span aria-hidden="true">→</span>
+          </Link>
+        )}
       </div>
     </section>
   );

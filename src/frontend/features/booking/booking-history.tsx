@@ -6,8 +6,13 @@ import { useDemo } from '@/features/demo/demo-provider';
 import { formatBusinessDate, formatBusinessTime } from '@/lib/business-time';
 
 import styles from './booking.module.css';
+import { isMockMode } from '@/lib/application-mode';
+import { ApiHistory } from '@/features/api/api-appointments';
 
 export function BookingHistoryView() {
+  return isMockMode() ? <MockBookingHistoryView /> : <ApiHistory />;
+}
+function MockBookingHistoryView() {
   const { bookings } = useDemo();
   return (
     <div className={styles.booking}>

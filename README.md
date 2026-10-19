@@ -145,6 +145,9 @@ Production-Readiness-Lab/
 | [Kết quả và lịch đã đặt](docs/tasks/frontend-results.md)            | Mốc 5: danh sách trong phiên, chi tiết từng lịch và thao tác bàn phím.      |
 | [Kiểm thử frontend và CI](docs/tasks/frontend-testing.md)           | Mốc 6: ma trận hành vi, clean install, báo cáo E2E và chẩn đoán CI.         |
 | [Bàn giao và nghiệm thu frontend](docs/tasks/frontend-handoff.md)   | Mốc 7: acceptance criteria, cách review, ảnh và phụ thuộc tích hợp API.     |
+| [Tích hợp frontend API thật](docs/tasks/frontend-api-integration.md) | Issue #20: session, đặt/hủy lịch, phục hồi reload và E2E MySQL thật.        |
+| [Hồ sơ sinh viên](docs/tasks/student-profile.md)                    | Trang hồ sơ riêng, API cá nhân và migration thông tin sinh viên.          |
+| [Mô tả thay đổi và review issue #20](docs/tasks/issue-20-change-description.md) | Phạm vi từng file, kiểm thử, bằng chứng và hướng dẫn triển khai trước commit. |
 | [Coding convention](docs/other/CONVENTION.md)                         | Quy ước tổ chức và viết mã frontend/backend.                                |
 | [Git Flow](docs/other/GITFLOW.md)                                     | Vai trò các branch, Pull Request và quy trình release/hotfix.               |
 
@@ -153,35 +156,33 @@ Production-Readiness-Lab/
 ### Chạy frontend
 
 Frontend nằm trong npm workspace `src/frontend`. Dùng Node.js 24 theo `.nvmrc`
-và npm 12.2.0; chạy từ thư mục gốc repository:
+và npm 12.2.0. Mặc định dùng **API thật**. Chạy FastAPI/MySQL với migration hiện tại,
+đặt `APPLICATION_ORIGIN=http://127.0.0.1:3000` và `COOKIE_SECURE=false` cho local HTTP.
+Sao chép `src/frontend/.env.example` thành `src/frontend/.env.local`, rồi chạy từ gốc:
 
 ```bash
 npm ci
 npm --workspace src/frontend run dev
 ```
 
-Mở `http://127.0.0.1:3000/booking` để trải nghiệm trực tiếp UI đặt lịch với dữ liệu
-mock, không cần đăng nhập hoặc chạy FastAPI/MySQL. Sidebar có tab Đặt lịch tư vấn và Lịch đã đặt;
-bạn chọn nhu cầu, cố vấn, ngày/giờ rồi xác nhận để xem `/booking/result`.
-Panel **Thiết lập bản demo** ở cuối trang cung cấp các kịch bản lỗi/thử lại/xung đột.
-Mở `/login`, nhập email hợp lệ và mật khẩu minh họa bất kỳ không rỗng để vào
-`/home`, rồi chọn **Đặt lịch tư vấn** từ sidebar. Chỉ dùng thông tin giả;
-`loginDemo` luôn trả về sinh viên minh họa, không xác thực tài khoản thật.
-Đăng xuất hoặc tải lại trang kết thúc phiên; đặt lịch trực tiếp vẫn được hỗ trợ.
-Xem [mốc 3: đăng nhập demo và Home](docs/tasks/frontend-login.md).
-Quy tắc reset draft, xử lý request cũ và kiểm chứng wizard nằm trong
-[mốc 4: booking wizard và state](docs/tasks/frontend-booking.md).
-Mục **Lịch đã đặt** tại `/appointments` giữ tất cả lần xác nhận thành công trong
-phiên, mới nhất trước; mỗi lịch mở được trang chi tiết riêng. Đặt lịch khác giữ
-danh sách; tải lại trang, đặt lại demo/đổi kịch bản hoặc đăng xuất sẽ xóa danh sách.
-Xem [mốc 5: kết quả và lịch đã đặt](docs/tasks/frontend-results.md).
-Ma trận kiểm thử và kết quả chạy với dependencies cài sạch nằm trong
-[mốc 6: kiểm thử và CI](docs/tasks/frontend-testing.md).
-Hướng dẫn review từng tình huống, khác biệt so với scope gốc và bàn giao API nằm
-trong [mốc 7: bàn giao và nghiệm thu](docs/tasks/frontend-handoff.md).
-Nền tảng và mock booking được bàn giao chung trong
-[bản gộp mốc 1 + 2](docs/tasks/frontend-bootstrap.md); hợp đồng services và các
-kịch bản nằm trong [tài liệu mock services](docs/tasks/frontend-mock-services.md).
+Mở `http://127.0.0.1:3000/login` bằng tài khoản sinh viên có trong database local.
+Next.js chuyển tiếp `/api/v1/*` tới `API_UPSTREAM_URL` (mặc định ví dụ là
+`http://127.0.0.1:8000`). Trình duyệt dùng cùng origin cho cookie, CSRF và API;
+không cần Nginx/Docker để chạy local. Sau đăng nhập, chọn nhu cầu, cố vấn, ngày/giờ
+và xác nhận. Kết quả có UUID trong URL; `/appointments` đọc lịch sử phân trang,
+lọc trạng thái, mở chi tiết và hủy lịch. Lịch đã commit vẫn tồn tại sau reload.
+Mục sidebar **Thông tin sinh viên** mở `/profile`, hiển thị họ tên, email, mã sinh viên,
+khoa, ngành, giới tính và vai trò; dữ liệu chưa có được ghi là “Chưa cập nhật”.
+
+Để chạy demo độc lập, đặt `NEXT_PUBLIC_APP_MODE=mock` trước khi dev/build.
+Chế độ này hiển thị nhãn DEMO và giữ các kịch bản giả lập cũ; chỉ dùng thông tin giả,
+lịch sử nằm trong bộ nhớ và bị xóa sau reload. Không có fallback từ API sang mock.
+Các tài liệu [bootstrap](docs/tasks/frontend-bootstrap.md),
+[mock services](docs/tasks/frontend-mock-services.md),
+[login demo](docs/tasks/frontend-login.md), [wizard demo](docs/tasks/frontend-booking.md)
+và [nghiệm thu 15/10](docs/tasks/frontend-handoff.md) mô tả phiên bản mock lịch sử.
+Hướng dẫn tích hợp, thiết lập, retry và kiểm thử thật nằm trong
+[frontend API integration](docs/tasks/frontend-api-integration.md).
 
 Trên PowerShell, nếu `node` chưa có trên PATH nhưng dependencies đã được cài,
 có thể chạy `./tools/scripts/start-frontend.ps1`. Script tìm Node trên PATH,
@@ -193,14 +194,22 @@ npm --workspace src/frontend run format:check
 npm --workspace src/frontend run lint
 npm --workspace src/frontend run typecheck
 npm --workspace src/frontend run test
+```
+
+Chạy hồi quy mock sau khi build đúng chế độ (PowerShell):
+
+```powershell
+$env:NEXT_PUBLIC_APP_MODE='mock'
 npm --workspace src/frontend run build
 npm --workspace src/frontend exec -- playwright install chromium
 npm --workspace src/frontend run test:e2e
 ```
 
-Playwright tự chạy production server trên cổng 3100 sau khi đã build.
-Xem [hướng dẫn frontend](docs/tasks/frontend-bootstrap.md) để biết phiên bản,
-cấu trúc và phạm vi kiểm tra hiện tại.
+`test:e2e` là bộ hồi quy mock: cần build với `NEXT_PUBLIC_APP_MODE=mock` và dùng cổng 3100.
+`test:e2e:api` cần build API với `API_UPSTREAM_URL=http://127.0.0.1:8101`, cấu hình
+`MYSQL_TEST_URL` và Python đã cài backend dependencies; bộ này khởi động FastAPI và
+Next.js trên 8101/3101 cùng schema MySQL 8.4 riêng. Thiếu database sẽ làm kiểm tra thất bại.
+Xem [lệnh kiểm chứng đầy đủ](docs/tasks/frontend-api-integration.md).
 
 ### Chạy nền tảng FastAPI
 

@@ -1,5 +1,9 @@
 # Mốc 7 — Bàn giao và nghiệm thu frontend
 
+> Bản ghi lịch sử của phiên bản mock ngày 15/10/2026. Từ issue #20, API mode là
+> mặc định; đăng nhập, lịch sử, phân trang và hủy sử dụng backend thật. Xem
+> [frontend API integration](frontend-api-integration.md) cho cách chạy hiện tại.
+
 Đối chiếu [issue #7](https://github.com/4PMs-3Workers/Production-Readiness-Lab/issues/7)
 ngày **15/10/2026**. Người dùng đã duyệt bước commit/push các thay đổi mốc 3–7.
 PR mới và việc upload ảnh vẫn chờ thực hiện; chưa xác nhận CI, approval hoặc merge
@@ -44,7 +48,8 @@ liệu và bằng chứng hình ảnh, không thay hành vi ứng dụng.
 
 ## Hướng dẫn reviewer tái hiện
 
-Chạy `npm ci`, `npm --workspace src/frontend run dev` từ gốc. Mặc định dev mở
+Để review phiên bản mock, đặt `NEXT_PUBLIC_APP_MODE=mock`, rồi chạy
+`npm ci`, `npm --workspace src/frontend run dev` từ gốc. Dev mở
 `http://127.0.0.1:3000`; URL preview local hiện tại có thể khác. Chỉ dùng thông tin giả.
 Demo clock là 13/10/2026; ngày đặt **14–20/10/2026** không đi theo đồng hồ máy.
 
@@ -73,8 +78,10 @@ khi đã ghi nhận kết quả tình huống trước. Preset `stale-response` 
 
 ## Bàn giao tích hợp API
 
-OpenAPI đang commit trong `docs/api/openapi.yaml` mới có các route health; chưa
-có hợp đồng nghiệp vụ để nối Login/catalog/availability/booking thật.
+Tại mốc mock 15/10, OpenAPI mới có health routes. Hợp đồng hiện tại trong
+`docs/api/openapi.yaml` đã có auth, catalog, availability, booking-context,
+tạo lịch, lịch sử, chi tiết và hủy. Danh sách sau ghi lại kế hoạch bàn giao
+của mốc cũ; cách tích hợp hiện tại nằm trong tài liệu issue #20.
 
 1. Đối chiếu DTO trong `types/booking.ts` và `services/contracts.ts` với OpenAPI
    được review của #4 và các API nghiệp vụ tương ứng. Không coi ID fixture hoặc

@@ -16,6 +16,8 @@ import {
   isCompleteSelection,
 } from './booking-state';
 import styles from './booking.module.css';
+import { isMockMode } from '@/lib/application-mode';
+import { ApiBookingFlow } from '@/features/api/api-booking-flow';
 
 const steps = ['Nhu cầu tư vấn', 'Người tư vấn', 'Ngày & giờ', 'Xác nhận'];
 const descriptions = [
@@ -26,6 +28,9 @@ const descriptions = [
 ];
 
 export function BookingFlow() {
+  return isMockMode() ? <MockBookingFlow /> : <ApiBookingFlow />;
+}
+function MockBookingFlow() {
   const { revision } = useDemo();
   return <BookingWizard key={revision} />;
 }

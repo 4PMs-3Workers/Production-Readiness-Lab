@@ -33,7 +33,8 @@ async def test_login_me_csrf_logout_and_cookie_replay(auth_env):
     me = await client.get("/api/v1/auth/me")
     assert me.json() == response.json()
     bootstrap = await client.get("/api/v1/auth/csrf")
-    assert set(bootstrap.json()) == {"csrf_token"}
+    assert set(bootstrap.json()) == {"csrf_token", "user_id"}
+    assert bootstrap.json()["user_id"] == str(user_id)
     assert bootstrap.json()["csrf_token"] == client.cookies["prl_csrf"]
     # Previously issued signed tokens remain valid for this session.
     client.cookies.set("prl_csrf", csrf, domain="localhost.local", path="/")
@@ -47,6 +48,39 @@ async def test_login_me_csrf_logout_and_cookie_replay(auth_env):
     for item in (response, me, bootstrap, result, replay, again):
         assert item.headers["Cache-Control"] == "private, no-store"
         assert "X-Request-ID" in item.headers
+
+
+async def test_csrf_owner_matches_token_session_after_switching_accounts(auth_env):
+    client, factory, user_id, _ = auth_env
+    async with factory.begin() as db:
+        student = await db.get(User, user_id)
+        assert student is not None
+        other = User(
+            email="other@example.invalid",
+            name="Other Student",
+            role="STUDENT",
+            password_hash=student.password_hash,
+        )
+        db.add(other)
+    await sign_in(client)
+    first = (await client.get("/api/v1/auth/csrf")).json()
+    assert first["user_id"] == str(user_id)
+    switched = await client.post(
+        "/api/v1/auth/login",
+        json=CREDENTIALS | {"email": "other@example.invalid"},
+        headers=ORIGIN,
+    )
+    assert switched.status_code == 200
+    second = (await client.get("/api/v1/auth/csrf")).json()
+    assert second["user_id"] == str(other.id)
+    # Even a matching cookie/header pair from A cannot authorize B's session.
+    client.cookies.set("prl_csrf", first["csrf_token"], domain="localhost.local", path="/")
+    rejected = await client.post(
+        "/api/v1/auth/logout", headers=ORIGIN | {"X-CSRF-Token": first["csrf_token"]}
+    )
+    assert rejected.status_code == 403
+    assert rejected.json()["error"]["code"] == "INVALID_CSRF"
+    assert (await client.get("/api/v1/auth/me")).json()["id"] == second["user_id"]
 
 
 @pytest.mark.parametrize("kind", ["unknown", "wrong", "inactive"])

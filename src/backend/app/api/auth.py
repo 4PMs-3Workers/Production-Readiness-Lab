@@ -78,7 +78,7 @@ async def csrf(
         now=datetime.now(UTC),
         settings=settings,
     )
-    return CsrfResponse(csrf_token=token)
+    return CsrfResponse(csrf_token=token, user_id=context.user_id)
 
 
 @router.post(

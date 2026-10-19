@@ -1,5 +1,15 @@
 export const BUSINESS_TIME_ZONE = 'Asia/Ho_Chi_Minh' as const;
 
+export function formatTimeZoneLabel(timezone: string): string {
+  if (timezone === BUSINESS_TIME_ZONE || timezone === 'Asia/Saigon') return 'Giờ Việt Nam (UTC+7)';
+  return new Intl.DateTimeFormat('vi-VN', {
+    timeZone: timezone,
+    timeZoneName: 'longGeneric',
+  })
+    .formatToParts(0)
+    .find((part) => part.type === 'timeZoneName')!.value;
+}
+
 export function isBusinessDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const date = new Date(`${value}T00:00:00.000Z`);
@@ -7,7 +17,7 @@ export function isBusinessDate(value: string): boolean {
 }
 
 export function parseInstant(value: string): Date {
-  const match = /^(\d{4}-\d{2}-\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.exec(
+  const match = /^(\d{4}-\d{2}-\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/.exec(
     value,
   );
   const instant = new Date(value);
@@ -17,9 +27,9 @@ export function parseInstant(value: string): Date {
   return instant;
 }
 
-export function getBusinessDate(instant: string): string {
+export function getBusinessDate(instant: string, timezone: string = BUSINESS_TIME_ZONE): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: BUSINESS_TIME_ZONE,
+    timeZone: timezone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -57,9 +67,9 @@ export function formatBusinessDate(date: string): string {
   }).format(new Date(`${date}T00:00:00+07:00`));
 }
 
-export function formatBusinessTime(instant: string): string {
+export function formatBusinessTime(instant: string, timezone: string = BUSINESS_TIME_ZONE): string {
   return new Intl.DateTimeFormat('vi-VN', {
-    timeZone: BUSINESS_TIME_ZONE,
+    timeZone: timezone,
     hour: '2-digit',
     minute: '2-digit',
     hourCycle: 'h23',
