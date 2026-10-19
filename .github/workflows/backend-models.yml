@@ -77,7 +77,7 @@ jobs:
       # --- Full test suite (integration tests run through migrations) ---
       - name: Run backend tests; required integration tests must not skip
         run: |
-          .venv/bin/python -m pytest tests/backend -q --junitxml=build/backend-tests.xml
+          .venv/bin/python -m pytest tests/backend -q --require-mysql --junitxml=build/backend-tests.xml
           .venv/bin/python - <<'PY'
           from xml.etree import ElementTree
 
