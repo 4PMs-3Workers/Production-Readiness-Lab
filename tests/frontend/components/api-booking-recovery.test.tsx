@@ -43,15 +43,18 @@ function setup(fetcher: typeof fetch) {
     }, [value]);
     return null;
   }
-  render(
+  const flow = (booking: boolean) => (
     <ApiProvider services={services}>
       <Capture />
-      <SessionGate>
-        <ApiBookingFlow />
-      </SessionGate>
-    </ApiProvider>,
+      <SessionGate>{booking ? <ApiBookingFlow /> : <p>Trang chủ</p>}</SessionGate>
+    </ApiProvider>
   );
-  return { services, api: () => api };
+  const view = render(flow(true));
+  return {
+    services,
+    api: () => api,
+    showBooking: (booking: boolean) => view.rerender(flow(booking)),
+  };
 }
 
 describe('booking recovery boundaries', () => {
@@ -132,73 +135,105 @@ describe('booking recovery boundaries', () => {
     },
   );
 
-  it('unlocks the wizard and refreshes slots after an unknown request receives BOOKING_CONFLICT', async () => {
-    const posted: RequestInit[] = [];
-    let availabilityReads = 0;
-    const fixture = setup(
-      vi.fn<typeof fetch>(async (path, init) => {
-        const url = String(path);
-        if (url.endsWith('/auth/me')) return json(user);
-        if (url.endsWith('/auth/csrf')) return json({ csrf_token: 'csrf', user_id: user.id });
-        if (url.endsWith('/booking-context')) return json(context);
-        if (url.includes('/purposes?'))
-          return json({
-            items: [
-              {
-                id: 'p',
-                code: 'CUSTOM',
-                name: 'Purpose',
-                duration_minutes: 30,
-                requires_free_text: false,
-              },
-            ],
-            page: 1,
-            page_size: 20,
-            total: 1,
-          });
-        if (url.includes('/staff?'))
-          return json({ items: [{ id: 's', name: 'Advisor' }], page: 1, page_size: 20, total: 1 });
-        if (url.includes('/availability?')) {
-          availabilityReads += 1;
-          return json({
-            date: '2026-10-19',
-            timezone: context.timezone,
-            slots:
-              availabilityReads === 1
-                ? [{ starts_at: body.starts_at, ends_at: '2026-10-19T01:30:00Z' }]
-                : [{ starts_at: '2026-10-19T01:30:00Z', ends_at: '2026-10-19T02:00:00Z' }],
-          });
-        }
-        posted.push(init!);
-        if (posted.length === 1) throw new TypeError('Request lost before reaching server');
-        if (posted.length === 2) return json({ error: { code: 'BOOKING_CONFLICT' } }, 409);
-        return json(receipt);
-      }),
-    );
-    const controls = userEvent.setup();
-    await controls.click(await screen.findByRole('radio', { name: /Purpose/ }));
-    await controls.click(screen.getByRole('button', { name: /Tiếp tục/ }));
-    await controls.click(await screen.findByRole('radio', { name: /Advisor/ }));
-    await controls.click(screen.getByRole('button', { name: /Tiếp tục/ }));
-    await controls.click(screen.getByRole('radio', { name: '19/10/2026' }));
-    await controls.click(await screen.findByRole('radio', { name: /08:00 – 08:30/ }));
-    await controls.click(screen.getByRole('button', { name: /Tiếp tục/ }));
-    await controls.click(screen.getByRole('button', { name: /Xác nhận đặt lịch/ }));
-    const original = fixture.api().intents.snapshot()!;
-    await controls.click(await screen.findByRole('button', { name: 'Thử lại cùng yêu cầu' }));
-    const alternative = await screen.findByRole('radio', { name: /08:30 – 09:00/ });
-    expect(alternative).not.toBeChecked();
-    expect(screen.queryByRole('radio', { name: /08:00 – 08:30/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Thử lại cùng yêu cầu' })).not.toBeInTheDocument();
-    expect(fixture.api().intents.snapshot()).toBeNull();
-    expect(availabilityReads).toBe(2);
-    expect(posted[1].body).toBe(posted[0].body);
-    expect(new Headers(posted[1].headers).get('Idempotency-Key')).toBe(original.key);
-    await controls.click(alternative);
-    await controls.click(screen.getByRole('button', { name: /Tiếp tục/ }));
-    await controls.click(screen.getByRole('button', { name: /Xác nhận đặt lịch/ }));
-    await waitFor(() => expect(router.push).toHaveBeenCalled());
-    expect(new Headers(posted[2].headers).get('Idempotency-Key')).not.toBe(original.key);
-    expect(JSON.parse(String(posted[2].body)).starts_at).toBe('2026-10-19T01:30:00Z');
-  });
+  it.each([false, true])(
+    'unlocks the wizard after an unknown request receives BOOKING_CONFLICT (remount: %s)',
+    async (remount) => {
+      const posted: RequestInit[] = [];
+      let availabilityReads = 0;
+      const fixture = setup(
+        vi.fn<typeof fetch>(async (path, init) => {
+          const url = String(path);
+          if (url.endsWith('/auth/me')) return json(user);
+          if (url.endsWith('/auth/csrf')) return json({ csrf_token: 'csrf', user_id: user.id });
+          if (url.endsWith('/booking-context')) return json(context);
+          if (url.includes('/purposes?'))
+            return json({
+              items: [
+                {
+                  id: 'p',
+                  code: 'CUSTOM',
+                  name: 'Purpose',
+                  duration_minutes: 30,
+                  requires_free_text: false,
+                },
+              ],
+              page: 1,
+              page_size: 20,
+              total: 1,
+            });
+          if (url.includes('/staff?'))
+            return json({
+              items: [{ id: 's', name: 'Advisor' }],
+              page: 1,
+              page_size: 20,
+              total: 1,
+            });
+          if (url.includes('/availability?')) {
+            availabilityReads += 1;
+            return json({
+              date: '2026-10-19',
+              timezone: context.timezone,
+              slots:
+                availabilityReads === 1
+                  ? [{ starts_at: body.starts_at, ends_at: '2026-10-19T01:30:00Z' }]
+                  : [{ starts_at: '2026-10-19T01:30:00Z', ends_at: '2026-10-19T02:00:00Z' }],
+            });
+          }
+          posted.push(init!);
+          if (posted.length === 1) throw new TypeError('Request lost before reaching server');
+          if (posted.length === 2) return json({ error: { code: 'BOOKING_CONFLICT' } }, 409);
+          return json(receipt);
+        }),
+      );
+      const controls = userEvent.setup();
+      await controls.click(await screen.findByRole('radio', { name: /Purpose/ }));
+      await controls.click(screen.getByRole('button', { name: /Tiếp tục/ }));
+      await controls.click(await screen.findByRole('radio', { name: /Advisor/ }));
+      await controls.click(screen.getByRole('button', { name: /Tiếp tục/ }));
+      await controls.click(screen.getByRole('radio', { name: '19/10/2026' }));
+      await controls.click(await screen.findByRole('radio', { name: /08:00 – 08:30/ }));
+      await controls.click(screen.getByRole('button', { name: /Tiếp tục/ }));
+      await controls.click(screen.getByRole('button', { name: /Xác nhận đặt lịch/ }));
+      const original = fixture.api().intents.snapshot()!;
+      await screen.findByRole('button', { name: 'Thử lại cùng yêu cầu' });
+      if (remount) {
+        fixture.showBooking(false);
+        expect(screen.queryByRole('heading', { name: 'Đặt lịch tư vấn' })).not.toBeInTheDocument();
+        fixture.showBooking(true);
+        expect(fixture.api().intents.snapshot()).toMatchObject({
+          key: original.key,
+          body: original.body,
+          phase: 'unknown',
+        });
+      }
+      await controls.click(await screen.findByRole('button', { name: 'Thử lại cùng yêu cầu' }));
+      if (remount) {
+        await controls.click(await screen.findByRole('radio', { name: /Purpose/ }));
+        await controls.click(screen.getByRole('button', { name: /Tiếp tục/ }));
+        await controls.click(await screen.findByRole('radio', { name: /Advisor/ }));
+        // The restored wizard also permits normal backward navigation.
+        await controls.click(screen.getByRole('button', { name: /Quay lại/ }));
+        expect(screen.getByRole('radio', { name: /Purpose/ })).toBeChecked();
+        await controls.click(screen.getByRole('button', { name: /Tiếp tục/ }));
+        await controls.click(screen.getByRole('button', { name: /Tiếp tục/ }));
+        await controls.click(screen.getByRole('radio', { name: '19/10/2026' }));
+      }
+      const alternative = await screen.findByRole('radio', { name: /08:30 – 09:00/ });
+      expect(alternative).not.toBeChecked();
+      expect(screen.queryByRole('radio', { name: /08:00 – 08:30/ })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: 'Thử lại cùng yêu cầu' }),
+      ).not.toBeInTheDocument();
+      expect(fixture.api().intents.snapshot()).toBeNull();
+      expect(availabilityReads).toBe(2);
+      expect(posted[1].body).toBe(posted[0].body);
+      expect(new Headers(posted[1].headers).get('Idempotency-Key')).toBe(original.key);
+      await controls.click(alternative);
+      await controls.click(screen.getByRole('button', { name: /Tiếp tục/ }));
+      await controls.click(screen.getByRole('button', { name: /Xác nhận đặt lịch/ }));
+      await waitFor(() => expect(router.push).toHaveBeenCalled());
+      expect(new Headers(posted[2].headers).get('Idempotency-Key')).not.toBe(original.key);
+      expect(JSON.parse(String(posted[2].body)).starts_at).toBe('2026-10-19T01:30:00Z');
+    },
+  );
 });

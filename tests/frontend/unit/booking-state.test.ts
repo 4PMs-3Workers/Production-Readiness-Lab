@@ -166,4 +166,19 @@ describe('booking draft rules', () => {
     expect(state).toEqual({ step: 2, selection: { ...review.selection, slot: null } });
     expect(canVisitStep(state.selection, 3)).toBe(false);
   });
+
+  it.each([
+    { name: 'remounted empty draft', selection: initialBookingState.selection, step: 0 },
+    { name: 'missing adviser', selection: { ...initialBookingState.selection, purpose }, step: 1 },
+    {
+      name: 'missing required description',
+      selection: { ...completedDraft(other).selection, description: '  ' },
+      step: 0,
+    },
+  ])('recovers a conflict at a reachable step for $name', ({ selection, step }) => {
+    const recovered = bookingReducer({ step: 0, selection }, { type: 'bookingConflict' });
+    expect(recovered).toEqual({ step, selection: { ...selection, slot: null } });
+    expect(canVisitStep(recovered.selection, recovered.step)).toBe(true);
+    expect(isCompleteSelection(recovered.selection)).toBe(false);
+  });
 });
