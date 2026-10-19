@@ -104,67 +104,100 @@ test('session loss while the first committed receipt is pending preserves its or
   }
 });
 
-test('an authoritative conflict after an unknown POST unlocks another slot and a fresh intent', async ({
-  page,
-  context,
-}) => {
-  await login(page);
-  await selectBooking(page);
-  const posted: { key: string | undefined; body: string | null }[] = [];
-  page.on('request', (request) => {
-    if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/appointments')
-      posted.push({ key: request.headers()['idempotency-key'], body: request.postData() });
-  });
-  // Abort before the backend sees the first POST; retain its actual key/body.
-  await page.route('**/api/v1/appointments', (route) => route.abort('failed'), { times: 1 });
-  await page.getByRole('button', { name: 'Xác nhận đặt lịch' }).click();
-  const retry = page.getByRole('button', { name: 'Thử lại cùng yêu cầu' });
-  await expect(retry).toBeVisible();
-  expect(posted).toHaveLength(1);
-  expect((await (await context.request.get('/api/v1/appointments')).json()).items).toEqual([]);
-  const csrf = await context.request.get('/api/v1/auth/csrf');
-  const independent = await context.request.post('/api/v1/appointments', {
-    headers: {
-      Origin: 'http://127.0.0.1:3101',
-      'X-CSRF-Token': (await csrf.json()).csrf_token as string,
-      'Idempotency-Key': 'independent-winner',
-    },
-    data: JSON.parse(posted[0].body!),
-  });
-  expect(independent.status()).toBe(201);
-  const id = (await independent.json()).id as string;
-  const rejection = page.waitForResponse(
-    (response) =>
-      response.request().method() === 'POST' &&
-      new URL(response.url()).pathname === '/api/v1/appointments' &&
-      response.status() === 409,
-  );
-  await retry.click();
-  expect((await (await rejection).json()).error.code).toBe('BOOKING_CONFLICT');
-  const alternative = page.getByRole('radio', { name: /08:30 – 09:00/ });
-  await expect(alternative).toBeVisible();
-  await expect(alternative).not.toBeChecked();
-  await expect(page.getByRole('radio', { name: /08:00 – 08:30/ })).toHaveCount(0);
-  await expect(retry).toHaveCount(0);
-  expect(posted[1]).toEqual(posted[0]);
-  await alternative.check();
-  await page.getByRole('button', { name: 'Tiếp tục' }).click();
-  await page.getByRole('button', { name: 'Xác nhận đặt lịch' }).click();
-  await expect(page.getByRole('heading', { name: 'Chi tiết lịch hẹn' })).toBeVisible();
-  const replacementId = new URL(page.url()).searchParams.get('id');
-  expect(replacementId).not.toBe(id);
-  expect(posted).toHaveLength(3);
-  expect(posted[2].key).not.toBe(posted[0].key);
-  expect(JSON.parse(posted[2].body!).starts_at).not.toBe(JSON.parse(posted[0].body!).starts_at);
-  const finalHistory = (await (await context.request.get('/api/v1/appointments')).json()).items;
-  expect(finalHistory).toHaveLength(2);
-  for (const appointment of finalHistory)
-    expect(JSON.parse(harness('inspect', '--id', appointment.id))).toMatchObject({
-      appointments: 1,
-      APPOINTMENT_CREATED: 1,
-      APPOINTMENT_CREATED_notifications: 2,
+for (const remount of [false, true]) {
+  test(`an authoritative conflict after an unknown POST unlocks another slot and a fresh intent (remount: ${remount})`, async ({
+    page,
+    context,
+  }) => {
+    await login(page);
+    await selectBooking(page);
+    const posted: { key: string | undefined; body: string | null }[] = [];
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/appointments')
+        posted.push({ key: request.headers()['idempotency-key'], body: request.postData() });
     });
-});
+    // Abort before the backend sees the first POST; retain its actual key/body.
+    await page.route('**/api/v1/appointments', (route) => route.abort('failed'), { times: 1 });
+    await page.getByRole('button', { name: 'Xác nhận đặt lịch' }).click();
+    const retry = page.getByRole('button', { name: 'Thử lại cùng yêu cầu' });
+    await expect(retry).toBeVisible();
+    expect(posted).toHaveLength(1);
+    expect((await (await context.request.get('/api/v1/appointments')).json()).items).toEqual([]);
+    const csrf = await context.request.get('/api/v1/auth/csrf');
+    const independent = await context.request.post('/api/v1/appointments', {
+      headers: {
+        Origin: 'http://127.0.0.1:3101',
+        'X-CSRF-Token': (await csrf.json()).csrf_token as string,
+        'Idempotency-Key': 'independent-winner',
+      },
+      data: JSON.parse(posted[0].body!),
+    });
+    expect(independent.status()).toBe(201);
+    const id = (await independent.json()).id as string;
+    if (remount) {
+      const documents: string[] = [];
+      page.on('request', (request) => {
+        if (request.resourceType() === 'document') documents.push(request.url());
+      });
+      await page.getByRole('link', { name: 'Trang chủ', exact: true }).first().click();
+      await page.getByRole('link', { name: 'Bắt đầu đặt lịch' }).click();
+      await expect(retry).toBeVisible();
+      expect(documents).toEqual([]);
+    }
+    const rejection = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname === '/api/v1/appointments' &&
+        response.status() === 409,
+    );
+    await retry.click();
+    expect((await (await rejection).json()).error.code).toBe('BOOKING_CONFLICT');
+    if (remount) {
+      await expect(
+        page.getByRole('heading', { name: 'Chọn nhu cầu tư vấn', exact: true }),
+      ).toBeVisible();
+      await page.getByRole('radio', { name: /Tư vấn học tập kiểm thử/ }).check();
+      await page.getByLabel('Bạn muốn trao đổi về điều gì? *').fill(description);
+      await page.getByRole('button', { name: 'Tiếp tục' }).click();
+      await page.getByRole('radio', { name: /Cố vấn kiểm thử/ }).check();
+      await page.getByRole('button', { name: 'Quay lại' }).click();
+      await expect(page.getByRole('radio', { name: /Tư vấn học tập kiểm thử/ })).toBeChecked();
+      await page.getByRole('button', { name: 'Tiếp tục' }).click();
+      const availability = page.waitForResponse(
+        (response) => new URL(response.url()).pathname === '/api/v1/availability' && response.ok(),
+      );
+      await page.getByRole('button', { name: 'Tiếp tục' }).click();
+      await page
+        .getByRole('radio', { name: /^\d{2}\/\d{2}\/\d{4}$/ })
+        .first()
+        .check();
+      await availability;
+    }
+    const alternative = page.getByRole('radio', { name: /08:30 – 09:00/ });
+    await expect(alternative).toBeVisible();
+    await expect(alternative).not.toBeChecked();
+    await expect(page.getByRole('radio', { name: /08:00 – 08:30/ })).toHaveCount(0);
+    await expect(retry).toHaveCount(0);
+    expect(posted[1]).toEqual(posted[0]);
+    await alternative.check();
+    await page.getByRole('button', { name: 'Tiếp tục' }).click();
+    await page.getByRole('button', { name: 'Xác nhận đặt lịch' }).click();
+    await expect(page.getByRole('heading', { name: 'Chi tiết lịch hẹn' })).toBeVisible();
+    const replacementId = new URL(page.url()).searchParams.get('id');
+    expect(replacementId).not.toBe(id);
+    expect(posted).toHaveLength(3);
+    expect(posted[2].key).not.toBe(posted[0].key);
+    expect(JSON.parse(posted[2].body!).starts_at).not.toBe(JSON.parse(posted[0].body!).starts_at);
+    const finalHistory = (await (await context.request.get('/api/v1/appointments')).json()).items;
+    expect(finalHistory).toHaveLength(2);
+    for (const appointment of finalHistory)
+      expect(JSON.parse(harness('inspect', '--id', appointment.id))).toMatchObject({
+        appointments: 1,
+        APPOINTMENT_CREATED: 1,
+        APPOINTMENT_CREATED_notifications: 2,
+      });
+  });
+}
 
 for (const heldPath of ['/auth/csrf', '/auth/me']) {
   test(`an account switch while awaiting ${heldPath} never posts the previous student's booking`, async ({

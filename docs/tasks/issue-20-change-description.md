@@ -430,3 +430,30 @@ suốt lỗi retry hoặc đăng nhập lại cùng sinh viên. Xem
 | `docs/tasks/frontend-api-integration.md`           | Contract, deployment order, dữ liệu riêng tư, recovery và bằng chứng kiểm tra mới.     |
 | `docs/tasks/session-authentication.md`             | Contract CSRF trả owner và thứ tự triển khai tương thích client cũ.                    |
 | `docs/tasks/issue-20-change-description.md`        | Cập nhật luồng và manifest bổ sung này.                                                |
+
+## Follow-up review trên `aa2e23d`: phục hồi conflict sau điều hướng client
+
+Sửa bước phục hồi BOOKING_CONFLICT khi intent unknown còn ở provider nhưng
+wizard đã remount và không còn lựa chọn cục bộ. Reducer xóa slot rồi về bước
+phù hợp với dữ liệu đang có: nhu cầu nếu draft rỗng/mô tả bắt buộc thiếu, người
+tư vấn nếu chưa chọn cố vấn, ngày/giờ nếu đủ điều kiện. Catalog/availability
+được lấy lại khi chọn; request thử lại giữ nguyên key/body, xác nhận giờ mới
+mới tạo intent khác. Không thay đổi backend, schema hay HTTP contract.
+
+| File                                                      | Thay đổi trong lần sửa remount                                                                             |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `src/frontend/features/booking/booking-state.ts`          | Chọn bước hợp lệ sau conflict, vẫn bỏ slot cũ.                                                             |
+| `tests/frontend/unit/booking-state.test.ts`               | Draft rỗng, thiếu cố vấn và thiếu mô tả bắt buộc; giữ ca draft đầy đủ.                                     |
+| `tests/frontend/components/api-booking-recovery.test.tsx` | Unknown → giữ provider/remount wizard → conflict → chọn lại và tạo key mới; kiểm tra cả không remount.     |
+| `tests/frontend/api-e2e/portal.spec.ts`                   | Kết hợp unknown, điều hướng client, conflict thật và đặt giờ khác trên desktop/mobile; giữ kiểm đếm MySQL. |
+| `docs/tasks/frontend-api-integration.md`                  | Giải thích phạm vi state, cách phục hồi và kiểm chứng regression.                                          |
+| `docs/tasks/issue-20-change-description.md`               | Mô tả/manifest riêng cho lần follow-up này.                                                                |
+
+Trước commit đã rà soát đủ sáu file trên; 145 unit/component, build API/
+TypeScript, ESLint và Prettier đạt. Bộ API ban đầu có 30 ca đạt và hai lỗi
+selector test mới; sau chỉnh selector, bốn probe conflict có/không remount trên
+desktop/mobile đạt, không retry. CI trên head mới xác minh lại trọn bộ 32 API
+E2E, 66 mock E2E và backend. Thử tay unknown từ 503 → intent độc lập → điều
+hướng client → conflict → bước nhu cầu → đặt giờ mới đã thành công; MySQL đúng
+hai lịch với một creation audit và hai notifications cho mỗi lịch. Bằng chứng
+chi tiết nằm trong phần follow-up remount của tài liệu tích hợp.

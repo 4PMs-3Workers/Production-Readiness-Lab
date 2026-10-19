@@ -74,6 +74,8 @@ session handling. CSRF/origin/role, conflict/quota/idempotency, validation,
 network/timeout và 503 có hướng xử lý riêng. X-Request-ID xuất hiện khi cần hỗ trợ.
 BOOKING_CONFLICT bỏ slot và tải lại giờ trống; quota dẫn tới lịch sử; 404/422 tải
 lại ngữ cảnh và lựa chọn. IDEMPOTENCY_CONFLICT không tự sinh key mới để bỏ qua.
+Nếu wizard đã remount và mất lựa chọn cục bộ, conflict đưa về bước còn thiếu
+để chọn lại từ catalog hiện tại, thay vì mở bước ngày/giờ rỗng.
 
 ## Session và dữ liệu riêng tư
 
@@ -393,3 +395,46 @@ Sau khi setup/build API như phần trên, chạy riêng bốn probe desktop/mob
 ```powershell
 npm --workspace src/frontend run test:e2e:api -- --grep "session loss while|authoritative conflict"
 ```
+
+## Follow-up review trên `aa2e23d`: conflict sau khi wizard remount
+
+Intent unknown thuộc provider và sống qua điều hướng client, còn lựa chọn của
+wizard thuộc reducer cục bộ. Khi quay từ Booking → Home → Bắt đầu đặt lịch,
+wizard mới chưa có nhu cầu/người tư vấn. Retry vẫn gửi nguyên key/body, nhưng
+409 BOOKING_CONFLICT trước đây mở thẳng bước ngày/giờ dù thiếu hai lựa chọn đó.
+
+Reducer xử lý conflict bằng cách bỏ slot và kiểm tra điều kiện vào từng bước.
+Có nhu cầu hợp lệ và người tư vấn thì trở về ngày/giờ, giữ phần còn lại của draft.
+Thiếu người tư vấn thì về bước chọn người; thiếu nhu cầu hoặc mô tả bắt buộc thì
+về bước nhu cầu. Sau remount, sinh viên chọn lại từ catalog hiện tại rồi tải
+availability mới. Chỉ lần xác nhận giờ mới sinh key mới. Không khôi phục metadata
+nhu cầu/cố vấn bằng cách tự suy đoán từ các ID trong intent.
+
+Regression component giữ nguyên provider, tháo/gắn lại booking flow sau lỗi mạng,
+retry nhận conflict, chọn lại nhu cầu/người/ngày/giờ và xác nhận bằng key mới.
+Ca không remount vẫn kiểm tra giữ draft và tự refresh giờ. Unit bổ sung draft
+rỗng, thiếu cố vấn và thiếu mô tả bắt buộc; cả bốn ca mới đều thất bại trước sửa.
+
+API browser chạy cả có/không remount trên desktop và mobile. POST đầu bị abort
+trước backend, history rỗng; key độc lập đặt được slot đó. Điều hướng dùng link
+client và xác nhận không phát sinh document request. Retry nguyên key/body nhận
+409 thật, trở về nhu cầu khi draft rỗng, cho dùng Quay lại/Tiếp tục, tải lại
+availability rồi đặt giờ khác. MySQL phải có đúng hai appointment; mỗi lịch có
+một creation audit và hai creation notifications, không có booking từ POST đầu.
+
+Kiểm tra trước commit: 145 unit/component đạt; build production API/TypeScript,
+ESLint và Prettier đạt. Lượt API đầy đủ đầu có 30 ca đạt và hai ca remount dừng
+ở selector link quá chặt (nhãn có thêm mũi tên), chưa tới kiểm tra conflict.
+Sau sửa selector, bốn ca conflict có/không remount trên desktop/mobile đều đạt,
+không retry. Report riêng: `build/review-remount-api-targeted.json`. Toàn bộ
+32 API E2E và 66 mock E2E được kiểm tra tiếp bằng CI trên head mới sau push.
+
+Thử tay trên fixture hư cấu ngày 19/10/2026: giữ khóa booking settings ngắn hạn
+trong schema test làm POST đầu trả 503, UI giữ unknown và MySQL không có lịch.
+Nhả khóa, tab độc lập đặt 08:00–08:30 ngày 20/10. Tab đầu dùng link Home →
+Bắt đầu đặt lịch, giữ nút thử lại; retry nhận conflict và hiện bước nhu cầu.
+Chọn lại, thử Quay lại/Tiếp tục, tải giờ mới không còn 08:00, đặt được 08:30–09:00.
+MySQL đúng hai lịch, mỗi lịch một creation audit và hai notifications. Ảnh
+không chứa nội dung tư vấn: `build/review-remount-manual-recovered.png`;
+kiểm đếm: `build/review-remount-manual-database.json`. Probe abort trước backend
+và giữ nguyên key/body được xác minh riêng trong API E2E, không thay bằng ca 503.
