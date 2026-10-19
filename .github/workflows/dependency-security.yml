@@ -1,0 +1,76 @@
+name: Dependency security
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-advisories:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Prepare report directory
+        run: mkdir -p build/security
+
+      - name: Collect npm audit report
+        shell: bash
+        run: |
+          set +e
+          npm audit --package-lock-only --json > build/security/npm-raw.json
+          npm_audit_exit=$?
+          set -e
+          cp build/security/npm-raw.json build/security/npm.json
+          if [ "$npm_audit_exit" -gt 1 ]; then
+            printf '{"collector_error":"npm audit failed with exit code %s"}\n' "$npm_audit_exit" > build/security/npm.json
+          fi
+
+      - name: Create isolated Python audit tool environment
+        run: python -m venv .audit-venv
+
+      - name: Install pinned pip-audit
+        run: .audit-venv/bin/python -m pip install --disable-pip-version-check "pip-audit==2.10.1"
+
+      - name: Collect full Python dependency audit report
+        shell: bash
+        run: |
+          set +e
+          .audit-venv/bin/pip-audit --requirement requirements-dev.txt --format=json > build/security/python-raw.json
+          pip_audit_exit=$?
+          set -e
+          cp build/security/python-raw.json build/security/python.json
+          if [ "$pip_audit_exit" -gt 1 ]; then
+            printf '{"collector_error":"pip-audit failed with exit code %s"}\n' "$pip_audit_exit" > build/security/python.json
+          fi
+
+      - name: Enforce advisory policy
+        run: >-
+          python tools/scripts/check_dependency_advisories.py
+          --npm-report build/security/npm.json
+          --npm-lock package-lock.json
+          --python-report build/security/python.json
+          --exceptions docs/security/advisory-exceptions.json
+          --output build/security/decision.json
+
+      - name: Retain advisory reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dependency-security-reports
+          path: build/security/*.json
+          if-no-files-found: warn
+          retention-days: 14

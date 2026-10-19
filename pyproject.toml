@@ -30,7 +30,12 @@ where = ["src/backend"]
 include = ["app*"]
 
 [tool.pyright]
-include = ["src/backend", "tests/backend", "tools/scripts/export_openapi.py"]
+include = [
+    "src/backend",
+    "tests/backend",
+    "tools/scripts/export_openapi.py",
+    "tools/scripts/check_dependency_advisories.py",
+]
 extraPaths = ["src/backend"]
 venvPath = "."
 venv = ".venv"
