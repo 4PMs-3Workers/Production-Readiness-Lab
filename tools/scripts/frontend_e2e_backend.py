@@ -378,7 +378,7 @@ def main():
             "APPLICATION_ORIGIN": "http://127.0.0.1:3101",
             "COOKIE_SECRET": "frontend-e2e-only-cookie-secret",
             "CSRF_SECRET": "frontend-e2e-only-csrf-secret",
-            "ACCEPTED_SCHEMA_REVISIONS": "20261017_2350_student_profile",
+            "ACCEPTED_SCHEMA_REVISIONS": "20261019_1200_proposal_replay",
             "COOKIE_SECURE": False,
             "ENVIRONMENT": "test",
             "LOGIN_IP_ATTEMPTS": 200,

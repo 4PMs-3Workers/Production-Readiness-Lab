@@ -272,6 +272,7 @@ Lưu lịch hẹn đã xác nhận, dữ liệu tạo ban đầu và kết quả
 | `status` | `varchar(20)` | NN, `'UPCOMING'` | Trạng thái lịch. |
 | `creation_request_key` | `varchar(128)` | NN | Mã yêu cầu tạo lịch do client sinh. |
 | `creation_request_hash` | `varbinary(32)` | NN | Hash 32 byte của nội dung yêu cầu đã chuẩn hóa. |
+| `proposal_version` | `bigint` | NN, `0` | Bộ đếm tạo/thay đề nghị, không tăng khi quyết định hoặc hủy. |
 | `cancelled_at` | `datetime(6)` | NULL | Lúc hủy. |
 | `cancelled_by` | `binary(16)` | NULL, FK → `users.id` | Sinh viên/nhân viên hủy; NULL cho hệ thống. |
 | `cancel_reason` | `varchar(2000)` | NULL | Lý do hủy tùy chọn. |
@@ -304,6 +305,9 @@ Lưu từng đề nghị đổi lịch để giữ được lịch sử phản h
 | `id` | `binary(16)` | PK, NN | ID đề nghị. |
 | `appointment_id` | `binary(16)` | NN, FK → `appointments.id` | Lịch cần thay đổi. |
 | `created_by` | `binary(16)` | NN, FK → `users.id` | Nhân viên của lịch tạo đề nghị. |
+| `creation_request_key` | `varchar(128)` | NULL | Key tạo/thay đề nghị; NULL cho lịch sử legacy. |
+| `creation_request_hash` | `varbinary(32)` | NULL | Hash v1 của ý định và cả hai precondition. |
+| `created_version` | `bigint` | NULL | Version cấp lúc tạo, bất biến; NULL cho legacy. |
 | `proposed_starts_at`, `proposed_ends_at` | `datetime(6)` | NN | Toàn bộ khoảng giờ đề nghị. |
 | `proposed_location` | `varchar(500)` | NULL | Địa điểm sau khi duyệt; có thể giữ nguyên. |
 | `status` | `varchar(20)` | NN, `'PENDING'` | Trạng thái đề nghị. |
@@ -318,6 +322,7 @@ Lưu từng đề nghị đổi lịch để giữ được lịch sử phản h
 - Trạng thái thuộc `PENDING`, `ACCEPTED`, `DECLINED`, `EXPIRED`, `SUPERSEDED`, `CANCELLED`.
 - `proposed_ends_at > proposed_starts_at`; `expires_at > created_at`.
 - `UNIQUE(appointment_id, pending_guard)` bảo đảm tối đa một đề nghị `PENDING` trên một lịch.
+- `UNIQUE(appointment_id, creation_request_key)` giữ receipt; `UNIQUE(appointment_id, created_version)` bảo vệ version tạo. Ba cột metadata cùng NULL cho legacy hoặc cùng có giá trị: key không rỗng, hash 32 byte, version trong `[1, 9007199254740991]`. Counter appointment trong `[0, 9007199254740991]`.
 - `PENDING` có `resolved_at` để NULL; trạng thái kết thúc có `resolved_at`.
 
 **Quy tắc tại service:** `resolved_by` để NULL khi `PENDING` hoặc `EXPIRED`; các trạng thái kết thúc khác ghi người thao tác phù hợp. Service kiểm tra quyền và danh tính trong cùng giao dịch chuyển trạng thái.
@@ -519,6 +524,8 @@ Phản hồi tạo lịch gồm các giá trị có thể dựng lại từ dữ
 Ngay cả khi lịch đã hủy hoặc đổi giờ, replay vẫn trả kết quả tạo ban đầu; client đọc chi tiết lịch để lấy trạng thái hiện tại. Mã/hash được giữ cùng lịch sử lịch hẹn, bảo đảm replay tối thiểu 24 giờ. Việc dọn lịch sử không được xóa key trong khoảng bảo đảm này. Request ID thuộc lần HTTP hiện tại. Kiểm tra phiên/quyền trước khi trả kết quả.
 
 ### 6.4. Đổi, hủy và ghi kết quả
+
+POST đề nghị nhận key riêng và hai precondition: version tạo gần nhất và pending ID/null đã đọc. Sau khi khóa và xác minh quyền, tra receipt trước khi kiểm tra precondition/trạng thái/hạn: cùng key/hash trả biên nhận bất biến, khác hash trả `409 IDEMPOTENCY_CONFLICT`. Chỉ ý định mới có context khớp mới tạo proposal và tăng counter. Thay pending phải flush trạng thái `SUPERSEDED` trước INSERT mới trong cùng transaction để giữ unique pending. Quyết định/hủy/hết hạn không tăng counter; thay đổi pending ID bảo vệ request thay đã cũ. Chi tiết [protocol và migration](../tasks/appointment-change-proposals.md).
 
 - **Đề nghị:** lấy đủ khóa theo mục 6.1, xác minh nhân viên nhận lịch; kiểm tra trạng thái, giá trị thay đổi, thời lượng, hạn phản hồi và khả dụng của giờ đề nghị, bỏ qua chính lịch đang đổi khi xét giao khoảng; tạo đề nghị rồi chuyển lịch `CHANGE_PENDING`. Đề nghị lại kết thúc bản đang chờ và tạo bản mới trong cùng giao dịch.
 - **Chấp thuận:** khóa lịch/đề nghị, xác minh sinh viên và hạn; kiểm tra lại toàn bộ khả dụng, bỏ qua chính lịch đang đổi khi xét xung đột; cập nhật giờ/địa điểm và hai trạng thái. Nếu giờ mới đã kín, giữ nguyên lịch/đề nghị và trả xung đột.
