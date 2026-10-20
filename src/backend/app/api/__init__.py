@@ -67,3 +67,12 @@ def _register_change_proposals() -> None:
 
 
 _register_change_proposals()
+
+
+def _register_staff_availability() -> None:
+    from app.api.staff_availability import router
+
+    api_v1_router.include_router(router)
+
+
+_register_staff_availability()

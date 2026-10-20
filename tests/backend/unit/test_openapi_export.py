@@ -62,6 +62,10 @@ def test_openapi_export_is_deterministic_without_database(tmp_path):
         "/api/v1/staff/me/appointments/{appointment_id}/cancel",
         "/api/v1/staff/me/appointments/{appointment_id}/outcome",
         "/api/v1/staff/me/appointments/{appointment_id}/change-proposals",
+        "/api/v1/staff/me/purposes",
+        "/api/v1/staff/me/purposes/{purpose_id}",
+        "/api/v1/staff/me/unavailability",
+        "/api/v1/staff/me/unavailability/{unavailability_id}",
         "/api/v1/appointments/{appointment_id}/change-proposals",
         "/api/v1/appointments/{appointment_id}/change-proposals/{proposal_id}/accept",
         "/api/v1/appointments/{appointment_id}/change-proposals/{proposal_id}/decline",
@@ -208,6 +212,34 @@ def test_openapi_export_is_deterministic_without_database(tmp_path):
         for status in statuses:
             headers = document["paths"][path]["get"]["responses"][status]["headers"]
             assert "X-Error-Class" in headers
+
+
+def test_staff_configuration_openapi_documents_roles_headers_filters_and_replay(auth_settings):
+    document = create_app(auth_settings).openapi()
+    paths = document["paths"]
+    for path, methods in {
+        "/api/v1/staff/me/purposes": ("get",),
+        "/api/v1/staff/me/purposes/{purpose_id}": ("put",),
+        "/api/v1/staff/me/unavailability": ("get", "post"),
+        "/api/v1/staff/me/unavailability/{unavailability_id}": ("delete",),
+    }.items():
+        for method in methods:
+            operation = paths[path][method]
+            assert operation["security"] == [{"prl_session": []}]
+            parameters = {item["name"]: item for item in operation.get("parameters", [])}
+            if method == "get":
+                assert "X-CSRF-Token" not in parameters
+                assert {"page", "page_size"} <= parameters.keys()
+            else:
+                assert parameters["X-CSRF-Token"]["required"]
+                assert "Origin" in parameters and "Referer" in parameters
+            for response in operation["responses"].values():
+                assert {"X-Request-ID", "Cache-Control"} <= response["headers"].keys()
+    periods = paths["/api/v1/staff/me/unavailability"]
+    assert {"from", "to"} <= {item["name"] for item in periods["get"]["parameters"]}
+    assert {"200", "201", "409", "503"} <= periods["post"]["responses"].keys()
+    assert "before conflict checks" in periods["post"]["description"]
+    assert document["components"]["schemas"]["StaffPurposeRequest"]["additionalProperties"] is False
 
 
 def test_openapi_export_ignores_invalid_runtime_environment(tmp_path):

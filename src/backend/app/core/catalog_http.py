@@ -35,7 +35,7 @@ class PrivateApiHttpMiddleware:
 
         async def dispatch() -> None:
             downstream_receive = receive
-            if scope["method"] == "POST" and requires_request_deadline(scope):
+            if scope["method"] in {"POST", "PUT", "DELETE"} and requires_request_deadline(scope):
                 body = await read_limited_body(receive, max_bytes=self.settings.api_max_body_bytes)
                 if body is None:
                     return
