@@ -130,6 +130,7 @@ test('purpose preferences are saved and unavailability uses business time and ex
   await expect(page.getByText(/không hủy hoặc thay đổi các lịch hẹn hiện có/)).toBeVisible();
 
   await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
+  await expect(page).toHaveURL(/\/login/);
   await page.getByLabel('Email', { exact: true }).fill('student@frontend.example.invalid');
   await page.getByLabel('Mật khẩu', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click();
@@ -167,10 +168,12 @@ test('purpose preferences are saved and unavailability uses business time and ex
     'Asia/Ho_Chi_Minh',
   );
   await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
+  await expect(page).toHaveURL(/\/login/);
   await login(page, 'otherstaff');
   await page.goto('/staff/unavailability');
   await expect(page.getByText('Chưa có khoảng thời gian nào.')).toBeVisible();
   await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
+  await expect(page).toHaveURL(/\/login/);
   await login(page);
   await page.goto('/staff/unavailability');
   await page.getByRole('button', { name: 'Xóa khoảng thời gian' }).click();
