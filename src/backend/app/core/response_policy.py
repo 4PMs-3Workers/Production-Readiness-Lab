@@ -9,6 +9,7 @@ CATALOG_PATHS = frozenset(
 APPOINTMENT_COLLECTION_PATH = "/api/v1/appointments"
 STUDENT_PROFILE_PATH = "/api/v1/students/me"
 STAFF_APPOINTMENT_PREFIX = "/api/v1/staff/me/appointments"
+STAFF_CONFIGURATION_PREFIXES = ("/api/v1/staff/me/purposes", "/api/v1/staff/me/unavailability")
 
 
 def is_student_profile_path(scope: Scope) -> bool:
@@ -36,12 +37,22 @@ def is_staff_appointment_path(scope: Scope) -> bool:
     return path == STAFF_APPOINTMENT_PREFIX or path.startswith(STAFF_APPOINTMENT_PREFIX + "/")
 
 
+def is_staff_configuration_path(scope: Scope) -> bool:
+    if scope["type"] != "http":
+        return False
+    path = get_route_path(scope).rstrip("/") or "/"
+    return any(
+        path == prefix or path.startswith(prefix + "/") for prefix in STAFF_CONFIGURATION_PREFIXES
+    )
+
+
 def uses_private_api_middleware(scope: Scope) -> bool:
     return (
         is_catalog_path(scope)
         or is_appointment_path(scope)
         or is_student_profile_path(scope)
         or is_staff_appointment_path(scope)
+        or is_staff_configuration_path(scope)
     )
 
 
@@ -53,6 +64,7 @@ def requires_request_deadline(scope: Scope) -> bool:
         ((is_catalog_path(scope) or is_student_profile_path(scope)) and method == "GET")
         or (is_appointment_path(scope) and method in {"GET", "POST"})
         or (is_staff_appointment_path(scope) and method in {"GET", "POST"})
+        or (is_staff_configuration_path(scope) and method in {"GET", "PUT", "POST", "DELETE"})
     )
 
 

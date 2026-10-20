@@ -210,6 +210,11 @@ Liên kết nhân viên với những nhu cầu họ có thể tiếp nhận.
 
 Ngừng nhận dùng `is_accepting = false`; lịch đã có giữ nguyên. Giao dịch tạo/duyệt đổi lịch kiểm tra nhân viên đang nhận nhu cầu và danh mục còn hoạt động.
 
+API STAFF giữ nguyên khóa ghép và không DELETE liên kết. Chỉ tạo liên kết với nhu cầu đang
+hoạt động; liên kết nhu cầu ngừng hoạt động được giữ để đọc/lịch sử và chỉ cho tắt tiếp nhận.
+PUT không đổi giữ nguyên `created_at`, `updated_at` và số audit. GET trả mọi nhu cầu active
+(chưa liên kết thì acceptance=false) cộng liên kết inactive của chính staff, theo tên/ID.
+
 ### 3.5. `service_settings` — Cấu hình đặt lịch
 
 Lưu cấu hình chung áp dụng cho việc đặt lịch trong toàn trường.
@@ -255,6 +260,15 @@ Lưu khoảng thời gian nhân viên không nhận lịch.
 **Ràng buộc:** `ends_at > starts_at`; kiểu dữ liệu và SQL mode từ chối ngày giờ không hợp lệ.
 
 Khi thêm, dịch vụ khóa nhân viên rồi kiểm tra không giao với lịch đang chiếm chỗ. Khi mở lại thời gian, xóa bản ghi và ghi audit trong cùng giao dịch. Các khoảng không nhận có thể giao nhau; availability loại bỏ thời gian nằm trong bất kỳ khoảng nào.
+
+Sau khóa settings SHARE và staff UPDATE, POST tìm khoảng UTC chính xác của staff trước
+kiểm tra xung đột; retry trả cùng ID/`created_at` và không thêm audit. Khóa staff bảo vệ cả
+kết quả rỗng; không cần UNIQUE hoặc migration mới. Khoảng khác nhau có thể giao nhau,
+không giới hạn theo slot, giờ phục vụ hay booking horizon. Chỉ UPCOMING/CHANGE_PENDING
+của cùng staff chặn tạo mới; tiếp giáp được phép. GET owned lọc `ends_at > from` và
+`starts_at < to`, xếp theo `starts_at`, ID. DELETE owned và audit nguyên tử; ID thiếu,
+ngoài phạm vi hoặc đã xóa cùng 404, không tạo audit lặp. Chi tiết phục hồi khi commit chưa
+rõ kết quả ở [task staff availability](../tasks/staff-availability-management.md).
 
 ### 3.8. `appointments` — Lịch hẹn
 
@@ -483,6 +497,11 @@ Mọi luồng ghi áp dụng cùng thứ tự trong một transaction InnoDB:
 4. Đọc lại dữ liệu sau khi có đủ khóa. Chạy câu lệnh riêng `SELECT UTC_TIMESTAMP(6)` để lấy thời điểm kiểm tra hạn, rồi kiểm tra quyền, trạng thái, hạn mức và khả dụng; ghi và commit.
 
 Khóa nhân viên đồng bộ việc đặt lịch, đổi lịch, khai báo thời gian không nhận và bật/tắt nhu cầu. Khóa sinh viên đồng bộ việc tạo lịch, tránh trùng lịch và hạn mức ba lịch. Quản trị đổi vai trò/vô hiệu hóa tài khoản khóa cùng hàng tài khoản. Với lịch đã tồn tại, có thể đọc trước ID người tham gia để xác định khóa; phải đọc lại lịch sau khi khóa. Người tham gia là dữ liệu bất biến.
+
+Ghi cấu hình STAFF chỉ khóa tài khoản actor sau settings rồi association/period liên quan,
+kiểm tra lại account active/STAFF dưới khóa. Không sửa appointment nên không cần khóa
+student. Booking vẫn khóa cùng staff trước kiểm tra eligibility/overlap. Cấu hình và audit
+ghi cùng transaction; unchanged PUT hoặc exact POST replay không phát sinh audit/notification.
 
 **Phải khóa hàng tài khoản đã tồn tại, kể cả khi chưa có lịch nào.** Chỉ đọc hoặc khóa các lịch giao khoảng không bảo vệ được trường hợp hai request cùng thấy kết quả rỗng ở `READ COMMITTED`. Request thứ hai chờ khóa nhân viên/sinh viên, rồi kiểm tra lại dữ liệu đã commit trước khi ghi. Các khóa giữ đến commit/rollback.
 

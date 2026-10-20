@@ -63,7 +63,7 @@ STUDENT_WRITE_OPENAPI = {
 
 
 def appointment_responses(
-    success_models: dict[int | str, type[BaseModel]], *error_statuses: int
+    success_models: dict[int | str, type[BaseModel] | None], *error_statuses: int
 ) -> dict[int | str, dict[str, Any]]:
     request_id = {"schema": {"type": "string"}, "description": "Identifier for this request"}
     cache_control = {

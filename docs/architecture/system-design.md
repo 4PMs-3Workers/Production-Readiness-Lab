@@ -230,7 +230,7 @@ API dùng tiền tố `/api/v1`, hợp đồng OpenAPI và JSON request/response
 | Lịch hẹn | Sinh viên tạo/xem/hủy lịch của mình. Nhân viên đọc danh sách/chi tiết lịch được giao, hủy lịch trước hạn và ghi kết quả qua `/api/v1/staff/me/appointments`. |
 | Đề nghị đổi lịch | Nhân viên của lịch tạo/thay đề nghị; sinh viên của lịch chấp thuận hoặc từ chối. |
 | Kết quả buổi gặp | Chỉ nhân viên nhận lịch ghi hoàn thành hoặc vắng mặt sau giờ kết thúc. |
-| Khả năng tiếp nhận | Nhân viên quản lý nhu cầu và khoảng không nhận của chính mình. |
+| Khả năng tiếp nhận | STAFF quản lý nhu cầu qua GET/PUT `/api/v1/staff/me/purposes` và khoảng không nhận qua GET/POST/DELETE `/api/v1/staff/me/unavailability`; actor lấy từ phiên. |
 | Thông báo | Người nhận đọc danh sách và đánh dấu đã đọc thông báo của mình. |
 | Quản trị | `ADMIN` quản lý tài khoản, nhu cầu, cấu hình và giờ phục vụ chung. |
 
@@ -260,6 +260,20 @@ Mã/tên nhu cầu và tên nhân viên được đọc từ các bản ghi liê
 cả khi có lỗi. Danh sách của nhân viên xếp theo giờ tăng dần và ngày lọc theo timezone nghiệp
 vụ. Xem [hợp đồng quản lý lịch hẹn sinh viên](../tasks/student-appointment-management.md) và
 [hợp đồng staff appointment](../tasks/staff-appointment-management.md).
+
+Cấu hình tiếp nhận chỉ cho STAFF; ADMIN không có quyền bypass. PUT/POST/DELETE yêu cầu
+same-origin và signed CSRF; GET không yêu cầu CSRF. Tất cả response thành công/lỗi trả
+`Cache-Control: private, no-store`. Nhu cầu đang hoạt động và liên kết ngừng hoạt động đã
+giữ lại được phân trang theo tên/ID; ngừng nhận chỉ đổi cờ, giữ nguyên lịch và lịch sử.
+Khoảng không nhận nhận timestamp có offset, chuẩn hóa UTC và dùng `[start, end)`, có thể
+qua nhiều ngày hoặc ngoài cửa sổ booking. GET lọc overlap bằng `from`/`to`, xếp theo start/ID.
+Ghi cấu hình khóa settings SHARE, staff UPDATE rồi association/period; cùng khóa staff với
+booking để kiểm tra trạng thái mới nhất. POST replay khoảng UTC chính xác trả 200 trước
+kiểm tra xung đột, tạo mới trả 201; lịch UPCOMING/CHANGE_PENDING giao nhau trả 409. PUT
+không đổi không ghi thêm, DELETE owned trả 204 và ID thiếu/ngoài phạm vi trả cùng 404.
+Mỗi thay đổi và audit commit nguyên tử, không tạo notification. Khi commit chưa rõ kết quả,
+trả 503 và không tự ghi lại: gửi lại PUT/POST chính xác hoặc refresh danh sách sau DELETE.
+Xem [hợp đồng quản lý khả năng tiếp nhận](../tasks/staff-availability-management.md).
 
 OpenAPI được tạo từ schema/routes FastAPI, xuất thành `docs/api/openapi.yaml` khi triển khai API và được kiểm tra trong CI. Frontend tích hợp theo hợp đồng này. API giữ quy tắc nghiệp vụ tại backend và đóng vai trò nguồn xác nhận kết quả.
 
