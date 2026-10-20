@@ -3,10 +3,12 @@
 import secrets
 
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from pydantic import ValidationError
 
 from app.demo.data import Dataset, SeedError, load_dataset, seed_id
-from app.demo.loader import SeedConfig
+from app.demo.loader import SCHEMA_REVISION, SeedConfig
 
 
 def environment():
@@ -19,6 +21,11 @@ def environment():
             for role in ("ADMIN", "STAFF", "STUDENT")
         },
     }
+
+
+def test_seed_schema_revision_matches_current_alembic_head():
+    heads = ScriptDirectory.from_config(Config("alembic.ini")).get_heads()
+    assert heads == [SCHEMA_REVISION], "Review seed compatibility when the migration head changes"
 
 
 def test_reviewed_dataset():

@@ -137,6 +137,7 @@ Production-Readiness-Lab/
 | [Task database models](docs/tasks/database-models.md)                 | Phạm vi triển khai, kiểm thử và bàn giao bộ models.                         |
 | [Catalog và availability](docs/tasks/catalog-availability.md)           | Hợp đồng ba API đọc, cách gọi bằng session và bằng chứng/giới hạn nghiệm thu. |
 | [Đặt lịch appointment](docs/tasks/appointment-booking.md)               | API tạo lịch, xem chi tiết, idempotency và khôi phục khi mất phản hồi.       |
+| [Đề nghị đổi lịch](docs/tasks/appointment-change-proposals.md)            | API staff/student, replay/precondition, migration và shared expiry transition. |
 | [Lịch sử và quản lý lịch hẹn](docs/tasks/student-appointment-management.md) | API lịch sử, ngữ cảnh ngày đặt, hủy lịch và hành vi retry.                  |
 | [Task frontend bootstrap](docs/tasks/frontend-bootstrap.md)           | Nền tảng, routes, các mốc triển khai, cài đặt và kiểm chứng.                 |
 | [Mock services và UI đặt lịch](docs/tasks/frontend-mock-services.md)  | Chi tiết fixtures, preset, clock và thao tác đặt lịch bằng dữ liệu demo.    |
@@ -226,13 +227,14 @@ API khởi động khi MySQL tạm thời không truy cập được. `/health/l
 không hỏi database; `/health/ready` kiểm tra `SELECT 1` và phiên bản trong `alembic_version`.
 Chạy migration theo `docs/tasks/database-migrations.md` trước khi mong readiness trả 200.
 <!-- current-schema-revision:start -->
-Release hiện tại chấp nhận schema revision `20261017_2350_student_profile` theo `.env.example`.
+Release hiện tại chấp nhận schema revision `20261019_1200_proposal_replay` theo `.env.example`.
 `/health/ready` chỉ trả 200 khi database có đúng một revision và revision đó nằm trong
 `ACCEPTED_SCHEMA_REVISIONS`. Chỉ liệt kê nhiều revision khi đã xác nhận release tương thích với tất cả.
 <!-- current-schema-revision:end -->
 
-**Lịch sử:** schema ban đầu là `a1b2c3d4e5f6`. Revision `20261016_1200_audit_reqid128` là mốc
-trước migration `20261017_2350_student_profile`; không dùng revision này cho release hiện tại.
+**Lịch sử:** schema ban đầu là `a1b2c3d4e5f6`. Các revision `20261016_1200_audit_reqid128`
+và `20261017_2350_student_profile` là các mốc trước migration `20261019_1200_proposal_replay`;
+không dùng các revision cũ này cho release hiện tại.
 
 Ba API đọc catalog/availability mới là `GET /api/v1/purposes`,
 `GET /api/v1/staff?purpose_id=...` và

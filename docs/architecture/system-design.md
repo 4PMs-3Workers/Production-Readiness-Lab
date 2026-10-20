@@ -157,6 +157,8 @@ Nhân viên của lịch tạo đề nghị; sinh viên quyết định chấp t
 
 Nhân viên đề nghị lại bằng cách kết thúc bản chờ cũ với `SUPERSEDED` và tạo bản mới trong cùng giao dịch. Quyết định đã hoàn tất được đọc lại khi retry; phản hồi trái ngược trả xung đột.
 
+POST đề nghị dùng `Idempotency-Key` riêng và context gồm version tạo đề nghị cùng pending ID/null. Khóa lịch trước khi tra receipt; replay trả biên nhận tạo ban đầu trước khi kiểm tra trạng thái/hạn, nên retry P1 không thay thế P2. Ý định mới có context cũ trả `409 PROPOSAL_PRECONDITION_FAILED`. Counter chỉ tăng lúc tạo/thay; quyết định, hủy và expiry giữ counter nhưng thay pending ID. Metadata replay được lưu bền vững bằng migration `20261019_1200_proposal_replay`, không dùng lại key đặt lịch. Xem [hợp đồng đầy đủ](../tasks/appointment-change-proposals.md).
+
 ### 3.3. Hủy, hết hạn và ghi kết quả
 
 - **Hủy trực tiếp:** người tham gia hủy trong hạn cho phép. Backend chuyển lịch `CANCELLED` và đóng đề nghị đang chờ nếu có.

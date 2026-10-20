@@ -279,7 +279,7 @@ async def test_insertion_failure_rolls_back_all_tables(mysql_engine):
     assert await snapshot(mysql_engine) == before
 
 
-@pytest.mark.parametrize("state", ["missing", "old", "future", "wrong_target"])
+@pytest.mark.parametrize("state", ["missing", "old", "previous_head", "future", "wrong_target"])
 async def test_schema_and_selected_database_guards(mysql_engine, state):
     config = config_for(mysql_engine)
     if state == "wrong_target":
@@ -289,9 +289,14 @@ async def test_schema_and_selected_database_guards(mysql_engine, state):
             if state == "missing":
                 await connection.execute(text("DROP TABLE alembic_version"))
             else:
+                revisions = {
+                    "old": "a1b2c3d4e5f6",
+                    "previous_head": "20261017_2350_student_profile",
+                    "future": "future_revision",
+                }
                 await connection.execute(
                     text("UPDATE alembic_version SET version_num = :revision"),
-                    {"revision": "a1b2c3d4e5f6" if state == "old" else "future_revision"},
+                    {"revision": revisions[state]},
                 )
     before = await snapshot(mysql_engine)
     with pytest.raises((SeedError, SQLAlchemyError)):

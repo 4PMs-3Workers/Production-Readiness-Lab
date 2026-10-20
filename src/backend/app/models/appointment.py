@@ -4,6 +4,7 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     ForeignKey,
     ForeignKeyConstraint,
@@ -44,6 +45,7 @@ class Appointment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "AND OCTET_LENGTH(creation_request_hash) = 32",
             name="creation_request",
         ),
+        CheckConstraint("proposal_version BETWEEN 0 AND 9007199254740991", name="proposal_version"),
         CheckConstraint(
             "(status = 'CANCELLED' AND cancelled_at IS NOT NULL) OR "
             "(status <> 'CANCELLED' AND cancelled_at IS NULL AND cancel_reason IS NULL)",
@@ -81,6 +83,7 @@ class Appointment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     creation_request_key: Mapped[str] = mapped_column(String(128, collation=CODE_COLLATION))
     creation_request_hash: Mapped[bytes] = mapped_column(SHA256Hash())
+    proposal_version: Mapped[int] = mapped_column(BigInteger, default=0, server_default=text("0"))
     cancelled_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     cancelled_by: Mapped[UUID | None] = mapped_column(
         BinaryUUID(), ForeignKey("users.id", ondelete="RESTRICT", onupdate="RESTRICT")

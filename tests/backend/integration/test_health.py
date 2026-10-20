@@ -3,6 +3,8 @@ from time import monotonic
 from typing import cast
 
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
@@ -213,7 +215,8 @@ def test_readiness_sanitizes_query_failure_and_closes_connection():
 
 @pytest.mark.asyncio
 async def test_readiness_on_migrated_mysql_schema(mysql_engine):
-    current_revision = "20261017_2350_student_profile"
+    current_revision = ScriptDirectory.from_config(Config("alembic.ini")).get_current_head()
+    assert current_revision is not None
     app = create_app(
         settings(accepted=current_revision),
         engine_factory=lambda *args, **kwargs: mysql_engine,

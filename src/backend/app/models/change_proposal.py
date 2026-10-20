@@ -4,6 +4,7 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     Computed,
     ForeignKey,
@@ -16,7 +17,7 @@ from sqlalchemy.dialects.mysql import TINYINT
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import CODE_COLLATION, TABLE_OPTIONS, Base, CreatedAtMixin, UUIDPrimaryKeyMixin
-from app.models.types import BinaryUUID, UTCDateTime
+from app.models.types import BinaryUUID, SHA256Hash, UTCDateTime
 
 
 class ChangeProposal(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
@@ -35,6 +36,21 @@ class ChangeProposal(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
             name="resolution",
         ),
         UniqueConstraint("appointment_id", "pending_guard", name="uq_change_proposals_pending"),
+        UniqueConstraint(
+            "appointment_id", "creation_request_key", name="uq_change_proposals_creation_request"
+        ),
+        UniqueConstraint(
+            "appointment_id", "created_version", name="uq_change_proposals_created_version"
+        ),
+        CheckConstraint(
+            "(creation_request_key IS NULL AND creation_request_hash IS NULL "
+            "AND created_version IS NULL) OR "
+            "(creation_request_key IS NOT NULL AND creation_request_hash IS NOT NULL "
+            "AND created_version IS NOT NULL AND CHAR_LENGTH(TRIM(creation_request_key)) > 0 "
+            "AND OCTET_LENGTH(creation_request_hash) = 32 "
+            "AND created_version BETWEEN 1 AND 9007199254740991)",
+            name="creation_request",
+        ),
         Index("ix_change_proposals_expiry", "status", "expires_at", "id"),
         Index("ix_change_proposals_created_by", "created_by"),
         Index("ix_change_proposals_resolved_by", "resolved_by"),
@@ -47,6 +63,9 @@ class ChangeProposal(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     created_by: Mapped[UUID] = mapped_column(
         BinaryUUID(), ForeignKey("users.id", ondelete="RESTRICT", onupdate="RESTRICT")
     )
+    creation_request_key: Mapped[str | None] = mapped_column(String(128, collation=CODE_COLLATION))
+    creation_request_hash: Mapped[bytes | None] = mapped_column(SHA256Hash())
+    created_version: Mapped[int | None] = mapped_column(BigInteger)
     proposed_starts_at: Mapped[datetime] = mapped_column(UTCDateTime())
     proposed_ends_at: Mapped[datetime] = mapped_column(UTCDateTime())
     proposed_location: Mapped[str | None] = mapped_column(String(500))

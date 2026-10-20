@@ -6,8 +6,8 @@ Prepared on 19 October 2026 from `develop` at `f5fed91`.
 Migration PR [#9](https://github.com/4PMs-3Workers/Production-Readiness-Lab/pull/9)
 and authentication PR [#12](https://github.com/4PMs-3Workers/Production-Readiness-Lab/pull/12)
 were merged into `develop`; their backend CI checks passed before implementation began.
-The loader requires the exact reviewed Alembic head `20261017_2350_student_profile`,
-which includes the initial migration and subsequent audit/profile migrations.
+The loader requires the exact reviewed Alembic head `20261019_1200_proposal_replay`,
+which includes the initial migration and subsequent audit/profile/proposal migrations.
 Changing this allowlist requires schema compatibility review.
 
 The agent individually authored all identities, consultation values, associations,
@@ -224,7 +224,7 @@ tokens or credential-bearing connection URLs when investigating a failure.
 - Configuration failure: check variable names, placeholder replacement, database spelling,
   driver and explicit environment. System schemas and missing database names are rejected.
 - Schema failure: ask the migration operator to verify `alembic current` reports
-  `20261017_2350_student_profile`; missing/old/unknown states fail closed.
+  `20261019_1200_proposal_replay`; missing/old/unknown states fail closed.
 - Conflict: inspect the reported table/field with an authorized database operator.
   The command does not overwrite existing configuration, adopt users, or repair roles.
 - Generic database failure: check connectivity and DML/metadata permissions using a
@@ -279,3 +279,26 @@ Ruff passes, Pyright reports 0 errors/0 warnings, all 360 unit tests pass, and a
 seed tests pass (29 unit and 17 MySQL integration tests). The full required checks are
 rerun on the updated PR head; use the current PR CI results rather than the original
 760-test run as evidence for integration with the newer develop branch.
+
+### Integration with current develop — 20 October 2026
+
+Synchronized with `develop` at `b3f2384`, including the merged change-proposal feature
+and its audit collector fix. The Python audit now explicitly enumerates both pinned
+requirements files with `--no-deps --disable-pip`; a real local audit reports all 47
+locked packages, including `packaging==26.3`. Inventory/version checks and advisory
+exceptions remain enforced by the existing policy checker. Additional regressions
+reject missing packages, wrong versions, unexpected audit-tool packages and unhandled
+advisories.
+
+Reviewed migration `20261019_1200_proposal_replay`: it adds durable proposal replay
+fields to `appointments`/`change_proposals` and leaves the five seed tables unchanged.
+The seed loader now requires this current head. A unit guard compares its accepted
+revision to the sole Alembic head so a future schema change requires compatibility
+review. MySQL coverage also rejects the previously accepted student-profile revision
+before writes, while fresh/current-schema loading, CLI reruns and seeded login use
+the full latest migration chain.
+
+Local acceptance on this base: 388 backend unit tests and all 18 MySQL seed integration
+tests passed with no skips. Black passed all 162 checked files, Ruff and Pyright passed,
+and the exported OpenAPI matched the committed artifact. Current full backend,
+frontend and dependency-security results are recorded in the PR's latest checks.
