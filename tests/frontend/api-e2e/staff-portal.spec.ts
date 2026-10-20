@@ -81,7 +81,7 @@ test('staff cannot read another staff member appointment and unsupported roles s
     await page.getByLabel('Email', { exact: true }).fill(`${account}@frontend.example.invalid`);
     await page.getByLabel('Mật khẩu', { exact: true }).fill(password);
     await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click();
-    await expect(page).toHaveURL('/home');
+    await expect(page.getByRole('heading', { name: 'Tài khoản chưa được hỗ trợ' })).toBeVisible();
     await page.goto('/staff/appointments');
     await expect(page.getByRole('heading', { name: 'Tài khoản chưa được hỗ trợ' })).toBeVisible();
     await expect(page.getByText(seeded.cancelId, { exact: true })).toHaveCount(0);
@@ -133,7 +133,7 @@ test('purpose preferences are saved and unavailability uses business time and ex
   await page.getByLabel('Email', { exact: true }).fill('student@frontend.example.invalid');
   await page.getByLabel('Mật khẩu', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click();
-  await expect(page).toHaveURL('/home');
+  await expect(page.getByRole('heading', { name: 'Tài khoản chưa được hỗ trợ' })).toBeVisible();
   await page.goto('/booking');
   await page.getByRole('radio', { name: /Tư vấn học tập kiểm thử/ }).check();
   await page.getByLabel('Bạn muốn trao đổi về điều gì? *').fill('Nội dung giả lập.');
