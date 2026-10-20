@@ -57,6 +57,7 @@ class Settings(BaseSettings):
         default=86400, gt=0, le=2592000, alias="SESSION_LIFETIME_SECONDS"
     )
     login_max_body_bytes: int = Field(default=4096, gt=0, alias="LOGIN_MAX_BODY_BYTES")
+    api_max_body_bytes: int = Field(default=32768, gt=0, alias="API_MAX_BODY_BYTES")
     login_ip_attempts: int = Field(default=30, gt=0, alias="LOGIN_IP_ATTEMPTS")
     login_email_attempts: int = Field(default=5, gt=0, alias="LOGIN_EMAIL_ATTEMPTS")
     login_window_seconds: int = Field(default=60, gt=0, alias="LOGIN_WINDOW_SECONDS")

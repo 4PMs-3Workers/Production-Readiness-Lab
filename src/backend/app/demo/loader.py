@@ -93,19 +93,15 @@ async def prepare(db: AsyncSession, data: Dataset) -> tuple[dict[str, list[Any]]
     """Read and validate all conflicts before adding anything to the session."""
     pending: dict[str, list[Any]] = {table: [] for table in TABLES}
     existing: dict[str, int] = {table: 0 for table in TABLES}
-    accounts = (
-        await db.scalars(
-            select(User).where(
-                or_(
-                    User.email.in_([a.email for a in data.accounts]),
-                    User.id.in_([seed_id("users", a.email) for a in data.accounts]),
-                )
-            )
-        )
-    ).all()
     for account in data.accounts:
         identifier = seed_id("users", account.email)
-        matches = [a for a in accounts if a.id == identifier or a.email.casefold() == account.email]
+        # Let MySQL apply the email column's collation, including ignorable characters.
+        # Look up ID independently too, so split ownership and natural-key conflicts fail.
+        matches = (
+            await db.scalars(
+                select(User).where(or_(User.id == identifier, User.email == account.email))
+            )
+        ).all()
         if matches:
             if len(matches) != 1:
                 raise SeedError("Conflict: users identifier and email refer to different records")

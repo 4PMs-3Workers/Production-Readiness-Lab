@@ -69,12 +69,15 @@ async def read_student_appointment_page(
     if query.status is not None:
         filters.append(Appointment.status == query.status)
     total = int(await db.scalar(select(func.count()).select_from(Appointment).where(*filters)) or 0)
+    offset = (query.page - 1) * query.page_size
+    if offset >= total:
+        return (), total
     statement = (
         _student_detail_statement()
         .where(*filters)
         .order_by(Appointment.starts_at.desc(), Appointment.id.desc())
         .limit(query.page_size)
-        .offset((query.page - 1) * query.page_size)
+        .offset(offset)
     )
     return (await db.execute(statement)).all(), total
 

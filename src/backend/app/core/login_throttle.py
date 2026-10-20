@@ -1,6 +1,5 @@
 """Per-process fixed windows with bounded state; no plaintext email retention."""
 
-import hashlib
 import math
 import threading
 from collections.abc import Callable
@@ -41,6 +40,5 @@ class LoginThrottle:
     def check_ip(self, peer: str) -> None:
         self._check(self._ips, peer, self._settings.login_ip_attempts)
 
-    def check_email(self, normalized_email: str) -> None:
-        key = hashlib.sha256(normalized_email.strip().lower().encode("utf-8")).hexdigest()
-        self._check(self._emails, key, self._settings.login_email_attempts)
+    def check_email(self, identity: bytes) -> None:
+        self._check(self._emails, identity.hex(), self._settings.login_email_attempts)

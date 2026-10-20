@@ -1,5 +1,5 @@
 -r requirements.txt
-black==25.1.0
+black==26.3.1
 click==8.5.0
 colorama==0.4.6
 iniconfig==2.3.1
@@ -9,8 +9,11 @@ pathspec==1.1.1
 platformdirs==4.13.0
 pluggy==1.6.0
 Pygments==2.21.0
-pytest==8.4.2
-pytest-asyncio==1.2.0
+pytest==9.0.3
+pytest-asyncio==1.4.0
+Pytokens==0.4.1
+MarkupSafe==3.0.4
+nodeenv==1.11.0
 ruff==0.14.0
 pyright==1.1.407
 httpx==0.28.1

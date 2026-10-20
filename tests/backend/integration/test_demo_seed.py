@@ -222,6 +222,47 @@ async def test_conflicts_never_partially_write(mysql_engine, conflict):
     assert await snapshot(mysql_engine) == before
 
 
+@pytest.mark.parametrize(
+    "stored_email",
+    ["yen.la@demo.example.invalid", "yen.la\u200b@demo.example.invalid"],
+    ids=["exact-email-control", "mysql-ignorable-character"],
+)
+async def test_email_collation_conflict_rejected_before_every_insert(mysql_engine, stored_email):
+    factory = async_sessionmaker(mysql_engine, expire_on_commit=False)
+    unrelated_id = uuid4()
+    async with factory.begin() as db:
+        db.add(
+            User(
+                id=unrelated_id,
+                email=stored_email,
+                name="Existing unrelated account",
+                role="STUDENT",
+                password_hash="preserved-test-placeholder",
+            )
+        )
+    # Establish the database's comparison semantics independently of Python string matching.
+    async with factory() as db:
+        matched = (
+            await db.scalars(select(User).where(User.email == "yen.la@demo.example.invalid"))
+        ).one()
+        assert matched.id == unrelated_id
+    before = await snapshot(mysql_engine)
+    inserts_attempted = []
+
+    def record_inserts(connection, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("INSERT"):
+            inserts_attempted.append(statement)
+
+    event.listen(mysql_engine.sync_engine, "before_cursor_execute", record_inserts)
+    try:
+        with pytest.raises(SeedError, match=r"^Conflict: users\.id differs"):
+            await load_into_engine(mysql_engine, config_for(mysql_engine), load_dataset())
+    finally:
+        event.remove(mysql_engine.sync_engine, "before_cursor_execute", record_inserts)
+    assert inserts_attempted == []
+    assert await snapshot(mysql_engine) == before
+
+
 async def test_insertion_failure_rolls_back_all_tables(mysql_engine):
     before = await snapshot(mysql_engine)
 

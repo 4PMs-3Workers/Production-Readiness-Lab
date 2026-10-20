@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "exceptions": [
+    {
+      "ecosystem": "npm",
+      "advisory": "GHSA-vfj7-8cjw-p6xm",
+      "package": "braces",
+      "version": "3.0.3",
+      "scope": "development",
+      "owner": "repository-maintainers",
+      "expires_at": "2026-11-18T23:59:59+07:00",
+      "evidence": "The locked development lint chain resolves braces 3.0.3. The advisory has no fixed braces release at plan time, so this exception is limited to the exact development package version."
+    }
+  ]
+}

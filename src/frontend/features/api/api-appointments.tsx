@@ -7,6 +7,11 @@ import { useApi } from './api-provider';
 import { ApiFeedback } from './api-feedback';
 import { Pagination } from './api-booking-fields';
 import { useApiResource } from './use-api-resource';
+import {
+  UTC_TIMEZONE_FALLBACK_MESSAGE,
+  useAppointmentTimezone,
+  type AppointmentTimezoneState,
+} from './use-appointment-timezone';
 import { ApiError, errorMessage } from '@/services/api/errors';
 import {
   formatBusinessDate,
@@ -59,17 +64,34 @@ function AppointmentSummary({
   );
 }
 
+function TimezoneNotice({ state, retry }: { state: AppointmentTimezoneState; retry: () => void }) {
+  if (state.status === 'fallback')
+    return (
+      <p role="status">
+        {UTC_TIMEZONE_FALLBACK_MESSAGE}{' '}
+        <button className={styles.secondaryButton} type="button" onClick={retry}>
+          Thử lại múi giờ
+        </button>
+      </p>
+    );
+  if (state.status === 'error') return <ApiFeedback message={state.message} retry={retry} />;
+  if (state.status === 'loading')
+    return (
+      <p className={styles.reviewNote} role="status">
+        Đang kiểm tra múi giờ dịch vụ; hiện đang hiển thị UTC.
+      </p>
+    );
+  return null;
+}
+
 export function ApiHistory() {
   const { services } = useApi();
+  const timezone = useAppointmentTimezone();
   const [filter, setFilter] = useState<AppointmentStatus | ''>('');
   const [page, setPage] = useState(1);
   const load = useCallback(
     async (signal: AbortSignal) => {
-      const [appointments, context] = await Promise.all([
-        services.appointments(page, filter || undefined, { signal }),
-        services.context({ signal }),
-      ]);
-      return { appointments, context };
+      return services.appointments(page, filter || undefined, { signal });
     },
     [services, page, filter],
   );
@@ -108,10 +130,15 @@ export function ApiHistory() {
       ) : (
         <>
           <p className={styles.historyCount} role="status">
-            {state.data.appointments.total} lịch hẹn ·{' '}
-            {formatTimeZoneLabel(state.data.context.timezone)}
+            {state.data.total} lịch hẹn ·{' '}
+            {timezone.state.status === 'ready'
+              ? timezone.state.timezone === 'UTC'
+                ? 'UTC'
+                : formatTimeZoneLabel(timezone.state.timezone)
+              : 'UTC'}
           </p>
-          {!state.data.appointments.items.length && (
+          <TimezoneNotice state={timezone.state} retry={timezone.retry} />
+          {!state.data.items.length && (
             <section className={styles.resultCard}>
               <div className={styles.emptyState}>
                 <h2>Chưa có lịch hẹn phù hợp.</h2>
@@ -120,7 +147,7 @@ export function ApiHistory() {
             </section>
           )}
           <ol className={styles.historyList} aria-label="Các lịch đã đặt">
-            {state.data.appointments.items.map((appointment) => (
+            {state.data.items.map((appointment) => (
               <li key={appointment.id}>
                 <article className={styles.historyCard}>
                   <header className={styles.historyHeader}>
@@ -130,7 +157,7 @@ export function ApiHistory() {
                   <h2>{appointment.purpose.name}</h2>
                   <AppointmentSummary
                     appointment={appointment}
-                    timezone={state.data.context.timezone}
+                    timezone={timezone.state.timezone}
                   />
                   <div className={styles.historyActions}>
                     <Link
@@ -144,7 +171,7 @@ export function ApiHistory() {
               </li>
             ))}
           </ol>
-          <Pagination page={state.data.appointments} onPage={setPage} />
+          <Pagination page={state.data} onPage={setPage} />
         </>
       )}
       <Link className={styles.primaryButton} href="/booking">
@@ -182,14 +209,11 @@ export function ApiResult({ bookingId }: { bookingId?: string }) {
 
 function ApiDetail({ id }: { id: string }) {
   const { services, intents } = useApi();
+  const timezone = useAppointmentTimezone();
   const [notice, setNotice] = useState('');
   const load = useCallback(
     async (signal: AbortSignal) => {
-      const [appointment, context] = await Promise.all([
-        services.detail(id, { signal }),
-        services.context({ signal }),
-      ]);
-      return { appointment, context };
+      return services.detail(id, { signal });
     },
     [services, id],
   );
@@ -212,8 +236,8 @@ function ApiDetail({ id }: { id: string }) {
         </section>
       </div>
     );
-  const { appointment, context } = state.data;
-  const date = getBusinessDate(appointment.startsAt, context.timezone);
+  const appointment = state.data;
+  const date = getBusinessDate(appointment.startsAt, timezone.state.timezone);
   return (
     <div className={styles.booking}>
       <section className={styles.resultCard}>
@@ -228,7 +252,7 @@ function ApiDetail({ id }: { id: string }) {
         <div className={styles.resultBody}>
           {notice && <p role="status">{notice}</p>}
           <SelectionSummary
-            timezone={context.timezone}
+            timezone={timezone.state.timezone}
             selection={{
               purpose: appointment.purpose,
               staff: appointment.staff,
@@ -245,12 +269,19 @@ function ApiDetail({ id }: { id: string }) {
               description: appointment.description ?? '',
             }}
           />
-          <p className={styles.reviewNote}>{formatTimeZoneLabel(context.timezone)}</p>
+          <p className={styles.reviewNote}>
+            {timezone.state.status === 'ready' && timezone.state.timezone !== 'UTC'
+              ? formatTimeZoneLabel(timezone.state.timezone)
+              : 'UTC'}
+          </p>
+          <TimezoneNotice state={timezone.state} retry={timezone.retry} />
           {appointment.cancelledAt && (
             <p>
               Thời điểm hủy:{' '}
-              {formatBusinessDate(getBusinessDate(appointment.cancelledAt, context.timezone))}{' '}
-              {formatBusinessTime(appointment.cancelledAt, context.timezone)}
+              {formatBusinessDate(
+                getBusinessDate(appointment.cancelledAt, timezone.state.timezone),
+              )}{' '}
+              {formatBusinessTime(appointment.cancelledAt, timezone.state.timezone)}
             </p>
           )}
           {appointment.cancelReason && (

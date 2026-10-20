@@ -189,6 +189,11 @@ Staff-purpose identity is the pair of these user/purpose UUIDs. Settings use ID 
 | service_settings | ID 1 and all three booking values | All fields and updated_at |
 | service_hours | Both deterministic ID and exact interval | All fields and timestamps |
 
+Email lookup uses MySQL's `utf8mb4_0900_as_ci` column comparison rather than Python
+case folding, including collation-equivalent strings containing ignorable characters.
+The stored ID and exact email/name/role must still match the manifest; collation
+equivalence does not establish seed ownership or permit adoption of another account.
+
 An email/code/interval found under an unrelated UUID is a conflict, even if its other
 values look identical. ID ownership is checked independently of natural keys; split
 ID/key matches also fail. Matching singleton configuration can be reused since it is
@@ -254,3 +259,23 @@ Local verification on Windows / Python 3.12.14 / MySQL 8.4.11:
 
 JUnit reports are local ignored build artifacts; no credentials or hash values are
 included in this handoff. Merge remains subject to passing CI and reviewer approval.
+
+### Review follow-up — 20 October 2026
+
+Synchronized the feature branch with `develop` at `f13730a`. The Pyright include list
+retains both `tools/scripts/check_dependency_advisories.py` from develop and
+`tools/scripts/seed_demo.py` from this feature, along with dataset package resources.
+
+Reproduced the reviewer's collation regression on MySQL 8.4.11: the original loader
+passed the exact-email control but failed for an unrelated UUID with
+`yen.la\u200b@demo.example.invalid`. The updated loader performs both email and ID
+lookup in SQL, checks deterministic ownership and exact required fields, and rejects
+the conflict with a sanitized `SeedError` during preparation. Both control and U+200B
+cases now assert zero attempted INSERT statements and unchanged snapshots of all eleven
+application tables. The recorder retains statement text only, never SQL parameters.
+
+Local checks with the updated develop dependencies: Black 26.3.1 passes all 149 files,
+Ruff passes, Pyright reports 0 errors/0 warnings, all 360 unit tests pass, and all 46
+seed tests pass (29 unit and 17 MySQL integration tests). The full required checks are
+rerun on the updated PR head; use the current PR CI results rather than the original
+760-test run as evidence for integration with the newer develop branch.

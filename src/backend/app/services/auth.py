@@ -54,10 +54,10 @@ async def login(
     throttle: LoginThrottle,
 ) -> LoginResult:
     async with _transaction(db, settings):
+        throttle_identity = await users.email_throttle_identity(db, credentials.email)
         user = await users.find_by_email(db, credentials.email)
         snapshot = (user.id, user.password_hash) if user is not None else None
-        throttle_email = user.email if user is not None else credentials.email
-    throttle.check_email(throttle_email)
+    throttle.check_email(throttle_identity)
     password = credentials.password.get_secret_value()
     if snapshot is None:
         await passwords.verify_dummy(password)
