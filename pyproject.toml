@@ -29,12 +29,16 @@ package-dir = {"" = "src/backend"}
 where = ["src/backend"]
 include = ["app*"]
 
+[tool.setuptools.package-data]
+"app.demo" = ["dataset.json"]
+
 [tool.pyright]
 include = [
     "src/backend",
     "tests/backend",
     "tools/scripts/export_openapi.py",
     "tools/scripts/check_dependency_advisories.py",
+    "tools/scripts/seed_demo.py",
 ]
 extraPaths = ["src/backend"]
 venvPath = "."

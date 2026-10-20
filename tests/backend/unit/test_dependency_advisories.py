@@ -421,6 +421,52 @@ def test_malformed_or_incomplete_reports_fail_closed(
     assert decision["errors"]
 
 
+@pytest.mark.parametrize(
+    ("state", "expected_status", "expected_exit"),
+    [
+        ("complete", "approved", 0),
+        ("missing", "error", 2),
+        ("wrong-version", "error", 2),
+        ("unexpected-tool-package", "error", 2),
+        ("advisory", "blocked", 1),
+    ],
+)
+def test_bootstrap_dependency_requires_a_complete_audited_inventory(
+    tmp_path: Path, state: str, expected_status: str, expected_exit: int
+) -> None:
+    runtime, development = requirements(tmp_path)
+    development.write_text(
+        development.read_text(encoding="utf-8") + "packaging==26.3\n", encoding="utf-8"
+    )
+    report = python_report()
+    package: dict[str, Any] = {"name": "packaging", "version": "26.3", "vulns": []}
+    if state == "wrong-version":
+        package["version"] = "26.2"
+    elif state == "advisory":
+        package["vulns"] = [{"id": "PYSEC-2099-2", "aliases": [], "fix_versions": []}]
+    if state != "missing":
+        report["dependencies"].append(package)
+    if state == "unexpected-tool-package":
+        report["dependencies"].append({"name": "wheel", "version": "0.46.3", "vulns": []})
+    decision = evaluate_reports(
+        npm_report=npm_report(),
+        npm_lock=npm_lock(),
+        python_report=report,
+        runtime_requirements=runtime,
+        dev_requirements=development,
+        exceptions=exception(),
+        now=NOW,
+    )
+    assert decision["status"] == expected_status
+    assert decision["exit_code"] == expected_exit
+    if state == "missing":
+        assert any("missing locked packages: packaging" in error for error in decision["errors"])
+    elif state == "advisory":
+        finding = next(f for f in decision["findings"] if f["package"] == "packaging")
+        assert finding["scope"] == "development"
+        assert finding["disposition"] == "unhandled"
+
+
 def test_cli_writes_the_decision_and_returns_its_exit_code(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
