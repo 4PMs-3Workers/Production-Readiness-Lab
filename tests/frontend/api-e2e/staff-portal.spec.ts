@@ -141,6 +141,8 @@ test('purpose preferences are saved and unavailability uses business time and ex
   await expect(page.getByText('Hiện chưa có lựa chọn phù hợp.')).toBeVisible();
 
   await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
+  await expect(page).toHaveURL(/\/login/);
+  await expect(page.getByLabel('Email', { exact: true })).toBeVisible();
   await login(page);
 
   await page.goto('/staff/unavailability');
