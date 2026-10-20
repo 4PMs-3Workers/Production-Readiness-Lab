@@ -207,13 +207,14 @@ python tools/scripts/export_openapi.py
 git diff --exit-code -- docs/api/openapi.yaml
 ```
 
-The targeted issue-22 run passed **81 tests**, including 39 isolated MySQL fixtures on
+The targeted issue-22 run passed **87 tests**, including 45 isolated MySQL fixtures on
 MySQL 8.4.11. Black, Ruff, Pyright and the four OpenAPI export/contract tests passed.
 The PR records the final reviewed commit SHA and full-suite/CI results.
 
 Coverage is in `test_staff_availability_schemas.py`, `test_staff_availability_http.py`,
 `test_staff_configuration.py`, `test_staff_configuration_failures.py` and
-`test_openapi_export.py`. It includes session/role/ownership, strict inputs and pagination,
+`test_openapi_export.py`. It includes session/role/ownership, strict inputs and pagination
+(including out-of-range pages with `page=18446744073709551616` on both list endpoints),
 retained inactive associations, UTC/half-open filters, cross-day/exact replay, occupying
 states and adjacent intervals, absence unions, history preservation and fresh student reads.
 Concurrency tests use separate connections and `performance_schema.data_lock_waits` as

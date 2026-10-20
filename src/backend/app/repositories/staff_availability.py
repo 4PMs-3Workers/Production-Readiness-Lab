@@ -26,13 +26,16 @@ async def read_purposes(
         )
         or 0
     )
+    offset = (query.page - 1) * query.page_size
+    if offset >= total:
+        return [], total
     rows = (
         await db.execute(
             select(Purpose, func.coalesce(StaffPurpose.is_accepting, False))
             .outerjoin(StaffPurpose, join)
             .where(visible)
             .order_by(Purpose.name, Purpose.id)
-            .offset((query.page - 1) * query.page_size)
+            .offset(offset)
             .limit(query.page_size)
         )
     ).all()
@@ -81,11 +84,14 @@ async def read_periods(
     total = int(
         await db.scalar(select(func.count()).select_from(StaffUnavailability).where(*filters)) or 0
     )
+    offset = (query.page - 1) * query.page_size
+    if offset >= total:
+        return [], total
     rows = await db.scalars(
         select(StaffUnavailability)
         .where(*filters)
         .order_by(StaffUnavailability.starts_at, StaffUnavailability.id)
-        .offset((query.page - 1) * query.page_size)
+        .offset(offset)
         .limit(query.page_size)
     )
     return list(rows.all()), total

@@ -185,6 +185,33 @@ async def test_catalog_union_pagination_order_and_no_cross_staff_associations(bo
     assert (await env.client.get(BASE + "/purposes?page=100")).json()["items"] == []
 
 
+@pytest.mark.parametrize("path", ["purposes", "unavailability"])
+@pytest.mark.parametrize("page,page_size", [(3, 1), (100, 20), (2**64, 20)])
+async def test_out_of_range_pages_return_empty_even_with_oversized_offsets(
+    booking_env, path, page, page_size
+):
+    env, _, start = booking_env
+    async with env.factory.begin() as db:
+        db.add_all(
+            [
+                StaffUnavailability(
+                    staff_id=staff_id,
+                    starts_at=start + timedelta(hours=index),
+                    ends_at=start + timedelta(hours=index, minutes=30),
+                )
+                for index, staff_id in enumerate([env.staff_id, env.staff_id, env.other_staff_id])
+            ]
+        )
+    await login(env)
+    response = await env.client.get(
+        BASE + f"/{path}", params={"page": page, "page_size": page_size}
+    )
+    assert response.status_code == 200
+    assert response.json() == {"items": [], "page": page, "page_size": page_size, "total": 2}
+    assert response.headers["Cache-Control"] == "private, no-store"
+    assert response.headers["X-Request-ID"]
+
+
 async def test_preference_noop_toggle_creation_audit_and_history_preservation(booking_env):
     env, date, start = booking_env
     appointment_id = await appointment(env, start)
