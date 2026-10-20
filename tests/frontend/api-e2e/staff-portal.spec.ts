@@ -138,7 +138,7 @@ test('purpose preferences are saved and unavailability uses business time and ex
   await page.getByRole('radio', { name: /Tư vấn học tập kiểm thử/ }).check();
   await page.getByLabel('Bạn muốn trao đổi về điều gì? *').fill('Nội dung giả lập.');
   await page.getByRole('button', { name: 'Tiếp tục' }).click();
-  await expect(page.getByText(/Chưa có cố vấn tiếp nhận nhu cầu này/)).toBeVisible();
+  await expect(page.getByText('Hiện chưa có lựa chọn phù hợp.')).toBeVisible();
 
   await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
   await login(page);
