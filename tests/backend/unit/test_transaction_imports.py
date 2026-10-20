@@ -10,8 +10,7 @@ from textwrap import dedent
 def test_transaction_helpers_import_without_initializing_api():
     root = Path(__file__).resolve().parents[3]
     env = dict(os.environ, PYTHONPATH=str(root / "src/backend"))
-    code = dedent(
-        """
+    code = dedent("""
         import sys
         from app.core.transactions import (
             CommitOutcomeUnknown,
@@ -22,8 +21,7 @@ def test_transaction_helpers_import_without_initializing_api():
             rollback,
         )
         assert "app.api" not in sys.modules
-        """
-    )
+        """)
     result = subprocess.run(
         [sys.executable, "-c", code],
         cwd=root,

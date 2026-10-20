@@ -10,6 +10,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from app.api.auth_errors import auth_error
 from app.api.errors import AppError, ServiceUnavailable, error_response
 from app.core.config import Settings
+from app.core.http_body import read_limited_body, replay_body
 from app.core.login_throttle import LoginThrottle
 from app.core.origin import require_same_origin
 
@@ -38,35 +39,28 @@ class AuthHttpMiddleware:
         request = Request(scope)
         try:
             async with asyncio.timeout(self.settings.request_timeout_seconds):
-                if route_path == "/api/v1/auth/login" and scope["method"] == "POST":
+                path = route_path.rstrip("/")
+                downstream_receive = receive
+                if path == "/api/v1/auth/login" and scope["method"] == "POST":
                     self.throttle.check_ip(request.client.host if request.client else "unknown")
                     require_same_origin(request, self.settings)
                     media = request.headers.get("content-type", "").split(";")[0].strip().lower()
                     if media != "application/json":
                         raise auth_error("UNSUPPORTED_MEDIA_TYPE")
-                    body = bytearray()
-                    while True:
-                        message = await receive()
-                        if message["type"] == "http.disconnect":
-                            return
-                        chunk = message.get("body", b"")
-                        if len(body) + len(chunk) > self.settings.login_max_body_bytes:
-                            raise auth_error("PAYLOAD_TOO_LARGE")
-                        body.extend(chunk)
-                        if not message.get("more_body", False):
-                            break
-                    consumed = False
-
-                    async def replay() -> Message:
-                        nonlocal consumed
-                        if not consumed:
-                            consumed = True
-                            return {"type": "http.request", "body": bytes(body), "more_body": False}
-                        return await receive()
-
-                    await self.app(scope, replay, auth_send)
-                else:
-                    await self.app(scope, receive, auth_send)
+                    body = await read_limited_body(
+                        receive, max_bytes=self.settings.login_max_body_bytes
+                    )
+                    if body is None:
+                        return
+                    downstream_receive = replay_body(body, receive)
+                elif path == "/api/v1/auth/logout" and scope["method"] == "POST":
+                    body = await read_limited_body(
+                        receive, max_bytes=self.settings.api_max_body_bytes
+                    )
+                    if body is None:
+                        return
+                    downstream_receive = replay_body(body, receive)
+                await self.app(scope, downstream_receive, auth_send)
         except AppError as exc:
             if started:
                 raise

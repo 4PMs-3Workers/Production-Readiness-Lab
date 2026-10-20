@@ -1,4 +1,5 @@
 import { isBusinessDate } from '@/lib/business-time';
+import type { BookingContext } from '@/types/api';
 import type { AvailableSlot, Purpose, Staff } from '@/types/booking';
 
 export interface BookingSelection {
@@ -9,20 +10,22 @@ export interface BookingSelection {
   readonly description: string;
 }
 
-type BookingStep = 0 | 1 | 2 | 3;
-interface BookingState {
+export type BookingStep = 0 | 1 | 2 | 3;
+export interface BookingState {
   readonly step: BookingStep;
   readonly selection: BookingSelection;
 }
 
-type BookingAction =
+export type BookingAction =
   | { type: 'purposeSelected'; purpose: Purpose }
   | { type: 'descriptionChanged'; description: string }
   | { type: 'staffSelected'; purposeId: string; staff: Staff }
   | { type: 'dateSelected'; purposeId: string; staffId: string; date: string }
   | { type: 'slotSelected'; slot: AvailableSlot }
   | { type: 'stepChanged'; step: number }
-  | { type: 'bookingConflict' };
+  | { type: 'bookingConflict' }
+  | { type: 'contextChanged'; previous: BookingContext; next: BookingContext }
+  | { type: 'reset' };
 
 const emptySelection: BookingSelection = {
   purpose: null,
@@ -71,6 +74,8 @@ export function canVisitStep(selection: BookingSelection, step: number): step is
 export function bookingReducer(state: BookingState, action: BookingAction): BookingState {
   const { selection } = state;
   switch (action.type) {
+    case 'reset':
+      return initialBookingState;
     case 'purposeSelected':
       return selection.purpose?.id === action.purpose.id
         ? state
@@ -114,5 +119,22 @@ export function bookingReducer(state: BookingState, action: BookingAction): Book
         step: canVisitStep(selection, 2) ? 2 : canVisitStep(selection, 1) ? 1 : 0,
         selection: { ...selection, slot: null },
       };
+    case 'contextChanged': {
+      const changed =
+        action.previous.timezone !== action.next.timezone ||
+        action.previous.minBookingDate !== action.next.minBookingDate ||
+        action.previous.maxBookingDate !== action.next.maxBookingDate;
+      if (!changed) return state;
+      const date =
+        isBusinessDate(selection.date) &&
+        selection.date >= action.next.minBookingDate &&
+        selection.date <= action.next.maxBookingDate
+          ? selection.date
+          : '';
+      return {
+        step: selection.staff ? 2 : selection.purpose ? 1 : 0,
+        selection: { ...selection, date, slot: null },
+      };
+    }
   }
 }

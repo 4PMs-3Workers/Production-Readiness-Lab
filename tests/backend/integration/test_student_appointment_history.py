@@ -11,6 +11,7 @@ from tests.backend.integration.test_appointments_api import (
     install_overrides,
     student_context,
 )
+from tests.backend.integration.test_booking_context import sign_in
 
 from app.factory import create_app
 from app.models import Appointment, Purpose, ServiceSetting, StaffPurpose, User
@@ -153,3 +154,33 @@ async def test_history_pagination_ownership_and_inactive_catalog(availability_en
         assert_private(response)
     for response in (hidden, absent):
         assert_private(response, error_class="input")
+
+
+async def test_huge_history_page_returns_empty_without_item_query(availability_env):
+    env = availability_env
+    await sign_in(env)
+    statements = []
+    engine = env.factory.kw["bind"].sync_engine
+
+    def capture(conn, cursor, statement, parameters, context, executemany):
+        if "appointments" in statement and statement.lstrip().upper().startswith("SELECT"):
+            statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        response = await env.client.get(
+            "/api/v1/appointments?page=1000000000000000000&page_size=100"
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "items": [],
+        "page": 1000000000000000000,
+        "page_size": 100,
+        "total": 0,
+    }
+    assert len(statements) == 1
+    assert "COUNT" in statements[0].upper()
+    assert_private(response)

@@ -1,3 +1,4 @@
+import hashlib
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import cast
@@ -21,13 +22,14 @@ def test_throttle_limits_expire_and_state_is_bounded(auth_settings):
         limiter.check_ip("127.0.0.1")
     assert caught.value.headers is not None
     assert caught.value.headers["Retry-After"] == "60"
+    email_identity = hashlib.sha256(b"a@example.invalid").digest()
     for _ in range(5):
-        limiter.check_email("a@example.invalid")
+        limiter.check_email(email_identity)
     with pytest.raises(AppError):
-        limiter.check_email(" A@Example.invalid ")
+        limiter.check_email(email_identity)
     now[0] = 60.0
     limiter.check_ip("127.0.0.1")
-    limiter.check_email("a@example.invalid")
+    limiter.check_email(email_identity)
     small = LoginThrottle(
         auth_settings.model_copy(update={"login_state_max_entries": 2}), clock=lambda: now[0]
     )
@@ -65,7 +67,12 @@ async def test_equivalent_lookup_emails_share_one_login_budget(auth_settings, mo
     async def find_by_email(db, email):
         return account
 
+    async def email_throttle_identity(db, email):
+        canonical = email.replace("\u200b", "").strip().lower()
+        return hashlib.sha256(canonical.encode("utf-8")).digest()
+
     monkeypatch.setattr(users, "find_by_email", find_by_email)
+    monkeypatch.setattr(users, "email_throttle_identity", email_throttle_identity, raising=False)
     passwords = Passwords()
     throttle = LoginThrottle(auth_settings)
     emails = ["student@example.invalid"] + [
@@ -85,3 +92,53 @@ async def test_equivalent_lookup_emails_share_one_login_budget(auth_settings, mo
             assert caught.value.headers is not None
             assert int(caught.value.headers["Retry-After"]) > 0
     assert passwords.verifications == 5
+
+
+async def test_unknown_collation_equivalent_emails_share_one_login_budget(
+    auth_settings, monkeypatch
+):
+    from app.core.login_throttle import LoginThrottle
+    from app.repositories import users
+    from app.schemas.auth import LoginRequest
+    from app.services import auth
+
+    class Session:
+        @asynccontextmanager
+        async def begin(self):
+            yield
+
+    class Passwords:
+        def __init__(self):
+            self.dummy_verifications = 0
+
+        async def verify_dummy(self, password):
+            self.dummy_verifications += 1
+
+    async def find_by_email(db, email):
+        return None
+
+    async def email_throttle_identity(db, email):
+        canonical = email.replace("\u200b", "").strip().lower()
+        return hashlib.sha256(canonical.encode("utf-8")).digest()
+
+    monkeypatch.setattr(users, "find_by_email", find_by_email)
+    monkeypatch.setattr(users, "email_throttle_identity", email_throttle_identity, raising=False)
+    passwords = Passwords()
+    throttle = LoginThrottle(auth_settings)
+    emails = ["missing@example.invalid"] + [
+        "missing" + "\u200b" * count + "@example.invalid" for count in range(1, 6)
+    ]
+    for index, email in enumerate(emails):
+        with pytest.raises(AppError) as caught:
+            await auth.login(
+                cast(AsyncSession, Session()),
+                LoginRequest.model_validate({"email": email, "password": "wrong-password"}),
+                settings=auth_settings,
+                passwords=cast(PasswordService, passwords),
+                throttle=throttle,
+            )
+        assert caught.value.code == ("LOGIN_THROTTLED" if index == 5 else "INVALID_CREDENTIALS")
+        if index == 5:
+            assert caught.value.headers is not None
+            assert int(caught.value.headers["Retry-After"]) > 0
+    assert passwords.dummy_verifications == 5

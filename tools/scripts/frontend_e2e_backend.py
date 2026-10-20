@@ -44,6 +44,7 @@ from app.models import (
 
 RUNTIME = Path("build/frontend-api")
 FIXTURE = RUNTIME / "fixture.json"
+SETTINGS_SNAPSHOT = RUNTIME / "service-settings-snapshot.json"
 LOSS = RUNTIME / "lose-next-response"
 HOLD = RUNTIME / "hold-next-response"
 HELD = RUNTIME / "held-response"
@@ -76,6 +77,7 @@ def migrate(connection):
 
 async def prepare():
     RUNTIME.mkdir(parents=True, exist_ok=True)
+    SETTINGS_SNAPSHOT.unlink(missing_ok=True)
     fixture = {
         "schema": "prl_frontend_e2e_" + uuid4().hex,
         **{name: str(uuid4()) for name in ("student", "other", "staff", "admin", "purpose")},
@@ -163,6 +165,14 @@ async def prepare():
 
 
 async def cleanup(fixture):
+    if SETTINGS_SNAPSHOT.exists():
+        fixture_engine = engine_for(fixture)
+        try:
+            async with async_sessionmaker(fixture_engine, expire_on_commit=False).begin() as db:
+                await restore_service_settings(db)
+        finally:
+            await fixture_engine.dispose()
+        SETTINGS_SNAPSHOT.unlink(missing_ok=True)
     engine = create_database_engine(admin_url(), poolclass=NullPool)
     try:
         async with engine.begin() as db:
@@ -170,6 +180,7 @@ async def cleanup(fixture):
     finally:
         await engine.dispose()
         FIXTURE.unlink(missing_ok=True)
+        SETTINGS_SNAPSHOT.unlink(missing_ok=True)
         LOSS.unlink(missing_ok=True)
         HOLD.unlink(missing_ok=True)
         HELD.unlink(missing_ok=True)
@@ -243,14 +254,55 @@ async def operate(args):
         HELD.unlink(missing_ok=True)
         return
     engine = engine_for(fixture)
+    clear_settings_snapshot = False
     try:
         async with async_sessionmaker(engine, expire_on_commit=False).begin() as db:
             if args.action == "reset":
+                clear_settings_snapshot = await restore_service_settings(db)
                 for model in (Notification, AuditEvent, ChangeProposal, Appointment, Session):
                     await db.execute(delete(model))
                 LOSS.unlink(missing_ok=True)
                 HOLD.unlink(missing_ok=True)
                 HELD.unlink(missing_ok=True)
+            elif args.action == "settings-off":
+                setting = await db.get(ServiceSetting, 1)
+                if setting is None:
+                    raise RuntimeError("Cannot disable settings without the singleton row")
+                if not SETTINGS_SNAPSHOT.exists():
+                    SETTINGS_SNAPSHOT.write_text(
+                        json.dumps(
+                            {
+                                "timezone": setting.timezone,
+                                "start_step_minutes": setting.start_step_minutes,
+                                "booking_horizon_days": setting.booking_horizon_days,
+                                "updated_at": setting.updated_at.isoformat(),
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                await db.delete(setting)
+            elif args.action == "settings-restore":
+                clear_settings_snapshot = await restore_service_settings(db)
+            elif args.action == "seed-timezone-appointment":
+                starts_at = datetime(2026, 10, 18, 18, tzinfo=UTC)
+                identifier = uuid4()
+                db.add(
+                    Appointment(
+                        id=identifier,
+                        student_id=UUID(fixture["student"]),
+                        staff_id=UUID(fixture["staff"]),
+                        purpose_id=UUID(fixture["purpose"]),
+                        starts_at=starts_at,
+                        ends_at=starts_at + timedelta(minutes=30),
+                        duration_minutes=30,
+                        status="CANCELLED",
+                        cancelled_at=datetime.now(UTC),
+                        creation_request_key="frontend-e2e-timezone",
+                        creation_request_hash=hashlib.sha256(b"frontend-e2e-timezone").digest(),
+                    )
+                )
+                await db.flush()
+                print(json.dumps({"id": str(identifier)}))
             elif args.action == "manual-catalog":
                 # Expand only this disposable schema for human UI review. Keep the
                 # original purpose for existing appointment history and default E2E.
@@ -344,6 +396,33 @@ async def operate(args):
                     )
     finally:
         await engine.dispose()
+    if clear_settings_snapshot:
+        SETTINGS_SNAPSHOT.unlink(missing_ok=True)
+
+
+async def restore_service_settings(db):
+    """Restore the singleton values captured before an outage scenario."""
+    if not SETTINGS_SNAPSHOT.exists():
+        return False
+    snapshot = json.loads(SETTINGS_SNAPSHOT.read_text(encoding="utf-8"))
+    updated_at = datetime.fromisoformat(snapshot["updated_at"])
+    setting = await db.get(ServiceSetting, 1)
+    if setting is None:
+        setting = ServiceSetting(
+            id=1,
+            timezone=snapshot["timezone"],
+            start_step_minutes=snapshot["start_step_minutes"],
+            booking_horizon_days=snapshot["booking_horizon_days"],
+            updated_at=updated_at,
+        )
+        db.add(setting)
+    else:
+        setting.timezone = snapshot["timezone"]
+        setting.start_step_minutes = snapshot["start_step_minutes"]
+        setting.booking_horizon_days = snapshot["booking_horizon_days"]
+        setting.updated_at = updated_at
+    await db.flush()
+    return True
 
 
 def main():
@@ -360,6 +439,9 @@ def main():
             "arm-hold",
             "release-response",
             "manual-catalog",
+            "settings-off",
+            "settings-restore",
+            "seed-timezone-appointment",
             "cleanup",
         ),
     )

@@ -226,11 +226,15 @@ python -m uvicorn app.main:app --app-dir src/backend --no-proxy-headers
 API khởi động khi MySQL tạm thời không truy cập được. `/health/live` kiểm tra tiến trình
 không hỏi database; `/health/ready` kiểm tra `SELECT 1` và phiên bản trong `alembic_version`.
 Chạy migration theo `docs/tasks/database-migrations.md` trước khi mong readiness trả 200.
-Phiên bản schema ban đầu là `a1b2c3d4e5f6`; revision được chấp nhận phải tương thích với release
-đang chạy. Sau migration #14, `ACCEPTED_SCHEMA_REVISIONS` dùng revision
-`20261016_1200_audit_reqid128` theo `.env.example`. Revision cũ không hỗ trợ request ID audit
-tối đa 128 ký tự; chỉ liệt kê nhiều revision khi release tương thích với tất cả. Revision ngoài danh sách
-trả 503.
+<!-- current-schema-revision:start -->
+Release hiện tại chấp nhận schema revision `20261019_1200_proposal_replay` theo `.env.example`.
+`/health/ready` chỉ trả 200 khi database có đúng một revision và revision đó nằm trong
+`ACCEPTED_SCHEMA_REVISIONS`. Chỉ liệt kê nhiều revision khi đã xác nhận release tương thích với tất cả.
+<!-- current-schema-revision:end -->
+
+**Lịch sử:** schema ban đầu là `a1b2c3d4e5f6`. Các revision `20261016_1200_audit_reqid128`
+và `20261017_2350_student_profile` là các mốc trước migration `20261019_1200_proposal_replay`;
+không dùng các revision cũ này cho release hiện tại.
 
 Ba API đọc catalog/availability mới là `GET /api/v1/purposes`,
 `GET /api/v1/staff?purpose_id=...` và

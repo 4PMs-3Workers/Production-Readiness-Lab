@@ -8,6 +8,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.api.errors import AppError, ServiceUnavailable, error_response
 from app.core.config import Settings
+from app.core.http_body import read_limited_body, replay_body
 from app.core.response_policy import requires_request_deadline, uses_private_api_middleware
 
 
@@ -31,14 +32,24 @@ class PrivateApiHttpMiddleware:
             await send(message)
 
         request = Request(scope)
+
+        async def dispatch() -> None:
+            downstream_receive = receive
+            if scope["method"] == "POST" and requires_request_deadline(scope):
+                body = await read_limited_body(receive, max_bytes=self.settings.api_max_body_bytes)
+                if body is None:
+                    return
+                downstream_receive = replay_body(body, receive)
+            await self.app(scope, downstream_receive, private_send)
+
         try:
             if requires_request_deadline(scope):
                 deadline = asyncio.get_running_loop().time() + self.settings.request_timeout_seconds
                 scope.setdefault("state", {})["request_deadline"] = deadline
                 async with asyncio.timeout_at(deadline):
-                    await self.app(scope, receive, private_send)
+                    await dispatch()
             else:
-                await self.app(scope, receive, private_send)
+                await dispatch()
         except AppError as exc:
             if started:
                 raise
