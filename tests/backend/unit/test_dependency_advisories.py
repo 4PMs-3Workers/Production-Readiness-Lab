@@ -326,6 +326,66 @@ def test_npm_parent_alias_must_resolve_to_structured_leaf_advisory(tmp_path: Pat
     assert any("no structured leaf" in error.lower() for error in decision["errors"])
 
 
+@pytest.mark.parametrize(
+    "via",
+    [
+        [],
+        [None],
+        [123],
+        [False],
+        [""],
+        [{"name": "braces", "url": f"https://github.com/advisories/{BRACES_ADVISORY}"}],
+        ["eslint"],
+    ],
+    ids=["empty", "null", "number", "boolean", "blank-reference", "unrelated-leaf", "cycle"],
+)
+def test_every_npm_vulnerability_needs_resolvable_advisory_details(
+    tmp_path: Path, via: list[Any]
+) -> None:
+    report = npm_report()
+    report["vulnerabilities"]["eslint"] = {
+        "name": "eslint",
+        "severity": "high",
+        "isDirect": True,
+        "via": via,
+        "effects": [],
+        "range": "*",
+        "nodes": ["node_modules/eslint"],
+        "fixAvailable": False,
+    }
+    report["metadata"]["vulnerabilities"].update(high=1, total=2)
+
+    decision = evaluate(tmp_path, npm=report)
+
+    assert decision["status"] == "error"
+    assert decision["exit_code"] == 2
+    assert any("eslint" in error.lower() for error in decision["errors"])
+
+
+def test_valid_npm_parent_chain_keeps_the_exact_leaf_exception(tmp_path: Path) -> None:
+    report = npm_report()
+    for name, target in (("eslint", "micromatch"), ("micromatch", "braces")):
+        report["vulnerabilities"][name] = {
+            "name": name,
+            "severity": "moderate",
+            "isDirect": name == "eslint",
+            "via": [target],
+            "effects": [],
+            "range": "*",
+            "nodes": [f"node_modules/{name}"],
+            "fixAvailable": False,
+        }
+    report["metadata"]["vulnerabilities"].update(moderate=3, total=3)
+
+    decision = evaluate(tmp_path, npm=report)
+
+    assert decision["status"] == "approved"
+    assert decision["exit_code"] == 0
+    assert len(decision["findings"]) == 1
+    assert decision["findings"][0]["package"] == "braces"
+    assert decision["findings"][0]["disposition"] == "exception_approved"
+
+
 def test_exception_scope_must_match_runtime_or_development_exposure(tmp_path: Path) -> None:
     decision = evaluate(tmp_path, lock=npm_lock(dev=False))
 

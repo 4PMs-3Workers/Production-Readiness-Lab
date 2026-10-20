@@ -200,10 +200,15 @@ def _npm_report(report: Mapping[str, Any], packages: Mapping[str, Any]) -> list[
         row_severity_counts[severity] += 1
         via = vulnerability.get("via")
         nodes = vulnerability.get("nodes")
-        if not isinstance(via, list) or not isinstance(nodes, list) or not nodes:
+        if not isinstance(via, list) or not via or not isinstance(nodes, list) or not nodes:
             raise InputError(
                 f"npm vulnerability {reported_name!r} lacks via details or lockfile nodes"
             )
+        if any(
+            not isinstance(item, (str, Mapping)) or (isinstance(item, str) and not item.strip())
+            for item in via
+        ):
+            raise InputError(f"npm vulnerability {reported_name!r} has invalid via details")
 
         resolved_nodes: list[tuple[str, str, str]] = []
         for node in nodes:
@@ -315,8 +320,8 @@ def _npm_report(report: Mapping[str, Any], packages: Mapping[str, Any]) -> list[
             reaches_structured_leaf(target, seen) for target in references.get(package_name, set())
         )
 
-    for package_name, targets in references.items():
-        for target in targets:
+    for package_name in vulnerabilities:
+        for target in references.get(package_name, set()):
             if target not in vulnerabilities:
                 raise InputError(
                     f"npm vulnerability {package_name!r} references missing entry {target!r}"
