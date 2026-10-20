@@ -26,7 +26,7 @@ interface ApiContextValue {
   session: Session;
   revision: number;
   refreshSession: () => Promise<void>;
-  login: (credentials: LoginCredentials, options?: ServiceRequestOptions) => Promise<void>;
+  login: (credentials: LoginCredentials, options?: ServiceRequestOptions) => Promise<SessionUser>;
   logout: () => Promise<void>;
 }
 const ApiContext = createContext<ApiContextValue | null>(null);
@@ -135,6 +135,7 @@ export function ApiProvider({
     clearPrivate(true);
     const user = await services.login(credentials, options);
     acceptUser(user);
+    return user;
   }
   async function logout() {
     clearPrivate();

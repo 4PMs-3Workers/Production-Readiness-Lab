@@ -56,6 +56,7 @@ def test_openapi_export_is_deterministic_without_database(tmp_path):
         "/api/v1/appointments/{appointment_id}",
         "/api/v1/appointments/{appointment_id}/cancel",
         "/api/v1/booking-context",
+        "/api/v1/staff/me/context",
         "/api/v1/students/me",
         "/api/v1/staff/me/appointments",
         "/api/v1/staff/me/appointments/{appointment_id}",
@@ -218,6 +219,7 @@ def test_staff_configuration_openapi_documents_roles_headers_filters_and_replay(
     document = create_app(auth_settings).openapi()
     paths = document["paths"]
     for path, methods in {
+        "/api/v1/staff/me/context": ("get",),
         "/api/v1/staff/me/purposes": ("get",),
         "/api/v1/staff/me/purposes/{purpose_id}": ("put",),
         "/api/v1/staff/me/unavailability": ("get", "post"),
@@ -229,7 +231,8 @@ def test_staff_configuration_openapi_documents_roles_headers_filters_and_replay(
             parameters = {item["name"]: item for item in operation.get("parameters", [])}
             if method == "get":
                 assert "X-CSRF-Token" not in parameters
-                assert {"page", "page_size"} <= parameters.keys()
+                if path != "/api/v1/staff/me/context":
+                    assert {"page", "page_size"} <= parameters.keys()
             else:
                 assert parameters["X-CSRF-Token"]["required"]
                 assert "Origin" in parameters and "Referer" in parameters
@@ -240,6 +243,15 @@ def test_staff_configuration_openapi_documents_roles_headers_filters_and_replay(
     assert {"200", "201", "409", "503"} <= periods["post"]["responses"].keys()
     assert "before conflict checks" in periods["post"]["description"]
     assert document["components"]["schemas"]["StaffPurposeRequest"]["additionalProperties"] is False
+
+    context = paths["/api/v1/staff/me/context"]["get"]
+    assert context["security"] == [{"prl_session": []}]
+    context_schema = context["responses"]["200"]["content"]["application/json"]["schema"]
+    assert context_schema["$ref"].endswith("StaffContextResponse")
+    assert set(document["components"]["schemas"]["StaffContextResponse"]["properties"]) == {
+        "timezone",
+        "business_date",
+    }
 
 
 def test_openapi_export_ignores_invalid_runtime_environment(tmp_path):

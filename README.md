@@ -129,29 +129,29 @@ Production-Readiness-Lab/
 
 ## Tài liệu
 
-| Tài liệu                                                              | Nội dung                                                                    |
-| --------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| [Thiết kế hệ thống](docs/architecture/system-design.md)               | Kiến trúc, luồng nghiệp vụ, bảo mật, observability, triển khai và phục hồi. |
-| [Thiết kế cơ sở dữ liệu](docs/architecture/database-design.md)        | Mô hình 11 bảng, ràng buộc, chỉ mục và xử lý giao dịch cạnh tranh.          |
-| [Models cơ sở dữ liệu](docs/architecture/database-models.md)          | Ánh xạ SQLAlchemy, chuyển đổi kiểu dữ liệu và hướng dẫn chạy kiểm tra.      |
-| [Task database models](docs/tasks/database-models.md)                 | Phạm vi triển khai, kiểm thử và bàn giao bộ models.                         |
-| [Catalog và availability](docs/tasks/catalog-availability.md)           | Hợp đồng ba API đọc, cách gọi bằng session và bằng chứng/giới hạn nghiệm thu. |
-| [Đặt lịch appointment](docs/tasks/appointment-booking.md)               | API tạo lịch, xem chi tiết, idempotency và khôi phục khi mất phản hồi.       |
+| Tài liệu                                                                        | Nội dung                                                                           |
+| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| [Thiết kế hệ thống](docs/architecture/system-design.md)                         | Kiến trúc, luồng nghiệp vụ, bảo mật, observability, triển khai và phục hồi.        |
+| [Thiết kế cơ sở dữ liệu](docs/architecture/database-design.md)                  | Mô hình 11 bảng, ràng buộc, chỉ mục và xử lý giao dịch cạnh tranh.                 |
+| [Models cơ sở dữ liệu](docs/architecture/database-models.md)                    | Ánh xạ SQLAlchemy, chuyển đổi kiểu dữ liệu và hướng dẫn chạy kiểm tra.             |
+| [Task database models](docs/tasks/database-models.md)                           | Phạm vi triển khai, kiểm thử và bàn giao bộ models.                                |
+| [Catalog và availability](docs/tasks/catalog-availability.md)                   | Hợp đồng ba API đọc, cách gọi bằng session và bằng chứng/giới hạn nghiệm thu.      |
+| [Đặt lịch appointment](docs/tasks/appointment-booking.md)                       | API tạo lịch, xem chi tiết, idempotency và khôi phục khi mất phản hồi.             |
 | [Khả năng tiếp nhận của nhân viên](docs/tasks/staff-availability-management.md) | API nhu cầu tiếp nhận/khoảng không nhận, CSRF, khóa với booking và phục hồi retry. |
-| [Đề nghị đổi lịch](docs/tasks/appointment-change-proposals.md)            | API staff/student, replay/precondition, migration và shared expiry transition. |
-| [Lịch sử và quản lý lịch hẹn](docs/tasks/student-appointment-management.md) | API lịch sử, ngữ cảnh ngày đặt, hủy lịch và hành vi retry.                  |
-| [Task frontend bootstrap](docs/tasks/frontend-bootstrap.md)           | Nền tảng, routes, các mốc triển khai, cài đặt và kiểm chứng.                 |
-| [Mock services và UI đặt lịch](docs/tasks/frontend-mock-services.md)  | Chi tiết fixtures, preset, clock và thao tác đặt lịch bằng dữ liệu demo.    |
-| [Đăng nhập demo và Home](docs/tasks/frontend-login.md)               | Mốc 3: form đăng nhập, phiên trong bộ nhớ, Home và đăng xuất.               |
-| [Booking wizard và state](docs/tasks/frontend-booking.md)           | Mốc 4: reset draft, vòng đời request và kiểm thử các trạng thái đặt lịch.   |
-| [Kết quả và lịch đã đặt](docs/tasks/frontend-results.md)            | Mốc 5: danh sách trong phiên, chi tiết từng lịch và thao tác bàn phím.      |
-| [Kiểm thử frontend và CI](docs/tasks/frontend-testing.md)           | Mốc 6: ma trận hành vi, clean install, báo cáo E2E và chẩn đoán CI.         |
-| [Bàn giao và nghiệm thu frontend](docs/tasks/frontend-handoff.md)   | Mốc 7: acceptance criteria, cách review, ảnh và phụ thuộc tích hợp API.     |
-| [Tích hợp frontend API thật](docs/tasks/frontend-api-integration.md) | Issue #20: session, đặt/hủy lịch, phục hồi reload và E2E MySQL thật.        |
-| [Hồ sơ sinh viên](docs/tasks/student-profile.md)                    | Trang hồ sơ riêng, API cá nhân và migration thông tin sinh viên.          |
-| [Mô tả thay đổi và review issue #20](docs/tasks/issue-20-change-description.md) | Phạm vi từng file, kiểm thử, bằng chứng và hướng dẫn triển khai trước commit. |
-| [Coding convention](docs/other/CONVENTION.md)                         | Quy ước tổ chức và viết mã frontend/backend.                                |
-| [Git Flow](docs/other/GITFLOW.md)                                     | Vai trò các branch, Pull Request và quy trình release/hotfix.               |
+| [Đề nghị đổi lịch](docs/tasks/appointment-change-proposals.md)                  | API staff/student, replay/precondition, migration và shared expiry transition.     |
+| [Lịch sử và quản lý lịch hẹn](docs/tasks/student-appointment-management.md)     | API lịch sử, ngữ cảnh ngày đặt, hủy lịch và hành vi retry.                         |
+| [Task frontend bootstrap](docs/tasks/frontend-bootstrap.md)                     | Nền tảng, routes, các mốc triển khai, cài đặt và kiểm chứng.                       |
+| [Mock services và UI đặt lịch](docs/tasks/frontend-mock-services.md)            | Chi tiết fixtures, preset, clock và thao tác đặt lịch bằng dữ liệu demo.           |
+| [Đăng nhập demo và Home](docs/tasks/frontend-login.md)                          | Mốc 3: form đăng nhập, phiên trong bộ nhớ, Home và đăng xuất.                      |
+| [Booking wizard và state](docs/tasks/frontend-booking.md)                       | Mốc 4: reset draft, vòng đời request và kiểm thử các trạng thái đặt lịch.          |
+| [Kết quả và lịch đã đặt](docs/tasks/frontend-results.md)                        | Mốc 5: danh sách trong phiên, chi tiết từng lịch và thao tác bàn phím.             |
+| [Kiểm thử frontend và CI](docs/tasks/frontend-testing.md)                       | Mốc 6: ma trận hành vi, clean install, báo cáo E2E và chẩn đoán CI.                |
+| [Bàn giao và nghiệm thu frontend](docs/tasks/frontend-handoff.md)               | Mốc 7: acceptance criteria, cách review, ảnh và phụ thuộc tích hợp API.            |
+| [Tích hợp frontend API thật](docs/tasks/frontend-api-integration.md)            | Issue #20: session, đặt/hủy lịch, phục hồi reload và E2E MySQL thật.               |
+| [Hồ sơ sinh viên](docs/tasks/student-profile.md)                                | Trang hồ sơ riêng, API cá nhân và migration thông tin sinh viên.                   |
+| [Mô tả thay đổi và review issue #20](docs/tasks/issue-20-change-description.md) | Phạm vi từng file, kiểm thử, bằng chứng và hướng dẫn triển khai trước commit.      |
+| [Coding convention](docs/other/CONVENTION.md)                                   | Quy ước tổ chức và viết mã frontend/backend.                                       |
+| [Git Flow](docs/other/GITFLOW.md)                                               | Vai trò các branch, Pull Request và quy trình release/hotfix.                      |
 
 ## Phát triển và kiểm thử
 
@@ -175,6 +175,10 @@ và xác nhận. Kết quả có UUID trong URL; `/appointments` đọc lịch s
 lọc trạng thái, mở chi tiết và hủy lịch. Lịch đã commit vẫn tồn tại sau reload.
 Mục sidebar **Thông tin sinh viên** mở `/profile`, hiển thị họ tên, email, mã sinh viên,
 khoa, ngành, giới tính và vai trò; dữ liệu chưa có được ghi là “Chưa cập nhật”.
+Tài khoản có vai trò STAFF đăng nhập cùng cổng tại `/login` và được chuyển tới
+`/staff/appointments`; các trang `/staff/preferences` và `/staff/unavailability`
+quản lý nhu cầu tiếp nhận và khoảng thời gian không nhận lịch. API xác thực vai trò
+và quyền sở hữu lịch ở mỗi request; giờ staff hiển thị theo múi giờ dịch vụ từ API.
 
 Để chạy demo độc lập, đặt `NEXT_PUBLIC_APP_MODE=mock` trước khi dev/build.
 Chế độ này hiển thị nhãn DEMO và giữ các kịch bản giả lập cũ; chỉ dùng thông tin giả,
@@ -185,6 +189,8 @@ Các tài liệu [bootstrap](docs/tasks/frontend-bootstrap.md),
 và [nghiệm thu 15/10](docs/tasks/frontend-handoff.md) mô tả phiên bản mock lịch sử.
 Hướng dẫn tích hợp, thiết lập, retry và kiểm thử thật nằm trong
 [frontend API integration](docs/tasks/frontend-api-integration.md).
+Hướng dẫn riêng cho các route STAFF, xử lý thao tác và kiểm tra hai tài khoản nằm
+trong [staff portal integration](docs/tasks/staff-portal-integration.md).
 
 Trên PowerShell, nếu `node` chưa có trên PATH nhưng dependencies đã được cài,
 có thể chạy `./tools/scripts/start-frontend.ps1`. Script tìm Node trên PATH,
@@ -228,6 +234,7 @@ API khởi động khi MySQL tạm thời không truy cập được. `/health/l
 không hỏi database; `/health/ready` kiểm tra `SELECT 1` và phiên bản trong `alembic_version`.
 Chạy migration theo `docs/tasks/database-migrations.md` trước khi mong readiness trả 200.
 <!-- current-schema-revision:start -->
+
 Release hiện tại chấp nhận schema revision `20261019_1200_proposal_replay` theo `.env.example`.
 `/health/ready` chỉ trả 200 khi database có đúng một revision và revision đó nằm trong
 `ACCEPTED_SCHEMA_REVISIONS`. Chỉ liệt kê nhiều revision khi đã xác nhận release tương thích với tất cả.
@@ -357,15 +364,15 @@ PY
 | `ENVIRONMENT`                       | `local`             | `local`, `test`, `demo`, `production`.                                                                                |
 | `APPLICATION_ORIGIN`                | Bắt buộc            | Origin HTTP(S), không có path/query/credentials; demo/production phải HTTPS.                                          |
 | `COOKIE_SECRET`, `CSRF_SECRET`      | Bắt buộc            | Hai secret không rỗng, độc lập; không đưa vào Git/log.                                                                |
-| `COOKIE_SECURE` | `true` | Demo/production bắt buộc HTTPS và Secure; local HTTP đặt false. |
-| `COOKIE_SAMESITE` | `lax` | Chỉ `lax` cho session authentication. |
-| `COOKIE_DOMAIN` | Không đặt | Bắt buộc host-only; không đặt domain cho auth cookies. |
+| `COOKIE_SECURE`                     | `true`              | Demo/production bắt buộc HTTPS và Secure; local HTTP đặt false.                                                       |
+| `COOKIE_SAMESITE`                   | `lax`               | Chỉ `lax` cho session authentication.                                                                                 |
+| `COOKIE_DOMAIN`                     | Không đặt           | Bắt buộc host-only; không đặt domain cho auth cookies.                                                                |
 | `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`   | `5`, `5`            | Số kết nối cơ bản >0 và kết nối vượt mức >=0 trên mỗi API process.                                                    |
 | `DB_CONNECT_TIMEOUT_SECONDS`        | `1` giây            | Timeout kết nối hữu hạn, >0.                                                                                          |
 | `DB_POOL_TIMEOUT_SECONDS`           | `0.5` giây          | Timeout chờ pool hữu hạn, >0.                                                                                         |
 | `DB_QUERY_TIMEOUT_SECONDS`          | `1` giây            | Timeout truy vấn hữu hạn, >0; bao transaction đọc của catalog/availability.                                           |
 | `DB_LOCK_TIMEOUT_SECONDS`           | `0.5` giây          | Timeout chờ khóa hữu hạn, >0; dành cho services sau này.                                                              |
-| `REQUEST_TIMEOUT_SECONDS`           | `3` giây            | Ngân sách request hữu hạn, >0; áp cho request catalog/availability.                                                  |
+| `REQUEST_TIMEOUT_SECONDS`           | `3` giây            | Ngân sách request hữu hạn, >0; áp cho request catalog/availability.                                                   |
 | `READINESS_TIMEOUT_SECONDS`         | `2` giây            | Deadline hữu hạn, >0 cho toàn bộ readiness, gồm chờ pool, kết nối và cả hai query.                                    |
 | `MAX_DEADLOCK_RETRIES`              | `2`                 | Số lần retry >=0, dành cho services sau này.                                                                          |
 | `WORKER_POLL_INTERVAL_SECONDS`      | `5` giây            | Chu kỳ quét hữu hạn, >0; dành cho worker sau này.                                                                     |

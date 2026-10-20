@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useApi } from './api-provider';
 import { safeReturnPath } from './session-gate';
+import { safeStaffReturnPath } from '@/features/staff/staff-session-gate';
 import { errorMessage } from '@/services/api/errors';
 import styles from '../login/login.module.css';
 
@@ -32,8 +33,16 @@ export function ApiLogin() {
     const submitted = password;
     setPassword('');
     try {
-      await login({ email: email.trim(), password: submitted }, { signal: controller.signal });
-      if (!controller.signal.aborted) router.replace(safeReturnPath(params.get('returnTo')));
+      const user = await login(
+        { email: email.trim(), password: submitted },
+        { signal: controller.signal },
+      );
+      if (!controller.signal.aborted)
+        router.replace(
+          user.role === 'STAFF'
+            ? safeStaffReturnPath(params.get('returnTo'))
+            : safeReturnPath(params.get('returnTo')),
+        );
     } catch (cause) {
       if (!controller.signal.aborted) setError(errorMessage(cause));
     } finally {
@@ -62,11 +71,18 @@ export function ApiLogin() {
         <p>
           {session.user.role === 'STUDENT'
             ? 'Bạn có thể tiếp tục sử dụng dịch vụ tư vấn.'
-            : 'Cổng này dành cho sinh viên. Vai trò của bạn chưa được hỗ trợ.'}
+            : session.user.role === 'STAFF'
+              ? 'Bạn có thể tiếp tục quản lý lịch tư vấn được giao.'
+              : 'Vai trò của bạn chưa có cổng làm việc phù hợp.'}
         </p>
         {session.user.role === 'STUDENT' && (
           <Link className="primary-link" href={safeReturnPath(params.get('returnTo'))}>
             Vào cổng sinh viên →
+          </Link>
+        )}
+        {session.user.role === 'STAFF' && (
+          <Link className="primary-link" href={safeStaffReturnPath(params.get('returnTo'))}>
+            Vào cổng nhân viên →
           </Link>
         )}
         <button

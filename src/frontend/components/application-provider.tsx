@@ -19,7 +19,10 @@ export function ApplicationProvider({ children }: { children: ReactNode }) {
 }
 function ProtectedContent({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  return pathname === '/login' || pathname === '/' ? (
+  return pathname === '/login' ||
+    pathname === '/' ||
+    pathname === '/staff' ||
+    pathname.startsWith('/staff/') ? (
     children
   ) : (
     <SessionGate>{children}</SessionGate>

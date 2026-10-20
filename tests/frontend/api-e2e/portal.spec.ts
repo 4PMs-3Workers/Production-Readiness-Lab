@@ -548,7 +548,7 @@ test('expiry and logout clear private history before another account signs in', 
   await expect(page.getByRole('button', { name: 'Đăng nhập', exact: true })).toBeVisible();
 });
 
-for (const role of ['staff', 'admin']) {
+for (const role of ['admin']) {
   test(`unsupported ${role} never receives student controls`, async ({ page }) => {
     await login(page, role);
     await expect(page.getByRole('heading', { name: 'Tài khoản chưa được hỗ trợ' })).toBeVisible();
