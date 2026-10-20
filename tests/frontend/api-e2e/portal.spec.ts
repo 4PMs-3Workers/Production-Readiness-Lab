@@ -37,6 +37,12 @@ async function selectBooking(page: Page) {
   await page.getByRole('button', { name: 'Tiếp tục' }).click();
 }
 
+function shiftDate(date: string, days: number) {
+  const value = new Date(`${date}T12:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
 async function book(page: Page) {
   await selectBooking(page);
   await page.getByRole('button', { name: 'Xác nhận đặt lịch' }).click();
@@ -48,6 +54,149 @@ async function book(page: Page) {
 
 test.beforeEach(() => {
   harness('reset');
+});
+
+test('replays an unknown booking intent while context is unavailable', async ({ page }) => {
+  await login(page);
+  await selectBooking(page);
+  const posted: { key: string | undefined; body: string | null }[] = [];
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/appointments')
+      posted.push({ key: request.headers()['idempotency-key'], body: request.postData() });
+  });
+  await page.route('**/api/v1/appointments', (route) => route.abort('failed'), { times: 1 });
+  await page.getByRole('button', { name: 'Xác nhận đặt lịch' }).click();
+  const retry = page.getByRole('button', { name: 'Thử lại cùng yêu cầu' });
+  await expect(retry).toBeVisible();
+
+  await page.getByRole('link', { name: 'Trang chủ', exact: true }).first().click();
+  harness('settings-off');
+  try {
+    const unavailable = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === '/api/v1/booking-context' && response.status() === 503,
+    );
+    await page.getByRole('link', { name: 'Bắt đầu đặt lịch' }).click();
+    await unavailable;
+    await expect(retry).toBeVisible();
+    await expect(page.getByText(/Dịch vụ tạm thời chưa sẵn sàng/)).toBeVisible();
+
+    harness('settings-restore');
+    await retry.click();
+    await expect(page.getByRole('heading', { name: 'Chi tiết lịch hẹn' })).toBeVisible();
+    expect(posted).toHaveLength(2);
+    expect(posted[0].key).toBeTruthy();
+    expect(posted[1]).toEqual(posted[0]);
+  } finally {
+    harness('settings-restore');
+  }
+});
+
+for (const refreshedContext of ['same', 'changed'] as const) {
+  test(`preserves the booking draft after a 422 context refresh (${refreshedContext})`, async ({
+    page,
+    context,
+  }) => {
+    await login(page);
+    await selectBooking(page);
+    const response = await context.request.get('/api/v1/booking-context');
+    expect(response.status()).toBe(200);
+    const bookingContext = (await response.json()) as Record<string, string>;
+    const dateField = 'min_booking_date' in bookingContext ? 'min_booking_date' : 'minBookingDate';
+    const timezoneField = 'timezone';
+    let contextRefreshes = 0;
+    await page.route('**/api/v1/appointments', async (route) => {
+      if (route.request().method() === 'POST')
+        await route.fulfill({
+          status: 422,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: { code: 'VALIDATION_ERROR' } }),
+        });
+      else await route.continue();
+    });
+    await page.route('**/api/v1/booking-context', async (route) => {
+      contextRefreshes += 1;
+      if (refreshedContext === 'same') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(bookingContext),
+        });
+        return;
+      }
+      const changed = {
+        ...bookingContext,
+        [timezoneField]: 'America/Los_Angeles',
+        [dateField]: shiftDate(bookingContext[dateField], 1),
+      };
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(changed),
+      });
+    });
+    const refreshed = page.waitForResponse(
+      (item) => new URL(item.url()).pathname === '/api/v1/booking-context',
+    );
+    await page.getByRole('button', { name: /Xác nhận đặt lịch/ }).click();
+    await refreshed;
+    expect(contextRefreshes).toBe(1);
+
+    if (refreshedContext === 'same') {
+      await expect(page.getByText('BƯỚC 04')).toBeVisible();
+      await page.getByRole('button', { name: '← Quay lại' }).click();
+      await page.getByRole('button', { name: '← Quay lại' }).click();
+      await page.getByRole('button', { name: '← Quay lại' }).click();
+    } else {
+      await expect(page.getByText('BƯỚC 03')).toBeVisible();
+      await expect(page.locator('input[name="date"]:checked')).toHaveCount(0);
+      await page.getByRole('button', { name: '← Quay lại' }).click();
+      await page.getByRole('button', { name: '← Quay lại' }).click();
+    }
+    await expect(page.getByRole('radio', { name: /Tư vấn học tập kiểm thử/ })).toBeChecked();
+    await expect(page.getByLabel('Bạn muốn trao đổi về điều gì? *')).toHaveValue(description);
+  });
+}
+
+test('repeated availability failures retry slots only and keep the date-step draft', async ({
+  page,
+}) => {
+  await login(page);
+  let contextReads = 0;
+  let unavailableSlots = 0;
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/v1/booking-context') contextReads += 1;
+  });
+  await page.route('**/api/v1/availability**', async (route) => {
+    unavailableSlots += 1;
+    if (unavailableSlots <= 2)
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: { code: 'SERVICE_UNAVAILABLE' } }),
+      });
+    else await route.continue();
+  });
+  await page.goto('/booking');
+  await page.getByRole('radio', { name: /Tư vấn học tập kiểm thử/ }).check();
+  await page.getByLabel('Bạn muốn trao đổi về điều gì? *').fill(description);
+  await page.getByRole('button', { name: 'Tiếp tục' }).click();
+  await page.getByRole('radio', { name: /Cố vấn kiểm thử/ }).check();
+  await page.getByRole('button', { name: 'Tiếp tục' }).click();
+  const dates = page.getByRole('radio', { name: /^\d{2}\/\d{2}\/\d{4}$/ });
+  await dates.first().check();
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await expect(page.getByText(/Dịch vụ tạm thời chưa sẵn sàng/)).toBeVisible();
+    await page.getByRole('button', { name: 'Thử lại' }).click();
+  }
+  await expect(page.getByRole('radio', { name: /08:00 – 08:30/ })).toBeVisible();
+  expect(unavailableSlots).toBe(3);
+  expect(contextReads).toBe(1);
+  await expect(page.getByText('BƯỚC 03')).toBeVisible();
+  await expect(dates.first()).toBeChecked();
+  await page.getByRole('button', { name: '← Quay lại' }).click();
+  await page.getByRole('button', { name: '← Quay lại' }).click();
+  await expect(page.getByLabel('Bạn muốn trao đổi về điều gì? *')).toHaveValue(description);
 });
 
 test('session loss while the first committed receipt is pending preserves its original intent', async ({
@@ -428,6 +577,56 @@ test('real pagination, all-state filters, empty result and deep links', async ({
   await expect(page.getByText('Đã hủy', { exact: true })).toBeVisible();
   await page.goto('/booking/result');
   await expect(page.getByRole('heading', { name: 'Bạn chưa có kết quả đặt lịch.' })).toBeVisible();
+});
+
+test.describe('saved appointment timezone fallback', () => {
+  test.use({ timezoneId: 'America/Los_Angeles' });
+
+  test('timestamps remain available in UTC and recover the service timezone', async ({ page }) => {
+    const { id } = JSON.parse(harness('seed-timezone-appointment')) as { id: string };
+    await login(page);
+    let historyReads = 0;
+    page.on('response', (response) => {
+      if (new URL(response.url()).pathname === '/api/v1/appointments') historyReads += 1;
+    });
+
+    try {
+      harness('settings-off');
+      await page.goto('/appointments');
+      await expect(page.getByRole('heading', { name: 'Lịch đã đặt' })).toBeVisible();
+      await expect(page.getByText('Tư vấn học tập kiểm thử')).toBeVisible();
+      await expect(
+        page.getByText('Đang hiển thị giờ UTC vì chưa lấy được múi giờ dịch vụ.'),
+      ).toBeVisible();
+      await expect(page.getByText('18/10/2026')).toBeVisible();
+      await expect(page.getByText('18:00 – 18:30 · 30 phút')).toBeVisible();
+      expect(historyReads).toBe(1);
+
+      harness('settings-restore');
+      await page.getByRole('button', { name: 'Thử lại múi giờ' }).click();
+      await expect(page.getByText('19/10/2026')).toBeVisible();
+      await expect(page.getByText('01:00 – 01:30 · 30 phút')).toBeVisible();
+      expect(historyReads).toBe(1);
+
+      harness('settings-off');
+      await page.getByRole('link', { name: new RegExp(`Xem chi tiết lịch ${id}`) }).click();
+      await expect(page).toHaveURL(new RegExp(`/appointments/${id}$`));
+      await expect(page.getByRole('heading', { name: 'Chi tiết lịch hẹn' })).toBeVisible();
+      await expect(
+        page.getByText('Đang hiển thị giờ UTC vì chưa lấy được múi giờ dịch vụ.'),
+      ).toBeVisible();
+      await expect(page.getByText('18/10/2026')).toBeVisible();
+      await expect(page.getByText('18:00 – 18:30')).toBeVisible();
+
+      harness('settings-restore');
+      await page.getByRole('button', { name: 'Thử lại múi giờ' }).click();
+      await expect(page.getByText('19/10/2026')).toBeVisible();
+      await expect(page.getByText('01:00 – 01:30')).toBeVisible();
+      expect(historyReads).toBe(1);
+    } finally {
+      harness('settings-restore');
+    }
+  });
 });
 
 for (const recovery of ['csrf-rejected', 'same-student', 'different-student'] as const) {

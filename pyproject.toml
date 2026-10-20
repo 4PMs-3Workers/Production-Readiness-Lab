@@ -9,9 +9,10 @@ requires-python = ">=3.11"
 dependencies = [
     "argon2-cffi==25.1.0",
     "SQLAlchemy==2.0.44",
-    "asyncmy==0.2.10",
-    "cryptography==46.0.3",
+    "asyncmy==0.2.16",
+    "cryptography==50.0.2",
     "alembic==1.16.2",
+    "Mako==1.3.12",
     "fastapi==0.143.0",
     "uvicorn==0.54.0",
     "pydantic==2.14.1",
@@ -29,7 +30,12 @@ where = ["src/backend"]
 include = ["app*"]
 
 [tool.pyright]
-include = ["src/backend", "tests/backend", "tools/scripts/export_openapi.py"]
+include = [
+    "src/backend",
+    "tests/backend",
+    "tools/scripts/export_openapi.py",
+    "tools/scripts/check_dependency_advisories.py",
+]
 extraPaths = ["src/backend"]
 venvPath = "."
 venv = ".venv"

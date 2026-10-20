@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 import { useApi } from './api-provider';
 import { useApiResource } from './use-api-resource';
 import { ApiFeedback } from './api-feedback';
+import { ApiError } from '@/services/api/errors';
 import {
   addCalendarDays,
   formatBusinessDate,
@@ -211,7 +212,8 @@ function ApiSlots({
           state.status === 'error'
             ? () => {
                 retry();
-                onContextRefresh();
+                if (state.error instanceof ApiError && state.error.code === 'VALIDATION_ERROR')
+                  onContextRefresh();
               }
             : undefined
         }
@@ -265,16 +267,14 @@ export function ApiDateStep({
   onSlot: (slot: AvailableSlot) => void;
   onContextRefresh: () => void;
 }) {
-  const [datePage, setDatePage] = useState(() =>
-    selection.date
-      ? Math.max(
-          0,
-          Math.floor(
-            (Date.parse(selection.date) - Date.parse(context.minBookingDate)) / (7 * 86400000),
-          ),
-        )
-      : 0,
-  );
+  const contextKey = `${context.minBookingDate}:${context.maxBookingDate}:${context.timezone}`;
+  const [pageState, setPageState] = useState(() => ({
+    contextKey,
+    page: datePageFor(selection.date, context),
+  }));
+  const datePage =
+    pageState.contextKey === contextKey ? pageState.page : datePageFor(selection.date, context);
+  const setDatePage = (page: number) => setPageState({ contextKey, page });
   const firstDate = addCalendarDays(context.minBookingDate, datePage * 7);
   const dates = Array.from({ length: 7 }, (_, index) => addCalendarDays(firstDate, index)).filter(
     (date) => date <= context.maxBookingDate,
@@ -315,7 +315,7 @@ export function ApiDateStep({
               className={styles.secondaryButton}
               type="button"
               disabled={datePage === 0}
-              onClick={() => setDatePage((value) => value - 1)}
+              onClick={() => setDatePage(datePage - 1)}
             >
               Tuần trước
             </button>
@@ -323,7 +323,7 @@ export function ApiDateStep({
               className={styles.secondaryButton}
               type="button"
               disabled={addCalendarDays(firstDate, 7) > context.maxBookingDate}
-              onClick={() => setDatePage((value) => value + 1)}
+              onClick={() => setDatePage(datePage + 1)}
             >
               Tuần sau
             </button>
@@ -349,4 +349,13 @@ export function ApiDateStep({
       </div>
     </>
   );
+}
+
+function datePageFor(date: string, context: BookingContext) {
+  return date && date >= context.minBookingDate && date <= context.maxBookingDate
+    ? Math.max(
+        0,
+        Math.floor((Date.parse(date) - Date.parse(context.minBookingDate)) / (7 * 86400000)),
+      )
+    : 0;
 }

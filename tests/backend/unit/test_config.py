@@ -40,6 +40,8 @@ def test_settings_accepts_revision_ids_with_underscores():
         ("DB_MAX_OVERFLOW", -1),
         ("READINESS_TIMEOUT_SECONDS", 0),
         ("DB_QUERY_TIMEOUT_SECONDS", -1),
+        ("API_MAX_BODY_BYTES", 0),
+        ("API_MAX_BODY_BYTES", -1),
     ],
 )
 def test_settings_reject_invalid_values(field, value):
@@ -51,6 +53,11 @@ def test_missing_required_secret_is_rejected():
     values = {name: value for name, value in VALID.items() if name != "COOKIE_SECRET"}
     with pytest.raises(ValueError):
         Settings.model_validate(values)
+
+
+def test_api_body_limit_loads_from_environment(monkeypatch):
+    monkeypatch.setenv("API_MAX_BODY_BYTES", "12345")
+    assert Settings.model_validate(VALID).api_max_body_bytes == 12345
 
 
 def test_startup_configuration_error_does_not_echo_password(monkeypatch):

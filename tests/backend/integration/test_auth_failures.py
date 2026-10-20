@@ -43,6 +43,32 @@ async def test_account_lock_timeout_is_service_error_and_cleans_transaction(auth
     assert (await sign_in(client)).status_code == 200
 
 
+async def test_email_throttle_identity_failure_is_service_error_without_raw_fallback(
+    auth_env, monkeypatch
+):
+    from app.repositories import users
+
+    client, _, _, app = auth_env
+    throttle_checks = []
+
+    async def fail_identity(db, email):
+        raise SQLAlchemyError("synthetic-throttle-identity-secret")
+
+    def record_identity(identity):
+        throttle_checks.append(identity)
+
+    monkeypatch.setattr(users, "email_throttle_identity", fail_identity, raising=False)
+    monkeypatch.setattr(app.state.login_throttle, "check_email", record_identity)
+
+    response = await sign_in(client)
+
+    assert response.status_code == 503
+    assert response.headers["X-Error-Class"] == "service"
+    assert "synthetic-throttle-identity-secret" not in response.text
+    assert "Set-Cookie" not in response.headers
+    assert throttle_checks == []
+
+
 async def test_cancel_after_flush_rolls_back_and_releases_account_lock(auth_env, monkeypatch):
     from app.repositories import sessions
 

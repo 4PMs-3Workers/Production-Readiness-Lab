@@ -8,6 +8,7 @@ import {
   isCompleteSelection,
 } from '@/features/booking/booking-state';
 import type { AvailableSlot, Purpose, Staff } from '@/types/booking';
+import type { BookingContext } from '@/types/api';
 
 const purpose: Purpose = {
   id: 'career',
@@ -26,6 +27,12 @@ const slot: AvailableSlot = {
   startsAt: '2026-10-14T02:00:00Z',
   endsAt: '2026-10-14T02:30:00Z',
   location: null,
+};
+const context: BookingContext = {
+  timezone: 'Asia/Ho_Chi_Minh',
+  businessDate: '2026-10-13',
+  minBookingDate: '2026-10-14',
+  maxBookingDate: '2026-10-20',
 };
 
 function completedDraft(selectedPurpose = purpose) {
@@ -78,6 +85,10 @@ describe('booking draft rules', () => {
     state = bookingReducer(state, { type: 'stepChanged', step: 3 });
     expect(state.selection).toBe(review.selection);
     expect(state.step).toBe(3);
+  });
+
+  it('starts a new booking with an empty draft after an intent is confirmed', () => {
+    expect(bookingReducer(completedDraft(other), { type: 'reset' })).toEqual(initialBookingState);
   });
 
   it('clears staff, date, slot and old OTHER text when the purpose changes', () => {
@@ -165,6 +176,42 @@ describe('booking draft rules', () => {
     const state = bookingReducer(review, { type: 'bookingConflict' });
     expect(state).toEqual({ step: 2, selection: { ...review.selection, slot: null } });
     expect(canVisitStep(state.selection, 3)).toBe(false);
+  });
+
+  it('preserves the full draft and current step when refreshed booking context is unchanged', () => {
+    const review = completedDraft(other);
+    const next = { ...context };
+    const state = bookingReducer(review, { type: 'contextChanged', previous: context, next });
+    expect(state).toBe(review);
+  });
+
+  it('reconciles only date and slot choices when changed context invalidates the date', () => {
+    const review = completedDraft(other);
+    const next: BookingContext = {
+      ...context,
+      timezone: 'America/Los_Angeles',
+      minBookingDate: '2026-10-15',
+      maxBookingDate: '2026-10-25',
+    };
+    const state = bookingReducer(review, { type: 'contextChanged', previous: context, next });
+    expect(state).toEqual({
+      step: 2,
+      selection: {
+        ...review.selection,
+        date: '',
+        slot: null,
+      },
+    });
+  });
+
+  it('retains an in-range date while clearing its slot after a timezone change', () => {
+    const review = completedDraft(other);
+    const next: BookingContext = { ...context, timezone: 'America/Los_Angeles' };
+    const state = bookingReducer(review, { type: 'contextChanged', previous: context, next });
+    expect(state).toEqual({
+      step: 2,
+      selection: { ...review.selection, slot: null },
+    });
   });
 
   it.each([

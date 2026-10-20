@@ -156,4 +156,50 @@ describe('API-dependent resources', () => {
     await controls.click(screen.getByRole('button', { name: 'Tuần trước' }));
     expect(screen.getByRole('radio', { name: '08/11/2026' })).toBeVisible();
   });
+
+  it('moves the visible date week when refreshed bounds no longer include the selected date', async () => {
+    const services = new ApiServices(vi.fn<typeof fetch>(async () => Response.json(user)));
+    const firstProps = {
+      selection: {
+        purpose,
+        staff: { id: 's', displayName: 'Advisor' },
+        date: '2026-11-10',
+        slot: null,
+        description: '',
+      },
+      context: {
+        timezone: 'Asia/Ho_Chi_Minh',
+        businessDate: '2026-10-17',
+        minBookingDate: '2026-10-18',
+        maxBookingDate: '2026-11-16',
+      },
+      refresh: 0,
+      onDate: () => {},
+      onSlot: () => {},
+      onContextRefresh: () => {},
+    };
+    const view = render(
+      <ApiProvider services={services}>
+        <ApiDateStep {...firstProps} />
+      </ApiProvider>,
+    );
+    expect(screen.getByRole('radio', { name: '10/11/2026' })).toBeVisible();
+
+    view.rerender(
+      <ApiProvider services={services}>
+        <ApiDateStep
+          {...firstProps}
+          selection={{ ...firstProps.selection, date: '' }}
+          context={{
+            ...firstProps.context,
+            minBookingDate: '2026-10-20',
+            maxBookingDate: '2026-10-28',
+            timezone: 'America/Los_Angeles',
+          }}
+        />
+      </ApiProvider>,
+    );
+    expect(await screen.findByRole('radio', { name: '20/10/2026' })).toBeVisible();
+    expect(screen.queryByRole('radio', { name: '10/11/2026' })).not.toBeInTheDocument();
+  });
 });
