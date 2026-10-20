@@ -47,9 +47,11 @@ def _run_alembic_upgrade(connection: Connection) -> None:
 
 
 @pytest_asyncio.fixture
-async def mysql_engine():
+async def mysql_engine(request):
     url = os.getenv("MYSQL_TEST_URL")
     if not url:
+        if request.config.getoption("--require-mysql"):
+            pytest.fail("MYSQL_TEST_URL is required for backend acceptance checks")
         pytest.skip("Set MYSQL_TEST_URL to run tests against MySQL 8.4")
     schema = "prl_models_test_" + uuid4().hex
     admin = create_database_engine(

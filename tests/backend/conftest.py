@@ -3,6 +3,10 @@ import pytest
 from app.core.config import Settings
 
 
+def pytest_addoption(parser):
+    parser.addoption("--require-mysql", action="store_true", help="Fail if MySQL tests cannot run")
+
+
 @pytest.fixture
 def auth_settings():
     return Settings.model_validate(

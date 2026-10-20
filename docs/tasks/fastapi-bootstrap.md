@@ -43,15 +43,16 @@ The complete variable table with names, units, allowed values, defaults and requ
 `README.md` under “Chạy nền tảng FastAPI”. `.env.example` contains placeholders; secrets and
 credential-bearing URLs belong in local `.env` or the deployment environment, never in Git.
 <!-- current-schema-revision:start -->
-The current release expects schema revision `20261017_2350_student_profile`, as configured in
+The current release expects schema revision `20261019_1200_proposal_replay`, as configured in
 `.env.example`. Readiness succeeds only when the database contains exactly one revision and that
 revision is in `ACCEPTED_SCHEMA_REVISIONS`. List multiple revisions only after compatibility review
 confirms the release supports all accepted schemas.
 <!-- current-schema-revision:end -->
 
-**Historical context:** this task originally documented `20261016_1200_audit_reqid128` as the
-accepted revision before migration `20261017_2350_student_profile` became the current release head.
-The initial schema revision was `a1b2c3d4e5f6`.
+**Historical context:** this task previously documented `20261016_1200_audit_reqid128` and
+`20261017_2350_student_profile` as accepted revisions before `20261019_1200_proposal_replay`
+became the current release head. The initial schema revision was `a1b2c3d4e5f6`; these older
+revisions are not accepted by the current release.
 
 Use `python -m uvicorn app.main:app --app-dir src/backend --no-proxy-headers` from the repo root.
 Keep the immediate Nginx peer visible to the ASGI app and configure only that peer's CIDR as

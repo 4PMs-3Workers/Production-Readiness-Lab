@@ -47,7 +47,11 @@ async def read_unavailability(
 
 
 async def read_staff_appointments(
-    db: AsyncSession, *, staff_id: UUID, bounds: TimeInterval
+    db: AsyncSession,
+    *,
+    staff_id: UUID,
+    bounds: TimeInterval,
+    exclude_appointment_id: UUID | None = None,
 ) -> tuple[TimeInterval, ...]:
     """Read selected-staff conflicts across all purposes, limited to blocking states."""
     statement = (
@@ -60,13 +64,19 @@ async def read_staff_appointments(
         )
         .order_by(Appointment.starts_at.asc(), Appointment.ends_at.asc())
     )
+    if exclude_appointment_id is not None:
+        statement = statement.where(Appointment.id != exclude_appointment_id)
     return tuple(
         TimeInterval(starts_at, ends_at) for starts_at, ends_at in await db.execute(statement)
     )
 
 
 async def read_student_appointments(
-    db: AsyncSession, *, student_id: UUID, bounds: TimeInterval
+    db: AsyncSession,
+    *,
+    student_id: UUID,
+    bounds: TimeInterval,
+    exclude_appointment_id: UUID | None = None,
 ) -> tuple[TimeInterval, ...]:
     """Read the student's conflicts across all staff and purposes."""
     statement = (
@@ -79,6 +89,8 @@ async def read_student_appointments(
         )
         .order_by(Appointment.starts_at.asc(), Appointment.ends_at.asc())
     )
+    if exclude_appointment_id is not None:
+        statement = statement.where(Appointment.id != exclude_appointment_id)
     return tuple(
         TimeInterval(starts_at, ends_at) for starts_at, ends_at in await db.execute(statement)
     )

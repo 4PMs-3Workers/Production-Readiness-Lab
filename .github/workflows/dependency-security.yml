@@ -49,7 +49,11 @@ jobs:
         shell: bash
         run: |
           set +e
-          .audit-venv/bin/pip-audit --requirement requirements-dev.txt --format=json > build/security/python-raw.json
+          # Supply both locks explicitly to audit every runtime/development pin.
+          # The resolver can omit packages already installed in its temporary environment.
+          .audit-venv/bin/pip-audit \
+            --requirement requirements.txt --requirement requirements-dev.txt \
+            --no-deps --disable-pip --format=json > build/security/python-raw.json
           pip_audit_exit=$?
           set -e
           cp build/security/python-raw.json build/security/python.json
