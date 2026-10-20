@@ -220,6 +220,116 @@ describe('booking recovery boundaries', () => {
     expect(screen.getByLabelText('Bạn muốn trao đổi về điều gì? *')).toHaveValue('Draft detail');
   });
 
+  it.each([
+    {
+      scenario: 'business midnight',
+      rejectedDate: '19/10/2026',
+      nextContext: {
+        ...context,
+        business_date: '2026-10-19',
+        min_booking_date: '2026-10-20',
+        max_booking_date: '2026-10-26',
+      },
+      availableDate: '26/10/2026',
+    },
+    {
+      scenario: 'a shorter booking horizon',
+      rejectedDate: '25/10/2026',
+      nextContext: { ...context, max_booking_date: '2026-10-21' },
+      availableDate: '21/10/2026',
+    },
+    {
+      scenario: 'unchanged context',
+      rejectedDate: '19/10/2026',
+      nextContext: context,
+      availableDate: '19/10/2026',
+    },
+  ])(
+    'recovers availability validation errors after $scenario without losing the draft',
+    async ({ rejectedDate, nextContext, availableDate }) => {
+      let contextReads = 0;
+      let availabilityReads = 0;
+      setup(
+        vi.fn<typeof fetch>(async (path) => {
+          const url = String(path);
+          if (url.endsWith('/auth/me')) return json(user);
+          if (url.endsWith('/booking-context')) {
+            contextReads += 1;
+            return json(contextReads === 1 ? context : nextContext);
+          }
+          if (url.includes('/purposes?'))
+            return json({
+              items: [
+                {
+                  id: 'p',
+                  code: 'CUSTOM',
+                  name: 'Purpose',
+                  duration_minutes: 30,
+                  requires_free_text: true,
+                },
+              ],
+              page: 1,
+              page_size: 20,
+              total: 1,
+            });
+          if (url.includes('/staff?'))
+            return json({
+              items: [{ id: 's', name: 'Advisor' }],
+              page: 1,
+              page_size: 20,
+              total: 1,
+            });
+          if (url.includes('/availability?')) {
+            availabilityReads += 1;
+            const date = new URL(url, 'http://localhost').searchParams.get('date')!;
+            if (
+              availabilityReads === 1 ||
+              date < nextContext.min_booking_date ||
+              date > nextContext.max_booking_date
+            )
+              return json({ error: { code: 'VALIDATION_ERROR' } }, 422);
+            return json({
+              date,
+              timezone: nextContext.timezone,
+              slots: [{ starts_at: `${date}T01:00:00Z`, ends_at: `${date}T01:30:00Z` }],
+            });
+          }
+          throw new Error(`Unexpected request: ${url}`);
+        }),
+      );
+      const controls = userEvent.setup();
+      await controls.click(await screen.findByRole('radio', { name: /Purpose/ }));
+      await controls.type(screen.getByLabelText('Bạn muốn trao đổi về điều gì? *'), 'Draft detail');
+      await controls.click(screen.getByRole('button', { name: /Tiếp tục/ }));
+      await controls.click(await screen.findByRole('radio', { name: /Advisor/ }));
+      await controls.click(screen.getByRole('button', { name: /Tiếp tục/ }));
+      await controls.click(screen.getByRole('radio', { name: rejectedDate }));
+      await screen.findByText(/Thông tin chưa hợp lệ hoặc cửa sổ ngày đặt đã thay đổi/);
+
+      await controls.click(screen.getByRole('button', { name: 'Thử lại' }));
+
+      await waitFor(() => expect(contextReads).toBe(2));
+      expect(screen.getByText('BƯỚC 03')).toBeInTheDocument();
+      if (rejectedDate !== availableDate) {
+        await waitFor(() =>
+          expect(screen.queryByRole('radio', { name: rejectedDate })).not.toBeInTheDocument(),
+        );
+        expect(screen.getByRole('button', { name: /Tiếp tục/ })).toBeDisabled();
+        await controls.click(screen.getByRole('radio', { name: availableDate }));
+      } else {
+        expect(screen.getByRole('radio', { name: rejectedDate })).toBeChecked();
+      }
+      await controls.click(await screen.findByRole('radio', { name: /08:00 – 08:30/ }));
+      expect(availabilityReads).toBeGreaterThan(1);
+      expect(screen.getByRole('button', { name: /Tiếp tục/ })).toBeEnabled();
+      await controls.click(screen.getByRole('button', { name: '← Quay lại' }));
+      expect(await screen.findByRole('radio', { name: /Advisor/ })).toBeChecked();
+      await controls.click(screen.getByRole('button', { name: '← Quay lại' }));
+      expect(await screen.findByRole('radio', { name: /Purpose/ })).toBeChecked();
+      expect(screen.getByLabelText('Bạn muốn trao đổi về điều gì? *')).toHaveValue('Draft detail');
+    },
+  );
+
   it('keeps the review step and draft mounted during a same-context 422 refresh', async () => {
     const refreshedContext = Promise.withResolvers<Response>();
     let contextReads = 0;

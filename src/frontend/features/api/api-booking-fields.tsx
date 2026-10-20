@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 import { useApi } from './api-provider';
 import { useApiResource } from './use-api-resource';
 import { ApiFeedback } from './api-feedback';
+import { ApiError } from '@/services/api/errors';
 import {
   addCalendarDays,
   formatBusinessDate,
@@ -187,10 +188,12 @@ function ApiSlots({
   selection,
   timezone,
   onSlot,
+  onContextRefresh,
 }: {
   selection: BookingSelection & { purpose: Purpose; staff: Staff };
   timezone: string;
   onSlot: (slot: AvailableSlot) => void;
+  onContextRefresh: () => void;
 }) {
   const { services } = useApi();
   const { purpose, staff, date } = selection;
@@ -205,7 +208,15 @@ function ApiSlots({
       <ApiFeedback
         loading={state.status === 'loading'}
         message={state.status === 'error' ? state.message : undefined}
-        retry={state.status === 'error' ? retry : undefined}
+        retry={
+          state.status === 'error'
+            ? () => {
+                retry();
+                if (state.error instanceof ApiError && state.error.code === 'VALIDATION_ERROR')
+                  onContextRefresh();
+              }
+            : undefined
+        }
       />
     );
   if (!state.data.length)
@@ -247,12 +258,14 @@ export function ApiDateStep({
   refresh,
   onDate,
   onSlot,
+  onContextRefresh,
 }: {
   selection: BookingSelection & { purpose: Purpose; staff: Staff };
   context: BookingContext;
   refresh: number;
   onDate: (date: string) => void;
   onSlot: (slot: AvailableSlot) => void;
+  onContextRefresh: () => void;
 }) {
   const contextKey = `${context.minBookingDate}:${context.maxBookingDate}:${context.timezone}`;
   const [pageState, setPageState] = useState(() => ({
@@ -328,6 +341,7 @@ export function ApiDateStep({
             selection={selection}
             timezone={context.timezone}
             onSlot={onSlot}
+            onContextRefresh={onContextRefresh}
           />
         ) : (
           <p className={styles.dateHint}>Chọn ngày để xem các giờ tư vấn còn trống.</p>

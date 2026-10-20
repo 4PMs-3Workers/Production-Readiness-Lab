@@ -106,6 +106,7 @@ describe('API-dependent resources', () => {
           refresh={0}
           onDate={() => {}}
           onSlot={() => {}}
+          onContextRefresh={() => {}}
         />
       </ApiProvider>,
     );
@@ -138,6 +139,7 @@ describe('API-dependent resources', () => {
           refresh={0}
           onDate={onDate}
           onSlot={() => {}}
+          onContextRefresh={() => {}}
         />
       </ApiProvider>,
     );
@@ -174,6 +176,7 @@ describe('API-dependent resources', () => {
       refresh: 0,
       onDate: () => {},
       onSlot: () => {},
+      onContextRefresh: () => {},
     };
     const view = render(
       <ApiProvider services={services}>

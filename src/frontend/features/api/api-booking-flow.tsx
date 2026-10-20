@@ -194,6 +194,7 @@ export function ApiBookingFlow() {
         error={currentError}
         setError={setError}
         slotRefresh={slotRefresh}
+        onContextRefresh={retryContext}
         onSubmit={() => void submit()}
       />
     </>
@@ -209,6 +210,7 @@ function ApiWizard({
   error,
   setError,
   slotRefresh,
+  onContextRefresh,
   onSubmit,
 }: {
   context: BookingContext;
@@ -219,6 +221,7 @@ function ApiWizard({
   error: unknown;
   setError: (value: unknown) => void;
   slotRefresh: number;
+  onContextRefresh: () => void;
   onSubmit: () => void;
 }) {
   const { selection, step } = selectionState;
@@ -311,6 +314,7 @@ function ApiWizard({
                   })
                 }
                 onSlot={(slot: AvailableSlot) => dispatch({ type: 'slotSelected', slot })}
+                onContextRefresh={onContextRefresh}
               />
             )}
             {step === 3 && (
