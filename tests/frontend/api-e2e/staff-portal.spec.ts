@@ -150,7 +150,7 @@ test('purpose preferences are saved and unavailability uses business time and ex
   await page.getByLabel('Bắt đầu').fill(`${seeded.futureDate}T09:30`);
   await page.getByLabel('Kết thúc').fill(`${seeded.futureDate}T10:30`);
   await page.getByRole('button', { name: 'Thêm khoảng thời gian', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('đang có lịch hẹn');
+  await expect(page.getByRole('alert').filter({ hasText: 'đang có lịch hẹn' })).toBeVisible();
   await expect(page.getByLabel('Bắt đầu')).toHaveValue(`${seeded.futureDate}T09:30`);
 
   await page.getByLabel('Bắt đầu').fill(`${seeded.nextDate}T23:00`);
