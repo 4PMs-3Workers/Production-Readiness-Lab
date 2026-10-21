@@ -139,6 +139,7 @@ Production-Readiness-Lab/
 | [Đặt lịch appointment](docs/tasks/appointment-booking.md)                       | API tạo lịch, xem chi tiết, idempotency và khôi phục khi mất phản hồi.             |
 | [Khả năng tiếp nhận của nhân viên](docs/tasks/staff-availability-management.md) | API nhu cầu tiếp nhận/khoảng không nhận, CSRF, khóa với booking và phục hồi retry. |
 | [Đề nghị đổi lịch](docs/tasks/appointment-change-proposals.md)                  | API staff/student, replay/precondition, migration và shared expiry transition.     |
+| [Worker hết hạn đề nghị](docs/tasks/change-proposal-expiry-worker.md) | Lệnh chạy process riêng, heartbeat/backlog, shutdown và phục hồi sau crash. |
 | [Lịch sử và quản lý lịch hẹn](docs/tasks/student-appointment-management.md)     | API lịch sử, ngữ cảnh ngày đặt, hủy lịch và hành vi retry.                         |
 | [Task frontend bootstrap](docs/tasks/frontend-bootstrap.md)                     | Nền tảng, routes, các mốc triển khai, cài đặt và kiểm chứng.                       |
 | [Mock services và UI đặt lịch](docs/tasks/frontend-mock-services.md)            | Chi tiết fixtures, preset, clock và thao tác đặt lịch bằng dữ liệu demo.           |
@@ -367,18 +368,18 @@ PY
 | `COOKIE_SECURE`                     | `true`              | Demo/production bắt buộc HTTPS và Secure; local HTTP đặt false.                                                       |
 | `COOKIE_SAMESITE`                   | `lax`               | Chỉ `lax` cho session authentication.                                                                                 |
 | `COOKIE_DOMAIN`                     | Không đặt           | Bắt buộc host-only; không đặt domain cho auth cookies.                                                                |
-| `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`   | `5`, `5`            | Số kết nối cơ bản >0 và kết nối vượt mức >=0 trên mỗi API process.                                                    |
+| `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`   | `5`, `5`            | Số kết nối cơ bản >0 và kết nối vượt mức >=0 trên mỗi API/worker process. |
 | `DB_CONNECT_TIMEOUT_SECONDS`        | `1` giây            | Timeout kết nối hữu hạn, >0.                                                                                          |
 | `DB_POOL_TIMEOUT_SECONDS`           | `0.5` giây          | Timeout chờ pool hữu hạn, >0.                                                                                         |
-| `DB_QUERY_TIMEOUT_SECONDS`          | `1` giây            | Timeout truy vấn hữu hạn, >0; bao transaction đọc của catalog/availability.                                           |
-| `DB_LOCK_TIMEOUT_SECONDS`           | `0.5` giây          | Timeout chờ khóa hữu hạn, >0; dành cho services sau này.                                                              |
-| `REQUEST_TIMEOUT_SECONDS`           | `3` giây            | Ngân sách request hữu hạn, >0; áp cho request catalog/availability.                                                   |
+| `DB_QUERY_TIMEOUT_SECONDS`          | `1` giây            | Timeout truy vấn/transaction attempt hữu hạn >0 của API và worker. |
+| `DB_LOCK_TIMEOUT_SECONDS`           | `0.5` giây          | Timeout từng bước lấy khóa; API và worker dùng cùng protocol. |
+| `REQUEST_TIMEOUT_SECONDS`           | `3` giây            | Ngân sách nghiệp vụ API/candidate worker hữu hạn >0, gồm bounded retries và cleanup. |
 | `READINESS_TIMEOUT_SECONDS`         | `2` giây            | Deadline hữu hạn, >0 cho toàn bộ readiness, gồm chờ pool, kết nối và cả hai query.                                    |
-| `MAX_DEADLOCK_RETRIES`              | `2`                 | Số lần retry >=0, dành cho services sau này.                                                                          |
-| `WORKER_POLL_INTERVAL_SECONDS`      | `5` giây            | Chu kỳ quét hữu hạn, >0; dành cho worker sau này.                                                                     |
-| `WORKER_BATCH_SIZE`                 | `100`               | Số bản ghi/batch >0, dành cho worker sau này.                                                                         |
-| `WORKER_GRACE_SECONDS`              | `30` giây           | Grace period hữu hạn, >0; dành cho worker sau này.                                                                    |
-| `WORKER_HEARTBEAT_INTERVAL_SECONDS` | `15` giây           | Chu kỳ heartbeat hữu hạn, >0; dành cho worker sau này.                                                                |
+| `MAX_DEADLOCK_RETRIES`              | `2`                 | Số lần retry transaction đã abort, >=0, trong deadline còn lại. |
+| `WORKER_POLL_INTERVAL_SECONDS`      | `5` giây            | Khoảng chờ giữa các lượt quét thành công, hữu hạn >0. |
+| `WORKER_BATCH_SIZE`                 | `100`               | Số ứng viên tối đa/lượt, số nguyên 1–1000. |
+| `WORKER_GRACE_SECONDS`              | `30` giây           | Tổng ngân sách dừng/cleanup >0; không cộng vào hạn proposal. |
+| `WORKER_HEARTBEAT_INTERVAL_SECONDS` | `15` giây           | Chu kỳ heartbeat độc lập với truy vấn database, hữu hạn >0. |
 | `ACCEPTED_SCHEMA_REVISIONS`         | Bắt buộc            | Danh sách Alembic revision không rỗng, cách nhau bằng dấu phẩy.                                                       |
 | `TRUSTED_GATEWAY_CIDRS`             | Rỗng                | Danh sách CIDR của **peer mạng trực tiếp**, cách nhau bằng dấu phẩy; rỗng nghĩa là không tin incoming `X-Request-ID`. |
 
@@ -392,6 +393,26 @@ Kiểm thử từ gốc repo: `python -m pytest tests/backend -q` với MySQL 8.
 `python tools/scripts/export_openapi.py`, rồi `git diff --exit-code -- docs/api/openapi.yaml`.
 Trên Windows, một số chính sách sandbox có thể chặn event loop asyncio; chạy tests async
 trong môi trường Python được phép tạo event loop.
+
+### Chạy worker hết hạn đề nghị
+
+Sau cùng bước cài backend và cấu hình `.env`, chạy từ gốc repo trong process riêng:
+
+```sh
+python -m app.worker
+# Hoặc xử lý tối đa một batch rồi thoát:
+python -m app.worker --once
+```
+
+API và worker dùng cùng phiên bản backend/schema nhưng có engine/pool riêng. Worker
+kiểm tra revision trước ghi; không tự migrate, tạo bảng hay seed dữ liệu. Dừng bằng Ctrl+C
+hoặc SIGTERM; process ngừng nhận ứng viên mới và dọn công việc/tài nguyên trong grace budget.
+Database giữ backlog qua restart, kể cả khi kết quả commit chưa đến được worker.
+
+Stdout JSON có heartbeat, lần scan thành công, số expired/no-op/failed và backlog/tuổi quá
+hạn có giới hạn. Heartbeat còn chạy không có nghĩa database đang tiến triển: theo dõi thêm
+`last_successful_scan`, `failed_scans`, `oldest_overdue_seconds` và các bộ đếm. Xem
+[hướng dẫn vận hành, quyền DML và demo dừng/khởi động lại](docs/tasks/change-proposal-expiry-worker.md).
 
 ### Kiểm thử hệ thống
 

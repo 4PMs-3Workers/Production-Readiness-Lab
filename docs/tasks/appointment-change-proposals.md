@@ -332,6 +332,10 @@ expire_change_proposal_in_transaction(
 - Không yêu cầu participant đang active/đúng vai trò hiện tại để giải phóng lịch hết hạn. Tài khoản vẫn được khóa để đồng bộ với các tác vụ khác.
 - Không tìm thấy target trả `NOT_FOUND`; các no-op không thêm audit/notification. Lần gọi sau một uncertain commit sẽ thấy terminal nếu lần trước đã commit và không tạo thêm side effects.
 
+Caller worker đã được triển khai cho issue #26 qua `python -m app.worker`, dùng đúng helper
+này và cùng action/event type `CHANGE_PROPOSAL_EXPIRED`. Xem [worker handoff và runbook](change-proposal-expiry-worker.md)
+cho lifecycle, bounded retries, heartbeat/backlog, signal shutdown và bằng chứng race/crash.
+
 ## 8. Cạnh tranh và phục hồi
 
 ### 8.1. Những lịch thực thi cần chứng minh
