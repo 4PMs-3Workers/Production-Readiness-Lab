@@ -16,13 +16,17 @@ def restore_cli_logging():
     loggers = [
         logging.getLogger(name) for name in ("app.worker", "sqlalchemy", "asyncmy", "asyncio")
     ]
-    previous = [(logger, logger.level, logger.propagate, logger.handlers[:]) for logger in loggers]
+    previous = [
+        (logger, logger.level, logger.propagate, logger.disabled, logger.handlers[:])
+        for logger in loggers
+    ]
     try:
         yield
     finally:
-        for logger, level, propagate, handlers in previous:
+        for logger, level, propagate, disabled, handlers in previous:
             logger.setLevel(level)
             logger.propagate = propagate
+            logger.disabled = disabled
             for handler in logger.handlers:
                 if handler not in handlers:
                     handler.close()
@@ -53,6 +57,15 @@ def test_invalid_arguments_are_sanitized_instead_of_argparse_echoing_them(capsys
     assert cli.main(["--private-secret-argument"]) == 2
     captured = capsys.readouterr()
     assert "private-secret" not in captured.out + captured.err
+    assert json.loads(captured.out)["reason"] == "CONFIGURATION_INVALID"
+
+
+def test_cli_reenables_its_logger_after_external_logging_reconfiguration(capsys):
+    logger = logging.getLogger("app.worker")
+    logger.disabled = True
+    assert cli.main(["--invalid"]) == 2
+    captured = capsys.readouterr()
+    assert logger.disabled is False
     assert json.loads(captured.out)["reason"] == "CONFIGURATION_INVALID"
 
 

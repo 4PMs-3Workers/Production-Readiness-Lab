@@ -25,6 +25,7 @@ class Parser(argparse.ArgumentParser):
 
 def configure_logging() -> None:
     logger = logging.getLogger("app.worker")
+    logger.disabled = False
     logger.setLevel(logging.INFO)
     logger.propagate = False
     handler = logging.StreamHandler(sys.stdout)

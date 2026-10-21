@@ -295,6 +295,16 @@ shutdown, two real worker processes, authenticated API races in both orders, per
 backlog restart and hard crashes before/after commit. No integration prerequisite is
 silently skipped when `--require-mysql` is supplied.
 
+Local release verification on 2026-10-21 used Python 3.12.14 and an isolated MySQL
+8.4.11 instance. The worker integration/schema tests plus `test_worker_*.py` unit tests
+passed **95 tests, zero skips**. The complete backend unit suite passed **442 tests,
+zero skips** (including the worker unit tests). Black checked all 206 backend/test/tool
+Python files; Ruff passed; Pyright reported zero errors and warnings. Exporting OpenAPI
+left `docs/api/openapi.yaml` unchanged. The CLI regression also verifies that safe JSON
+diagnostics survive external logging reconfiguration. CI checks the module's `--help`
+before database setup, then runs migrations and the complete backend suite on Python 3.11.
+The PR records those full-suite results and their exact reviewed head SHA.
+
 There is no new API/OpenAPI route or schema migration. Polling has no hard expiry-latency
 SLA: lag depends on load, contention, outages and configured limits. Notifications are
 durable database records; delivery through external channels is outside this process.

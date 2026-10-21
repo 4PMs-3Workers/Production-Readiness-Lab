@@ -43,6 +43,8 @@ jobs:
       - run: .venv/bin/python -m pip install -r requirements-dev.txt
       - name: Install backend package (editable)
         run: .venv/bin/python -m pip install -e .
+      - name: Verify worker module entry point without starting database resources
+        run: .venv/bin/python -m app.worker --help
       - run: npm install --global pyright@1.1.407
       - run: .venv/bin/python -m black --check src/backend tests/backend tools/scripts/export_openapi.py tools/scripts/seed_demo.py
       - run: .venv/bin/python -m ruff check src/backend tests/backend tools/scripts/export_openapi.py tools/scripts/seed_demo.py
