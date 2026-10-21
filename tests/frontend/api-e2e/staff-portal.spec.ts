@@ -197,15 +197,19 @@ test('purpose preferences are saved and unavailability uses business time and ex
     '**/api/v1/staff/me/unavailability',
     async (route) => {
       expect(route.request().method()).toBe('POST');
-      await route.fulfill({
-        status: 403,
-        contentType: 'application/json',
-        body: JSON.stringify({ error: { code: 'INVALID_CSRF' } }),
+      await route.continue({
+        headers: { ...route.request().headers(), 'x-csrf-token': 'invalid-test-token' },
       });
     },
     { times: 1 },
   );
+  const csrfRejection = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === '/api/v1/staff/me/unavailability' &&
+      response.status() === 403,
+  );
   await page.getByRole('button', { name: 'Thử lại khoảng này', exact: true }).click();
+  expect((await (await csrfRejection).json()).error.code).toBe('INVALID_CSRF');
   await expect(page.getByRole('alert').filter({ hasText: 'Phiên bảo vệ yêu cầu' })).toBeVisible();
   await expect(page.getByLabel('Bắt đầu')).toBeDisabled();
   await expect(page.getByLabel('Kết thúc')).toBeDisabled();

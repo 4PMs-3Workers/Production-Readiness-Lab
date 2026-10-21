@@ -8,6 +8,8 @@ import { ApiServices } from '@/services/api/client';
 import { ApiResult } from '@/features/api/api-appointments';
 import { ApiLogin } from '@/features/api/api-login';
 import { StaffSessionGate } from '@/features/staff/staff-session-gate';
+import { StaffAppointmentActions } from '@/features/staff/appointments/staff-appointments';
+import type { StaffAppointmentDetail } from '@/services/staff-contracts';
 
 const router = vi.hoisted(() => ({ replace: vi.fn() }));
 vi.mock('next/navigation', () => ({
@@ -45,6 +47,96 @@ function PrivateView() {
 }
 
 describe('API session boundaries', () => {
+  it('makes a staff write recoverable after focus failure aborts it and the session recovers', async () => {
+    const staff = {
+      id: 'staff-a',
+      name: 'Fictional Staff A',
+      email: 'staff-a@example.invalid',
+      role: 'STAFF',
+    };
+    const appointment: StaffAppointmentDetail = {
+      id: 'appointment-1',
+      purposeId: 'purpose-1',
+      purposeCode: 'ACADEMIC',
+      purposeName: 'Tư vấn học tập',
+      studentId: 'student-1',
+      studentName: 'Fictional Student',
+      durationMinutes: 45,
+      startsAt: '2026-10-20T01:00:00Z',
+      endsAt: '2026-10-20T01:45:00Z',
+      location: null,
+      status: 'UPCOMING',
+      createdAt: '2026-10-17T03:00:00Z',
+      cancelledAt: null,
+      outcomeAt: null,
+      description: 'Private consultation',
+      cancelledBy: null,
+      cancelReason: null,
+      outcomeBy: null,
+    };
+    let meCalls = 0;
+    let postStarted!: () => void;
+    const postReached = new Promise<void>((resolve) => (postStarted = resolve));
+    let postAborted!: () => void;
+    const abortObserved = new Promise<void>((resolve) => (postAborted = resolve));
+    const fetcher = vi.fn<typeof fetch>(async (path, init) => {
+      if (String(path).endsWith('/auth/me'))
+        return ++meCalls === 3 ? error('SERVICE_UNAVAILABLE', 503) : json(staff);
+      if (String(path).endsWith('/auth/csrf'))
+        return json({ csrf_token: 'csrf', user_id: staff.id });
+      if (String(path).endsWith('/staff/me/appointments/appointment-1/outcome'))
+        return new Promise<Response>((_resolve, reject) => {
+          postStarted();
+          init?.signal?.addEventListener(
+            'abort',
+            () => {
+              postAborted();
+              reject(new DOMException('Request cancelled', 'AbortError'));
+            },
+            { once: true },
+          );
+        });
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    const services = new ApiServices(fetcher);
+    let api!: ReturnType<typeof useApi>;
+    function Capture() {
+      const value = useApi();
+      useEffect(() => {
+        api = value;
+      }, [value]);
+      return null;
+    }
+    render(
+      <ApiProvider services={services}>
+        <Capture />
+        <StaffSessionGate>
+          <StaffAppointmentActions appointment={appointment} onReload={vi.fn()} />
+        </StaffSessionGate>
+      </ApiProvider>,
+    );
+    await screen.findByRole('button', { name: 'Đánh dấu hoàn thành' });
+    await userEvent.click(screen.getByRole('button', { name: 'Đánh dấu hoàn thành' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Xác nhận hoàn thành' }));
+    await postReached;
+    expect(api.staffChanges.get(staff.id, appointment.id)?.phase).toBe('pending');
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+      await abortObserved;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(api.staffChanges.get(staff.id, appointment.id)?.phase).toBe('unknown');
+    });
+    expect(await screen.findByRole('alert')).toHaveTextContent('Dịch vụ tạm thời');
+    await userEvent.click(screen.getByRole('button', { name: 'Kiểm tra lại phiên' }));
+    expect(await screen.findByRole('button', { name: 'Thử lại thao tác này' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Đánh dấu hoàn thành' })).toBeDisabled();
+    expect(api.staffChanges.get(staff.id, appointment.id)).toMatchObject({
+      phase: 'unknown',
+      change: { status: 'COMPLETED' },
+    });
+  });
+
   it.each([
     ['another STAFF account', { id: 'staff-b', role: 'STAFF' }],
     ['a STUDENT role', { id: 'staff-a', role: 'STUDENT' }],

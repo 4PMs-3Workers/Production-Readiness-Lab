@@ -351,7 +351,9 @@ export function StaffAppointmentActions({
   );
   const unresolved = savedChange?.change ?? null;
   const [refreshRequired, setRefreshRequired] = useState(false);
-  const activeRequest = useRef<AbortController | null>(null);
+  const activeRequest = useRef<{ controller: AbortController; version: number | null } | null>(
+    null,
+  );
   const cancelTrigger = useRef<HTMLButtonElement>(null);
   const cancelReason = useRef<HTMLTextAreaElement>(null);
   const completeTrigger = useRef<HTMLButtonElement>(null);
@@ -364,8 +366,9 @@ export function StaffAppointmentActions({
   useEffect(
     () => () => {
       if (activeRequest.current) {
-        staffChanges.markUnknown(expectedUserId, appointment.id);
-        activeRequest.current.abort();
+        const { controller, version } = activeRequest.current;
+        if (version !== null) staffChanges.markUnknown(expectedUserId, appointment.id, version);
+        controller.abort();
       }
     },
     [staffChanges, expectedUserId, appointment.id],
@@ -424,8 +427,8 @@ export function StaffAppointmentActions({
     if (outcomeToConfirm) closeOutcome(true);
   }
 
-  function confirmLatest(change: StaffChangeIntent) {
-    staffChanges.clear(change.userId, change.appointmentId);
+  function confirmLatest(change: StaffChangeIntent, version: number) {
+    staffChanges.clear(change.userId, change.appointmentId, version);
     setRefreshRequired(false);
     setMessage(change.status === 'CANCELLED' ? 'Đã hủy lịch' : 'Đã cập nhật kết quả');
     setError('');
@@ -438,25 +441,27 @@ export function StaffAppointmentActions({
     latest: StaffAppointmentDetail | null,
     cause: unknown,
     resolvedRejection: boolean,
+    version: number,
   ) {
+    if (staffChanges.get(change.userId, change.appointmentId)?.version !== version) return;
     if (resolvedRejection) {
       dismissDialog();
-      staffChanges.clear(change.userId, change.appointmentId);
+      staffChanges.clear(change.userId, change.appointmentId, version);
       setRefreshRequired(latest === null);
       setError(errorMessage(cause));
       return;
     }
     if (latest?.status === change.status) {
-      confirmLatest(change);
+      confirmLatest(change, version);
       return;
     }
     dismissDialog();
     if (latest && ['CANCELLED', 'COMPLETED', 'NO_SHOW'].includes(latest.status)) {
-      staffChanges.clear(change.userId, change.appointmentId);
+      staffChanges.clear(change.userId, change.appointmentId, version);
       setError('Lịch đã có trạng thái khác. Vui lòng kiểm tra chi tiết mới nhất.');
       return;
     }
-    staffChanges.markUnknown(change.userId, change.appointmentId);
+    staffChanges.markUnknown(change.userId, change.appointmentId, version);
     setError(errorMessage(cause));
   }
 
@@ -464,9 +469,11 @@ export function StaffAppointmentActions({
     if (pending || change.appointmentId !== appointment.id || change.userId !== expectedUserId)
       return;
     const wasUnknown = staffChanges.get(change.userId, change.appointmentId)?.phase === 'unknown';
-    if (!staffChanges.begin(change)) return;
+    const version = staffChanges.begin(change);
+    if (version === null) return;
     const controller = new AbortController();
-    activeRequest.current = controller;
+    const active = { controller, version };
+    activeRequest.current = active;
     setPending(true);
     setError('');
     setMessage('');
@@ -485,10 +492,19 @@ export function StaffAppointmentActions({
       accepted = true;
       const latest = await onReload(controller.signal);
       if (controller.signal.aborted) return;
-      reconcile(change, latest, new ApiError('TIMEOUT'), false);
+      reconcile(change, latest, new ApiError('TIMEOUT'), false, version);
     } catch (cause) {
-      if (controller.signal.aborted || (cause instanceof Error && cause.name === 'AbortError'))
+      if (
+        controller.signal.aborted ||
+        (cause !== null &&
+          typeof cause === 'object' &&
+          'name' in cause &&
+          cause.name === 'AbortError')
+      ) {
+        staffChanges.markUnknown(change.userId, change.appointmentId, version);
         return;
+      }
+      if (staffChanges.get(change.userId, change.appointmentId)?.version !== version) return;
       if (cause instanceof ApiError && cause.code === 'ACCOUNT_CHANGED') {
         staffChanges.clearAll();
         return;
@@ -507,15 +523,15 @@ export function StaffAppointmentActions({
           // Keep the original operation until an authorized detail read succeeds.
         }
         if (controller.signal.aborted) return;
-        reconcile(change, latest, cause, resolvedRejection);
+        reconcile(change, latest, cause, resolvedRejection, version);
       } else {
-        if (wasUnknown) staffChanges.markUnknown(change.userId, change.appointmentId);
-        else staffChanges.clear(change.userId, change.appointmentId);
+        if (wasUnknown) staffChanges.markUnknown(change.userId, change.appointmentId, version);
+        else staffChanges.clear(change.userId, change.appointmentId, version);
         setError(errorMessage(cause));
         if (change.status !== 'CANCELLED') closeOutcome(true);
       }
     } finally {
-      if (activeRequest.current === controller) activeRequest.current = null;
+      if (activeRequest.current === active) activeRequest.current = null;
       setPending(false);
     }
   }
@@ -532,13 +548,15 @@ export function StaffAppointmentActions({
   async function verifyLatest() {
     if (pending || (!unresolved && !refreshRequired)) return;
     const controller = new AbortController();
-    activeRequest.current = controller;
+    const active = { controller, version: savedChange?.version ?? null };
+    activeRequest.current = active;
     setPending(true);
     setError('');
     try {
       const latest = await onReload(controller.signal);
       if (controller.signal.aborted) return;
-      if (unresolved) reconcile(unresolved, latest, new ApiError('TIMEOUT'), false);
+      if (unresolved && active.version !== null)
+        reconcile(unresolved, latest, new ApiError('TIMEOUT'), false, active.version);
       else {
         setRefreshRequired(false);
         setError('');
@@ -546,7 +564,7 @@ export function StaffAppointmentActions({
     } catch (cause) {
       if (!controller.signal.aborted) setError(errorMessage(cause));
     } finally {
-      if (activeRequest.current === controller) activeRequest.current = null;
+      if (activeRequest.current === active) activeRequest.current = null;
       setPending(false);
     }
   }
