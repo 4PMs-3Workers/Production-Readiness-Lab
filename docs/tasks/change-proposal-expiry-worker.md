@@ -39,7 +39,7 @@ transport belongs to this issue.
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `WORKER_POLL_INTERVAL_SECONDS` | 5 seconds | Delay between successful scans |
-| `WORKER_BATCH_SIZE` | 100 | Maximum selected candidates per scan |
+| `WORKER_BATCH_SIZE` | 100 | Selected candidates per scan, integer 1–1000 |
 | `WORKER_GRACE_SECONDS` | 30 seconds | Shutdown cleanup budget; never expiry grace |
 | `WORKER_HEARTBEAT_INTERVAL_SECONDS` | 15 seconds | Independent liveness reporting interval |
 | `DB_POOL_SIZE`, `DB_MAX_OVERFLOW` | 5, 5 | Finite per-process connection capacity |
@@ -50,7 +50,7 @@ transport belongs to this issue.
 | `REQUEST_TIMEOUT_SECONDS` | 3 seconds | Complete candidate operation/retry budget |
 | `MAX_DEADLOCK_RETRIES` | 2 | Additional known-aborted transaction attempts |
 
-Existing Settings validation requires positive finite intervals, positive integer batch
+Existing Settings validation requires positive finite intervals, an integer batch of 1–1000,
 and pool sizes, nonnegative overflow/retries, a MySQL+asyncmy URL and nonempty accepted
 revisions. The worker uses the same validated backend environment as the API, without
 creating interactive sessions or hashing passwords.
@@ -59,7 +59,8 @@ Published JSON diagnostics must distinguish a living process from database progr
 They include generated worker/run IDs, last successful scan, expired/no-op/failed counts,
 durations and bounded backlog/oldest-overdue information. Exceptions, SQL, credentials,
 tokens and consultation text must not be serialized. Reporting failures must never undo
-a committed transition. Database outage backoff is bounded and stop-aware.
+a committed transition. Database outage backoff is bounded and stop-aware: exponential
+from the poll interval (at least 0.1 seconds), capped at 60 seconds, reset after recovery.
 
 ## Implementation and verification slices
 
