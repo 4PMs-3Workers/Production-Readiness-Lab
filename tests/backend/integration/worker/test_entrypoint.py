@@ -29,14 +29,16 @@ def worker_environment(env):
     )
 
 
-async def invoke(env, *args):
+async def invoke(env, *args, env_overrides=None):
+    environment = worker_environment(env)
+    environment.update(env_overrides or {})
     process = await asyncio.create_subprocess_exec(
         sys.executable,
         "-m",
         "app.worker",
         *args,
         cwd=ROOT,
-        env=worker_environment(env),
+        env=environment,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
