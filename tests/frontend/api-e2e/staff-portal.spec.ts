@@ -246,6 +246,8 @@ test('staff absence changes student slots and deletion restores them without cha
   expect(availableBefore.slots.map((slot) => Date.parse(slot.starts_at))).toContain(slotStart);
 
   await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
+  await expect(page).toHaveURL(/\/login/);
+  await expect(page.getByLabel('Email', { exact: true })).toBeVisible();
   await login(page);
   await page.goto('/staff/unavailability');
   await page.getByLabel('Bắt đầu').fill(`${seeded.nextDate}T08:00`);
@@ -259,9 +261,12 @@ test('staff absence changes student slots and deletion restores them without cha
   });
 
   await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
+  await expect(page).toHaveURL(/\/login/);
+  await expect(page.getByLabel('Email', { exact: true })).toBeVisible();
   await page.getByLabel('Email', { exact: true }).fill('student@frontend.example.invalid');
   await page.getByLabel('Mật khẩu', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Tài khoản chưa được hỗ trợ' })).toBeVisible();
   const unavailable = await studentAvailability(
     page,
     seeded.purposeId,
@@ -271,6 +276,8 @@ test('staff absence changes student slots and deletion restores them without cha
   expect(unavailable.slots.map((slot) => Date.parse(slot.starts_at))).not.toContain(slotStart);
 
   await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
+  await expect(page).toHaveURL(/\/login/);
+  await expect(page.getByLabel('Email', { exact: true })).toBeVisible();
   await login(page);
   await page.goto('/staff/unavailability');
   await page.getByRole('button', { name: 'Xóa khoảng thời gian' }).click();
@@ -283,9 +290,12 @@ test('staff absence changes student slots and deletion restores them without cha
   });
 
   await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
+  await expect(page).toHaveURL(/\/login/);
+  await expect(page.getByLabel('Email', { exact: true })).toBeVisible();
   await page.getByLabel('Email', { exact: true }).fill('student@frontend.example.invalid');
   await page.getByLabel('Mật khẩu', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Tài khoản chưa được hỗ trợ' })).toBeVisible();
   const restored = await studentAvailability(
     page,
     seeded.purposeId,
