@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
@@ -13,10 +14,20 @@ from app.core.database import create_database_engine
 from app.core.transactions import read_transaction
 
 SUPPORTED_SCHEMA_REVISIONS = frozenset({"20261019_1200_proposal_replay"})
+CleanupDeadline = Callable[[], float | None]
 
 
 class SchemaCompatibilityError(Exception):
     """The database revision is not accepted by both this worker and its release settings."""
+
+
+class ResourceCleanupError(Exception):
+    """Worker resources could not finish closing inside the shared shutdown budget."""
+
+
+def earlier_deadline(deadline: float, provider: CleanupDeadline | None) -> float:
+    limit = provider() if provider is not None else None
+    return min(deadline, limit) if limit is not None else deadline
 
 
 async def validate_schema(db: AsyncSession, settings: Settings) -> None:
@@ -43,7 +54,10 @@ class WorkerResources:
 
 @asynccontextmanager
 async def open_resources(
-    settings: Settings, *, engine_factory: Callable[..., AsyncEngine] = create_database_engine
+    settings: Settings,
+    *,
+    engine_factory: Callable[..., AsyncEngine] = create_database_engine,
+    cleanup_deadline: CleanupDeadline | None = None,
 ) -> AsyncIterator[WorkerResources]:
     # This executes inside the worker's event loop, never during module import.
     engine = engine_factory(
@@ -56,5 +70,13 @@ async def open_resources(
     try:
         yield WorkerResources(engine, async_sessionmaker(engine, expire_on_commit=False))
     finally:
-        async with asyncio.timeout(settings.worker_grace_seconds):
-            await engine.dispose()
+        deadline = earlier_deadline(
+            asyncio.get_running_loop().time() + settings.worker_grace_seconds, cleanup_deadline
+        )
+        try:
+            async with asyncio.timeout_at(deadline):
+                await engine.dispose()
+        except (SQLAlchemyError, TimeoutError):
+            # Public synchronous close=False only detaches the pool; it performs no network I/O.
+            engine.sync_engine.dispose(close=False)
+            raise ResourceCleanupError() from None

@@ -19,7 +19,7 @@ from app.worker.models import (
 )
 from app.worker.processing import SessionFactory, _finish_session, process_candidate
 from app.worker.reporting import Reporter
-from app.worker.resources import SchemaCompatibilityError
+from app.worker.resources import CleanupDeadline, SchemaCompatibilityError, earlier_deadline
 
 Processor = Callable[[SessionFactory, UUID, Settings, str], Awaitable[CandidateResult]]
 
@@ -39,12 +39,14 @@ class BatchRunner:
         reporter: Reporter | None = None,
         identity: WorkerIdentity | None = None,
         processor: Processor | None = None,
+        cleanup_deadline: CleanupDeadline | None = None,
     ) -> None:
         self.sessions, self.settings = sessions, settings
         self.identity = identity or WorkerIdentity()
         self.state = WorkerState(self.identity.worker_id)
         self.reporter = reporter or Reporter()
         self.processor = processor or process_candidate
+        self.cleanup_deadline = cleanup_deadline
         self.cursor: Candidate | None = None
         self.sweep_until: datetime | None = None
 
@@ -80,7 +82,7 @@ class BatchRunner:
             raise ScanFailure(FailureReason.DATABASE_UNAVAILABLE) from None
         finally:
             if db is not None:
-                await _finish_session(db, deadline)
+                await _finish_session(db, earlier_deadline(deadline, self.cleanup_deadline))
         task = asyncio.current_task()
         if task is not None and task.cancelling():
             raise asyncio.CancelledError
@@ -91,6 +93,9 @@ class BatchRunner:
         state.selected = len(snapshot.candidates)
         state.backlog_count, state.backlog_capped = snapshot.backlog_count, snapshot.backlog_capped
         state.oldest_overdue_seconds = snapshot.oldest_overdue_seconds
+        state.phase = "running"
+        if state.successful_scans == 1:
+            self.reporter.emit("ready", state)
         if not snapshot.candidates:
             self.cursor = self.sweep_until = None
         elif self.sweep_until is None:

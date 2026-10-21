@@ -103,7 +103,7 @@ async def test_reporting_failure_cannot_undo_committed_expiry(worker_env):
 
     runner = BatchRunner(env.factory, env.settings, reporter=Reporter(broken_sink))
     await runner.run_batch()
-    assert runner.state.expired == 1 and runner.state.reporting_failures == 2
+    assert runner.state.expired == 1 and runner.state.reporting_failures == 3
     async with env.factory() as db:
         row = await db.get(ChangeProposal, identifier)
         assert row and row.status == "EXPIRED"

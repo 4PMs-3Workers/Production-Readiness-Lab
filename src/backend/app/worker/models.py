@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID, uuid4
 
 
@@ -57,6 +58,7 @@ class WorkerIdentity:
 @dataclass
 class WorkerState:
     worker_id: UUID
+    phase: Literal["starting", "running", "stopping", "stopped"] = "starting"
     current_run_id: UUID | None = None
     database_ok: bool = False
     last_successful_scan: datetime | None = None

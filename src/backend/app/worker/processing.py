@@ -19,7 +19,12 @@ from app.core.transactions import (
 )
 from app.services.change_proposals import expire_change_proposal_in_transaction
 from app.worker.models import CandidateResult, FailureReason, Outcome
-from app.worker.resources import SchemaCompatibilityError, validate_schema
+from app.worker.resources import (
+    CleanupDeadline,
+    SchemaCompatibilityError,
+    earlier_deadline,
+    validate_schema,
+)
 
 SessionFactory = Callable[[], AsyncSession]
 
@@ -42,6 +47,8 @@ async def process_candidate(
     proposal_id: UUID,
     settings: Settings,
     request_id: str,
+    *,
+    cleanup_deadline: CleanupDeadline | None = None,
 ) -> CandidateResult:
     started = asyncio.get_running_loop().time()
     deadline = started + settings.request_timeout_seconds
@@ -94,7 +101,7 @@ async def process_candidate(
             reason = FailureReason.UNEXPECTED_FAILURE
         finally:
             if db is not None:
-                await _finish_session(db, deadline)
+                await _finish_session(db, earlier_deadline(deadline, cleanup_deadline))
         task = asyncio.current_task()
         if task is not None and task.cancelling():
             raise asyncio.CancelledError
