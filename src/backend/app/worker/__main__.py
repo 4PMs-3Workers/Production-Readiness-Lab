@@ -23,12 +23,18 @@ class Parser(argparse.ArgumentParser):
         raise UsageError()
 
 
+class ReportStreamHandler(logging.StreamHandler):
+    def handleError(self, record: logging.LogRecord) -> NoReturn:
+        # Let Reporter count output failures instead of logging printing a traceback.
+        raise RuntimeError("Worker report output failed") from None
+
+
 def configure_logging() -> None:
     logger = logging.getLogger("app.worker")
     logger.disabled = False
     logger.setLevel(logging.INFO)
     logger.propagate = False
-    handler = logging.StreamHandler(sys.stdout)
+    handler = ReportStreamHandler(sys.stdout)
     handler.setFormatter(logging.Formatter("%(message)s"))
     logger.handlers[:] = [handler]
     # Database/loop exception payloads must not bypass the allowlisted worker reports.

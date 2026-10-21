@@ -69,6 +69,27 @@ def test_cli_reenables_its_logger_after_external_logging_reconfiguration(capsys)
     assert json.loads(captured.out)["reason"] == "CONFIGURATION_INVALID"
 
 
+def test_cli_output_failure_is_counted_without_logging_internal_exception_details(
+    capsys, monkeypatch
+):
+    from app.worker.models import WorkerIdentity, WorkerState
+    from app.worker.reporting import Reporter
+
+    class FailedOutput:
+        def write(self, value):
+            raise RuntimeError("private-output-failure")
+
+        def flush(self):
+            pass
+
+    monkeypatch.setattr(cli.sys, "stdout", FailedOutput())
+    cli.configure_logging()
+    state = WorkerState(WorkerIdentity().worker_id)
+    assert Reporter().emit("heartbeat", state) is False
+    assert state.reporting_failures == 1
+    assert capsys.readouterr().err == ""
+
+
 @pytest.mark.parametrize("fallback", [False, True])
 async def test_signals_request_stop_and_restore_previous_handlers(monkeypatch, fallback):
     import app.worker.signals as module

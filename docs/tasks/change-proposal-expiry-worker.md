@@ -81,6 +81,7 @@ The feature is organized into approximately fifteen reviewable commits:
 13. Verify restart, interrupted work, deadlines and recovery.
 14. Document operation and repeatable stopped-worker/backlog demonstration.
 15. Complete regression/CI checks and release handoff evidence.
+16. Harden stdout failure handling with a regression that prevents logging traceback leaks.
 
 Tests must use independent Alembic-initialized MySQL 8.4 schemas. Missing prerequisites
 must fail with `--require-mysql`, and the full backend suite must have no skipped tests.
@@ -297,11 +298,12 @@ silently skipped when `--require-mysql` is supplied.
 
 Local release verification on 2026-10-21 used Python 3.12.14 and an isolated MySQL
 8.4.11 instance. The worker integration/schema tests plus `test_worker_*.py` unit tests
-passed **95 tests, zero skips**. The complete backend unit suite passed **442 tests,
+passed **96 tests, zero skips**. The complete backend unit suite passed **443 tests,
 zero skips** (including the worker unit tests). Black checked all 206 backend/test/tool
 Python files; Ruff passed; Pyright reported zero errors and warnings. Exporting OpenAPI
 left `docs/api/openapi.yaml` unchanged. The CLI regression also verifies that safe JSON
-diagnostics survive external logging reconfiguration. CI checks the module's `--help`
+diagnostics survive external logging reconfiguration. A failing stdout sink is counted
+without invoking logging's internal traceback publisher. CI checks the module's `--help`
 before database setup, then runs migrations and the complete backend suite on Python 3.11.
 The PR records those full-suite results and their exact reviewed head SHA.
 
