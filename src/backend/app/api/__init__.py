@@ -76,3 +76,12 @@ def _register_staff_availability() -> None:
 
 
 _register_staff_availability()
+
+
+def _register_staff_context() -> None:
+    from app.api.staff_context import router
+
+    api_v1_router.include_router(router)
+
+
+_register_staff_context()

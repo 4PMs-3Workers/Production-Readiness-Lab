@@ -2,7 +2,7 @@ const messages: Record<string, string> = {
   INVALID_CREDENTIALS: 'Email hoặc mật khẩu chưa đúng.',
   LOGIN_THROTTLED: 'Bạn đã thử đăng nhập nhiều lần. Vui lòng chờ rồi thử lại.',
   INVALID_SESSION: 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.',
-  FORBIDDEN_ROLE: 'Tài khoản này không có quyền sử dụng cổng sinh viên.',
+  FORBIDDEN_ROLE: 'Tài khoản này không có quyền truy cập khu vực này.',
   INVALID_CSRF: 'Phiên bảo vệ yêu cầu đã thay đổi. Vui lòng thử lại thao tác.',
   INVALID_ORIGIN: 'Không thể xác minh nguồn yêu cầu. Vui lòng kiểm tra địa chỉ cổng tư vấn.',
   NOT_FOUND: 'Không tìm thấy dữ liệu hoặc bạn không có quyền truy cập.',
@@ -11,10 +11,14 @@ const messages: Record<string, string> = {
   IDEMPOTENCY_CONFLICT:
     'Mã yêu cầu đã gắn với nội dung khác. Hãy kiểm tra lịch sử trước khi đặt thêm.',
   CANCELLATION_DEADLINE_PASSED: 'Đã quá thời hạn hủy lịch hẹn này.',
-  APPOINTMENT_STATE_CONFLICT: 'Trạng thái lịch hẹn đã thay đổi và không cho phép hủy.',
+  APPOINTMENT_NOT_ENDED: 'Chỉ có thể ghi kết quả sau khi buổi hẹn kết thúc.',
+  APPOINTMENT_STATE_CONFLICT:
+    'Trạng thái lịch hẹn đã thay đổi. Hãy tải lại chi tiết trước khi thao tác.',
+  UNAVAILABILITY_CONFLICT:
+    'Khoảng thời gian này đang có lịch hẹn. Hãy chọn khoảng khác hoặc xử lý lịch trước.',
   VALIDATION_ERROR:
     'Thông tin chưa hợp lệ hoặc cửa sổ ngày đặt đã thay đổi. Vui lòng kiểm tra lại lựa chọn.',
-  ACCOUNT_CHANGED: 'Tài khoản đã thay đổi. Yêu cầu cũ đã được xóa; vui lòng mở lại cổng sinh viên.',
+  ACCOUNT_CHANGED: 'Tài khoản đã thay đổi. Hãy tải lại trang trước khi thao tác.',
   TIMEOUT: 'Yêu cầu quá thời gian chờ. Vui lòng kiểm tra kết quả rồi thử lại.',
   NETWORK_ERROR: 'Mất kết nối đến dịch vụ. Vui lòng kiểm tra kết nối.',
   SERVICE_UNAVAILABLE: 'Dịch vụ tạm thời chưa sẵn sàng. Vui lòng thử lại sau.',

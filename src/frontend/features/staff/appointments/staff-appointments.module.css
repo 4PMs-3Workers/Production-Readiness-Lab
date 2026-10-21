@@ -1,0 +1,117 @@
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  margin: 20px 0;
+}
+
+.filters label {
+  display: grid;
+  gap: 6px;
+  color: #496b85;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.filters input,
+.filters select,
+.dialog textarea {
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid #cbd8e3;
+  border-radius: 6px;
+  color: #20364b;
+  background: white;
+  font: inherit;
+}
+
+.filters input:focus-visible,
+.filters select:focus-visible,
+.dialog textarea:focus-visible {
+  outline: 3px solid #3784be;
+  outline-offset: 2px;
+}
+
+.description {
+  grid-column: 1 / -1;
+}
+
+.description dd {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.recovery {
+  width: 100%;
+  padding: 14px 16px;
+  border-left: 4px solid #2678a5;
+  background: #edf6fb;
+}
+
+.recovery p {
+  margin: 0 0 10px;
+}
+
+.recovery button + button {
+  margin-left: 10px;
+}
+
+.error {
+  width: 100%;
+  color: #9b2d2d;
+}
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(24 45 63 / 45%);
+}
+
+.dialog {
+  width: min(100%, 520px);
+  padding: 24px;
+  border-radius: 10px;
+  background: white;
+  box-shadow: 0 18px 55px rgb(15 36 52 / 25%);
+}
+
+.dialog h2 {
+  margin-top: 0;
+}
+
+.dialog label {
+  display: block;
+  margin: 18px 0 8px;
+  font-weight: 700;
+}
+
+.dialog textarea {
+  width: 100%;
+  min-height: 110px;
+  resize: vertical;
+}
+
+.dialogActions {
+  display: flex;
+  justify-content: end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+@media (max-width: 700px) {
+  .filters > * {
+    flex: 1 1 100%;
+  }
+}

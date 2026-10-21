@@ -39,6 +39,7 @@ from app.models import (
     ServiceSetting,
     Session,
     StaffPurpose,
+    StaffUnavailability,
     User,
 )
 
@@ -80,7 +81,10 @@ async def prepare():
     SETTINGS_SNAPSHOT.unlink(missing_ok=True)
     fixture = {
         "schema": "prl_frontend_e2e_" + uuid4().hex,
-        **{name: str(uuid4()) for name in ("student", "other", "staff", "admin", "purpose")},
+        **{
+            name: str(uuid4())
+            for name in ("student", "other", "staff", "otherstaff", "admin", "purpose")
+        },
     }
     admin = create_database_engine(admin_url(), poolclass=NullPool)
     try:
@@ -106,6 +110,7 @@ async def prepare():
                     ("student", "STUDENT", "Sinh viên kiểm thử A"),
                     ("other", "STUDENT", "Sinh viên kiểm thử B"),
                     ("staff", "STAFF", "Cố vấn kiểm thử"),
+                    ("otherstaff", "STAFF", "Cố vấn kiểm thử B"),
                     ("admin", "ADMIN", "Quản trị kiểm thử"),
                 ):
                     db.add(
@@ -141,6 +146,13 @@ async def prepare():
                 db.add(
                     StaffPurpose(
                         staff_id=UUID(fixture["staff"]), purpose_id=UUID(fixture["purpose"])
+                    )
+                )
+                db.add(
+                    StaffPurpose(
+                        staff_id=UUID(fixture["otherstaff"]),
+                        purpose_id=UUID(fixture["purpose"]),
+                        is_accepting=False,
                     )
                 )
                 now = (
@@ -194,7 +206,7 @@ class ProbeCommittedResponse:
         if (
             scope["type"] != "http"
             or scope["method"] != "POST"
-            or scope["path"] != "/api/v1/appointments"
+            or scope["path"] not in {"/api/v1/appointments", "/api/v1/staff/me/unavailability"}
             or not (LOSS.exists() or HOLD.exists())
         ):
             await self.app(scope, receive, send)
@@ -259,8 +271,25 @@ async def operate(args):
         async with async_sessionmaker(engine, expire_on_commit=False).begin() as db:
             if args.action == "reset":
                 clear_settings_snapshot = await restore_service_settings(db)
-                for model in (Notification, AuditEvent, ChangeProposal, Appointment, Session):
+                for model in (
+                    Notification,
+                    AuditEvent,
+                    ChangeProposal,
+                    Appointment,
+                    StaffUnavailability,
+                    Session,
+                ):
                     await db.execute(delete(model))
+                await db.execute(
+                    update(StaffPurpose)
+                    .where(StaffPurpose.staff_id == UUID(fixture["staff"]))
+                    .values(is_accepting=True)
+                )
+                await db.execute(
+                    update(StaffPurpose)
+                    .where(StaffPurpose.staff_id == UUID(fixture["otherstaff"]))
+                    .values(is_accepting=False)
+                )
                 LOSS.unlink(missing_ok=True)
                 HOLD.unlink(missing_ok=True)
                 HELD.unlink(missing_ok=True)
@@ -303,6 +332,93 @@ async def operate(args):
                 )
                 await db.flush()
                 print(json.dumps({"id": str(identifier)}))
+            elif args.action == "seed-staff-appointments":
+                setting = await db.get(ServiceSetting, 1)
+                if setting is None:
+                    raise RuntimeError("Cannot seed staff appointments without service settings")
+                zone = ZoneInfo(setting.timezone)
+                now = (
+                    (await db.execute(text("SELECT UTC_TIMESTAMP(6)")))
+                    .scalar_one()
+                    .replace(tzinfo=UTC)
+                )
+                business_today = now.astimezone(zone).date()
+                future_date = business_today + timedelta(days=1)
+                past_date = business_today - timedelta(days=2)
+                future_start = datetime.combine(future_date, time(10), zone).astimezone(UTC)
+                past_start = datetime.combine(past_date, time(10), zone).astimezone(UTC)
+                future_id, past_id = uuid4(), uuid4()
+                for identifier, starts_at, key in (
+                    (future_id, future_start, "staff-portal-future"),
+                    (past_id, past_start, "staff-portal-past"),
+                ):
+                    db.add(
+                        Appointment(
+                            id=identifier,
+                            student_id=UUID(fixture["student"]),
+                            staff_id=UUID(fixture["staff"]),
+                            purpose_id=UUID(fixture["purpose"]),
+                            starts_at=starts_at,
+                            ends_at=starts_at + timedelta(minutes=30),
+                            duration_minutes=30,
+                            status="UPCOMING",
+                            creation_request_key=key,
+                            creation_request_hash=hashlib.sha256(key.encode()).digest(),
+                        )
+                    )
+                await db.flush()
+                print(
+                    json.dumps(
+                        {
+                            "cancelId": str(future_id),
+                            "outcomeId": str(past_id),
+                            "futureDate": str(future_date),
+                            "nextDate": str(future_date + timedelta(days=1)),
+                            "staffId": fixture["staff"],
+                            "purposeId": fixture["purpose"],
+                        }
+                    )
+                )
+            elif args.action == "inspect-staff-portal":
+                appointment = await db.get(Appointment, UUID(args.id))
+                print(
+                    json.dumps(
+                        {
+                            "appointmentStatus": appointment.status if appointment else None,
+                            "unavailability": await db.scalar(
+                                select(func.count())
+                                .select_from(StaffUnavailability)
+                                .where(StaffUnavailability.staff_id == UUID(fixture["staff"]))
+                            ),
+                            "periodIds": [
+                                str(period_id)
+                                for period_id in (
+                                    await db.scalars(
+                                        select(StaffUnavailability.id)
+                                        .where(
+                                            StaffUnavailability.staff_id == UUID(fixture["staff"])
+                                        )
+                                        .order_by(StaffUnavailability.id)
+                                    )
+                                ).all()
+                            ],
+                            **{
+                                action: await db.scalar(
+                                    select(func.count())
+                                    .select_from(AuditEvent)
+                                    .where(
+                                        AuditEvent.action == action,
+                                        AuditEvent.actor_id == UUID(fixture["staff"]),
+                                    )
+                                )
+                                for action in (
+                                    "STAFF_UNAVAILABILITY_CREATED",
+                                    "STAFF_UNAVAILABILITY_DELETED",
+                                )
+                            },
+                        }
+                    )
+                )
             elif args.action == "manual-catalog":
                 # Expand only this disposable schema for human UI review. Keep the
                 # original purpose for existing appointment history and default E2E.
@@ -442,11 +558,15 @@ def main():
             "settings-off",
             "settings-restore",
             "seed-timezone-appointment",
+            "seed-staff-appointments",
+            "inspect-staff-portal",
             "cleanup",
         ),
     )
     parser.add_argument("--id")
-    parser.add_argument("--user", choices=("student", "other"), default="student")
+    parser.add_argument(
+        "--user", choices=("student", "other", "staff", "otherstaff", "admin"), default="student"
+    )
     args = parser.parse_args()
     if args.action != "serve":
         asyncio.run(operate(args))

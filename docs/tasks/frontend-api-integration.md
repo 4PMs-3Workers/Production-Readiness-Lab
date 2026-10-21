@@ -47,7 +47,7 @@ dữ liệu riêng tư. Không có response cá nhân trong server-rendered HTML
 
 | Hợp đồng backend                         | DTO/UI                                                                           |
 | ---------------------------------------- | -------------------------------------------------------------------------------- |
-| User `name`, `role`                      | `displayName`, role thực; STAFF/ADMIN có trạng thái chưa hỗ trợ                  |
+| User `name`, `role`                      | `displayName`, role thực; STAFF/ADMIN chưa được hỗ trợ tại thời điểm issue #20   |
 | `duration_minutes`, `requires_free_text` | `durationMinutes`, `requiresFreeText`; chấp nhận code tùy backend                |
 | `items`, `page`, `page_size`, `total`    | `Page<T>`, điều khiển trang trước/sau cho catalog, staff, history                |
 | `booking-context`                        | timezone, business date và min/max dùng cho dãy ngày và chuyển tuần              |
@@ -60,6 +60,11 @@ Request cũ bị hủy khi đổi lựa chọn; resource hook dùng danh tính r
 A → B → A. Giờ hiển thị theo timezone server, kể cả khi browser ở múi giờ khác.
 Không giả định availability trả slot ID hay địa điểm. Null location hiển thị
 “Địa điểm sẽ được thông báo sau”.
+
+Cập nhật issue #27 (21/10/2026): STAFF nay có cổng riêng tại
+`/staff/appointments`, `/staff/preferences` và `/staff/unavailability`; thông tin
+chi tiết nằm trong [bàn giao cổng STAFF](staff-portal-integration.md). ADMIN vẫn
+chưa có giao diện. Các kết quả kiểm thử issue #20 bên dưới là kết quả lịch sử.
 
 Trang đăng nhập API không có điều hướng demo “Đăng nhập / Đặt lịch / Kết quả”.
 “Cách đặt lịch tư vấn” mở hướng dẫn ngay trên trang, không dẫn vào route bị chặn

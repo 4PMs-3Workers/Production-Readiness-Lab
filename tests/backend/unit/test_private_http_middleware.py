@@ -20,6 +20,7 @@ from app.core.response_policy import (
 def test_staff_appointment_routes_use_private_headers_and_request_deadlines():
     for method, path in (
         ("GET", "/api/v1/staff/me/appointments"),
+        ("GET", "/api/v1/staff/me/context"),
         ("GET", "/api/v1/staff/me/appointments/00000000-0000-0000-0000-000000000001"),
         ("POST", "/api/v1/staff/me/appointments/00000000-0000-0000-0000-000000000001/cancel"),
         ("POST", "/api/v1/staff/me/appointments/00000000-0000-0000-0000-000000000001/outcome"),

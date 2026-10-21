@@ -16,8 +16,24 @@ import type {
   SessionUser,
   StudentProfile,
 } from '@/types/api';
+import type {
+  StaffAppointment,
+  StaffAppointmentDetail,
+  StaffAppointmentQuery,
+  StaffContext,
+  StaffOutcomeStatus,
+  StaffPage,
+  StaffPurpose,
+  StaffUnavailability,
+  StaffUnavailabilityQuery,
+} from '@/services/staff-contracts';
+import { isBusinessDate } from '@/lib/business-time';
 import { ApiError, BookingRejection } from './errors';
 import { parseBookingContext } from './booking-context';
+
+interface StaffWriteOptions extends ServiceRequestOptions {
+  readonly expectedUserId: string;
+}
 
 interface WirePage<T> {
   items: T[];
@@ -63,6 +79,46 @@ interface WireDetail extends WireAppointment {
   cancelled_at: string | null;
   cancel_reason: string | null;
 }
+interface WireStaffAppointment {
+  id: string;
+  purpose_id: string;
+  purpose_code: string;
+  purpose_name: string;
+  student_id: string;
+  student_name: string;
+  duration_minutes: number;
+  starts_at: string;
+  ends_at: string;
+  location: string | null;
+  status: StaffAppointment['status'];
+  created_at: string;
+  cancelled_at: string | null;
+  outcome_at: string | null;
+}
+interface WireStaffAppointmentDetail extends WireStaffAppointment {
+  description: string | null;
+  cancelled_by: string | null;
+  cancel_reason: string | null;
+  outcome_by: string | null;
+}
+interface WireStaffPurpose extends WirePurpose {
+  is_active: boolean;
+  is_accepting: boolean;
+}
+interface WireStaffUnavailability {
+  id: string;
+  starts_at: string;
+  ends_at: string;
+  created_at: string;
+}
+
+const STAFF_APPOINTMENT_STATUSES = [
+  'UPCOMING',
+  'CHANGE_PENDING',
+  'CANCELLED',
+  'COMPLETED',
+  'NO_SHOW',
+] as const;
 
 function requireContract(condition: unknown): asserts condition {
   if (!condition) throw new ApiError('SERVICE_UNAVAILABLE');
@@ -120,6 +176,75 @@ function appointment(data: WireAppointment): Appointment {
     endsAt: data.ends_at,
     location: data.location,
     status: data.status,
+    createdAt: data.created_at,
+  };
+}
+function staffAppointment(data: WireStaffAppointment): StaffAppointment {
+  requireContract(
+    data &&
+      typeof data.id === 'string' &&
+      typeof data.purpose_id === 'string' &&
+      typeof data.purpose_code === 'string' &&
+      typeof data.purpose_name === 'string' &&
+      typeof data.student_id === 'string' &&
+      typeof data.student_name === 'string' &&
+      Number.isInteger(data.duration_minutes) &&
+      typeof data.starts_at === 'string' &&
+      typeof data.ends_at === 'string' &&
+      (data.location === null || typeof data.location === 'string') &&
+      STAFF_APPOINTMENT_STATUSES.includes(data.status) &&
+      typeof data.created_at === 'string',
+  );
+  return {
+    id: data.id,
+    purposeId: data.purpose_id,
+    purposeCode: data.purpose_code,
+    purposeName: data.purpose_name,
+    studentId: data.student_id,
+    studentName: data.student_name,
+    durationMinutes: data.duration_minutes,
+    startsAt: data.starts_at,
+    endsAt: data.ends_at,
+    location: data.location,
+    status: data.status,
+    createdAt: data.created_at,
+    cancelledAt: data.cancelled_at,
+    outcomeAt: data.outcome_at,
+  };
+}
+function staffPurpose(data: WireStaffPurpose): StaffPurpose {
+  requireContract(
+    data &&
+      typeof data.id === 'string' &&
+      typeof data.code === 'string' &&
+      typeof data.name === 'string' &&
+      Number.isInteger(data.duration_minutes) &&
+      typeof data.requires_free_text === 'boolean' &&
+      typeof data.is_active === 'boolean' &&
+      typeof data.is_accepting === 'boolean',
+  );
+  return {
+    id: data.id,
+    code: data.code,
+    name: data.name,
+    durationMinutes: data.duration_minutes,
+    requiresFreeText: data.requires_free_text,
+    isActive: data.is_active,
+    isAccepting: data.is_accepting,
+  };
+}
+function staffUnavailability(data: WireStaffUnavailability): StaffUnavailability {
+  requireContract(
+    data &&
+      typeof data.id === 'string' &&
+      typeof data.starts_at === 'string' &&
+      typeof data.ends_at === 'string' &&
+      typeof data.created_at === 'string',
+  );
+  return {
+    id: data.id,
+    startsAt: data.starts_at,
+    endsAt: data.ends_at,
     createdAt: data.created_at,
   };
 }
@@ -200,11 +325,13 @@ export class ApiServices {
 
   private async write<T>(
     path: string,
-    body: object,
+    body: object | undefined,
     options?: ServiceRequestOptions,
     headers: Record<string, string> = {},
     expectedUserId?: string,
     onDispatch?: () => void,
+    method: 'POST' | 'PUT' | 'DELETE' = 'POST',
+    expectedRole: 'STUDENT' | 'STAFF' = 'STUDENT',
   ): Promise<T> {
     const signal = AbortSignal.any([
       this.scope.signal,
@@ -220,18 +347,23 @@ export class ApiServices {
       // The owner and signed token come from the same authenticated backend context.
       // Keep this exact token: a later cookie switch must fail the server's CSRF check.
       requireContract(typeof csrf.user_id === 'string' && csrf.user_id.length > 0);
-      if (csrf.user_id !== expectedUserId) throw new ApiError('ACCOUNT_CHANGED', 401);
-      const verified = await this.me(scopedOptions);
-      if (verified.id !== expectedUserId || verified.role !== 'STUDENT')
+      if (csrf.user_id !== expectedUserId) {
+        this.onInvalidSession?.();
         throw new ApiError('ACCOUNT_CHANGED', 401);
+      }
+      const verified = await this.me(scopedOptions);
+      if (verified.id !== expectedUserId || verified.role !== expectedRole) {
+        this.onInvalidSession?.();
+        throw new ApiError('ACCOUNT_CHANGED', 401);
+      }
     }
     signal.throwIfAborted();
     return this.request(
       path,
       scopedOptions,
       {
-        method: 'POST',
-        body: JSON.stringify(body),
+        method,
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         headers: {
           'Content-Type': 'application/json',
           'X-CSRF-Token': csrf.csrf_token,
@@ -259,6 +391,19 @@ export class ApiServices {
   }
   async context(options?: ServiceRequestOptions): Promise<BookingContext> {
     return parseBookingContext(await this.request<unknown>('/booking-context', options));
+  }
+  async staffContext(options?: ServiceRequestOptions): Promise<StaffContext> {
+    const data = await this.request<{ timezone: string; business_date: string }>(
+      '/staff/me/context',
+      options,
+    );
+    try {
+      new Intl.DateTimeFormat('en', { timeZone: data.timezone });
+    } catch {
+      throw new ApiError('SERVICE_UNAVAILABLE');
+    }
+    requireContract(typeof data.timezone === 'string' && isBusinessDate(data.business_date));
+    return { timezone: data.timezone, businessDate: data.business_date };
   }
   async profile(options?: ServiceRequestOptions): Promise<StudentProfile> {
     const data = await this.request<WireStudentProfile>('/students/me', options);
@@ -384,6 +529,139 @@ export class ApiServices {
       `/appointments/${encodeURIComponent(id)}/cancel`,
       reason === undefined ? {} : { reason },
       options,
+    );
+  }
+  async staffAppointments(
+    query: StaffAppointmentQuery = {},
+    options?: ServiceRequestOptions,
+  ): Promise<StaffPage<StaffAppointment>> {
+    const params = new URLSearchParams({
+      page: String(query.page ?? 1),
+      page_size: String(query.pageSize ?? 20),
+      ...(query.status ? { status: query.status } : {}),
+      ...(query.date ? { date: query.date } : {}),
+    });
+    return mapPage(
+      await this.request<WirePage<WireStaffAppointment>>(
+        `/staff/me/appointments?${params}`,
+        options,
+      ),
+      staffAppointment,
+    );
+  }
+  async staffAppointment(
+    id: string,
+    options?: ServiceRequestOptions,
+  ): Promise<StaffAppointmentDetail> {
+    const data = await this.request<WireStaffAppointmentDetail>(
+      `/staff/me/appointments/${encodeURIComponent(id)}`,
+      options,
+    );
+    return {
+      ...staffAppointment(data),
+      description: data.description,
+      cancelledBy: data.cancelled_by,
+      cancelReason: data.cancel_reason,
+      outcomeBy: data.outcome_by,
+    };
+  }
+  cancelStaffAppointment(id: string, reason: string | undefined, options: StaffWriteOptions) {
+    return this.write<{ id: string; status: 'CANCELLED'; cancelled_at: string }>(
+      `/staff/me/appointments/${encodeURIComponent(id)}/cancel`,
+      reason === undefined ? {} : { reason },
+      options,
+      {},
+      options.expectedUserId,
+      undefined,
+      'POST',
+      'STAFF',
+    );
+  }
+  recordStaffOutcome(id: string, status: StaffOutcomeStatus, options: StaffWriteOptions) {
+    return this.write<{ id: string; status: StaffOutcomeStatus; outcome_at: string }>(
+      `/staff/me/appointments/${encodeURIComponent(id)}/outcome`,
+      { status },
+      options,
+      {},
+      options.expectedUserId,
+      undefined,
+      'POST',
+      'STAFF',
+    );
+  }
+  async staffPurposes(page = 1, options?: ServiceRequestOptions): Promise<StaffPage<StaffPurpose>> {
+    return mapPage(
+      await this.request<WirePage<WireStaffPurpose>>(
+        `/staff/me/purposes?page=${page}&page_size=20`,
+        options,
+      ),
+      staffPurpose,
+    );
+  }
+  async setStaffPurpose(
+    id: string,
+    isAccepting: boolean,
+    options: StaffWriteOptions,
+  ): Promise<StaffPurpose> {
+    return staffPurpose(
+      await this.write<WireStaffPurpose>(
+        `/staff/me/purposes/${encodeURIComponent(id)}`,
+        { is_accepting: isAccepting },
+        options,
+        {},
+        options.expectedUserId,
+        undefined,
+        'PUT',
+        'STAFF',
+      ),
+    );
+  }
+  async staffUnavailability(
+    query: StaffUnavailabilityQuery = {},
+    options?: ServiceRequestOptions,
+  ): Promise<StaffPage<StaffUnavailability>> {
+    const params = new URLSearchParams({
+      ...(query.from ? { from: query.from } : {}),
+      ...(query.to ? { to: query.to } : {}),
+      page: String(query.page ?? 1),
+      page_size: String(query.pageSize ?? 20),
+    });
+    return mapPage(
+      await this.request<WirePage<WireStaffUnavailability>>(
+        `/staff/me/unavailability?${params}`,
+        options,
+      ),
+      staffUnavailability,
+    );
+  }
+  async createStaffUnavailability(
+    startsAt: string,
+    endsAt: string,
+    options: StaffWriteOptions,
+  ): Promise<StaffUnavailability> {
+    return staffUnavailability(
+      await this.write<WireStaffUnavailability>(
+        '/staff/me/unavailability',
+        { starts_at: startsAt, ends_at: endsAt },
+        options,
+        {},
+        options.expectedUserId,
+        undefined,
+        'POST',
+        'STAFF',
+      ),
+    );
+  }
+  deleteStaffUnavailability(id: string, options: StaffWriteOptions) {
+    return this.write<void>(
+      `/staff/me/unavailability/${encodeURIComponent(id)}`,
+      undefined,
+      options,
+      {},
+      options.expectedUserId,
+      undefined,
+      'DELETE',
+      'STAFF',
     );
   }
 }

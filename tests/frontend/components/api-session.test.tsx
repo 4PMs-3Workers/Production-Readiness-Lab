@@ -7,6 +7,9 @@ import { SessionGate, safeReturnPath } from '@/features/api/session-gate';
 import { ApiServices } from '@/services/api/client';
 import { ApiResult } from '@/features/api/api-appointments';
 import { ApiLogin } from '@/features/api/api-login';
+import { StaffSessionGate } from '@/features/staff/staff-session-gate';
+import { StaffAppointmentActions } from '@/features/staff/appointments/staff-appointments';
+import type { StaffAppointmentDetail } from '@/services/staff-contracts';
 
 const router = vi.hoisted(() => ({ replace: vi.fn() }));
 vi.mock('next/navigation', () => ({
@@ -44,6 +47,165 @@ function PrivateView() {
 }
 
 describe('API session boundaries', () => {
+  it('makes a staff write recoverable after focus failure aborts it and the session recovers', async () => {
+    const staff = {
+      id: 'staff-a',
+      name: 'Fictional Staff A',
+      email: 'staff-a@example.invalid',
+      role: 'STAFF',
+    };
+    const appointment: StaffAppointmentDetail = {
+      id: 'appointment-1',
+      purposeId: 'purpose-1',
+      purposeCode: 'ACADEMIC',
+      purposeName: 'Tư vấn học tập',
+      studentId: 'student-1',
+      studentName: 'Fictional Student',
+      durationMinutes: 45,
+      startsAt: '2026-10-20T01:00:00Z',
+      endsAt: '2026-10-20T01:45:00Z',
+      location: null,
+      status: 'UPCOMING',
+      createdAt: '2026-10-17T03:00:00Z',
+      cancelledAt: null,
+      outcomeAt: null,
+      description: 'Private consultation',
+      cancelledBy: null,
+      cancelReason: null,
+      outcomeBy: null,
+    };
+    let meCalls = 0;
+    let postStarted!: () => void;
+    const postReached = new Promise<void>((resolve) => (postStarted = resolve));
+    let postAborted!: () => void;
+    const abortObserved = new Promise<void>((resolve) => (postAborted = resolve));
+    const fetcher = vi.fn<typeof fetch>(async (path, init) => {
+      if (String(path).endsWith('/auth/me'))
+        return ++meCalls === 3 ? error('SERVICE_UNAVAILABLE', 503) : json(staff);
+      if (String(path).endsWith('/auth/csrf'))
+        return json({ csrf_token: 'csrf', user_id: staff.id });
+      if (String(path).endsWith('/staff/me/appointments/appointment-1/outcome'))
+        return new Promise<Response>((_resolve, reject) => {
+          postStarted();
+          init?.signal?.addEventListener(
+            'abort',
+            () => {
+              postAborted();
+              reject(new DOMException('Request cancelled', 'AbortError'));
+            },
+            { once: true },
+          );
+        });
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    const services = new ApiServices(fetcher);
+    let api!: ReturnType<typeof useApi>;
+    function Capture() {
+      const value = useApi();
+      useEffect(() => {
+        api = value;
+      }, [value]);
+      return null;
+    }
+    render(
+      <ApiProvider services={services}>
+        <Capture />
+        <StaffSessionGate>
+          <StaffAppointmentActions appointment={appointment} onReload={vi.fn()} />
+        </StaffSessionGate>
+      </ApiProvider>,
+    );
+    await screen.findByRole('button', { name: 'Đánh dấu hoàn thành' });
+    await userEvent.click(screen.getByRole('button', { name: 'Đánh dấu hoàn thành' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Xác nhận hoàn thành' }));
+    await postReached;
+    expect(api.staffChanges.get(staff.id, appointment.id)?.phase).toBe('pending');
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+      await abortObserved;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(api.staffChanges.get(staff.id, appointment.id)?.phase).toBe('unknown');
+    });
+    expect(await screen.findByRole('alert')).toHaveTextContent('Dịch vụ tạm thời');
+    await userEvent.click(screen.getByRole('button', { name: 'Kiểm tra lại phiên' }));
+    expect(await screen.findByRole('button', { name: 'Thử lại thao tác này' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Đánh dấu hoàn thành' })).toBeDisabled();
+    expect(api.staffChanges.get(staff.id, appointment.id)).toMatchObject({
+      phase: 'unknown',
+      change: { status: 'COMPLETED' },
+    });
+  });
+
+  it.each([
+    ['another STAFF account', { id: 'staff-b', role: 'STAFF' }],
+    ['a STUDENT role', { id: 'staff-a', role: 'STUDENT' }],
+  ])('hides private staff content when mutation preflight detects %s', async (_, changed) => {
+    const staff = {
+      id: 'staff-a',
+      name: 'Fictional Staff A',
+      email: 'staff-a@example.invalid',
+      role: 'STAFF',
+    };
+    let switched = false;
+    const fetcher = vi.fn<typeof fetch>(async (path) => {
+      if (String(path).endsWith('/auth/me'))
+        return json(switched ? { ...staff, ...changed } : staff);
+      if (String(path).endsWith('/auth/csrf'))
+        return json({ csrf_token: 'csrf', user_id: changed.id });
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    const services = new ApiServices(fetcher);
+    let staffChanges!: ReturnType<typeof useApi>['staffChanges'];
+    function StaffPrivateView() {
+      const api = useApi();
+      useEffect(() => {
+        staffChanges = api.staffChanges;
+      }, [api.staffChanges]);
+      return (
+        <>
+          <p>Nội dung trao đổi riêng của STAFF A</p>
+          <button
+            onClick={() =>
+              void api.services
+                .recordStaffOutcome('appointment-1', 'COMPLETED', {
+                  expectedUserId: 'staff-a',
+                })
+                .catch(() => {})
+            }
+          >
+            Ghi kết quả
+          </button>
+        </>
+      );
+    }
+    render(
+      <ApiProvider services={services}>
+        <StaffSessionGate>
+          <StaffPrivateView />
+        </StaffSessionGate>
+      </ApiProvider>,
+    );
+    await screen.findByText('Nội dung trao đổi riêng của STAFF A');
+    act(() => {
+      staffChanges.begin({
+        userId: 'staff-a',
+        appointmentId: 'appointment-1',
+        status: 'COMPLETED',
+      });
+    });
+    expect(staffChanges.get('staff-a', 'appointment-1')).not.toBeNull();
+    switched = true;
+    await userEvent.click(screen.getByRole('button', { name: 'Ghi kết quả' }));
+
+    await waitFor(() =>
+      expect(screen.queryByText('Nội dung trao đổi riêng của STAFF A')).not.toBeInTheDocument(),
+    );
+    expect(fetcher.mock.calls.every(([path]) => !String(path).endsWith('/outcome'))).toBe(true);
+    expect(staffChanges.get('staff-a', 'appointment-1')).toBeNull();
+    expect(router.replace).toHaveBeenCalled();
+  });
+
   it.each(['same-student', 'different-student', 'logout'])(
     'keeps an unresolved result private through expiry and handles %s recovery',
     async (recovery) => {
