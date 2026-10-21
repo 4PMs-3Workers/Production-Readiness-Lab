@@ -64,8 +64,12 @@ describe('API session boundaries', () => {
       throw new Error(`Unexpected request: ${path}`);
     });
     const services = new ApiServices(fetcher);
+    let staffChanges!: ReturnType<typeof useApi>['staffChanges'];
     function StaffPrivateView() {
       const api = useApi();
+      useEffect(() => {
+        staffChanges = api.staffChanges;
+      }, [api.staffChanges]);
       return (
         <>
           <p>Nội dung trao đổi riêng của STAFF A</p>
@@ -91,6 +95,14 @@ describe('API session boundaries', () => {
       </ApiProvider>,
     );
     await screen.findByText('Nội dung trao đổi riêng của STAFF A');
+    act(() => {
+      staffChanges.begin({
+        userId: 'staff-a',
+        appointmentId: 'appointment-1',
+        status: 'COMPLETED',
+      });
+    });
+    expect(staffChanges.get('staff-a', 'appointment-1')).not.toBeNull();
     switched = true;
     await userEvent.click(screen.getByRole('button', { name: 'Ghi kết quả' }));
 
@@ -98,6 +110,7 @@ describe('API session boundaries', () => {
       expect(screen.queryByText('Nội dung trao đổi riêng của STAFF A')).not.toBeInTheDocument(),
     );
     expect(fetcher.mock.calls.every(([path]) => !String(path).endsWith('/outcome'))).toBe(true);
+    expect(staffChanges.get('staff-a', 'appointment-1')).toBeNull();
     expect(router.replace).toHaveBeenCalled();
   });
 

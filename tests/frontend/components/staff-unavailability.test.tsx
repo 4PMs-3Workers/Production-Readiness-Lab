@@ -120,6 +120,40 @@ describe('staff unavailability', () => {
     expect(screen.getByRole('button', { name: 'Thêm khoảng thời gian' })).toBeVisible();
   });
 
+  it('keeps an unresolved interval through a CSRF rejection before exact replay', async () => {
+    const user = userEvent.setup();
+    const periods: (typeof period)[] = [];
+    let creationAudits = 0;
+    services.createStaffUnavailability
+      .mockImplementationOnce(async () => {
+        periods.push(period);
+        creationAudits += 1;
+        throw new ApiError('TIMEOUT');
+      })
+      .mockRejectedValueOnce(new ApiError('INVALID_CSRF', 403))
+      .mockImplementationOnce(async () => periods[0]);
+    render(<StaffUnavailabilityManager />);
+    await screen.findByRole('heading', { name: 'Thời gian không nhận lịch' });
+    enterCrossDayInterval();
+    await user.click(screen.getByRole('button', { name: 'Thêm khoảng thời gian' }));
+    await user.click(await screen.findByRole('button', { name: 'Thử lại khoảng này' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Phiên bảo vệ yêu cầu');
+    expect(screen.getByLabelText('Bắt đầu')).toBeDisabled();
+    expect(screen.getByLabelText('Kết thúc')).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Thử lại khoảng này' }));
+
+    await waitFor(() => expect(services.createStaffUnavailability).toHaveBeenCalledTimes(3));
+    expect(services.createStaffUnavailability.mock.calls.map((call) => call.slice(0, 2))).toEqual([
+      ['2026-10-20T23:00:00+07:00', '2026-10-21T02:00:00+07:00'],
+      ['2026-10-20T23:00:00+07:00', '2026-10-21T02:00:00+07:00'],
+      ['2026-10-20T23:00:00+07:00', '2026-10-21T02:00:00+07:00'],
+    ]);
+    expect(await screen.findByText('Đã thêm khoảng thời gian không nhận lịch.')).toBeVisible();
+    expect(periods).toHaveLength(1);
+    expect(creationAudits).toBe(1);
+  });
+
   it('filters owned periods by an offset-bearing business-time interval', async () => {
     const user = userEvent.setup();
     render(<StaffUnavailabilityManager />);

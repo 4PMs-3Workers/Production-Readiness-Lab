@@ -390,6 +390,18 @@ async def operate(args):
                                 .select_from(StaffUnavailability)
                                 .where(StaffUnavailability.staff_id == UUID(fixture["staff"]))
                             ),
+                            "periodIds": [
+                                str(period_id)
+                                for period_id in (
+                                    await db.scalars(
+                                        select(StaffUnavailability.id)
+                                        .where(
+                                            StaffUnavailability.staff_id == UUID(fixture["staff"])
+                                        )
+                                        .order_by(StaffUnavailability.id)
+                                    )
+                                ).all()
+                            ],
                             **{
                                 action: await db.scalar(
                                     select(func.count())

@@ -13,6 +13,7 @@ import {
 import { ApiServices } from '@/services/api/client';
 import { ApiError } from '@/services/api/errors';
 import { BookingIntentStore } from '@/services/api/booking-intent';
+import { StaffChangeIntentStore } from '@/services/api/staff-change-intent';
 import type { LoginCredentials, ServiceRequestOptions } from '@/services/contracts';
 import type { SessionUser } from '@/types/api';
 
@@ -23,6 +24,7 @@ type Session =
 interface ApiContextValue {
   services: ApiServices;
   intents: BookingIntentStore;
+  staffChanges: StaffChangeIntentStore;
   session: Session;
   revision: number;
   refreshSession: () => Promise<void>;
@@ -40,6 +42,7 @@ export function ApiProvider({
 }) {
   const [services] = useState(() => supplied ?? new ApiServices());
   const [intents] = useState(() => new BookingIntentStore());
+  const [staffChanges] = useState(() => new StaffChangeIntentStore());
   const [session, setSession] = useState<Session>({ status: 'loading' });
   const [revision, setRevision] = useState(0);
   const previousUser = useRef<SessionUser | null>(null);
@@ -49,9 +52,10 @@ export function ApiProvider({
       services.clearSession();
       if (preserveUnknown) intents.suspendForSessionLoss();
       else intents.clear();
+      staffChanges.clearAll();
       setRevision((value) => value + 1);
     },
-    [services, intents],
+    [services, intents, staffChanges],
   );
   const acceptUser = useCallback(
     (user: SessionUser) => {
@@ -155,7 +159,7 @@ export function ApiProvider({
   }
   return (
     <ApiContext.Provider
-      value={{ services, intents, session, revision, refreshSession, login, logout }}
+      value={{ services, intents, staffChanges, session, revision, refreshSession, login, logout }}
     >
       {children}
     </ApiContext.Provider>

@@ -8,6 +8,7 @@ import {
 } from '@/features/staff/appointments/staff-appointments';
 import type { StaffAppointment, StaffAppointmentDetail } from '@/services/staff-contracts';
 import { ApiError } from '@/services/api/errors';
+import { StaffChangeIntentStore } from '@/services/api/staff-change-intent';
 
 const services = vi.hoisted(() => ({
   staffContext: vi.fn(),
@@ -16,9 +17,11 @@ const services = vi.hoisted(() => ({
   cancelStaffAppointment: vi.fn(),
   recordStaffOutcome: vi.fn(),
 }));
+const staffChanges = new StaffChangeIntentStore();
 vi.mock('@/features/api/api-provider', () => ({
   useApi: () => ({
     services,
+    staffChanges,
     session: { status: 'authenticated', user: { id: 'staff-1', role: 'STAFF' } },
   }),
 }));
@@ -49,6 +52,7 @@ const detail: StaffAppointmentDetail = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  staffChanges.clearAll();
   services.staffContext.mockResolvedValue({
     timezone: 'Asia/Ho_Chi_Minh',
     businessDate: '2026-10-20',
@@ -290,6 +294,96 @@ describe('staff assigned appointments', () => {
       'COMPLETED',
     ]);
     expect(await screen.findByText('Đã cập nhật kết quả')).toBeVisible();
+  });
+
+  it('releases an unresolved outcome after an exact retry is rejected as not ended', async () => {
+    const user = userEvent.setup();
+    services.recordStaffOutcome
+      .mockRejectedValueOnce(new ApiError('TIMEOUT'))
+      .mockRejectedValueOnce(new ApiError('APPOINTMENT_NOT_ENDED', 409));
+    const reloaded = vi
+      .fn()
+      .mockRejectedValueOnce(new ApiError('SERVICE_UNAVAILABLE', 503))
+      .mockResolvedValue(detail);
+    render(<StaffAppointmentActions appointment={detail} onReload={reloaded} />);
+
+    await user.click(screen.getByRole('button', { name: 'Đánh dấu hoàn thành' }));
+    await user.click(screen.getByRole('button', { name: 'Xác nhận hoàn thành' }));
+    await user.click(await screen.findByRole('button', { name: 'Thử lại thao tác này' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('buổi hẹn kết thúc');
+    await waitFor(() => expect(reloaded).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('button', { name: 'Thử lại thao tác này' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Hủy lịch' })).toBeEnabled();
+    expect(services.recordStaffOutcome.mock.calls.map((call) => call[1])).toEqual([
+      'COMPLETED',
+      'COMPLETED',
+    ]);
+  });
+
+  it('does not claim its rejected outcome succeeded when a later detail read shows the same status', async () => {
+    const user = userEvent.setup();
+    services.recordStaffOutcome.mockRejectedValue(new ApiError('APPOINTMENT_NOT_ENDED', 409));
+    const reloaded = vi.fn().mockResolvedValue({ ...detail, status: 'COMPLETED' });
+    render(<StaffAppointmentActions appointment={detail} onReload={reloaded} />);
+
+    await user.click(screen.getByRole('button', { name: 'Đánh dấu hoàn thành' }));
+    await user.click(screen.getByRole('button', { name: 'Xác nhận hoàn thành' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('buổi hẹn kết thúc');
+    expect(screen.queryByText('Đã cập nhật kết quả')).not.toBeInTheDocument();
+    expect(staffChanges.get('staff-1', 'appointment-1')).toBeNull();
+  });
+
+  it('releases an unresolved cancellation after its exact retry passes the deadline', async () => {
+    const user = userEvent.setup();
+    services.cancelStaffAppointment
+      .mockRejectedValueOnce(new ApiError('TIMEOUT'))
+      .mockRejectedValueOnce(new ApiError('CANCELLATION_DEADLINE_PASSED', 409));
+    const reloaded = vi
+      .fn()
+      .mockRejectedValueOnce(new ApiError('SERVICE_UNAVAILABLE', 503))
+      .mockResolvedValue(detail);
+    render(<StaffAppointmentActions appointment={detail} onReload={reloaded} />);
+
+    await user.click(screen.getByRole('button', { name: 'Hủy lịch' }));
+    await user.click(screen.getByRole('button', { name: 'Xác nhận hủy' }));
+    await user.click(await screen.findByRole('button', { name: 'Thử lại thao tác này' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('quá thời hạn hủy');
+    await waitFor(() => expect(reloaded).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('button', { name: 'Thử lại thao tác này' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Đánh dấu hoàn thành' })).toBeEnabled();
+  });
+
+  it('retains the owned pending outcome across A to B to A navigation', async () => {
+    const user = userEvent.setup();
+    const second = { ...detail, id: 'appointment-2', studentName: 'Sinh viên B' };
+    services.staffAppointment.mockImplementation(async (id: string) =>
+      id === second.id ? second : detail,
+    );
+    services.recordStaffOutcome.mockReturnValue(new Promise(() => {}));
+    const view = render(<StaffAppointmentDetailView appointmentId="appointment-1" />);
+    await screen.findByText('Nội dung trao đổi riêng');
+    await user.click(screen.getByRole('button', { name: 'Đánh dấu hoàn thành' }));
+    await user.click(screen.getByRole('button', { name: 'Xác nhận hoàn thành' }));
+    await waitFor(() => expect(services.recordStaffOutcome).toHaveBeenCalledOnce());
+
+    view.rerender(<StaffAppointmentDetailView appointmentId="appointment-2" />);
+    expect(await screen.findByText('Sinh viên B')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Thử lại thao tác này' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Hủy lịch' })).toBeEnabled();
+    expect(staffChanges.get('staff-2', 'appointment-1')).toBeNull();
+    view.rerender(<StaffAppointmentDetailView appointmentId="appointment-1" />);
+    await screen.findByText('Nội dung trao đổi riêng');
+    expect(screen.getByRole('button', { name: 'Thử lại thao tác này' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Đánh dấu vắng mặt' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Thử lại thao tác này' }));
+    await waitFor(() => expect(services.recordStaffOutcome).toHaveBeenCalledTimes(2));
+    expect(services.recordStaffOutcome.mock.calls.map((call) => call.slice(0, 2))).toEqual([
+      ['appointment-1', 'COMPLETED'],
+      ['appointment-1', 'COMPLETED'],
+    ]);
   });
 
   it('reloads authoritative detail after an appointment-state conflict', async () => {

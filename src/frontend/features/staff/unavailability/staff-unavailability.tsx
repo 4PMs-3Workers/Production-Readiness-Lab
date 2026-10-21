@@ -108,7 +108,12 @@ export function StaffUnavailabilityManager() {
       if (cause instanceof ApiError && cause.unknownOutcome) {
         replayBody.current = body;
         setRetryCreate(true);
-      } else if (cause instanceof ApiError) {
+      } else if (
+        cause instanceof ApiError &&
+        (!replayBody.current || cause.code === 'UNAVAILABILITY_CONFLICT')
+      ) {
+        // Only the conflict is known to follow the exact-period replay lookup.
+        // CSRF and other pre-replay failures cannot resolve an earlier timeout.
         replayBody.current = null;
         setRetryCreate(false);
       }

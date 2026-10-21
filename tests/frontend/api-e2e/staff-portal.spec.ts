@@ -187,11 +187,34 @@ test('purpose preferences are saved and unavailability uses business time and ex
   harness('arm-loss');
   await page.getByRole('button', { name: 'Thêm khoảng thời gian', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Thử lại khoảng này', exact: true })).toBeVisible();
+  const committed = JSON.parse(harness('inspect-staff-portal', '--id', seeded.cancelId)) as {
+    periodIds: string[];
+    STAFF_UNAVAILABILITY_CREATED: number;
+  };
+  expect(committed.periodIds).toHaveLength(1);
+  expect(committed.STAFF_UNAVAILABILITY_CREATED).toBe(1);
+  await page.route(
+    '**/api/v1/staff/me/unavailability',
+    async (route) => {
+      expect(route.request().method()).toBe('POST');
+      await route.fulfill({
+        status: 403,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: { code: 'INVALID_CSRF' } }),
+      });
+    },
+    { times: 1 },
+  );
+  await page.getByRole('button', { name: 'Thử lại khoảng này', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Phiên bảo vệ yêu cầu' })).toBeVisible();
+  await expect(page.getByLabel('Bắt đầu')).toBeDisabled();
+  await expect(page.getByLabel('Kết thúc')).toBeDisabled();
   await page.getByRole('button', { name: 'Thử lại khoảng này', exact: true }).click();
   await expect(page.getByText('Đã thêm khoảng thời gian không nhận lịch.')).toBeVisible();
   expect(JSON.parse(harness('inspect-staff-portal', '--id', seeded.cancelId))).toMatchObject({
     appointmentStatus: 'UPCOMING',
     unavailability: 1,
+    periodIds: committed.periodIds,
     STAFF_UNAVAILABILITY_CREATED: 1,
   });
   await expect(page.getByRole('list', { name: 'Các khoảng không nhận lịch' })).toContainText(

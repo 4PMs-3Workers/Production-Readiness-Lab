@@ -1,12 +1,20 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type KeyboardEvent,
+} from 'react';
 import { useApi } from '@/features/api/api-provider';
 import { ApiFeedback } from '@/features/api/api-feedback';
 import { Pagination } from '@/features/api/api-booking-fields';
 import { useApiResource } from '@/features/api/use-api-resource';
 import { ApiError, errorMessage } from '@/services/api/errors';
+import type { StaffChangeIntent } from '@/services/api/staff-change-intent';
 import type {
   StaffAppointment,
   StaffAppointmentDetail,
@@ -29,13 +37,6 @@ const STATUS_LABELS: Record<StaffAppointmentStatus, string> = {
   COMPLETED: 'Đã hoàn thành',
   NO_SHOW: 'Vắng mặt',
 };
-
-interface StaffChange {
-  readonly appointmentId: string;
-  readonly userId: string;
-  readonly status: 'CANCELLED' | StaffOutcomeStatus;
-  readonly reason?: string;
-}
 
 function useStaffContext() {
   const { services } = useApi();
@@ -334,7 +335,7 @@ export function StaffAppointmentActions({
   appointment: StaffAppointmentDetail;
   onReload: (signal: AbortSignal) => Promise<StaffAppointmentDetail>;
 }) {
-  const { services, session } = useApi();
+  const { services, session, staffChanges } = useApi();
   const expectedUserId =
     session.status === 'authenticated' && session.user.role === 'STAFF' ? session.user.id : null;
   const [showCancel, setShowCancel] = useState(false);
@@ -343,7 +344,12 @@ export function StaffAppointmentActions({
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [unresolved, setUnresolved] = useState<StaffChange | null>(null);
+  const savedChange = useSyncExternalStore(
+    staffChanges.subscribe,
+    () => staffChanges.get(expectedUserId, appointment.id),
+    () => null,
+  );
+  const unresolved = savedChange?.change ?? null;
   const [refreshRequired, setRefreshRequired] = useState(false);
   const activeRequest = useRef<AbortController | null>(null);
   const cancelTrigger = useRef<HTMLButtonElement>(null);
@@ -355,7 +361,15 @@ export function StaffAppointmentActions({
   const outcomeDialog = useRef<HTMLElement>(null);
   const cancellable = appointment.status === 'UPCOMING' || appointment.status === 'CHANGE_PENDING';
   const actionsLocked = pending || unresolved !== null || refreshRequired;
-  useEffect(() => () => activeRequest.current?.abort(), []);
+  useEffect(
+    () => () => {
+      if (activeRequest.current) {
+        staffChanges.markUnknown(expectedUserId, appointment.id);
+        activeRequest.current.abort();
+      }
+    },
+    [staffChanges, expectedUserId, appointment.id],
+  );
   useEffect(() => {
     if (showCancel) cancelReason.current?.focus();
   }, [showCancel]);
@@ -410,8 +424,8 @@ export function StaffAppointmentActions({
     if (outcomeToConfirm) closeOutcome(true);
   }
 
-  function confirmLatest(change: StaffChange) {
-    setUnresolved(null);
+  function confirmLatest(change: StaffChangeIntent) {
+    staffChanges.clear(change.userId, change.appointmentId);
     setRefreshRequired(false);
     setMessage(change.status === 'CANCELLED' ? 'Đã hủy lịch' : 'Đã cập nhật kết quả');
     setError('');
@@ -420,34 +434,37 @@ export function StaffAppointmentActions({
   }
 
   function reconcile(
-    change: StaffChange,
+    change: StaffChangeIntent,
     latest: StaffAppointmentDetail | null,
     cause: unknown,
-    stateConflict: boolean,
+    resolvedRejection: boolean,
   ) {
+    if (resolvedRejection) {
+      dismissDialog();
+      staffChanges.clear(change.userId, change.appointmentId);
+      setRefreshRequired(latest === null);
+      setError(errorMessage(cause));
+      return;
+    }
     if (latest?.status === change.status) {
       confirmLatest(change);
       return;
     }
     dismissDialog();
-    if (stateConflict) {
-      setUnresolved(null);
-      setRefreshRequired(latest === null);
-      setError(errorMessage(cause));
-      return;
-    }
     if (latest && ['CANCELLED', 'COMPLETED', 'NO_SHOW'].includes(latest.status)) {
-      setUnresolved(null);
+      staffChanges.clear(change.userId, change.appointmentId);
       setError('Lịch đã có trạng thái khác. Vui lòng kiểm tra chi tiết mới nhất.');
       return;
     }
-    setUnresolved(change);
+    staffChanges.markUnknown(change.userId, change.appointmentId);
     setError(errorMessage(cause));
   }
 
-  async function runChange(change: StaffChange) {
+  async function runChange(change: StaffChangeIntent) {
     if (pending || change.appointmentId !== appointment.id || change.userId !== expectedUserId)
       return;
+    const wasUnknown = staffChanges.get(change.userId, change.appointmentId)?.phase === 'unknown';
+    if (!staffChanges.begin(change)) return;
     const controller = new AbortController();
     activeRequest.current = controller;
     setPending(true);
@@ -472,11 +489,17 @@ export function StaffAppointmentActions({
     } catch (cause) {
       if (controller.signal.aborted || (cause instanceof Error && cause.name === 'AbortError'))
         return;
-      if (cause instanceof ApiError && cause.code === 'ACCOUNT_CHANGED') return;
-      const stateConflict =
-        cause instanceof ApiError && cause.code === 'APPOINTMENT_STATE_CONFLICT';
+      if (cause instanceof ApiError && cause.code === 'ACCOUNT_CHANGED') {
+        staffChanges.clearAll();
+        return;
+      }
+      const resolvedRejection =
+        cause instanceof ApiError &&
+        (cause.code === 'APPOINTMENT_STATE_CONFLICT' ||
+          (change.status !== 'CANCELLED' && cause.code === 'APPOINTMENT_NOT_ENDED') ||
+          (change.status === 'CANCELLED' && cause.code === 'CANCELLATION_DEADLINE_PASSED'));
       const uncertain = accepted || (cause instanceof ApiError && cause.unknownOutcome);
-      if (uncertain || stateConflict) {
+      if (uncertain || resolvedRejection) {
         let latest: StaffAppointmentDetail | null = null;
         try {
           latest = await onReload(controller.signal);
@@ -484,8 +507,10 @@ export function StaffAppointmentActions({
           // Keep the original operation until an authorized detail read succeeds.
         }
         if (controller.signal.aborted) return;
-        reconcile(change, latest, cause, stateConflict);
+        reconcile(change, latest, cause, resolvedRejection);
       } else {
+        if (wasUnknown) staffChanges.markUnknown(change.userId, change.appointmentId);
+        else staffChanges.clear(change.userId, change.appointmentId);
         setError(errorMessage(cause));
         if (change.status !== 'CANCELLED') closeOutcome(true);
       }
@@ -495,7 +520,7 @@ export function StaffAppointmentActions({
     }
   }
 
-  function confirmChange(status: StaffChange['status'], reason?: string) {
+  function confirmChange(status: StaffChangeIntent['status'], reason?: string) {
     if (pending) return;
     if (!expectedUserId) {
       setError(errorMessage(new ApiError('ACCOUNT_CHANGED', 401)));
@@ -534,7 +559,7 @@ export function StaffAppointmentActions({
         </p>
       )}
       {message && <p role="status">{message}</p>}
-      {(unresolved || refreshRequired) && (
+      {(savedChange?.phase === 'unknown' || refreshRequired) && (
         <div className={staffStyles.recovery}>
           <p>
             {unresolved
