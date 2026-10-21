@@ -1,5 +1,7 @@
 """Nonlocking, bounded discovery; a cursor is a fairness hint, never a work queue."""
 
+from datetime import datetime
+
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,7 +14,11 @@ from app.worker.resources import validate_schema
 
 
 async def discover(
-    db: AsyncSession, settings: Settings, *, after: Candidate | None = None
+    db: AsyncSession,
+    settings: Settings,
+    *,
+    after: Candidate | None = None,
+    due_before: datetime | None = None,
 ) -> ScanSnapshot:
     async with read_transaction(db, settings):
         await validate_schema(db, settings)
@@ -30,6 +36,8 @@ async def discover(
             await db.execute(select(func.count(), func.min(backlog.c.expires_at)))
         ).one()
         statement = select(ChangeProposal.id, ChangeProposal.expires_at).where(*due)
+        if due_before is not None:
+            statement = statement.where(ChangeProposal.expires_at <= due_before)
         if after is not None:
             statement = statement.where(
                 or_(

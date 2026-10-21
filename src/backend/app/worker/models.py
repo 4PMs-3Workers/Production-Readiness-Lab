@@ -66,6 +66,10 @@ class WorkerState:
     expired: int = 0
     noops: int = 0
     failed: int = 0
+    selected: int = 0
+    batch_expired: int = 0
+    batch_noops: int = 0
+    batch_failed: int = 0
     reporting_failures: int = 0
     backlog_count: int | None = None
     backlog_capped: bool = False
