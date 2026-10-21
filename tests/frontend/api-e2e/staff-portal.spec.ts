@@ -61,7 +61,10 @@ test('staff can cancel an assigned appointment and record a past appointment out
   await page
     .getByRole('link', { name: new RegExp(`Xem chi tiết lịch ${seeded.cancelId}`) })
     .click();
-  await expect(page.getByRole('heading', { name: 'Tư vấn học tập kiểm thử' })).toBeVisible();
+  await expect(page).toHaveURL(`/staff/appointments/${seeded.cancelId}`);
+  await expect(
+    page.getByRole('heading', { name: 'Tư vấn học tập kiểm thử', level: 1 }),
+  ).toBeVisible();
   await screenshot(page, testInfo, 'appointment-detail');
   await page.getByRole('button', { name: 'Hủy lịch', exact: true }).click();
   await page.getByLabel('Lý do hủy (không bắt buộc)').fill('Lý do giả lập');
@@ -230,7 +233,8 @@ test('staff absence changes student slots and deletion restores them without cha
   await page.getByLabel('Email', { exact: true }).fill('student@frontend.example.invalid');
   await page.getByLabel('Mật khẩu', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Tài khoản chưa được hỗ trợ' })).toBeVisible();
+  await expect(page).toHaveURL('/home');
+  await expect(page.getByRole('heading', { name: /Chào mừng/ })).toBeVisible();
 
   const slotStart = new Date(`${seeded.nextDate}T08:00:00+07:00`).getTime();
   const availableBefore = await studentAvailability(
