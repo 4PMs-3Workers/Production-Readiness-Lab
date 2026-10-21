@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
 from app.core.database import create_database_engine
-from app.core.transactions import read_transaction
+from app.core.transactions import mysql_error_code, read_transaction
 
 SUPPORTED_SCHEMA_REVISIONS = frozenset({"20261019_1200_proposal_replay"})
 CleanupDeadline = Callable[[], float | None]
@@ -32,7 +32,14 @@ def earlier_deadline(deadline: float, provider: CleanupDeadline | None) -> float
 
 async def validate_schema(db: AsyncSession, settings: Settings) -> None:
     """Read only; the caller owns the transaction and its deadline."""
-    revisions = (await db.execute(text("SELECT version_num FROM alembic_version"))).scalars().all()
+    try:
+        revisions = (
+            (await db.execute(text("SELECT version_num FROM alembic_version"))).scalars().all()
+        )
+    except SQLAlchemyError as error:
+        if mysql_error_code(error) == 1146:
+            raise SchemaCompatibilityError() from None
+        raise
     if (
         len(revisions) != 1
         or revisions[0] not in SUPPORTED_SCHEMA_REVISIONS
