@@ -374,6 +374,36 @@ async def operate(args):
                             "outcomeId": str(past_id),
                             "futureDate": str(future_date),
                             "nextDate": str(future_date + timedelta(days=1)),
+                            "staffId": fixture["staff"],
+                            "purposeId": fixture["purpose"],
+                        }
+                    )
+                )
+            elif args.action == "inspect-staff-portal":
+                appointment = await db.get(Appointment, UUID(args.id))
+                print(
+                    json.dumps(
+                        {
+                            "appointmentStatus": appointment.status if appointment else None,
+                            "unavailability": await db.scalar(
+                                select(func.count())
+                                .select_from(StaffUnavailability)
+                                .where(StaffUnavailability.staff_id == UUID(fixture["staff"]))
+                            ),
+                            **{
+                                action: await db.scalar(
+                                    select(func.count())
+                                    .select_from(AuditEvent)
+                                    .where(
+                                        AuditEvent.action == action,
+                                        AuditEvent.actor_id == UUID(fixture["staff"]),
+                                    )
+                                )
+                                for action in (
+                                    "STAFF_UNAVAILABILITY_CREATED",
+                                    "STAFF_UNAVAILABILITY_DELETED",
+                                )
+                            },
                         }
                     )
                 )
@@ -517,6 +547,7 @@ def main():
             "settings-restore",
             "seed-timezone-appointment",
             "seed-staff-appointments",
+            "inspect-staff-portal",
             "cleanup",
         ),
     )

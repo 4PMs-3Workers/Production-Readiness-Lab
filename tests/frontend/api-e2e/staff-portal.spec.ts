@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
@@ -27,13 +27,27 @@ async function login(page: Page, account = 'staff') {
   await expect(page.getByRole('heading', { name: 'Lịch được giao' })).toBeVisible();
 }
 
+async function screenshot(page: Page, testInfo: TestInfo, name: string) {
+  const path = testInfo.outputPath(`staff-${name}.png`);
+  await page.screenshot({ path, fullPage: true });
+  await testInfo.attach(`staff-${name}`, { path, contentType: 'image/png' });
+}
+
+async function studentAvailability(page: Page, purposeId: string, staffId: string, date: string) {
+  const response = await page.request.get('/api/v1/availability', {
+    params: { purpose_id: purposeId, staff_id: staffId, date },
+  });
+  expect(response.status()).toBe(200);
+  return (await response.json()) as { slots: { starts_at: string }[] };
+}
+
 test.beforeEach(() => {
   harness('reset');
 });
 
 test('staff can cancel an assigned appointment and record a past appointment outcome', async ({
   page,
-}) => {
+}, testInfo) => {
   const seeded = JSON.parse(harness('seed-staff-appointments')) as {
     cancelId: string;
     outcomeId: string;
@@ -43,9 +57,12 @@ test('staff can cancel an assigned appointment and record a past appointment out
   await expect(page.getByRole('heading', { name: 'Lịch được giao' })).toBeVisible();
   await expect(page.getByText(seeded.cancelId, { exact: true })).toBeVisible();
   await expect(page.getByText(seeded.outcomeId, { exact: true })).toBeVisible();
+  await screenshot(page, testInfo, 'appointments-list');
   await page
     .getByRole('link', { name: new RegExp(`Xem chi tiết lịch ${seeded.cancelId}`) })
     .click();
+  await expect(page.getByRole('heading', { name: 'Tư vấn học tập kiểm thử' })).toBeVisible();
+  await screenshot(page, testInfo, 'appointment-detail');
   await page.getByRole('button', { name: 'Hủy lịch', exact: true }).click();
   await page.getByLabel('Lý do hủy (không bắt buộc)').fill('Lý do giả lập');
   await page.getByRole('button', { name: 'Xác nhận hủy', exact: true }).click();
@@ -110,8 +127,9 @@ test('an expired staff session hides private detail and a new account cannot reu
 
 test('purpose preferences are saved and unavailability uses business time and exact replay', async ({
   page,
-}) => {
+}, testInfo) => {
   const seeded = JSON.parse(harness('seed-staff-appointments')) as {
+    cancelId: string;
     futureDate: string;
     nextDate: string;
   };
@@ -119,6 +137,7 @@ test('purpose preferences are saved and unavailability uses business time and ex
   await page.goto('/staff/preferences');
   const accepting = page.getByRole('switch', { name: 'Ngừng nhận Tư vấn học tập kiểm thử' });
   await expect(accepting).toBeChecked();
+  await screenshot(page, testInfo, 'preferences');
   await accepting.click();
   await expect(
     page.getByRole('switch', { name: 'Bật nhận Tư vấn học tập kiểm thử' }),
@@ -147,11 +166,18 @@ test('purpose preferences are saved and unavailability uses business time and ex
   await login(page);
 
   await page.goto('/staff/unavailability');
+  await expect(page.getByRole('heading', { name: 'Thời gian không nhận lịch' })).toBeVisible();
+  await screenshot(page, testInfo, 'unavailability');
   await page.getByLabel('Bắt đầu').fill(`${seeded.futureDate}T09:30`);
   await page.getByLabel('Kết thúc').fill(`${seeded.futureDate}T10:30`);
   await page.getByRole('button', { name: 'Thêm khoảng thời gian', exact: true }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'đang có lịch hẹn' })).toBeVisible();
   await expect(page.getByLabel('Bắt đầu')).toHaveValue(`${seeded.futureDate}T09:30`);
+  expect(JSON.parse(harness('inspect-staff-portal', '--id', seeded.cancelId))).toMatchObject({
+    appointmentStatus: 'UPCOMING',
+    unavailability: 0,
+    STAFF_UNAVAILABILITY_CREATED: 0,
+  });
 
   await page.getByLabel('Bắt đầu').fill(`${seeded.nextDate}T23:00`);
   await page.getByLabel('Kết thúc').fill(`${shiftDate(seeded.nextDate, 1)}T02:00`);
@@ -160,6 +186,11 @@ test('purpose preferences are saved and unavailability uses business time and ex
   await expect(page.getByRole('button', { name: 'Thử lại khoảng này', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Thử lại khoảng này', exact: true }).click();
   await expect(page.getByText('Đã thêm khoảng thời gian không nhận lịch.')).toBeVisible();
+  expect(JSON.parse(harness('inspect-staff-portal', '--id', seeded.cancelId))).toMatchObject({
+    appointmentStatus: 'UPCOMING',
+    unavailability: 1,
+    STAFF_UNAVAILABILITY_CREATED: 1,
+  });
   await expect(page.getByRole('list', { name: 'Các khoảng không nhận lịch' })).toContainText(
     'Asia/Ho_Chi_Minh',
   );
@@ -178,4 +209,84 @@ test('purpose preferences are saved and unavailability uses business time and ex
   await page.goto('/staff/unavailability');
   await page.getByRole('button', { name: 'Xóa khoảng thời gian' }).click();
   await expect(page.getByText('Đã xóa khoảng thời gian không nhận lịch.')).toBeVisible();
+  expect(JSON.parse(harness('inspect-staff-portal', '--id', seeded.cancelId))).toMatchObject({
+    appointmentStatus: 'UPCOMING',
+    unavailability: 0,
+    STAFF_UNAVAILABILITY_CREATED: 1,
+    STAFF_UNAVAILABILITY_DELETED: 1,
+  });
+});
+
+test('staff absence changes student slots and deletion restores them without changing existing appointments', async ({
+  page,
+}) => {
+  const seeded = JSON.parse(harness('seed-staff-appointments')) as {
+    cancelId: string;
+    nextDate: string;
+    staffId: string;
+    purposeId: string;
+  };
+  await page.goto('/login');
+  await page.getByLabel('Email', { exact: true }).fill('student@frontend.example.invalid');
+  await page.getByLabel('Mật khẩu', { exact: true }).fill(password);
+  await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Tài khoản chưa được hỗ trợ' })).toBeVisible();
+
+  const slotStart = new Date(`${seeded.nextDate}T08:00:00+07:00`).getTime();
+  const availableBefore = await studentAvailability(
+    page,
+    seeded.purposeId,
+    seeded.staffId,
+    seeded.nextDate,
+  );
+  expect(availableBefore.slots.map((slot) => Date.parse(slot.starts_at))).toContain(slotStart);
+
+  await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
+  await login(page);
+  await page.goto('/staff/unavailability');
+  await page.getByLabel('Bắt đầu').fill(`${seeded.nextDate}T08:00`);
+  await page.getByLabel('Kết thúc').fill(`${seeded.nextDate}T09:00`);
+  await page.getByRole('button', { name: 'Thêm khoảng thời gian', exact: true }).click();
+  await expect(page.getByText('Đã thêm khoảng thời gian không nhận lịch.')).toBeVisible();
+  expect(JSON.parse(harness('inspect-staff-portal', '--id', seeded.cancelId))).toMatchObject({
+    appointmentStatus: 'UPCOMING',
+    unavailability: 1,
+    STAFF_UNAVAILABILITY_CREATED: 1,
+  });
+
+  await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
+  await page.getByLabel('Email', { exact: true }).fill('student@frontend.example.invalid');
+  await page.getByLabel('Mật khẩu', { exact: true }).fill(password);
+  await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click();
+  const unavailable = await studentAvailability(
+    page,
+    seeded.purposeId,
+    seeded.staffId,
+    seeded.nextDate,
+  );
+  expect(unavailable.slots.map((slot) => Date.parse(slot.starts_at))).not.toContain(slotStart);
+
+  await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
+  await login(page);
+  await page.goto('/staff/unavailability');
+  await page.getByRole('button', { name: 'Xóa khoảng thời gian' }).click();
+  await expect(page.getByText('Đã xóa khoảng thời gian không nhận lịch.')).toBeVisible();
+  expect(JSON.parse(harness('inspect-staff-portal', '--id', seeded.cancelId))).toMatchObject({
+    appointmentStatus: 'UPCOMING',
+    unavailability: 0,
+    STAFF_UNAVAILABILITY_CREATED: 1,
+    STAFF_UNAVAILABILITY_DELETED: 1,
+  });
+
+  await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
+  await page.getByLabel('Email', { exact: true }).fill('student@frontend.example.invalid');
+  await page.getByLabel('Mật khẩu', { exact: true }).fill(password);
+  await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click();
+  const restored = await studentAvailability(
+    page,
+    seeded.purposeId,
+    seeded.staffId,
+    seeded.nextDate,
+  );
+  expect(restored.slots.map((slot) => Date.parse(slot.starts_at))).toContain(slotStart);
 });

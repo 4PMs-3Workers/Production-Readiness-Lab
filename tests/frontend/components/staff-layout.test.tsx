@@ -31,7 +31,19 @@ describe('StaffPortalLayout', () => {
     expect(
       screen.getByRole('link', { name: 'HUS — Cổng tư vấn — Trang nhân viên' }),
     ).toHaveAttribute('href', '/staff/appointments');
+    expect(screen.getByRole('link', { name: 'Trang chủ' })).toHaveAttribute(
+      'href',
+      '/staff/appointments',
+    );
+    expect(screen.getByRole('link', { name: 'Không gian nhân viên' })).toHaveAttribute(
+      'href',
+      '/staff/appointments',
+    );
     expect(screen.getByRole('navigation', { name: 'Điều hướng nhân viên' })).toBeVisible();
+    expect(screen.getByRole('link', { name: /Lịch được giao/ })).toHaveAttribute(
+      'href',
+      '/staff/appointments',
+    );
     expect(screen.getByRole('link', { name: /Lịch được giao/ })).toHaveAttribute(
       'aria-current',
       'page',

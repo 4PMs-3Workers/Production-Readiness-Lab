@@ -53,7 +53,8 @@ describe('staff unavailability', () => {
   it('creates an offset-bearing cross-day interval and reloads the list', async () => {
     const user = userEvent.setup();
     render(<StaffUnavailabilityManager />);
-    expect(await screen.findByText(/Giờ Việt Nam/)).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Thời gian không nhận lịch' })).toBeVisible();
+    expect(screen.getAllByText(/Giờ Việt Nam/).length).toBeGreaterThan(0);
     enterCrossDayInterval();
     await user.click(screen.getByRole('button', { name: 'Thêm khoảng thời gian' }));
 
@@ -75,7 +76,7 @@ describe('staff unavailability', () => {
       new ApiError('UNAVAILABILITY_CONFLICT', 409),
     );
     render(<StaffUnavailabilityManager />);
-    await screen.findByText(/Giờ Việt Nam/);
+    await screen.findByRole('heading', { name: 'Thời gian không nhận lịch' });
     enterCrossDayInterval();
     await user.click(screen.getByRole('button', { name: 'Thêm khoảng thời gian' }));
 
@@ -90,7 +91,7 @@ describe('staff unavailability', () => {
       .mockRejectedValueOnce(new ApiError('TIMEOUT'))
       .mockResolvedValueOnce(period);
     render(<StaffUnavailabilityManager />);
-    await screen.findByText(/Giờ Việt Nam/);
+    await screen.findByRole('heading', { name: 'Thời gian không nhận lịch' });
     enterCrossDayInterval();
     await user.click(screen.getByRole('button', { name: 'Thêm khoảng thời gian' }));
     await user.click(await screen.findByRole('button', { name: 'Thử lại khoảng này' }));
@@ -99,6 +100,65 @@ describe('staff unavailability', () => {
     expect(services.createStaffUnavailability.mock.calls[0].slice(0, 2)).toEqual(
       services.createStaffUnavailability.mock.calls[1].slice(0, 2),
     );
+  });
+
+  it('unlocks the same interval for correction after an exact replay is definitively rejected', async () => {
+    const user = userEvent.setup();
+    services.createStaffUnavailability
+      .mockRejectedValueOnce(new ApiError('TIMEOUT'))
+      .mockRejectedValueOnce(new ApiError('UNAVAILABILITY_CONFLICT', 409));
+    render(<StaffUnavailabilityManager />);
+    await screen.findByRole('heading', { name: 'Thời gian không nhận lịch' });
+    enterCrossDayInterval();
+    await user.click(screen.getByRole('button', { name: 'Thêm khoảng thời gian' }));
+    await user.click(await screen.findByRole('button', { name: 'Thử lại khoảng này' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('đang có lịch hẹn');
+    expect(screen.getByLabelText('Bắt đầu')).toBeEnabled();
+    expect(screen.getByLabelText('Kết thúc')).toBeEnabled();
+    expect(screen.getByLabelText('Bắt đầu')).toHaveValue('2026-10-20T23:00');
+    expect(screen.getByRole('button', { name: 'Thêm khoảng thời gian' })).toBeVisible();
+  });
+
+  it('filters owned periods by an offset-bearing business-time interval', async () => {
+    const user = userEvent.setup();
+    render(<StaffUnavailabilityManager />);
+    await screen.findByRole('heading', { name: 'Thời gian không nhận lịch' });
+    fireEvent.change(screen.getByLabelText('Lọc từ'), {
+      target: { value: '2026-10-20T23:00' },
+    });
+    fireEvent.change(screen.getByLabelText('Lọc đến'), {
+      target: { value: '2026-10-21T02:00' },
+    });
+    await user.click(screen.getByRole('button', { name: 'Áp dụng bộ lọc' }));
+
+    await waitFor(() =>
+      expect(services.staffUnavailability).toHaveBeenLastCalledWith(
+        {
+          from: '2026-10-20T23:00:00+07:00',
+          to: '2026-10-21T02:00:00+07:00',
+          page: 1,
+          pageSize: 20,
+        },
+        { signal: expect.any(AbortSignal) },
+      ),
+    );
+  });
+
+  it('rejects an inverted filter interval before requesting periods', async () => {
+    const user = userEvent.setup();
+    render(<StaffUnavailabilityManager />);
+    await screen.findByRole('heading', { name: 'Thời gian không nhận lịch' });
+    fireEvent.change(screen.getByLabelText('Lọc từ'), {
+      target: { value: '2026-10-21T02:00' },
+    });
+    fireEvent.change(screen.getByLabelText('Lọc đến'), {
+      target: { value: '2026-10-20T23:00' },
+    });
+    await user.click(screen.getByRole('button', { name: 'Áp dụng bộ lọc' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Lọc đến phải sau Lọc từ');
+    expect(services.staffUnavailability).toHaveBeenCalledTimes(1);
   });
 
   it('refreshes after an unknown delete without claiming success from a paginated list', async () => {

@@ -26,6 +26,10 @@ export function StaffUnavailabilityManager() {
   const expectedUserId =
     session.status === 'authenticated' && session.user.role === 'STAFF' ? session.user.id : null;
   const [page, setPage] = useState(1);
+  const [filterFromDraft, setFilterFromDraft] = useState('');
+  const [filterToDraft, setFilterToDraft] = useState('');
+  const [filter, setFilter] = useState<{ from?: string; to?: string }>({});
+  const [filterError, setFilterError] = useState('');
   const [start, setStart] = useState('');
   const [end, setEnd] = useState('');
   const [pending, setPending] = useState(false);
@@ -40,10 +44,22 @@ export function StaffUnavailabilityManager() {
   );
   const context = useApiResource('staff-business-context', contextLoad);
   const listLoad = useCallback(
-    (signal: AbortSignal) => services.staffUnavailability({ page, pageSize: 20 }, { signal }),
-    [services, page],
+    (signal: AbortSignal) =>
+      services.staffUnavailability(
+        {
+          page,
+          pageSize: 20,
+          ...(filter.from ? { from: filter.from } : {}),
+          ...(filter.to ? { to: filter.to } : {}),
+        },
+        { signal },
+      ),
+    [services, page, filter.from, filter.to],
   );
-  const list = useApiResource(`staff-unavailability:${page}`, listLoad);
+  const list = useApiResource(
+    `staff-unavailability:${page}:${filter.from ?? ''}:${filter.to ?? ''}`,
+    listLoad,
+  );
   useEffect(() => () => activeRequest.current?.abort(), []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -92,6 +108,9 @@ export function StaffUnavailabilityManager() {
       if (cause instanceof ApiError && cause.unknownOutcome) {
         replayBody.current = body;
         setRetryCreate(true);
+      } else if (cause instanceof ApiError) {
+        replayBody.current = null;
+        setRetryCreate(false);
       }
       setError(errorMessage(cause));
     } finally {
@@ -150,6 +169,19 @@ export function StaffUnavailabilityManager() {
     );
 
   const timezone = context.state.data.timezone;
+  function applyFilter() {
+    try {
+      const from = filterFromDraft ? localDateTimeToOffset(filterFromDraft, timezone) : undefined;
+      const to = filterToDraft ? localDateTimeToOffset(filterToDraft, timezone) : undefined;
+      if (from && to && Date.parse(from) >= Date.parse(to))
+        throw new RangeError('Lọc đến phải sau Lọc từ.');
+      setFilterError('');
+      setFilter({ from, to });
+      setPage(1);
+    } catch (cause) {
+      setFilterError(cause instanceof Error ? cause.message : 'Khoảng lọc chưa hợp lệ.');
+    }
+  }
   return (
     <div className={styles.booking}>
       <div className={styles.pageHeading}>
@@ -160,6 +192,35 @@ export function StaffUnavailabilityManager() {
         </div>
       </div>
       <p className={staffStyles.notice}>Lịch hẹn hiện có không bị xóa hoặc thay đổi.</p>
+      <section className={staffStyles.filters} aria-label="Lọc khoảng không nhận lịch">
+        <label>
+          Lọc từ
+          <input
+            type="datetime-local"
+            value={filterFromDraft}
+            onChange={(event) => {
+              setFilterFromDraft(event.target.value);
+              setFilterError('');
+            }}
+          />
+        </label>
+        <label>
+          Lọc đến
+          <input
+            type="datetime-local"
+            value={filterToDraft}
+            onChange={(event) => {
+              setFilterToDraft(event.target.value);
+              setFilterError('');
+            }}
+          />
+        </label>
+        <button className={styles.secondaryButton} type="button" onClick={applyFilter}>
+          Áp dụng bộ lọc
+        </button>
+        <p>Khoảng lọc tính theo {formatTimeZoneLabel(timezone)} và không gồm thời điểm kết thúc.</p>
+        {filterError && <p role="alert">{filterError}</p>}
+      </section>
       {error && (
         <p role="alert" className={staffStyles.error}>
           {error}

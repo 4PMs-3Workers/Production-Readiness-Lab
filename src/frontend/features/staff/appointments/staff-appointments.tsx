@@ -30,6 +30,13 @@ const STATUS_LABELS: Record<StaffAppointmentStatus, string> = {
   NO_SHOW: 'Vắng mặt',
 };
 
+interface StaffChange {
+  readonly appointmentId: string;
+  readonly userId: string;
+  readonly status: 'CANCELLED' | StaffOutcomeStatus;
+  readonly reason?: string;
+}
+
 function useStaffContext() {
   const { services } = useApi();
   const load = useCallback((signal: AbortSignal) => services.staffContext({ signal }), [services]);
@@ -277,6 +284,42 @@ function StaffAppointmentDetailContent({ appointmentId }: { appointmentId: strin
               <dd>{appointment.cancelReason}</dd>
             </div>
           )}
+          {appointment.cancelledAt && (
+            <div>
+              <dt>Thời điểm hủy</dt>
+              <dd>
+                {formatBusinessDate(
+                  getBusinessDate(appointment.cancelledAt, context.state.data.timezone),
+                )}
+                {' · '}
+                {formatBusinessTime(appointment.cancelledAt, context.state.data.timezone)}
+              </dd>
+            </div>
+          )}
+          {appointment.cancelledBy && (
+            <div>
+              <dt>Người hủy</dt>
+              <dd>{appointment.cancelledBy}</dd>
+            </div>
+          )}
+          {appointment.outcomeAt && (
+            <div>
+              <dt>Thời điểm ghi kết quả</dt>
+              <dd>
+                {formatBusinessDate(
+                  getBusinessDate(appointment.outcomeAt, context.state.data.timezone),
+                )}
+                {' · '}
+                {formatBusinessTime(appointment.outcomeAt, context.state.data.timezone)}
+              </dd>
+            </div>
+          )}
+          {appointment.outcomeBy && (
+            <div>
+              <dt>Người ghi kết quả</dt>
+              <dd>{appointment.outcomeBy}</dd>
+            </div>
+          )}
         </dl>
       </section>
       <StaffAppointmentActions key={appointment.id} appointment={appointment} onReload={refresh} />
@@ -300,13 +343,18 @@ export function StaffAppointmentActions({
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [unresolved, setUnresolved] = useState<StaffChange | null>(null);
+  const [refreshRequired, setRefreshRequired] = useState(false);
   const activeRequest = useRef<AbortController | null>(null);
   const cancelTrigger = useRef<HTMLButtonElement>(null);
   const cancelReason = useRef<HTMLTextAreaElement>(null);
   const completeTrigger = useRef<HTMLButtonElement>(null);
   const noShowTrigger = useRef<HTMLButtonElement>(null);
   const outcomeConfirm = useRef<HTMLButtonElement>(null);
+  const cancelDialog = useRef<HTMLElement>(null);
+  const outcomeDialog = useRef<HTMLElement>(null);
   const cancellable = appointment.status === 'UPCOMING' || appointment.status === 'CHANGE_PENDING';
+  const actionsLocked = pending || unresolved !== null || refreshRequired;
   useEffect(() => () => activeRequest.current?.abort(), []);
   useEffect(() => {
     if (showCancel) cancelReason.current?.focus();
@@ -314,6 +362,9 @@ export function StaffAppointmentActions({
   useEffect(() => {
     if (outcomeToConfirm) outcomeConfirm.current?.focus();
   }, [outcomeToConfirm]);
+  useEffect(() => {
+    if (pending) (showCancel ? cancelDialog : outcomeDialog).current?.focus();
+  }, [pending, showCancel]);
 
   function closeCancel(force = false) {
     if (pending && !force) return;
@@ -338,7 +389,11 @@ export function StaffAppointmentActions({
     const controls = event.currentTarget.querySelectorAll<HTMLElement>(
       'button:not(:disabled), textarea:not(:disabled)',
     );
-    if (!controls?.length) return;
+    if (!controls.length) {
+      event.preventDefault();
+      event.currentTarget.focus();
+      return;
+    }
     const first = controls[0];
     const last = controls[controls.length - 1];
     if (event.shiftKey && document.activeElement === first) {
@@ -350,50 +405,121 @@ export function StaffAppointmentActions({
     }
   }
 
-  async function confirmChange(
-    action: (signal: AbortSignal) => Promise<unknown>,
-    expected: StaffAppointmentStatus,
+  function dismissDialog() {
+    if (showCancel) closeCancel(true);
+    if (outcomeToConfirm) closeOutcome(true);
+  }
+
+  function confirmLatest(change: StaffChange) {
+    setUnresolved(null);
+    setRefreshRequired(false);
+    setMessage(change.status === 'CANCELLED' ? 'Đã hủy lịch' : 'Đã cập nhật kết quả');
+    setError('');
+    setReason('');
+    dismissDialog();
+  }
+
+  function reconcile(
+    change: StaffChange,
+    latest: StaffAppointmentDetail | null,
+    cause: unknown,
+    stateConflict: boolean,
   ) {
-    if (pending) return;
-    if (!expectedUserId) {
-      setError(errorMessage(new ApiError('ACCOUNT_CHANGED', 401)));
+    if (latest?.status === change.status) {
+      confirmLatest(change);
       return;
     }
+    dismissDialog();
+    if (stateConflict) {
+      setUnresolved(null);
+      setRefreshRequired(latest === null);
+      setError(errorMessage(cause));
+      return;
+    }
+    if (latest && ['CANCELLED', 'COMPLETED', 'NO_SHOW'].includes(latest.status)) {
+      setUnresolved(null);
+      setError('Lịch đã có trạng thái khác. Vui lòng kiểm tra chi tiết mới nhất.');
+      return;
+    }
+    setUnresolved(change);
+    setError(errorMessage(cause));
+  }
+
+  async function runChange(change: StaffChange) {
+    if (pending || change.appointmentId !== appointment.id || change.userId !== expectedUserId)
+      return;
     const controller = new AbortController();
     activeRequest.current = controller;
     setPending(true);
     setError('');
     setMessage('');
+    let accepted = false;
     try {
-      await action(controller.signal);
+      if (change.status === 'CANCELLED')
+        await services.cancelStaffAppointment(change.appointmentId, change.reason, {
+          signal: controller.signal,
+          expectedUserId: change.userId,
+        });
+      else
+        await services.recordStaffOutcome(change.appointmentId, change.status, {
+          signal: controller.signal,
+          expectedUserId: change.userId,
+        });
+      accepted = true;
       const latest = await onReload(controller.signal);
-      if (latest.status === expected) {
-        setMessage(expected === 'CANCELLED' ? 'Đã hủy lịch' : 'Đã cập nhật kết quả');
-        if (expected === 'CANCELLED') closeCancel(true);
-        else closeOutcome(true);
-        setReason('');
-      } else {
-        setError('Chưa xác nhận được thay đổi. Hãy tải lại chi tiết lịch.');
-        if (expected !== 'CANCELLED') closeOutcome(true);
-      }
+      if (controller.signal.aborted) return;
+      reconcile(change, latest, new ApiError('TIMEOUT'), false);
     } catch (cause) {
-      let latest: StaffAppointmentDetail | null = null;
-      if (cause instanceof ApiError && cause.unknownOutcome) {
+      if (controller.signal.aborted || (cause instanceof Error && cause.name === 'AbortError'))
+        return;
+      if (cause instanceof ApiError && cause.code === 'ACCOUNT_CHANGED') return;
+      const stateConflict =
+        cause instanceof ApiError && cause.code === 'APPOINTMENT_STATE_CONFLICT';
+      const uncertain = accepted || (cause instanceof ApiError && cause.unknownOutcome);
+      if (uncertain || stateConflict) {
+        let latest: StaffAppointmentDetail | null = null;
         try {
           latest = await onReload(controller.signal);
         } catch {
-          latest = null;
+          // Keep the original operation until an authorized detail read succeeds.
         }
-      }
-      if (latest?.status === expected) {
-        setMessage(expected === 'CANCELLED' ? 'Đã hủy lịch' : 'Đã cập nhật kết quả');
-        if (expected === 'CANCELLED') closeCancel(true);
-        else closeOutcome(true);
-        setReason('');
+        if (controller.signal.aborted) return;
+        reconcile(change, latest, cause, stateConflict);
       } else {
         setError(errorMessage(cause));
-        if (expected !== 'CANCELLED') closeOutcome(true);
+        if (change.status !== 'CANCELLED') closeOutcome(true);
       }
+    } finally {
+      if (activeRequest.current === controller) activeRequest.current = null;
+      setPending(false);
+    }
+  }
+
+  function confirmChange(status: StaffChange['status'], reason?: string) {
+    if (pending) return;
+    if (!expectedUserId) {
+      setError(errorMessage(new ApiError('ACCOUNT_CHANGED', 401)));
+      return;
+    }
+    void runChange({ appointmentId: appointment.id, userId: expectedUserId, status, reason });
+  }
+
+  async function verifyLatest() {
+    if (pending || (!unresolved && !refreshRequired)) return;
+    const controller = new AbortController();
+    activeRequest.current = controller;
+    setPending(true);
+    setError('');
+    try {
+      const latest = await onReload(controller.signal);
+      if (controller.signal.aborted) return;
+      if (unresolved) reconcile(unresolved, latest, new ApiError('TIMEOUT'), false);
+      else {
+        setRefreshRequired(false);
+        setError('');
+      }
+    } catch (cause) {
+      if (!controller.signal.aborted) setError(errorMessage(cause));
     } finally {
       if (activeRequest.current === controller) activeRequest.current = null;
       setPending(false);
@@ -408,12 +534,39 @@ export function StaffAppointmentActions({
         </p>
       )}
       {message && <p role="status">{message}</p>}
+      {(unresolved || refreshRequired) && (
+        <div className={staffStyles.recovery}>
+          <p>
+            {unresolved
+              ? 'Kết quả thao tác chưa rõ. Giữ nguyên lựa chọn cho đến khi xác minh được lịch.'
+              : 'Cần tải lại trạng thái lịch trước khi thao tác tiếp.'}
+          </p>
+          <button
+            className={styles.secondaryButton}
+            type="button"
+            disabled={pending}
+            onClick={() => void verifyLatest()}
+          >
+            Kiểm tra trạng thái
+          </button>
+          {unresolved && (
+            <button
+              className={styles.secondaryButton}
+              type="button"
+              disabled={pending}
+              onClick={() => void runChange(unresolved)}
+            >
+              Thử lại thao tác này
+            </button>
+          )}
+        </div>
+      )}
       {cancellable && (
         <button
           ref={cancelTrigger}
           className={styles.secondaryButton}
           type="button"
-          disabled={pending}
+          disabled={actionsLocked}
           onClick={() => setShowCancel(true)}
         >
           Hủy lịch
@@ -425,7 +578,7 @@ export function StaffAppointmentActions({
             ref={completeTrigger}
             className={styles.secondaryButton}
             type="button"
-            disabled={pending}
+            disabled={actionsLocked}
             onClick={() => setOutcomeToConfirm('COMPLETED')}
           >
             Đánh dấu hoàn thành
@@ -434,7 +587,7 @@ export function StaffAppointmentActions({
             ref={noShowTrigger}
             className={styles.secondaryButton}
             type="button"
-            disabled={pending}
+            disabled={actionsLocked}
             onClick={() => setOutcomeToConfirm('NO_SHOW')}
           >
             Đánh dấu vắng mặt
@@ -444,9 +597,11 @@ export function StaffAppointmentActions({
       {showCancel && (
         <div className={staffStyles.backdrop}>
           <section
+            ref={cancelDialog}
             role="dialog"
             aria-modal="true"
             aria-labelledby="cancel-title"
+            tabIndex={-1}
             className={staffStyles.dialog}
             onKeyDown={(event) => handleDialogKeyDown(event, () => closeCancel())}
           >
@@ -479,16 +634,7 @@ export function StaffAppointmentActions({
                 className={styles.primaryButton}
                 type="button"
                 disabled={pending}
-                onClick={() =>
-                  void confirmChange(
-                    (signal) =>
-                      services.cancelStaffAppointment(appointment.id, reason || undefined, {
-                        signal,
-                        expectedUserId: expectedUserId!,
-                      }),
-                    'CANCELLED',
-                  )
-                }
+                onClick={() => confirmChange('CANCELLED', reason || undefined)}
               >
                 {pending ? 'Đang lưu…' : 'Xác nhận hủy'}
               </button>
@@ -499,9 +645,11 @@ export function StaffAppointmentActions({
       {outcomeToConfirm && (
         <div className={staffStyles.backdrop}>
           <section
+            ref={outcomeDialog}
             role="dialog"
             aria-modal="true"
             aria-labelledby="outcome-title"
+            tabIndex={-1}
             className={staffStyles.dialog}
             onKeyDown={(event) => handleDialogKeyDown(event, () => closeOutcome())}
           >
@@ -524,16 +672,7 @@ export function StaffAppointmentActions({
                 className={styles.primaryButton}
                 type="button"
                 disabled={pending}
-                onClick={() =>
-                  void confirmChange(
-                    (signal) =>
-                      services.recordStaffOutcome(appointment.id, outcomeToConfirm, {
-                        signal,
-                        expectedUserId: expectedUserId!,
-                      }),
-                    outcomeToConfirm,
-                  )
-                }
+                onClick={() => confirmChange(outcomeToConfirm)}
               >
                 {pending
                   ? 'Đang lưu…'

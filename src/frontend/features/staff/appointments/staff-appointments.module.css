@@ -49,6 +49,21 @@
   margin-top: 20px;
 }
 
+.recovery {
+  width: 100%;
+  padding: 14px 16px;
+  border-left: 4px solid #2678a5;
+  background: #edf6fb;
+}
+
+.recovery p {
+  margin: 0 0 10px;
+}
+
+.recovery button + button {
+  margin-left: 10px;
+}
+
 .error {
   width: 100%;
   color: #9b2d2d;

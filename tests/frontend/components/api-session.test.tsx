@@ -7,6 +7,7 @@ import { SessionGate, safeReturnPath } from '@/features/api/session-gate';
 import { ApiServices } from '@/services/api/client';
 import { ApiResult } from '@/features/api/api-appointments';
 import { ApiLogin } from '@/features/api/api-login';
+import { StaffSessionGate } from '@/features/staff/staff-session-gate';
 
 const router = vi.hoisted(() => ({ replace: vi.fn() }));
 vi.mock('next/navigation', () => ({
@@ -44,6 +45,62 @@ function PrivateView() {
 }
 
 describe('API session boundaries', () => {
+  it.each([
+    ['another STAFF account', { id: 'staff-b', role: 'STAFF' }],
+    ['a STUDENT role', { id: 'staff-a', role: 'STUDENT' }],
+  ])('hides private staff content when mutation preflight detects %s', async (_, changed) => {
+    const staff = {
+      id: 'staff-a',
+      name: 'Fictional Staff A',
+      email: 'staff-a@example.invalid',
+      role: 'STAFF',
+    };
+    let switched = false;
+    const fetcher = vi.fn<typeof fetch>(async (path) => {
+      if (String(path).endsWith('/auth/me'))
+        return json(switched ? { ...staff, ...changed } : staff);
+      if (String(path).endsWith('/auth/csrf'))
+        return json({ csrf_token: 'csrf', user_id: changed.id });
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    const services = new ApiServices(fetcher);
+    function StaffPrivateView() {
+      const api = useApi();
+      return (
+        <>
+          <p>Nội dung trao đổi riêng của STAFF A</p>
+          <button
+            onClick={() =>
+              void api.services
+                .recordStaffOutcome('appointment-1', 'COMPLETED', {
+                  expectedUserId: 'staff-a',
+                })
+                .catch(() => {})
+            }
+          >
+            Ghi kết quả
+          </button>
+        </>
+      );
+    }
+    render(
+      <ApiProvider services={services}>
+        <StaffSessionGate>
+          <StaffPrivateView />
+        </StaffSessionGate>
+      </ApiProvider>,
+    );
+    await screen.findByText('Nội dung trao đổi riêng của STAFF A');
+    switched = true;
+    await userEvent.click(screen.getByRole('button', { name: 'Ghi kết quả' }));
+
+    await waitFor(() =>
+      expect(screen.queryByText('Nội dung trao đổi riêng của STAFF A')).not.toBeInTheDocument(),
+    );
+    expect(fetcher.mock.calls.every(([path]) => !String(path).endsWith('/outcome'))).toBe(true);
+    expect(router.replace).toHaveBeenCalled();
+  });
+
   it.each(['same-student', 'different-student', 'logout'])(
     'keeps an unresolved result private through expiry and handles %s recovery',
     async (recovery) => {

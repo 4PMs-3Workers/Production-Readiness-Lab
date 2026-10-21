@@ -36,11 +36,14 @@ describe('staff API services', () => {
       throw new Error(`Unexpected request: ${path}`);
     });
     const services = new ApiServices(fetcher);
+    const invalidate = vi.fn();
+    services.setInvalidSessionHandler(invalidate);
 
     await expect(
       services.recordStaffOutcome('appointment-1', 'COMPLETED', { expectedUserId: 'staff-a' }),
     ).rejects.toMatchObject({ code: 'ACCOUNT_CHANGED' } satisfies Partial<ApiError>);
     expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(invalidate).toHaveBeenCalledOnce();
   });
 
   it('rejects a staff mutation if the verified account has another role', async () => {
@@ -49,11 +52,14 @@ describe('staff API services', () => {
       .mockResolvedValueOnce(json({ csrf_token: 'csrf', user_id: staffUser.id }))
       .mockResolvedValueOnce(json({ ...staffUser, role: 'STUDENT' }));
     const services = new ApiServices(fetcher);
+    const invalidate = vi.fn();
+    services.setInvalidSessionHandler(invalidate);
 
     await expect(services.setStaffPurpose('purpose-1', false, staffOptions)).rejects.toMatchObject({
       code: 'ACCOUNT_CHANGED',
     });
     expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(invalidate).toHaveBeenCalledOnce();
   });
   it('maps the STAFF business-time context without using the student booking context', async () => {
     const fetcher = vi.fn<typeof fetch>(async () =>

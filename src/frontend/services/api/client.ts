@@ -347,10 +347,15 @@ export class ApiServices {
       // The owner and signed token come from the same authenticated backend context.
       // Keep this exact token: a later cookie switch must fail the server's CSRF check.
       requireContract(typeof csrf.user_id === 'string' && csrf.user_id.length > 0);
-      if (csrf.user_id !== expectedUserId) throw new ApiError('ACCOUNT_CHANGED', 401);
-      const verified = await this.me(scopedOptions);
-      if (verified.id !== expectedUserId || verified.role !== expectedRole)
+      if (csrf.user_id !== expectedUserId) {
+        this.onInvalidSession?.();
         throw new ApiError('ACCOUNT_CHANGED', 401);
+      }
+      const verified = await this.me(scopedOptions);
+      if (verified.id !== expectedUserId || verified.role !== expectedRole) {
+        this.onInvalidSession?.();
+        throw new ApiError('ACCOUNT_CHANGED', 401);
+      }
     }
     signal.throwIfAborted();
     return this.request(

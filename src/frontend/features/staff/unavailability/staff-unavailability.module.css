@@ -9,6 +9,36 @@
   color: #9b2d2d;
 }
 
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  margin: 20px 0;
+}
+
+.filters label {
+  display: grid;
+  gap: 7px;
+  color: #496b85;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.filters input {
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid #cbd8e3;
+  border-radius: 6px;
+  background: white;
+  font: inherit;
+}
+
+.filters p {
+  flex-basis: 100%;
+  margin: 0;
+}
+
 .form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -76,6 +106,10 @@
 }
 
 @media (max-width: 650px) {
+  .filters > * {
+    flex: 1 1 100%;
+  }
+
   .form {
     grid-template-columns: 1fr;
   }

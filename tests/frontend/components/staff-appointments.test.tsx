@@ -100,6 +100,39 @@ describe('staff assigned appointments', () => {
     });
   });
 
+  it('displays cancellation audit details in business time', async () => {
+    services.staffAppointment.mockResolvedValue({
+      ...detail,
+      status: 'CANCELLED',
+      cancelledAt: '2026-10-20T02:00:00Z',
+      cancelledBy: 'staff-canceller',
+      cancelReason: 'Lịch được hủy theo yêu cầu',
+    });
+    render(<StaffAppointmentDetailView appointmentId="appointment-1" />);
+
+    expect(await screen.findByText('Nội dung trao đổi riêng')).toBeVisible();
+    expect(screen.getByText('Thời điểm hủy')).toBeVisible();
+    expect(screen.getByText(/20\/10\/2026.*09:00/)).toBeVisible();
+    expect(screen.getByText('Người hủy')).toBeVisible();
+    expect(screen.getByText('staff-canceller')).toBeVisible();
+  });
+
+  it('displays outcome audit details in business time', async () => {
+    services.staffAppointment.mockResolvedValue({
+      ...detail,
+      status: 'COMPLETED',
+      outcomeAt: '2026-10-21T03:00:00Z',
+      outcomeBy: 'staff-recorder',
+    });
+    render(<StaffAppointmentDetailView appointmentId="appointment-1" />);
+
+    expect(await screen.findByText('Nội dung trao đổi riêng')).toBeVisible();
+    expect(screen.getByText('Thời điểm ghi kết quả')).toBeVisible();
+    expect(screen.getByText(/21\/10\/2026.*10:00/)).toBeVisible();
+    expect(screen.getByText('Người ghi kết quả')).toBeVisible();
+    expect(screen.getByText('staff-recorder')).toBeVisible();
+  });
+
   it('does not retain the previous appointment after a detail route changes', async () => {
     const user = userEvent.setup();
     const second = {
@@ -219,6 +252,96 @@ describe('staff assigned appointments', () => {
     await waitFor(() => expect(reloaded).toHaveBeenCalledOnce());
     expect(screen.getByRole('alert')).toHaveTextContent(/thử lại|kiểm tra/i);
     expect(screen.queryByText('Đã cập nhật kết quả')).not.toBeInTheDocument();
+  });
+
+  it('keeps an unresolved outcome bound to the original action after recovery read fails', async () => {
+    const user = userEvent.setup();
+    services.recordStaffOutcome.mockRejectedValue(new ApiError('TIMEOUT'));
+    const reloaded = vi.fn().mockRejectedValue(new ApiError('SERVICE_UNAVAILABLE', 503));
+    render(<StaffAppointmentActions appointment={detail} onReload={reloaded} />);
+
+    await user.click(screen.getByRole('button', { name: 'Đánh dấu hoàn thành' }));
+    await user.click(screen.getByRole('button', { name: 'Xác nhận hoàn thành' }));
+    await waitFor(() => expect(reloaded).toHaveBeenCalledOnce());
+
+    expect(screen.getByRole('button', { name: 'Đánh dấu vắng mặt' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Kiểm tra trạng thái' })).toBeVisible();
+    expect(services.recordStaffOutcome).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries only the original outcome after an unknown result', async () => {
+    const user = userEvent.setup();
+    services.recordStaffOutcome
+      .mockRejectedValueOnce(new ApiError('TIMEOUT'))
+      .mockResolvedValueOnce({ id: item.id, status: 'COMPLETED' });
+    const reloaded = vi
+      .fn()
+      .mockRejectedValueOnce(new ApiError('SERVICE_UNAVAILABLE', 503))
+      .mockResolvedValueOnce({ ...detail, status: 'COMPLETED' });
+    render(<StaffAppointmentActions appointment={detail} onReload={reloaded} />);
+
+    await user.click(screen.getByRole('button', { name: 'Đánh dấu hoàn thành' }));
+    await user.click(screen.getByRole('button', { name: 'Xác nhận hoàn thành' }));
+    await user.click(await screen.findByRole('button', { name: 'Thử lại thao tác này' }));
+
+    await waitFor(() => expect(services.recordStaffOutcome).toHaveBeenCalledTimes(2));
+    expect(services.recordStaffOutcome.mock.calls.map((call) => call[1])).toEqual([
+      'COMPLETED',
+      'COMPLETED',
+    ]);
+    expect(await screen.findByText('Đã cập nhật kết quả')).toBeVisible();
+  });
+
+  it('reloads authoritative detail after an appointment-state conflict', async () => {
+    const user = userEvent.setup();
+    services.staffAppointment
+      .mockResolvedValueOnce(detail)
+      .mockResolvedValueOnce({ ...detail, status: 'NO_SHOW' });
+    services.recordStaffOutcome.mockRejectedValue(new ApiError('APPOINTMENT_STATE_CONFLICT', 409));
+    render(<StaffAppointmentDetailView appointmentId="appointment-1" />);
+    await screen.findByText('Nội dung trao đổi riêng');
+    await user.click(screen.getByRole('button', { name: 'Đánh dấu hoàn thành' }));
+    await user.click(screen.getByRole('button', { name: 'Xác nhận hoàn thành' }));
+
+    expect(await screen.findByText('Vắng mặt')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Đánh dấu hoàn thành' })).not.toBeInTheDocument();
+    expect(services.staffAppointment).toHaveBeenCalledTimes(2);
+  });
+
+  it('blocks another outcome until a failed conflict refresh can be retried', async () => {
+    const user = userEvent.setup();
+    services.staffAppointment
+      .mockResolvedValueOnce(detail)
+      .mockRejectedValueOnce(new ApiError('SERVICE_UNAVAILABLE', 503))
+      .mockResolvedValueOnce({ ...detail, status: 'NO_SHOW' });
+    services.recordStaffOutcome.mockRejectedValue(new ApiError('APPOINTMENT_STATE_CONFLICT', 409));
+    render(<StaffAppointmentDetailView appointmentId="appointment-1" />);
+    await screen.findByText('Nội dung trao đổi riêng');
+
+    await user.click(screen.getByRole('button', { name: 'Đánh dấu hoàn thành' }));
+    await user.click(screen.getByRole('button', { name: 'Xác nhận hoàn thành' }));
+    await waitFor(() => expect(services.staffAppointment).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole('button', { name: 'Đánh dấu vắng mặt' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Thử lại thao tác này' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Kiểm tra trạng thái' }));
+    await waitFor(() => expect(services.staffAppointment).toHaveBeenCalledTimes(3));
+    expect(services.recordStaffOutcome).toHaveBeenCalledOnce();
+    expect(await screen.findByText('Vắng mặt')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Kiểm tra trạng thái' })).not.toBeInTheDocument();
+  });
+
+  it('keeps keyboard focus within a pending confirmation dialog', async () => {
+    const user = userEvent.setup();
+    services.recordStaffOutcome.mockReturnValue(new Promise(() => {}));
+    render(<StaffAppointmentActions appointment={detail} onReload={vi.fn()} />);
+    await user.click(screen.getByRole('button', { name: 'Đánh dấu hoàn thành' }));
+    await user.click(screen.getByRole('button', { name: 'Xác nhận hoàn thành' }));
+    const dialog = screen.getByRole('dialog', { name: 'Xác nhận kết quả buổi gặp' });
+
+    expect(dialog).toHaveFocus();
+    expect(fireEvent.keyDown(dialog, { key: 'Tab' })).toBe(false);
+    expect(dialog.contains(document.activeElement)).toBe(true);
   });
 
   it('shows the server outcome timing rule when the appointment has not ended yet', async () => {
