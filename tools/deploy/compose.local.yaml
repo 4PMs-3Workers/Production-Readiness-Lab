@@ -1,0 +1,55 @@
+# Explicit local HTTP mode. All four external PRL_*_ENV_FILE paths remain required.
+services:
+  api:
+    networks:
+      proxy: {}
+      data: {}
+      gateway_api: { ipv4_address: 172.30.34.3 }
+    environment:
+      TRUSTED_GATEWAY_CIDRS: 172.30.34.2/32
+      APPLICATION_ORIGIN: http://localhost:${PRL_HTTP_PORT:-8080}
+      ENVIRONMENT: local
+      COOKIE_SECURE: 'false'
+      COOKIE_DOMAIN: ''
+      COOKIE_SAMESITE: lax
+      LOGIN_MAX_BODY_BYTES: '4096'
+      API_MAX_BODY_BYTES: '32768'
+
+  gateway:
+    image: nginx:stable-alpine@sha256:c59d1f8b1e0e42da75be973424cd72e23f7f8adfb54e982f4d1cd0216a5a5576
+    entrypoint: [nginx, -g, 'daemon off;']
+    user: '101:101'
+    init: true
+    read_only: true
+    tmpfs: ['/tmp:size=32m,mode=1777']
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    ports: ['127.0.0.1:${PRL_HTTP_PORT:-8080}:8080']
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx:/etc/nginx/prl:ro
+      - ./nginx/local.conf:/etc/nginx/server.conf:ro
+    networks:
+      edge: {}
+      proxy: {}
+      gateway_api: { ipv4_address: 172.30.34.2 }
+    restart: on-failure:3
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 64
+    stop_grace_period: 15s
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1:8080/health/gateway']
+      interval: 5s
+      timeout: 3s
+      retries: 6
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: '3' }
+
+networks:
+  edge: {}
+  gateway_api:
+    internal: true
+    ipam:
+      config: [{ subnet: 172.30.34.0/29 }]
