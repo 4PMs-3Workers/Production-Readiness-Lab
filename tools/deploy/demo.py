@@ -8,6 +8,7 @@ import re
 import subprocess
 import sys
 import time
+from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -189,7 +190,7 @@ class Demo:
                 "inspect",
                 "--format",
                 '{"Id":{{json .Id}},"RepoDigests":{{json .RepoDigests}},'
-                '"Labels":{{json .Config.Labels}}}',
+                '"Labels":{{json (index .Config "Labels")}}}',
                 reference,
             ]
         )
@@ -199,9 +200,16 @@ class Demo:
                 raise ProvenanceMismatch()
         return image
 
-    def require_images(self, services):
+    def require_images(self, services: Iterable[str]) -> None:
+        services = tuple(services)
+        profiles = [
+            profile
+            for service, profile in (("migrate", "operations"), ("seed", "seed"))
+            if service in services
+        ]
+        profile_args = [argument for profile in profiles for argument in ("--profile", profile)]
         configuration = json.loads(
-            self.compose("config", "--no-env-resolution", "--format", "json")
+            self.compose(*profile_args, "config", "--no-env-resolution", "--format", "json")
         )
         for service in services:
             self.inspect_image(configuration["services"][service]["image"], service)

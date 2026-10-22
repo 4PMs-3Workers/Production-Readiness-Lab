@@ -93,18 +93,22 @@ def operator(monkeypatch, tmp_path):
         if args[:2] == ["docker", "compose"]:
             index = args.index("-f")
             tail = args[index + 4 :]
+            profiles = set()
+            while tail[:1] == ["--profile"]:
+                profiles.add(tail[1])
+                tail = tail[2:]
             assert tail[:1] != ["config"] or tail in (
                 ["config", "--quiet"],
                 ["config", "--no-env-resolution", "--format", "json"],
             )
             if tail == ["config", "--no-env-resolution", "--format", "json"]:
+                services = demo.evidence.SERVICES | demo.APPLICATION_SERVICES
+                if "operations" not in profiles:
+                    services.remove("migrate")
+                if "seed" not in profiles:
+                    services.remove("seed")
                 return json.dumps(
-                    {
-                        "services": {
-                            service: {"image": "fake-image"}
-                            for service in demo.evidence.SERVICES | demo.APPLICATION_SERVICES
-                        }
-                    }
+                    {"services": {service: {"image": "fake-image"} for service in services}}
                 )
             if tail[:2] == ["ps", "-q"]:
                 return "b" * 64
@@ -152,6 +156,32 @@ def operator(monkeypatch, tmp_path):
 
 def compose_calls(calls):
     return [call[call.index("-f") + 4 :] for call in calls if call[:2] == ["docker", "compose"]]
+
+
+def test_migrate_inspects_operations_profile(operator):
+    demo, calls = operator
+    assert demo.main(["migrate", "--overlay", "local"]) == 0
+    assert [
+        "--profile",
+        "operations",
+        "config",
+        "--no-env-resolution",
+        "--format",
+        "json",
+    ] in compose_calls(calls)
+
+
+def test_seed_inspects_seed_profile(operator):
+    demo, calls = operator
+    assert demo.main(["seed", "--overlay", "local"]) == 0
+    assert [
+        "--profile",
+        "seed",
+        "config",
+        "--no-env-resolution",
+        "--format",
+        "json",
+    ] in compose_calls(calls)
 
 
 def test_explicit_migration_order(operator):

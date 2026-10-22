@@ -139,6 +139,10 @@ thao tác tách biệt và opt-in:
 tools/deploy/demo.sh seed --overlay local
 ```
 
+CLI kiểm tra cấu hình image cho service migrate bằng profile operations và service
+seed bằng profile seed. Các profile chỉ được dùng khi đọc Compose config; lệnh up
+vẫn không khởi chạy migration hoặc seed.
+
 Nếu không muốn cấp demo accounts, bỏ qua seed. Sau migration (và tùy chọn seed),
 khởi động và xác minh gateway, frontend, API, schema cùng heartbeat/tiến triển worker:
 
