@@ -60,5 +60,14 @@ jobs:
       - name: Install Playwright Chromium and Linux dependencies
         run: npx --no-install playwright install --with-deps chromium
 
-      - name: Run isolated Compose browser and lifecycle acceptance
-        run: python -m pytest tests/containers/test_compose_acceptance.py -q --tb=short
+      - name: Run isolated Compose and Docker operator acceptance
+        run: |
+          python -m pytest tests/containers/test_compose_acceptance.py tests/containers/test_demo_operator_docker.py -q --tb=short --junitxml=build/containerized-demo-tests.xml
+          python - <<'PY'
+          from xml.etree import ElementTree
+
+          root = ElementTree.parse("build/containerized-demo-tests.xml").getroot()
+          skipped = sum(int(suite.get("skipped", "0")) for suite in root.iter("testsuite"))
+          if skipped:
+              raise SystemExit(f"Container acceptance tests skipped: {skipped}")
+          PY

@@ -2,7 +2,6 @@
 
 import importlib.util
 import json
-import os
 import subprocess
 import sys
 from datetime import UTC
@@ -277,6 +276,21 @@ def test_os_lock_rejects_contention_and_releases_after_exit(tmp_path):
     assert result.returncode == 0
 
 
+def test_build_uses_bounded_cold_build_timeout(operator, monkeypatch):
+    demo, _ = operator
+    original = demo.run
+    timeouts = []
+
+    def recording(args, timeout=180):
+        if args[:2] == ["docker", "compose"] and "build" in args:
+            timeouts.append(timeout)
+        return original(args, timeout)
+
+    monkeypatch.setattr(demo, "run", recording)
+    assert demo.main(["build", "--overlay", "local"]) == 0
+    assert timeouts == [900]
+
+
 def test_subprocess_failure_discards_both_output_streams(capsys):
     demo = module("demo")
     with pytest.raises(demo.OperationFailed) as caught:
@@ -290,38 +304,6 @@ def test_subprocess_failure_discards_both_output_streams(capsys):
     assert "secret" not in str(caught.value)
     captured = capsys.readouterr()
     assert "secret" not in captured.out + captured.err
-
-
-@pytest.mark.parametrize("overlay", ["local", "https"])
-@pytest.mark.skipif(
-    os.environ.get("PRL_RUN_DOCKER_TESTS") != "1", reason="opt-in Docker config check"
-)
-def test_real_docker_configuration_never_resolves_external_env(tmp_path, overlay):
-    env = dict(os.environ)
-    for name in (
-        "PRL_DB_ENV_FILE",
-        "PRL_RUNTIME_ENV_FILE",
-        "PRL_MIGRATION_ENV_FILE",
-        "PRL_SEED_ENV_FILE",
-    ):
-        path = tmp_path / name
-        path.write_text("PRIVATE_VALUE=do-not-print-this-value\n")
-        env[name] = str(path)
-    for name in ("PRL_TLS_CERT_FILE", "PRL_TLS_KEY_FILE"):
-        path = tmp_path / name
-        path.write_text("placeholder for config validation only")
-        env[name] = str(path)
-    env["PRL_HTTPS_ORIGIN"] = "https://localhost:8443"
-    result = subprocess.run(
-        [sys.executable, str(DEPLOY / "demo.py"), "config", "--overlay", overlay],
-        env=env,
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    assert result.returncode == 0, result.stderr
-    assert "do-not-print-this-value" not in result.stdout + result.stderr
 
 
 def test_status_is_read_only_and_never_starts_dependencies(operator):
@@ -497,43 +479,3 @@ def test_changed_head_during_operation_cannot_emit_passed_manifest(operator, mon
     assert demo.main(["build", "--overlay", "local"]) == 1
     value = json.loads((demo.ROOT / "build/deploy" / ("a" * 40) / "manifest.json").read_text())
     assert value["verification"]["status"] == "failed"
-
-
-@pytest.mark.skipif(
-    os.environ.get("PRL_RUN_DOCKER_BUILD_TESTS") != "1",
-    reason="opt-in image build provenance check",
-)
-def test_real_docker_build_binds_both_images_to_clean_head(tmp_path):
-    env = dict(os.environ)
-    for name in (
-        "PRL_DB_ENV_FILE",
-        "PRL_RUNTIME_ENV_FILE",
-        "PRL_MIGRATION_ENV_FILE",
-        "PRL_SEED_ENV_FILE",
-    ):
-        path = tmp_path / name
-        path.write_text("")
-        env[name] = str(path)
-    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-    result = subprocess.run(
-        [sys.executable, str(DEPLOY / "demo.py"), "build", "--overlay", "local"],
-        env=env,
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=240,
-    )
-    assert result.returncode == 0, result.stderr
-    for reference in ("prl-backend:local", "prl-frontend:local"):
-        revision = subprocess.check_output(
-            [
-                "docker",
-                "image",
-                "inspect",
-                "--format",
-                '{{index .Config.Labels "org.opencontainers.image.revision"}}',
-                reference,
-            ],
-            text=True,
-        ).strip()
-        assert revision == sha

@@ -112,8 +112,8 @@ class Demo:
             if os.environ.get(name):
                 raise OperationFailed()
 
-    def compose(self, *args):
-        return run(self.base + list(args))
+    def compose(self, *args, timeout=180):
+        return run(self.base + list(args), timeout=timeout)
 
     def healthy(self, service):
         container = self.compose("ps", "-q", service)
@@ -231,7 +231,12 @@ class Demo:
         self.compose("config", "--quiet")
         if command == "build":
             self.compose(
-                "build", "--build-arg", f"PRL_SOURCE_SHA={self.source_sha}", "api", "frontend"
+                "build",
+                "--build-arg",
+                f"PRL_SOURCE_SHA={self.source_sha}",
+                "api",
+                "frontend",
+                timeout=900,
             )
             self.require_images(("api", "frontend"))
         elif command in {"migrate", "seed", "up"}:
