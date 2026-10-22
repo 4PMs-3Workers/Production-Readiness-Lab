@@ -202,7 +202,12 @@ Exporter có timeout và queue hữu hạn. Sự cố Collector hoặc hệ th�
 
 Worker issue #26 xuất JSON stdout qua reporter độc lập với commit: worker/run ID, heartbeat,
 lần scan DB thành công, counters, duration và backlog/oldest-overdue có giới hạn. Lỗi report
-không rollback nghiệp vụ. Tích hợp các record này vào Collector/dashboard/alerting thuộc
+không rollback nghiệp vụ. Publisher ghi raw stdout trên daemon thread riêng, queue tối đa
+64 record (8192 byte/record), deadline xuất 0.25 giây. Queue đầy bỏ record mới; record hết
+hạn bị bỏ. Cleanup chờ tối đa 0.1 giây trong cùng shutdown deadline; không join vô hạn
+thread bị nghẽn pipe hoặc giữ khóa stdout lúc interpreter thoát. Lỗi/bỏ record được gom
+vào `reporting_failures`; mất log không chặn tiến triển DB hay stop callback.
+Tích hợp các record này vào Collector/dashboard/alerting thuộc
 phần triển khai telemetry; process hiện cung cấp tín hiệu để phân biệt liveness với DB progress.
 
 ### 4.7. Phát hành bằng artifact bất biến

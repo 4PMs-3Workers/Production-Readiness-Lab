@@ -412,6 +412,8 @@ Database giữ backlog qua restart, kể cả khi kết quả commit chưa đế
 Stdout JSON có heartbeat, lần scan thành công, số expired/no-op/failed và backlog/tuổi quá
 hạn có giới hạn. Heartbeat còn chạy không có nghĩa database đang tiến triển: theo dõi thêm
 `last_successful_scan`, `failed_scans`, `oldest_overdue_seconds` và các bộ đếm. Xem
+`reporting_failures` để theo dõi lỗi/bỏ log: publisher dùng queue hữu hạn và ghi ngoài
+event loop, nên collector không đọc stdout không chặn xử lý hay shutdown. Chi tiết trong
 [hướng dẫn vận hành, quyền DML và demo dừng/khởi động lại](docs/tasks/change-proposal-expiry-worker.md).
 
 ### Kiểm thử hệ thống

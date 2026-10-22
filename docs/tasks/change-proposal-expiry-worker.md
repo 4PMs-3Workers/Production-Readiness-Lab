@@ -62,26 +62,7 @@ tokens and consultation text must not be serialized. Reporting failures must nev
 a committed transition. Database outage backoff is bounded and stop-aware: exponential
 from the poll interval (at least 0.1 seconds), capped at 60 seconds, reset after recovery.
 
-## Implementation and verification slices
-
-The feature is organized into approximately fifteen reviewable commits:
-
-1. Record prerequisite and worker contract.
-2. Add typed outcomes, generated correlation IDs and safe reporting.
-3. Add engine/session lifecycle and schema compatibility gate.
-4. Add bounded nonlocking candidate/backlog discovery.
-5. Own shared expiry transactions and verify state/side effects.
-6. Bound retries, database failures and uncertain commits.
-7. Continue selected batches after candidate failures.
-8. Add stop-aware polling, outage backoff and heartbeat.
-9. Bound graceful shutdown and release resources.
-10. Provide executable CLI and signal handling.
-11. Verify concurrent workers on real MySQL.
-12. Race worker expiry with API decisions, replacement and cancellation.
-13. Verify restart, interrupted work, deadlines and recovery.
-14. Document operation and repeatable stopped-worker/backlog demonstration.
-15. Complete regression/CI checks and release handoff evidence.
-16. Harden stdout failure handling with a regression that prevents logging traceback leaks.
+## Verification contract
 
 Tests must use independent Alembic-initialized MySQL 8.4 schemas. Missing prerequisites
 must fail with `--require-mysql`, and the full backend suite must have no skipped tests.
@@ -129,9 +110,10 @@ Use Ctrl+C in the foreground terminal, or SIGINT/SIGTERM on supported systems. W
 uses the portable signal-handler fallback. Repeated stop requests do not extend the deadline.
 The process stops selecting new candidates, gives current work part of the total grace
 budget to finish, then cancels/rolls it back and closes resources in the remaining budget.
-There is one deadline for work, sessions and engine cleanup. Failed engine cleanup returns
+There is one deadline for work, sessions, engine and publisher cleanup. Failed engine cleanup returns
 nonzero and detaches its pool. An external supervisor remains responsible for an OS-level
-hard stop if native I/O cannot cooperate; a subsequent process recovers from database state.
+hard stop if database/native I/O cannot cooperate; a subsequent process recovers from database state.
+An unread stdout pipe does not block polling, stop callbacks or process exit.
 
 ## Transaction and recovery details
 
@@ -191,6 +173,29 @@ Stdout contains JSON events `starting`, `ready`, `heartbeat`, `candidate`, `scan
 `stopping`, `stopped` and sanitized `fatal` events. Readiness is reported after a successful
 schema-validated discovery; a heartbeat before that can still show a live but blocked process.
 
+Publishing uses a single daemon thread and a queue of **64 records**, each limited to
+**8192 UTF-8 bytes**, plus at most one in-flight record. Admission never waits for I/O or
+queue space. A full queue drops the newest record; expired queued records are discarded.
+Each record has a **0.25-second publication deadline**, including queue time. Sink errors,
+oversize records, full-queue drops, deadlines and shutdown discards increment
+`reporting_failures`; asynchronous failures are collected on the next emit or cleanup.
+`Reporter.emit()` returning true means accepted for publication, not delivered.
+
+Stdout writes use a duplicated raw file descriptor on the publisher thread, without a
+Python stdout/logging lock or the asyncio default executor. A blocked native write may
+outlive its publication deadline, but cannot block the event loop. No additional writer
+is spawned to retry it. Publisher cleanup waits at most **0.1 seconds**, further limited
+by the existing shutdown deadline, then discards queued work and abandons the daemon
+writer. The writer closes its descriptor when it returns; process exit releases a still
+blocked descriptor without joining the thread or flushing its output through Python.
+An unsupported stdout descriptor is a reporting failure; no synchronous fallback is used.
+
+Reports are best effort: overload can lose records, including the final `stopped`/`fatal`
+event, and a process exit can leave an incomplete final line. Healthy output is drained
+within the cleanup budget. Reporting loss does not change a successful business exit
+status. Restore/drain the collector to resume output; inspect durable rows when logs are
+missing. These publisher limits are fixed code bounds, not additional environment settings.
+
 | Field | Interpretation |
 | --- | --- |
 | `worker_id`, `current_run_id` | Generated process and scan identities |
@@ -223,7 +228,8 @@ After a database outage, restore connectivity/permissions and observe successful
 timestamps and counters advancing. Backoff is interruptible and resets after recovery.
 After an unknown commit, inspect the proposal/audit by its correlation IDs or let the next
 cohort/restart reread it. No manual replay of raw SQL updates or saved side-effect inserts
-is needed. Stdout must have a functioning consumer; full telemetry transport, dashboards,
+is needed. A functioning stdout consumer is needed for diagnostic delivery; database
+progress and shutdown remain independent of it. Full telemetry transport, dashboards,
 alert delivery and an HTTP worker health endpoint are separate deployment work.
 
 ## Repeatable stopped-worker demonstration
@@ -293,17 +299,24 @@ Worker tests live in `tests/backend/integration/worker`, `test_worker_schema.py`
 inactive accounts, audit/notification atomicity, original slot/quota, bounded/fair scans,
 pool/lock/query/request timeouts, 1205/1213 retries, outages, independent heartbeats,
 shutdown, two real worker processes, authenticated API races in both orders, persisted
-backlog restart and hard crashes before/after commit. No integration prerequisite is
+backlog restart and hard crashes before/after commit. `test_backpressure.py` runs the
+actual CLI against file and unread-pipe stdout with 20 due rows, verifies all 20 transitions,
+20 audit records and 40 notifications before reading stdout, then tests a scheduled stop
+with a 0.1-second grace while pending work remains. That probe checks the original pool's
+checked-out count, released locks, reporting failures and durable restart without duplicates.
+The test observation timeout includes startup; it is not a product expiry SLA.
+No integration prerequisite is
 silently skipped when `--require-mysql` is supplied.
 
-Local release verification on 2026-10-21 used Python 3.12.14 and an isolated MySQL
+Local release verification on 2026-10-22 used Python 3.12.14 and an isolated MySQL
 8.4.11 instance. The worker integration/schema tests plus `test_worker_*.py` unit tests
-passed **96 tests, zero skips**. The complete backend unit suite passed **443 tests,
-zero skips** (including the worker unit tests). Black checked all 206 backend/test/tool
+passed **107 tests, zero skips**. The complete backend unit suite passed **451 tests,
+zero skips** (including the worker unit tests). Black checked all 209 backend/test/tool
 Python files; Ruff passed; Pyright reported zero errors and warnings. Exporting OpenAPI
 left `docs/api/openapi.yaml` unchanged. The CLI regression also verifies that safe JSON
-diagnostics survive external logging reconfiguration. A failing stdout sink is counted
-without invoking logging's internal traceback publisher. CI checks the module's `--help`
+diagnostics survive external logging reconfiguration. A slow, failed or unread stdout sink
+is isolated from business processing and bounded cleanup without leaking traceback details.
+CI checks the module's `--help`
 before database setup, then runs migrations and the complete backend suite on Python 3.11.
 The PR records those full-suite results and their exact reviewed head SHA.
 
