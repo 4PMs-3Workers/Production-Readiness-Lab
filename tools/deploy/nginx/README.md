@@ -34,15 +34,21 @@ HTTPS sets Secure, host-only, SameSite=Lax cookies. Neither mode publishes API,
 frontend, or database ports. The health endpoint `/health/gateway` proves Nginx
 liveness only; `/health/ready` checks API readiness.
 
-Only API and gateway join the internal `172.30.34.0/29` gateway network. The API
-trusts only gateway peer `172.30.34.2/32`. This fixed subnet must be available on
-the Docker host; simultaneous stacks need different coordinated subnets and peer
-settings. Do not widen trust to the shared frontend network. Request IDs are
-created by Nginx, incoming forwarding identities are replaced, and Origin,
-Referer, Cookie, CSRF, and idempotency headers are preserved. API errors and
-Retry-After pass through; gateway failures return sanitized JSON with an ID.
-Login allows 4096 bytes and other requests 32768 bytes; login throttling uses the
-immediate client address, not forwarded headers. Connect timeout is 2 seconds;
+Only API and gateway join the internal `172.30.34.0/29` gateway network.
+The API trusts only gateway peer `172.30.34.2/32`. This fixed subnet must
+be available on the Docker host; simultaneous stacks need different coordinated
+subnets and peer settings. Do not widen trust to the shared frontend network.
+Nginx replaces client-supplied forwarding metadata. The API accepts one
+canonical `X-Forwarded-For` address and one `X-Forwarded-Proto` value
+(`http` or `https`) only from that trusted peer. Malformed or missing values
+fall back independently to the socket peer or original scheme. Request-ID
+trust still uses the immediate peer. Origin, Referer, Cookie, CSRF, and
+idempotency headers are preserved. API errors and Retry-After pass through;
+gateway failures return sanitized JSON with an ID. Exact and trailing-slash
+login paths share the Nginx login rate zone and 4096-byte body limit; other
+requests allow 32768 bytes. The backend login quota uses the validated client
+address for gateway traffic and the socket peer for direct traffic. Connect
+timeout is 2 seconds;
 proxy read/send and client body/header timeouts are 10 seconds.
 
 Access logs contain method, normalized path without query, status, duration and

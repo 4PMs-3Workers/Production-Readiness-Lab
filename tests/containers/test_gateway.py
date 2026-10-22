@@ -13,6 +13,7 @@ import subprocess
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 import httpx
@@ -112,7 +113,7 @@ def certificate(directory):
     return cert_path, key_path
 
 
-@pytest.fixture(scope="module", params=["local", "https"])
+@pytest.fixture(scope="function", params=["local", "https"])
 def gateway(request, tmp_path_factory, backend_image):
     directory = tmp_path_factory.mktemp("gateway")
     cert, key = certificate(directory)
@@ -247,7 +248,10 @@ def test_real_routing_headers_and_spoofed_identity(gateway):
     assert response.headers["retry-after"] == "7"
 
 
-@pytest.mark.parametrize("path,limit", [("/api/v1/auth/login", 4096), ("/api/v1/probe", 32768)])
+@pytest.mark.parametrize(
+    "path,limit",
+    [("/api/v1/auth/login", 4096), ("/api/v1/auth/login/", 4096), ("/api/v1/probe", 32768)],
+)
 def test_real_body_boundaries_and_json_errors(gateway, path, limit):
     client, _, _, _ = gateway
     assert client.post(path, content=b"x" * limit).status_code == 200
@@ -363,3 +367,169 @@ def test_real_gateway_generates_safe_error_when_api_stops(gateway):
         assert "secret-query" not in run(*base, "logs", "--no-log-prefix", "gateway", env=env)
     finally:
         run(*base, "start", "api", env=env)
+
+
+@pytest.fixture(scope="module", params=[("local", 2), ("https", 2), ("local", 100), ("https", 100)])
+def real_backend_gateway(request, tmp_path_factory, backend_image):
+    mode, login_attempts = request.param
+    directory = tmp_path_factory.mktemp("real-backend-gateway")
+    cert, key = certificate(directory)
+    with socket.socket() as reservation:
+        reservation.bind(("127.0.0.1", 0))
+        port = reservation.getsockname()[1]
+    origin = f"{'https' if mode == 'https' else 'http'}://localhost:{port}"
+    project = "prl-real-gateway-" + uuid4().hex
+    empty = directory / "empty.env"
+    empty.write_text("")
+    env = dict(
+        os.environ,
+        PRL_HTTP_PORT=str(port),
+        PRL_HTTPS_PORT=str(port),
+        PRL_HTTPS_ORIGIN=origin,
+        PRL_TLS_CERT_FILE=str(cert),
+        PRL_TLS_KEY_FILE=str(key),
+    )
+    for role in ("DB", "RUNTIME", "MIGRATION", "SEED"):
+        env[f"PRL_{role}_ENV_FILE"] = str(empty)
+    merged = json.loads(
+        run(
+            "docker",
+            "compose",
+            "-p",
+            project,
+            "-f",
+            str(DEPLOY / "compose.yaml"),
+            "-f",
+            str(DEPLOY / f"compose.{mode}.yaml"),
+            "config",
+            "--no-env-resolution",
+            "--format",
+            "json",
+            env=env,
+        )
+    )
+    merged["services"] = {
+        name: service
+        for name, service in merged["services"].items()
+        if name in {"api", "frontend", "gateway"}
+    }
+    api_environment = dict(
+        merged["services"]["api"]["environment"],
+        DATABASE_URL="mysql+asyncmy://test:test@unused/prl",
+        COOKIE_SECRET="ephemeral-test-only",
+        CSRF_SECRET="ephemeral-test-only",
+        LOGIN_IP_ATTEMPTS=str(login_attempts),
+        LOGIN_EMAIL_ATTEMPTS="100",
+    )
+    api = merged["services"]["api"]
+    api.pop("build", None)
+    api.pop("depends_on", None)
+    api.pop("healthcheck", None)
+    api["image"] = backend_image
+    api["environment"] = api_environment
+
+    frontend = merged["services"]["frontend"]
+    frontend.pop("build", None)
+    frontend.pop("depends_on", None)
+    frontend.pop("healthcheck", None)
+    frontend["image"] = backend_image
+    frontend["environment"] = api_environment
+    frontend["entrypoint"] = ["python", "/test/upstream.py", "3000", "frontend"]
+    frontend["command"] = []
+    frontend["volumes"] = [
+        {
+            "type": "bind",
+            "source": str(ROOT / "tests/containers/gateway_upstream.py"),
+            "target": "/test/upstream.py",
+            "read_only": True,
+        }
+    ]
+
+    compose_file = directory / "compose.json"
+    compose_file.write_text(json.dumps(merged))
+    base = ["docker", "compose", "-p", project, "-f", str(compose_file)]
+    context = ssl.create_default_context(cafile=str(cert))
+    try:
+        run(*base, "up", "-d", env=env)
+        run(*base, "exec", "-T", "gateway", "nginx", "-t", env=env)
+        with httpx.Client(base_url=origin, verify=context, trust_env=False, timeout=15) as client:
+            for _ in range(60):
+                try:
+                    if client.get("/health/live").status_code == 200:
+                        break
+                except httpx.TransportError:
+                    pass
+                time.sleep(0.25)
+            else:
+                pytest.fail("real backend did not become ready through the gateway")
+            yield client, mode, login_attempts, base, env, origin
+    finally:
+        subprocess.run(
+            [*base, "down", "--remove-orphans", "--timeout", "5"],
+            cwd=ROOT,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=60,
+        )
+
+
+def test_real_backend_uses_trusted_client_identity_and_external_scheme(real_backend_gateway):
+    client, mode, login_attempts, base, env, origin = real_backend_gateway
+    login = "/api/v1/auth/login"
+    headers = {"Origin": origin, "X-Forwarded-For": "203.0.113.90"}
+
+    redirect = client.get(login + "/?continue=%2Fhome")
+    assert redirect.status_code == 307
+    location = urlsplit(redirect.headers["location"])
+    assert location.scheme == ("https" if mode == "https" else "http")
+    assert location.path == login
+    assert location.query == "continue=%2Fhome"
+    if login_attempts == 100:
+        statuses = []
+        for index in range(14):
+            path = login if index % 2 == 0 else login + "/"
+            response = client.post(path, json={}, headers=headers)
+            statuses.append(response.status_code)
+        assert 429 in statuses
+        assert set(statuses) <= {307, 422, 429}
+    else:
+        first = client.post(login, json={}, headers=headers)
+        second = client.post(login + "/", json={}, headers=headers)
+        assert first.status_code == 422
+        assert second.status_code == 307
+
+        forged = client.post(
+            login,
+            json={},
+            headers={"Origin": origin, "X-Forwarded-For": "198.51.100.45"},
+        )
+        assert forged.status_code == 429
+        assert forged.json()["error"]["code"] == "LOGIN_THROTTLED"
+
+        scheme = "https" if mode == "https" else "http"
+        port = 8443 if mode == "https" else 8080
+        target = f"{scheme}://gateway:{port}{login}"
+        probe = "\n".join(
+            [
+                "import urllib.request,urllib.error,ssl",
+                f"target = {target!r}",
+                f"origin = {origin!r}",
+                "request = urllib.request.Request(",
+                "    target,",
+                "    data=b'{}',",
+                "    headers={",
+                "        'Content-Type':'application/json',",
+                "        'Origin':origin,",
+                "        'X-Forwarded-For':'198.51.100.45',",
+                "    },",
+                ")",
+                "context = ssl._create_unverified_context()",
+                "try:",
+                "    print(urllib.request.urlopen(request, context=context).status)",
+                "except urllib.error.HTTPError as error:",
+                "    print(error.code)",
+            ]
+        )
+        second_client_status = run(*base, "exec", "-T", "frontend", "python", "-c", probe, env=env)
+        assert second_client_status.strip() == "422"
