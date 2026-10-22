@@ -3,7 +3,6 @@
 import argparse
 import asyncio
 import logging
-import sys
 from collections.abc import Sequence
 from typing import NoReturn
 
@@ -23,20 +22,14 @@ class Parser(argparse.ArgumentParser):
         raise UsageError()
 
 
-class ReportStreamHandler(logging.StreamHandler):
-    def handleError(self, record: logging.LogRecord) -> NoReturn:
-        # Let Reporter count output failures instead of logging printing a traceback.
-        raise RuntimeError("Worker report output failed") from None
-
-
 def configure_logging() -> None:
     logger = logging.getLogger("app.worker")
     logger.disabled = False
     logger.setLevel(logging.INFO)
     logger.propagate = False
-    handler = ReportStreamHandler(sys.stdout)
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    logger.handlers[:] = [handler]
+    # Structured reports have a separately owned publisher. No logging handler may
+    # hold a stdout lock that logging.shutdown() would acquire at interpreter exit.
+    logger.handlers[:] = [logging.NullHandler()]
     # Database/loop exception payloads must not bypass the allowlisted worker reports.
     for name in ("sqlalchemy", "asyncmy", "asyncio"):
         logging.getLogger(name).setLevel(logging.CRITICAL + 1)
@@ -46,6 +39,11 @@ async def serve(settings: Settings, *, once: bool) -> int:
     shutdown = Shutdown(settings.worker_grace_seconds)
     with install_signal_handlers(shutdown):
         return await run_worker(settings, shutdown=shutdown, once=once)
+
+
+async def report_fatal(reason: FailureReason) -> None:
+    async with Reporter() as reports:
+        reports.emit("fatal", WorkerState(WorkerIdentity().worker_id), reason=reason)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -59,20 +57,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         settings = load_settings()
         return asyncio.run(serve(settings, once=args.once))
     except (ConfigurationError, UsageError):
-        Reporter().emit(
-            "fatal",
-            WorkerState(WorkerIdentity().worker_id),
-            reason=FailureReason.CONFIGURATION_INVALID,
-        )
+        asyncio.run(report_fatal(FailureReason.CONFIGURATION_INVALID))
         return 2
     except KeyboardInterrupt:
         return 130
     except Exception:
-        Reporter().emit(
-            "fatal",
-            WorkerState(WorkerIdentity().worker_id),
-            reason=FailureReason.UNEXPECTED_FAILURE,
-        )
+        asyncio.run(report_fatal(FailureReason.UNEXPECTED_FAILURE))
         return 1
 
 

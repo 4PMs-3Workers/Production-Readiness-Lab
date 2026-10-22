@@ -14,7 +14,9 @@ from app.worker.batch import BatchRunner
 pytestmark = pytest.mark.mysql
 
 
-async def test_workers_discover_the_same_id_then_serialize_expiry_and_noop(worker_env, monkeypatch):
+async def test_workers_discover_the_same_id_then_serialize_expiry_and_noop(
+    worker_env, monkeypatch, worker_reports
+):
     env = worker_env
     identifier, _ = await add_proposal(env)
     settings = env.settings.model_copy(
@@ -27,7 +29,7 @@ async def test_workers_discover_the_same_id_then_serialize_expiry_and_noop(worke
     runners = []
 
     async def run(db):
-        runner = BatchRunner(lambda: db, settings)
+        runner = BatchRunner(lambda: db, settings, reporter=worker_reports())
         runners.append(runner)
         return await runner.run_batch()
 
@@ -45,7 +47,9 @@ async def test_workers_discover_the_same_id_then_serialize_expiry_and_noop(worke
         assert audit.request_id == runners[0].identity.request_id(first_run_id, identifier)
 
 
-async def test_two_full_batches_race_without_duplicate_effects(worker_env, monkeypatch):
+async def test_two_full_batches_race_without_duplicate_effects(
+    worker_env, monkeypatch, worker_reports
+):
     env = worker_env
     for _ in range(2):
         await add_proposal(env)
@@ -70,7 +74,7 @@ async def test_two_full_batches_race_without_duplicate_effects(worker_env, monke
             "db_lock_timeout_seconds": 5,
         }
     )
-    runners = [BatchRunner(env.factory, settings) for _ in range(2)]
+    runners = [BatchRunner(env.factory, settings, reporter=worker_reports()) for _ in range(2)]
     await asyncio.gather(*(runner.run_batch() for runner in runners))
     assert all(len(snapshot.candidates) == 2 for snapshot in snapshots)
     assert sum(runner.state.expired for runner in runners) == 2

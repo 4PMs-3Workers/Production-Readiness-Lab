@@ -33,61 +33,55 @@ def restore_cli_logging():
             logger.handlers[:] = handlers
 
 
-def test_help_needs_no_environment_or_database(monkeypatch, capsys):
+def test_help_needs_no_environment_or_database(monkeypatch, capfd):
     load = Mock(side_effect=AssertionError("must not load configuration for --help"))
     monkeypatch.setattr(cli, "load_settings", load)
     with pytest.raises(SystemExit) as exit_status:
         cli.main(["--help"])
     assert exit_status.value.code == 0
-    assert "--once" in capsys.readouterr().out
+    assert "--once" in capfd.readouterr().out
     load.assert_not_called()
 
 
-def test_configuration_errors_never_publish_supplied_values(monkeypatch, capsys):
+def test_configuration_errors_never_publish_supplied_values(monkeypatch, capfd):
     monkeypatch.setattr(
         cli, "load_settings", Mock(side_effect=ConfigurationError("private-secret"))
     )
     assert cli.main([]) == 2
-    captured = capsys.readouterr()
+    captured = capfd.readouterr()
     assert "private-secret" not in captured.out + captured.err
     assert json.loads(captured.out)["reason"] == "CONFIGURATION_INVALID"
 
 
-def test_invalid_arguments_are_sanitized_instead_of_argparse_echoing_them(capsys):
+def test_invalid_arguments_are_sanitized_instead_of_argparse_echoing_them(capfd):
     assert cli.main(["--private-secret-argument"]) == 2
-    captured = capsys.readouterr()
+    captured = capfd.readouterr()
     assert "private-secret" not in captured.out + captured.err
     assert json.loads(captured.out)["reason"] == "CONFIGURATION_INVALID"
 
 
-def test_cli_reenables_its_logger_after_external_logging_reconfiguration(capsys):
+def test_cli_reenables_its_logger_after_external_logging_reconfiguration(capfd):
     logger = logging.getLogger("app.worker")
     logger.disabled = True
     assert cli.main(["--invalid"]) == 2
-    captured = capsys.readouterr()
+    captured = capfd.readouterr()
     assert logger.disabled is False
     assert json.loads(captured.out)["reason"] == "CONFIGURATION_INVALID"
 
 
-def test_cli_output_failure_is_counted_without_logging_internal_exception_details(
-    capsys, monkeypatch
-):
+async def test_cli_output_failure_is_counted_without_logging_internal_exception_details(capfd):
     from app.worker.models import WorkerIdentity, WorkerState
     from app.worker.reporting import Reporter
 
-    class FailedOutput:
-        def write(self, value):
-            raise RuntimeError("private-output-failure")
+    def failed_output(value):
+        raise RuntimeError("private-output-failure")
 
-        def flush(self):
-            pass
-
-    monkeypatch.setattr(cli.sys, "stdout", FailedOutput())
     cli.configure_logging()
     state = WorkerState(WorkerIdentity().worker_id)
-    assert Reporter().emit("heartbeat", state) is False
+    async with Reporter(failed_output) as reports:
+        assert reports.emit("heartbeat", state)
     assert state.reporting_failures == 1
-    assert capsys.readouterr().err == ""
+    assert capfd.readouterr().err == ""
 
 
 @pytest.mark.parametrize("fallback", [False, True])

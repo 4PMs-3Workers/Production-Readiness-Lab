@@ -35,7 +35,9 @@ raise SystemExit(main(["--once"]))
 
 
 @pytest.mark.parametrize("operation", ["scan", "candidate"])
-async def test_exhausted_pool_times_out_without_leaks_then_recovers(worker_env, operation):
+async def test_exhausted_pool_times_out_without_leaks_then_recovers(
+    worker_env, operation, worker_reports
+):
     env = worker_env
     identifier, _ = await add_proposal(env)
     engine = create_database_engine(
@@ -48,7 +50,7 @@ async def test_exhausted_pool_times_out_without_leaks_then_recovers(worker_env, 
     factory = async_sessionmaker(engine, expire_on_commit=False)
     pool = engine.pool
     assert isinstance(pool, QueuePool)
-    runner = BatchRunner(factory, env.settings)
+    runner = BatchRunner(factory, env.settings, reporter=worker_reports())
     try:
         async with engine.connect() as blocker:
             await blocker.execute(text("SELECT 1"))

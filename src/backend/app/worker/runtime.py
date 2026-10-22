@@ -66,6 +66,7 @@ async def run_worker(
     if control.stop.is_set():
         state.phase = "stopped"
         reports.emit("stopped", state)
+        await reports.close(control.deadline)
         return 0
     try:
         async with open_resources(
@@ -91,7 +92,7 @@ async def run_worker(
                 processor=process,
                 cleanup_deadline=lambda: control.deadline,
             )
-            state = runner.state
+            runner.state = state
             heartbeat_stop = asyncio.Event()
             pulse = asyncio.create_task(heartbeat(runner, heartbeat_stop), name="expiry-heartbeat")
             work = asyncio.create_task(poll(runner, control.stop, once=once), name="expiry-poll")
@@ -121,6 +122,8 @@ async def run_worker(
         reports.emit("fatal", state, reason=FailureReason.UNEXPECTED_FAILURE)
         result = 1
     finally:
+        control.request_stop()
         state.phase = "stopped"
         reports.emit("stopped", state)
+        await reports.close(control.deadline)
     return result

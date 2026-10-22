@@ -8,6 +8,23 @@ from tests.backend.integration.worker.helpers import WorkerEnv
 
 from app.models import Purpose, ServiceHour, ServiceSetting, StaffPurpose, User
 from app.repositories import users
+from app.worker.reporting import Reporter
+
+
+@pytest_asyncio.fixture
+async def worker_reports():
+    reports = []
+
+    def create(sink=None):
+        reporter = Reporter(sink if sink is not None else lambda value: None)
+        reports.append(reporter)
+        return reporter
+
+    try:
+        yield create
+    finally:
+        for reporter in reports:
+            await reporter.close()
 
 
 @pytest_asyncio.fixture

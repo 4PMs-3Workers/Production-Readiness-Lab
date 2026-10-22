@@ -36,7 +36,7 @@ class BatchRunner:
         sessions: SessionFactory,
         settings: Settings,
         *,
-        reporter: Reporter | None = None,
+        reporter: Reporter,
         identity: WorkerIdentity | None = None,
         processor: Processor | None = None,
         cleanup_deadline: CleanupDeadline | None = None,
@@ -44,7 +44,7 @@ class BatchRunner:
         self.sessions, self.settings = sessions, settings
         self.identity = identity or WorkerIdentity()
         self.state = WorkerState(self.identity.worker_id)
-        self.reporter = reporter or Reporter()
+        self.reporter = reporter
         self.processor = processor or process_candidate
         self.cleanup_deadline = cleanup_deadline
         self.cursor: Candidate | None = None

@@ -53,8 +53,9 @@ async def test_heartbeat_keeps_running_while_database_scan_is_slow(auth_settings
     def sink(value):
         output.append(json.loads(value))
         if len([row for row in output if row["event"] == "heartbeat"]) >= 3:
-            enough_heartbeats.set()
+            loop.call_soon_threadsafe(enough_heartbeats.set)
 
+    loop = asyncio.get_running_loop()
     settings = auth_settings.model_copy(update={"worker_heartbeat_interval_seconds": 0.01})
     runner = BatchRunner(AsyncMock(), settings, reporter=Reporter(sink))
 
@@ -75,3 +76,4 @@ async def test_heartbeat_keeps_running_while_database_scan_is_slow(auth_settings
         stop.set()
         release_scan.set()
         await asyncio.gather(work, pulse)
+        await runner.reporter.close()
