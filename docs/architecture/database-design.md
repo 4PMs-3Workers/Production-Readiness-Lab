@@ -560,6 +560,15 @@ Worker lấy các ID đề nghị `PENDING` có `expires_at <= UTC_TIMESTAMP(6)`
 
 Worker và request sinh viên cùng khóa lịch; chỉ một kết quả cuối được ghi. Khi worker chậm, lịch vẫn chiếm chỗ đến khi trạng thái được cập nhật; availability và các truy vấn kiểm tra dưới khóa dùng cùng tập trạng thái `UPCOMING/CHANGE_PENDING`.
 
+Worker issue #26 gọi helper hết hạn dùng chung của issue #25, không có state machine thứ
+hai. Discovery không khóa proposal trước settings/accounts; mỗi ID được recheck và commit
+riêng cùng một audit `CHANGE_PROPOSAL_EXPIRED`, hai notification, actor hệ thống NULL.
+Resolved/superseded/not-due/missing là no-op; cặp PENDING không đi cùng CHANGE_PENDING
+được báo lỗi vận hành và giữ nguyên. Disabled participant không ngăn cleanup. Bounded scan
+và backlog estimate dùng index `(status, expires_at, id)`, không COUNT toàn bộ backlog.
+Cursor cohort chỉ giúp công bằng; database mới là nguồn việc bền vững qua crash/restart.
+Không thêm migration; xem [hợp đồng worker](../tasks/change-proposal-expiry-worker.md).
+
 ## 7. Chỉ mục và truy vấn
 
 PK và UNIQUE có chỉ mục tương ứng. MySQL yêu cầu chỉ mục cho FK; migration đặt tên và tái sử dụng chỉ mục phù hợp, tránh tạo bản trùng. Các chỉ mục dưới đây là B-tree thông thường, áp dụng trên toàn bảng:

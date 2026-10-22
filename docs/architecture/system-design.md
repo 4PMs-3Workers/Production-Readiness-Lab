@@ -189,9 +189,26 @@ Giờ trống là kết quả đọc tại một thời điểm. Mọi thao tác
 
 Worker và API dùng chung quy tắc chuyển trạng thái. Database giữ công việc còn chờ qua restart và khóa giúp chỉ một kết quả cuối được ghi khi worker cạnh tranh với request.
 
+Process `python -m app.worker` có engine/session factory riêng, dùng cùng phiên bản backend
+và helper `expire_change_proposal_in_transaction` với API. Scan không khóa chọn tối đa batch
+ứng viên PENDING đã đến hạn theo UTC database, rồi mỗi ứng viên có transaction riêng theo
+thứ tự settings, accounts, appointment, proposal. Ứng viên lỗi không chặn phần còn lại;
+cursor theo từng cohort hữu hạn bảo đảm quay lại các dòng lỗi cũ. Restart bỏ cursor và đọc
+lại trạng thái bền vững. Worker không cần phiên tương tác hay participant còn active.
+
 ### 4.6. Tách nghiệp vụ khỏi telemetry
 
 Exporter có timeout và queue hữu hạn. Sự cố Collector hoặc hệ thống lưu telemetry phải được ghi nhận nhưng không làm hỏng transaction nghiệp vụ.
+
+Worker issue #26 xuất JSON stdout qua reporter độc lập với commit: worker/run ID, heartbeat,
+lần scan DB thành công, counters, duration và backlog/oldest-overdue có giới hạn. Lỗi report
+không rollback nghiệp vụ. Publisher ghi raw stdout trên daemon thread riêng, queue tối đa
+64 record (8192 byte/record), deadline xuất 0.25 giây. Queue đầy bỏ record mới; record hết
+hạn bị bỏ. Cleanup chờ tối đa 0.1 giây trong cùng shutdown deadline; không join vô hạn
+thread bị nghẽn pipe hoặc giữ khóa stdout lúc interpreter thoát. Lỗi/bỏ record được gom
+vào `reporting_failures`; mất log không chặn tiến triển DB hay stop callback.
+Tích hợp các record này vào Collector/dashboard/alerting thuộc
+phần triển khai telemetry; process hiện cung cấp tín hiệu để phân biệt liveness với DB progress.
 
 ### 4.7. Phát hành bằng artifact bất biến
 
@@ -560,6 +577,13 @@ Thời hạn lưu telemetry: logs/traces ít nhất 7 ngày, metrics ít nhất 
 
 Thời gian chờ database và backlog worker được theo dõi qua telemetry. Kết quả chưa rõ commit được xác minh bằng retry cùng key.
 
+Expiry worker không tự phát lại commit chưa rõ kết quả: connection bị invalidate, lượt
+scan/restart sau kiểm tra cặp trạng thái đã commit trước khi quyết định. Chỉ 1205/1213 đã
+abort được retry có giới hạn. Outage backoff tăng theo cấp số nhân, tối đa 60 giây, có thể
+ngắt khi stop; successful empty scan khác failed scan. Grace là một deadline chung cho
+current work và cleanup, không kéo dài `expires_at`. Xem
+[worker runbook](../tasks/change-proposal-expiry-worker.md) cho commands, permissions và recovery.
+
 ### 8.5. Hành vi khi có sự cố
 
 | Sự cố | Hành vi hệ thống |
@@ -581,7 +605,7 @@ Local và demo dùng Docker Compose. Local có thể chạy toàn bộ thành ph
 |---|---|
 | API | `/health/live` kiểm tra tiến trình; `/health/ready` kiểm tra DB có timeout và schema phù hợp release; `/metrics` nội bộ. |
 | Frontend | HTTP health xác nhận server phục vụ; smoke xác minh trang và tích hợp API. |
-| Worker | Heartbeat và lần quét thành công; restart theo cấu hình; đề nghị tồn tại trong DB để tiếp tục xử lý. |
+| Worker | `python -m app.worker`; heartbeat độc lập, last successful scan và backlog JSON; Ctrl+C/SIGTERM dùng grace chung; restart tiếp tục từ DB. |
 | MySQL | Kiểm tra kết nối, volume và dung lượng; migration chạy một lần bởi job triển khai. |
 
 ### 9.2. Quy trình phát hành
