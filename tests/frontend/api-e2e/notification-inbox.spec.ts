@@ -25,6 +25,12 @@ async function login(page: Page, account: 'student' | 'staff' | 'other' | 'other
     await expect(page.getByRole('heading', { name: 'Tài khoản chưa được hỗ trợ' })).toBeVisible();
 }
 
+async function logout(page: Page) {
+  await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
+  await expect(page).toHaveURL(/\/login/);
+  await expect(page.getByLabel('Email', { exact: true })).toBeVisible();
+}
+
 async function createBooking(page: Page) {
   await page.goto('/booking');
   await page.getByRole('radio', { name: /Tư vấn học tập kiểm thử/ }).check();
@@ -68,7 +74,7 @@ test('booking notification is private to its participants and read state survive
   await page.reload();
   await expect(page.getByText('Đã đọc').first()).toBeVisible();
 
-  await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
+  await logout(page);
   await login(page, 'staff');
   await page.goto('/staff/notifications');
   await expect(page.getByText('Lịch hẹn đã được tạo').first()).toBeVisible();
@@ -77,7 +83,7 @@ test('booking notification is private to its participants and read state survive
     /\/staff\/appointments\/[a-f0-9-]+/,
   );
 
-  await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
+  await logout(page);
   await login(page, 'other');
   await page.goto('/notifications');
   await expect(page.getByText('Bạn chưa có thông báo nào.')).toBeVisible();
@@ -116,7 +122,7 @@ test('staff proposal notification is visible to the assigned staff and student',
 }) => {
   await login(page, 'student');
   const appointmentId = await createBooking(page);
-  await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
+  await logout(page);
   await login(page, 'staff');
 
   const proposalPath = `/api/v1/staff/me/appointments/${appointmentId}/change-proposals`;
@@ -150,7 +156,7 @@ test('staff proposal notification is visible to the assigned staff and student',
 
   await page.goto('/staff/notifications');
   await expect(page.getByText('Có đề xuất thay đổi lịch hẹn')).toBeVisible();
-  await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
+  await logout(page);
   await login(page, 'student');
   await page.goto('/notifications');
   await expect(page.getByText('Có đề xuất thay đổi lịch hẹn')).toBeVisible();
@@ -159,17 +165,17 @@ test('staff proposal notification is visible to the assigned staff and student',
   harness('expire-proposal', '--id', proposalId);
   await page.getByRole('button', { name: 'Làm mới' }).click();
   await expect(page.getByText('Đề xuất thay đổi lịch hẹn đã hết hạn')).toBeVisible();
-  await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
+  await logout(page);
   await login(page, 'staff');
   await page.goto('/staff/notifications');
   await expect(page.getByText('Đề xuất thay đổi lịch hẹn đã hết hạn')).toBeVisible();
 
-  await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
+  await logout(page);
   await login(page, 'otherstaff');
   await page.goto('/staff/notifications');
   await expect(page.getByText('Bạn chưa có thông báo nào.')).toBeVisible();
 
-  await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
+  await logout(page);
   await login(page, 'admin');
   const adminInbox = await context.request.get('/api/v1/notifications');
   expect(adminInbox.status()).toBe(403);

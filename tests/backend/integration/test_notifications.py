@@ -57,6 +57,7 @@ async def notification_env(auth_env):
         )
         await db.flush()
         db.add(StaffPurpose(staff_id=staff_id, purpose_id=purpose_id))
+        await db.flush()
         appointment = Appointment(
             id=appointment_id,
             student_id=student_id,
