@@ -70,6 +70,8 @@ def test_openapi_export_is_deterministic_without_database(tmp_path):
         "/api/v1/appointments/{appointment_id}/change-proposals",
         "/api/v1/appointments/{appointment_id}/change-proposals/{proposal_id}/accept",
         "/api/v1/appointments/{appointment_id}/change-proposals/{proposal_id}/decline",
+        "/api/v1/notifications",
+        "/api/v1/notifications/{notification_id}/read",
     }
     staff_list = document["paths"]["/api/v1/staff/me/appointments"]["get"]
     assert staff_list["security"] == [{"prl_session": []}]
