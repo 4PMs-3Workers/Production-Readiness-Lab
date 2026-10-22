@@ -10,6 +10,8 @@ RUNTIME_PINS = {
     "asyncmy": "0.2.16",
     "cryptography": "50.0.2",
     "mako": "1.3.12",
+    "click": "8.5.0",
+    "markupsafe": "3.0.4",
 }
 DEVELOPMENT_PINS = {
     "black": "26.3.1",

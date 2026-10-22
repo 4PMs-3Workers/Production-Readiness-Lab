@@ -1,0 +1,23 @@
+# Build from the repository root: docker build -f Dockerfile.backend -t prl-backend .
+# The worker uses this same image: docker run ... prl-backend python -m app.worker
+FROM python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2 AS dependencies
+WORKDIR /build
+COPY requirements.txt ./
+# Binary wheels keep compilers and development libraries out of both stages.
+RUN python -m pip install --no-cache-dir --only-binary=:all: --no-deps --prefix=/install -r requirements.txt
+
+FROM python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2 AS runtime
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/src/backend
+WORKDIR /app
+RUN groupadd --gid 10001 app && useradd --uid 10001 --gid app --no-create-home app
+COPY --from=dependencies /install /usr/local
+COPY src/backend/app ./src/backend/app
+# These operational assets are intentionally outside the installed app package.
+COPY alembic.ini ./alembic.ini
+COPY src/backend/migrations ./src/backend/migrations
+COPY tools/scripts/seed_demo.py ./tools/scripts/seed_demo.py
+USER 10001:10001
+EXPOSE 8000
+CMD ["python", "-m", "uvicorn", "app.main:app", "--app-dir", "src/backend", "--no-proxy-headers", "--host", "0.0.0.0", "--port", "8000"]
