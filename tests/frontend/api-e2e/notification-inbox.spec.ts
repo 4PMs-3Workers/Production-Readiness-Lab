@@ -17,6 +17,12 @@ async function login(page: Page, account: 'student' | 'staff' | 'other' | 'other
   await page.getByLabel('Email', { exact: true }).fill(`${account}@frontend.example.invalid`);
   await page.getByLabel('Mật khẩu', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click();
+  if (account === 'student' || account === 'other')
+    await expect(page.getByRole('heading', { name: /Chào mừng,/ })).toBeVisible();
+  else if (account === 'staff' || account === 'otherstaff')
+    await expect(page.getByRole('heading', { name: 'Lịch được giao' })).toBeVisible();
+  else
+    await expect(page.getByRole('heading', { name: 'Tài khoản chưa được hỗ trợ' })).toBeVisible();
 }
 
 async function createBooking(page: Page) {
