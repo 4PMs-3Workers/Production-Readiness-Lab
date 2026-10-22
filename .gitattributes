@@ -15,3 +15,6 @@
 /docs/tasks/frontend-bootstrap.md text eol=lf
 /.github/workflows/frontend.yml text eol=lf
 /docs/screenshots/frontend-bootstrap/*.png -text
+
+# Deployment scripts are executed inside Linux containers.
+/tools/deploy/** text eol=lf
