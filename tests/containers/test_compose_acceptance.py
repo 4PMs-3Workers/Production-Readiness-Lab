@@ -379,9 +379,7 @@ class ComposeAcceptance:
         )
         self.expect_compose_failure("run", "--rm", "-T", "schema")
         require_success(
-            self.compose(
-                "--profile", "operations", "run", "--rm", "-T", "migrate", timeout=240
-            ),
+            self.compose("--profile", "operations", "run", "--rm", "-T", "migrate", timeout=240),
             "The isolated database migration failed",
         )
         require_success(
@@ -446,8 +444,10 @@ class ComposeAcceptance:
         worker_id = require_success(
             self.compose("ps", "-q", "worker"), "The worker container is missing"
         )
-        if api_id == worker_id or not re.fullmatch(r"[0-9a-f]{64}", api_id) or not re.fullmatch(
-            r"[0-9a-f]{64}", worker_id
+        if (
+            api_id == worker_id
+            or not re.fullmatch(r"[0-9a-f]{64}", api_id)
+            or not re.fullmatch(r"[0-9a-f]{64}", worker_id)
         ):
             raise AcceptanceFailure("The API and worker do not run as separate containers")
         records = json_output(
@@ -583,9 +583,7 @@ class ComposeAcceptance:
             if staff_response.status_code != 200:
                 raise AcceptanceFailure("The isolated staff catalog is unavailable")
             staff = next(
-                item
-                for item in staff_response.json()["items"]
-                if item["name"] == "Lê Thu Hà"
+                item for item in staff_response.json()["items"] if item["name"] == "Lê Thu Hà"
             )
             first_date = date.fromisoformat(context["min_booking_date"])
             last_date = date.fromisoformat(context["max_booking_date"])
@@ -675,9 +673,6 @@ class ComposeAcceptance:
             "--config",
             str(PLAYWRIGHT_CONFIG),
         ]
-        grep = env.get("PRL_COMPOSE_PLAYWRIGHT_GREP")
-        if grep:
-            args.extend(["--grep", grep])
         result = invoke(
             args,
             env=env,
@@ -689,9 +684,7 @@ class ComposeAcceptance:
                 + self._playwright_failure_summary(result)
             )
 
-    def _playwright_failure_summary(
-        self, result: subprocess.CompletedProcess[str]
-    ) -> str:
+    def _playwright_failure_summary(self, result: subprocess.CompletedProcess[str]) -> str:
         output = f"{result.stdout}\n{result.stderr}"
         output = re.sub(r"\x1b\[[0-9;]*m", "", output)
         for secret in (
@@ -766,10 +759,13 @@ class ComposeAcceptance:
             "SET expires_at = created_at + INTERVAL 2 SECOND "
             f"WHERE id = UNHEX(REPLACE('{proposal_id}', '-', '')) AND status = 'PENDING';"
         )
-        if self.sql(
-            "SELECT IF(expires_at > created_at, 1, 0) FROM change_proposals "
-            f"WHERE id = UNHEX(REPLACE('{proposal_id}', '-', ''));"
-        ) != "1":
+        if (
+            self.sql(
+                "SELECT IF(expires_at > created_at, 1, 0) FROM change_proposals "
+                f"WHERE id = UNHEX(REPLACE('{proposal_id}', '-', ''));"
+            )
+            != "1"
+        ):
             raise AcceptanceFailure(
                 "The disposable proposal expiry did not preserve its data check"
             )
@@ -820,17 +816,23 @@ class ComposeAcceptance:
         )
         if candidate is None:
             raise AcceptanceFailure("The restarted worker did not report expiry progress")
-        if self.sql(
-            "SELECT COUNT(*) FROM audit_events "
-            "WHERE action = 'CHANGE_PROPOSAL_EXPIRED' "
-            f"AND entity_id = '{proposal_id}';"
-        ) != "1":
+        if (
+            self.sql(
+                "SELECT COUNT(*) FROM audit_events "
+                "WHERE action = 'CHANGE_PROPOSAL_EXPIRED' "
+                f"AND entity_id = '{proposal_id}';"
+            )
+            != "1"
+        ):
             raise AcceptanceFailure("The proposal expiry did not create exactly one audit event")
-        if self.sql(
-            "SELECT COUNT(*) FROM notifications "
-            "WHERE event_type = 'CHANGE_PROPOSAL_EXPIRED' "
-            f"AND appointment_id = UNHEX(REPLACE('{appointment_id}', '-', ''));"
-        ) != "2":
+        if (
+            self.sql(
+                "SELECT COUNT(*) FROM notifications "
+                "WHERE event_type = 'CHANGE_PROPOSAL_EXPIRED' "
+                f"AND appointment_id = UNHEX(REPLACE('{appointment_id}', '-', ''));"
+            )
+            != "2"
+        ):
             raise AcceptanceFailure("The proposal expiry did not create exactly two notifications")
 
     def restart_persistence(self, worker_student_appointment: str) -> None:
@@ -842,10 +844,13 @@ class ComposeAcceptance:
         )
         self.wait_gateway()
         self.require_worker_identity()
-        if self.sql(
-            "SELECT COUNT(*) FROM appointments "
-            f"WHERE id = UNHEX(REPLACE('{worker_student_appointment}', '-', ''));"
-        ) != "1":
+        if (
+            self.sql(
+                "SELECT COUNT(*) FROM appointments "
+                f"WHERE id = UNHEX(REPLACE('{worker_student_appointment}', '-', ''));"
+            )
+            != "1"
+        ):
             raise AcceptanceFailure("The API restart did not preserve the worker test appointment")
         self.require_appointments_after_restart("CANCELLED")
 
@@ -872,10 +877,13 @@ class ComposeAcceptance:
         )
         if current_api_id != api_id:
             raise AcceptanceFailure("The API container was recreated during a database restart")
-        if self.sql(
-            "SELECT COUNT(*) FROM appointments "
-            f"WHERE id = UNHEX(REPLACE('{worker_student_appointment}', '-', ''));"
-        ) != "1":
+        if (
+            self.sql(
+                "SELECT COUNT(*) FROM appointments "
+                f"WHERE id = UNHEX(REPLACE('{worker_student_appointment}', '-', ''));"
+            )
+            != "1"
+        ):
             raise AcceptanceFailure("The MySQL restart did not preserve appointment data")
         self.require_appointments_after_restart("CANCELLED")
 
@@ -938,9 +946,7 @@ class ComposeAcceptance:
                 raise AcceptanceFailure("The API container exited during a bounded database outage")
         finally:
             require_success(
-                self.compose(
-                    "up", "-d", "--wait", "--wait-timeout", "120", "mysql", timeout=150
-                ),
+                self.compose("up", "-d", "--wait", "--wait-timeout", "120", "mysql", timeout=150),
                 "The test-owned database did not recover from its bounded outage",
             )
         self.wait_gateway()
@@ -1016,8 +1022,7 @@ class ComposeAcceptance:
                 "The test-owned network labels could not be verified for cleanup",
             )
             if any(
-                (network.get("Labels") or {}).get("com.docker.compose.project")
-                != self.project
+                (network.get("Labels") or {}).get("com.docker.compose.project") != self.project
                 for network in networks
             ):
                 raise AcceptanceFailure("A network failed the exact test-project cleanup check")
@@ -1077,6 +1082,47 @@ def test_compose_forwards_stdin_to_docker_command(monkeypatch: pytest.MonkeyPatc
                 "mysql",
             ],
             statement,
+        )
+    ]
+
+
+def test_playwright_runner_does_not_filter_required_role_coverage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stack = ComposeAcceptance.__new__(ComposeAcceptance)
+    stack.env = {"PRL_COMPOSE_PLAYWRIGHT_GREP": "student only"}
+    stack.origin = "http://localhost:3100"
+    stack.student_email = "student@example.invalid"
+    stack.student_password = "test-password"
+    stack.staff_email = "staff@example.invalid"
+    stack.staff_password = "test-password"
+    calls: list[tuple[list[str], float]] = []
+
+    def fake_invoke(
+        args: list[str],
+        *,
+        cwd: Path = ROOT,
+        env: Mapping[str, str] | None = None,
+        input_text: str | None = None,
+        timeout: float = 180,
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append((args, timeout))
+        return subprocess.CompletedProcess(args, 0, "2 passed", "")
+
+    monkeypatch.setattr(shutil, "which", lambda name: "node")
+    monkeypatch.setitem(globals(), "invoke", fake_invoke)
+    stack.run_playwright("appointment-id", "Staff Name", "2026-10-25")
+
+    assert calls == [
+        (
+            [
+                "node",
+                str(ROOT / "node_modules/@playwright/test/cli.js"),
+                "test",
+                "--config",
+                str(PLAYWRIGHT_CONFIG),
+            ],
+            240,
         )
     ]
 
