@@ -18,6 +18,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import evidence  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
+REVISION_LABEL = "org.opencontainers.image.revision"
+APPLICATION_SERVICES = {"api", "worker", "frontend", "migrate", "schema", "seed"}
 ENV_FILES = (
     "PRL_DB_ENV_FILE",
     "PRL_RUNTIME_ENV_FILE",
@@ -27,6 +29,10 @@ ENV_FILES = (
 
 
 class OperationFailed(Exception):
+    pass
+
+
+class ProvenanceMismatch(OperationFailed):
     pass
 
 
@@ -63,8 +69,9 @@ def worker_ready(output):
 
 
 class Demo:
-    def __init__(self, overlay):
+    def __init__(self, overlay, source_sha):
         self.overlay = overlay
+        self.source_sha = source_sha
         self.base = [
             "docker",
             "compose",
@@ -174,31 +181,66 @@ class Demo:
         if not api or api != self.compose("images", "-q", "worker"):
             raise OperationFailed()
 
-    def images(self):
+    def inspect_image(self, reference, service):
+        raw = run(
+            [
+                "docker",
+                "image",
+                "inspect",
+                "--format",
+                '{"Id":{{json .Id}},"RepoDigests":{{json .RepoDigests}},'
+                '"Labels":{{json .Config.Labels}}}',
+                reference,
+            ]
+        )
+        image = json.loads(raw)
+        if service in APPLICATION_SERVICES:
+            if (image.get("Labels") or {}).get(REVISION_LABEL) != self.source_sha:
+                raise ProvenanceMismatch()
+        return image
+
+    def require_images(self, services):
+        configuration = json.loads(
+            self.compose("config", "--no-env-resolution", "--format", "json")
+        )
+        for service in services:
+            self.inspect_image(configuration["services"][service]["image"], service)
+
+    def images(self, configured_only=False):
         images = {}
         configuration = json.loads(
             self.compose("config", "--no-env-resolution", "--format", "json")
         )
         for service in sorted(evidence.SERVICES):
-            identifier = self.compose("images", "-q", service)
+            identifier = "" if configured_only else self.compose("images", "-q", service)
             if identifier and not re.fullmatch(r"(?:sha256:)?[0-9a-f]{12,64}", identifier):
                 raise OperationFailed()
             reference = identifier or configuration["services"][service]["image"]
             try:
-                raw = run(["docker", "image", "inspect", "--format", "{{json .}}", reference])
+                image = self.inspect_image(reference, service)
+            except ProvenanceMismatch:
+                raise
             except OperationFailed:
                 if identifier:
                     raise
                 continue
-            image = json.loads(raw)
             images[service] = {"id": image["Id"], "digests": image.get("RepoDigests") or []}
         return images
 
     def execute(self, command):
         self.compose("config", "--quiet")
         if command == "build":
-            self.compose("build", "api", "frontend")
+            self.compose(
+                "build", "--build-arg", f"PRL_SOURCE_SHA={self.source_sha}", "api", "frontend"
+            )
+            self.require_images(("api", "frontend"))
         elif command in {"migrate", "seed", "up"}:
+            services = (
+                {"schema", command}
+                if command in {"migrate", "seed"}
+                else {"schema", "api", "worker", "frontend"}
+            )
+            self.require_images(sorted(services))
             self.database()
             if command == "migrate":
                 self.compose("run", "--rm", "migrate")
@@ -241,12 +283,22 @@ class Demo:
                     health = health if health in {"healthy", "unhealthy", "starting"} else "unknown"
                     print(f"{service}: {state}, health={health}")
         elif command == "evidence":
+            self.require_images(("schema",))
+            self.images()
             self.compose("run", "--rm", "schema")
             self.verify()
         elif command == "stop":
             self.compose("stop")
         elif command == "down":
             self.compose("down")
+
+
+def require_clean_source(expected_sha):
+    # Capture only: filenames may themselves contain secrets.
+    if run(["git", "status", "--porcelain", "--untracked-files=all"]):
+        raise OperationFailed()
+    if run(["git", "rev-parse", "HEAD"]) != expected_sha:
+        raise OperationFailed()
 
 
 def main(argv=None):
@@ -269,12 +321,14 @@ def main(argv=None):
             sha = run(["git", "rev-parse", "HEAD"])
             if not re.fullmatch(r"[0-9a-f]{40}", sha):
                 raise OperationFailed()
+            require_clean_source(sha)
             path = ROOT / "build/deploy" / sha / "manifest.json"
             previous = evidence.validate(json.loads(path.read_text())) if path.exists() else None
             try:
-                demo = Demo(overlay)
+                demo = Demo(overlay, sha)
                 demo.execute(command)
-                images = demo.images()
+                images = demo.images(configured_only=command == "build")
+                require_clean_source(sha)
             except Exception:
                 evidence.write(path, evidence.create(sha, overlay, command, "failed", {}, previous))
                 raise

@@ -102,7 +102,8 @@ def operator(monkeypatch, tmp_path):
                 return json.dumps(
                     {
                         "services": {
-                            service: {"image": "fake-image"} for service in demo.evidence.SERVICES
+                            service: {"image": "fake-image"}
+                            for service in demo.evidence.SERVICES | demo.APPLICATION_SERVICES
                         }
                     }
                 )
@@ -126,7 +127,13 @@ def operator(monkeypatch, tmp_path):
         if args[:2] == ["docker", "inspect"]:
             return "true" if "{{.State.Running}}" in args else "healthy"
         if args[:3] == ["docker", "image", "inspect"]:
-            return json.dumps({"Id": "sha256:" + "c" * 64, "RepoDigests": []})
+            return json.dumps(
+                {
+                    "Id": "sha256:" + "c" * 64,
+                    "RepoDigests": [],
+                    "Labels": {demo.REVISION_LABEL: "a" * 40},
+                }
+            )
         return ""
 
     monkeypatch.setattr(demo, "run", fake)
@@ -151,7 +158,7 @@ def compose_calls(calls):
 def test_explicit_migration_order(operator):
     demo, calls = operator
     assert demo.main(["migrate", "--overlay", "local"]) == 0
-    steps = compose_calls(calls)
+    steps = [step for step in compose_calls(calls) if "--no-env-resolution" not in step]
     assert steps[:6] == [
         ["config", "--quiet"],
         ["up", "-d", "mysql"],
@@ -354,3 +361,149 @@ def test_fresh_heartbeat_without_advancing_scans_cannot_pass_up(operator, monkey
     monkeypatch.setattr(demo, "run", frozen)
     monkeypatch.setattr(demo.Demo, "wait", bounded)
     assert demo.main(["up", "--overlay", "local"]) == 1
+
+
+@pytest.mark.parametrize("command", ["up", "migrate", "seed", "evidence"])
+def test_stale_images_fail_before_any_application_execution(operator, monkeypatch, capsys, command):
+    demo, calls = operator
+    original = demo.run
+
+    def stale(args, timeout=180):
+        result = original(args, timeout)
+        if args[:3] == ["docker", "image", "inspect"]:
+            image = json.loads(result)
+            image["Labels"] = {"org.opencontainers.image.revision": "d" * 40}
+            return json.dumps(image)
+        return result
+
+    monkeypatch.setattr(demo, "run", stale)
+    assert demo.main([command, "--overlay", "local"]) == 1
+    assert not any(step[0] in {"run", "up", "exec"} for step in compose_calls(calls))
+    captured = capsys.readouterr()
+    assert "private-password" not in captured.out + captured.err
+
+
+@pytest.mark.parametrize("dirty", [" M Dockerfile.backend", "?? private-secret-file"])
+def test_dirty_tree_is_never_attributed_to_head(operator, monkeypatch, capsys, dirty):
+    demo, calls = operator
+    original = demo.run
+
+    def changed(args, timeout=180):
+        if args[:2] == ["git", "status"]:
+            calls.append(args)
+            return dirty
+        return original(args, timeout)
+
+    monkeypatch.setattr(demo, "run", changed)
+    assert demo.main(["build", "--overlay", "local"]) == 1
+    assert not compose_calls(calls)
+    assert not (demo.ROOT / "build/deploy" / ("a" * 40) / "manifest.json").exists()
+    captured = capsys.readouterr()
+    assert "private-secret-file" not in captured.out + captured.err
+
+
+def test_status_stale_snapshot_cannot_emit_passed_manifest(operator, monkeypatch):
+    demo, calls = operator
+    original = demo.run
+
+    def stale(args, timeout=180):
+        result = original(args, timeout)
+        if args[:3] == ["docker", "image", "inspect"]:
+            image = json.loads(result)
+            image["Labels"] = {"org.opencontainers.image.revision": "d" * 40}
+            return json.dumps(image)
+        return result
+
+    monkeypatch.setattr(demo, "run", stale)
+    assert demo.main(["status", "--overlay", "local"]) == 1
+    value = json.loads((demo.ROOT / "build/deploy" / ("a" * 40) / "manifest.json").read_text())
+    assert value["verification"]["status"] == "failed"
+    assert value["images"] == {}
+
+
+@pytest.mark.parametrize(
+    "labels", [None, {}, {"org.opencontainers.image.revision": "private-password"}]
+)
+def test_missing_or_invalid_revision_labels_refuse_migration(operator, monkeypatch, labels):
+    demo, calls = operator
+    original = demo.run
+
+    def unlabeled(args, timeout=180):
+        result = original(args, timeout)
+        if args[:3] == ["docker", "image", "inspect"]:
+            image = json.loads(result)
+            image["Labels"] = labels
+            return json.dumps(image)
+        return result
+
+    monkeypatch.setattr(demo, "run", unlabeled)
+    assert demo.main(["migrate", "--overlay", "local"]) == 1
+    assert not any(step[0] in {"run", "up", "exec"} for step in compose_calls(calls))
+
+
+def test_build_passes_exact_git_revision_to_both_images(operator):
+    demo, calls = operator
+    assert demo.main(["build", "--overlay", "local"]) == 0
+    assert [
+        "build",
+        "--build-arg",
+        "PRL_SOURCE_SHA=" + "a" * 40,
+        "api",
+        "frontend",
+    ] in compose_calls(calls)
+
+
+def test_changed_head_during_operation_cannot_emit_passed_manifest(operator, monkeypatch):
+    demo, calls = operator
+    original = demo.run
+
+    def changed(args, timeout=180):
+        result = original(args, timeout)
+        if args == ["git", "rev-parse", "HEAD"] and any("build" in call for call in calls):
+            return "d" * 40
+        return result
+
+    monkeypatch.setattr(demo, "run", changed)
+    assert demo.main(["build", "--overlay", "local"]) == 1
+    value = json.loads((demo.ROOT / "build/deploy" / ("a" * 40) / "manifest.json").read_text())
+    assert value["verification"]["status"] == "failed"
+
+
+@pytest.mark.skipif(
+    os.environ.get("PRL_RUN_DOCKER_BUILD_TESTS") != "1",
+    reason="opt-in image build provenance check",
+)
+def test_real_docker_build_binds_both_images_to_clean_head(tmp_path):
+    env = dict(os.environ)
+    for name in (
+        "PRL_DB_ENV_FILE",
+        "PRL_RUNTIME_ENV_FILE",
+        "PRL_MIGRATION_ENV_FILE",
+        "PRL_SEED_ENV_FILE",
+    ):
+        path = tmp_path / name
+        path.write_text("")
+        env[name] = str(path)
+    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    result = subprocess.run(
+        [sys.executable, str(DEPLOY / "demo.py"), "build", "--overlay", "local"],
+        env=env,
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=240,
+    )
+    assert result.returncode == 0, result.stderr
+    for reference in ("prl-backend:local", "prl-frontend:local"):
+        revision = subprocess.check_output(
+            [
+                "docker",
+                "image",
+                "inspect",
+                "--format",
+                '{{index .Config.Labels "org.opencontainers.image.revision"}}',
+                reference,
+            ],
+            text=True,
+        ).strip()
+        assert revision == sha

@@ -13,6 +13,8 @@ COPY src/frontend ./src/frontend
 RUN npm run build --workspace @prl/frontend
 
 FROM node:24.17.0-bookworm-slim@sha256:862263c612aa437e3037674b85419622a9d93bff80aa1eee5398dfe686375532 AS runtime
+ARG PRL_SOURCE_SHA
+LABEL org.opencontainers.image.revision=$PRL_SOURCE_SHA
 WORKDIR /app
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
