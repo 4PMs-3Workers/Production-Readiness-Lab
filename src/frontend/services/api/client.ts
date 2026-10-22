@@ -27,6 +27,11 @@ import type {
   StaffUnavailability,
   StaffUnavailabilityQuery,
 } from '@/services/staff-contracts';
+import type {
+  NotificationItem,
+  NotificationPage,
+  NotificationQuery,
+} from '@/services/notification-contracts';
 import { isBusinessDate } from '@/lib/business-time';
 import { ApiError, BookingRejection } from './errors';
 import { parseBookingContext } from './booking-context';
@@ -110,6 +115,16 @@ interface WireStaffUnavailability {
   starts_at: string;
   ends_at: string;
   created_at: string;
+}
+interface WireNotification {
+  id: string;
+  event_type: string;
+  summary: string;
+  created_at: string;
+  read_at: string | null;
+  appointment_id: string | null;
+  appointment_starts_at: string | null;
+  appointment_status: AppointmentStatus | null;
 }
 
 const STAFF_APPOINTMENT_STATUSES = [
@@ -246,6 +261,32 @@ function staffUnavailability(data: WireStaffUnavailability): StaffUnavailability
     startsAt: data.starts_at,
     endsAt: data.ends_at,
     createdAt: data.created_at,
+  };
+}
+function notification(data: WireNotification): NotificationItem {
+  requireContract(
+    data &&
+      typeof data.id === 'string' &&
+      data.id.length > 0 &&
+      typeof data.event_type === 'string' &&
+      data.event_type.length > 0 &&
+      typeof data.summary === 'string' &&
+      typeof data.created_at === 'string' &&
+      (data.read_at === null || typeof data.read_at === 'string') &&
+      (data.appointment_id === null || typeof data.appointment_id === 'string') &&
+      (data.appointment_starts_at === null || typeof data.appointment_starts_at === 'string') &&
+      (data.appointment_status === null ||
+        STAFF_APPOINTMENT_STATUSES.includes(data.appointment_status)),
+  );
+  return {
+    id: data.id,
+    eventType: data.event_type,
+    summary: data.summary,
+    createdAt: data.created_at,
+    readAt: data.read_at,
+    appointmentId: data.appointment_id,
+    appointmentStartsAt: data.appointment_starts_at,
+    appointmentStatus: data.appointment_status,
   };
 }
 
@@ -523,6 +564,37 @@ export class ApiServices {
       cancelledAt: data.cancelled_at,
       cancelReason: data.cancel_reason,
     };
+  }
+  async notificationPage(
+    query: NotificationQuery,
+    options?: ServiceRequestOptions,
+  ): Promise<NotificationPage> {
+    const params = new URLSearchParams({
+      page: String(query.page),
+      page_size: String(query.pageSize),
+      unread_only: String(query.unreadOnly),
+    });
+    return mapPage(
+      await this.request<WirePage<WireNotification>>(`/notifications?${params}`, options),
+      notification,
+    );
+  }
+  async markNotificationRead(id: string, options?: ServiceRequestOptions) {
+    const currentUser = await this.me(options);
+    if (currentUser.role !== 'STUDENT' && currentUser.role !== 'STAFF')
+      throw new ApiError('FORBIDDEN_ROLE', 403);
+    const result = await this.write<{ id: string; read_at: string }>(
+      `/notifications/${encodeURIComponent(id)}/read`,
+      {},
+      options,
+      {},
+      currentUser.id,
+      undefined,
+      'POST',
+      currentUser.role,
+    );
+    requireContract(result && result.id === id && typeof result.read_at === 'string');
+    return { id: result.id, readAt: result.read_at };
   }
   cancel(id: string, reason: string | undefined, options?: ServiceRequestOptions) {
     return this.write<{ id: string; status: 'CANCELLED'; cancelled_at: string }>(
