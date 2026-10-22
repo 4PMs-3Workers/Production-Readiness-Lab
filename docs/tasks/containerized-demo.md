@@ -104,9 +104,10 @@ EOF
 chmod 600 "$HOME/.config/prl-demo"/*.env
 ```
 
-Các shell phải thay `$HOME` trong giá trị của `paths.env`; để chắc chắn dùng đường
-dẫn tuyệt đối, có thể ghi trực tiếp kết quả `printf '%s' "$HOME"` vào file thay vì
-để lại chuỗi `$HOME` trong giá trị. Nạp các biến trước khi gọi script:
+Khi source `paths.env`, shell mở rộng `$HOME` trong các dòng `export` và đưa
+đường dẫn tuyệt đối vào môi trường của shell. Không truyền `paths.env` trực tiếp
+cho Docker Compose; hãy truyền các env file mà những biến này trỏ tới. Nạp các
+biến trước khi gọi script:
 
 ```sh
 set -a
