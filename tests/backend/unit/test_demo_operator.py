@@ -193,6 +193,36 @@ def test_commands_preserve_volumes_and_seed_is_explicit(operator, command):
     assert (["run", "--rm", "seed"] in steps) == (command == "seed")
 
 
+def test_config_does_not_check_existing_image_provenance(operator, monkeypatch):
+    demo, calls = operator
+    original = demo.run
+    written = []
+
+    # Atomic evidence replacement is covered separately; the Windows AppContainer
+    # test temp directory denies os.replace, so isolate this command contract.
+    monkeypatch.setattr(demo.evidence, "write", lambda path, value: written.append(value))
+
+    def stale_images(args, timeout=180):
+        if args[:3] == ["docker", "image", "inspect"]:
+            calls.append(args)
+            return json.dumps(
+                {
+                    "Id": "sha256:" + "c" * 64,
+                    "RepoDigests": [],
+                    "Labels": {"org.opencontainers.image.revision": "f" * 40},
+                }
+            )
+        return original(args, timeout)
+
+    monkeypatch.setattr(demo, "run", stale_images)
+
+    result = demo.main(["config", "--overlay", "local"])
+    assert not any(call[:3] == ["docker", "image", "inspect"] for call in calls)
+    assert result == 0
+    assert written[0]["verification"] == {"command": "config", "status": "passed"}
+    assert written[0]["images"] == {}
+
+
 @pytest.mark.parametrize("failure", ["migrate", "grants", "schema"])
 def test_failure_stops_lifecycle_and_sanitizes(operator, monkeypatch, capsys, failure):
     demo, calls = operator

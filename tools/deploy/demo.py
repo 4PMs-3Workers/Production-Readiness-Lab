@@ -327,7 +327,10 @@ def main(argv=None):
             try:
                 demo = Demo(overlay, sha)
                 demo.execute(command)
-                images = demo.images(configured_only=command == "build")
+                if command == "config":
+                    images = {}
+                else:
+                    images = demo.images(configured_only=command == "build")
                 require_clean_source(sha)
             except Exception:
                 evidence.write(path, evidence.create(sha, overlay, command, "failed", {}, previous))
