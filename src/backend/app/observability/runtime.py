@@ -34,6 +34,7 @@ from app.observability.records import (
 )
 
 Service = Literal["api", "worker"]
+TELEMETRY_CLOSE_TIMEOUT_SECONDS = 1.0
 
 
 @dataclass
@@ -255,9 +256,11 @@ class TelemetryRuntime:
                 self._span_budget.reset(token)
 
     async def close(self, deadline: float) -> None:
-        """Shut down providers and lanes within the caller's absolute monotonic deadline."""
+        """Shut down telemetry within one second and the owner's absolute deadline."""
         if self._closed:
             return
+        loop = asyncio.get_running_loop()
+        deadline = min(deadline, loop.time() + TELEMETRY_CLOSE_TIMEOUT_SECONDS)
         self._closed = True
         try:
             self.trace_provider.shutdown()

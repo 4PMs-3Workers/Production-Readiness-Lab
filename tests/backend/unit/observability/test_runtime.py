@@ -138,6 +138,50 @@ async def test_close_respects_short_owner_deadline_and_counts_shutdown_discards(
         release.set()
 
 
+async def test_runtime_close_caps_far_owner_deadline_at_one_second(auth_settings):
+    runtime_module = _runtime_module()
+    stdout_started, logs_started, traces_started = (
+        threading.Event(),
+        threading.Event(),
+        threading.Event(),
+    )
+    release = threading.Event()
+
+    def blocked_sink(_record):
+        stdout_started.set()
+        release.wait()
+
+    def blocked_export(started):
+        def export(_batch):
+            started.set()
+            release.wait()
+            return True
+
+        return export
+
+    runtime = runtime_module.TelemetryRuntime(
+        auth_settings,
+        "api",
+        stdout_sink=blocked_sink,
+        log_exporter=blocked_export(logs_started),
+        span_exporter=blocked_export(traces_started),
+    )
+    try:
+        assert runtime.emit({"event": "worker.heartbeat"})
+        with runtime.span("http.server"):
+            pass
+        assert stdout_started.wait(1)
+        assert logs_started.wait(1)
+        assert traces_started.wait(1)
+
+        started = asyncio.get_running_loop().time()
+        await asyncio.wait_for(runtime.close(asyncio.get_running_loop().time() + 30), timeout=1.2)
+        assert asyncio.get_running_loop().time() - started < 1.1
+    finally:
+        release.set()
+        await runtime.close(asyncio.get_running_loop().time() + 1)
+
+
 async def test_runtime_redacts_unallowlisted_fields_and_isolates_providers(auth_settings):
     from opentelemetry import trace as global_trace
 
