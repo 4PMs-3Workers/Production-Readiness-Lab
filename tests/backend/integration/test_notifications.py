@@ -372,7 +372,7 @@ async def test_recipient_query_plans_and_concurrent_read_with_large_history(noti
                 assert total >= 1000
             print(
                 f"notification page unread_only={unread_only}: "
-                f"p95={sorted(durations)[-2]:.1f}ms over 10 requests"
+                f"max={max(durations):.1f}ms over 10 requests"
             )
 
     notification_id = UUID("00000000-0000-0000-0000-000000000001")

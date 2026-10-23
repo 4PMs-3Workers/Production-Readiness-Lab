@@ -53,7 +53,13 @@ không đổi trạng thái lịch hay đề xuất.
 - Lịch hiển thị theo timezone nghiệp vụ nhận từ booking/staff context. Nếu không tải được
   context, giao diện giữ timezone mặc định `Asia/Ho_Chi_Minh`.
 - Request list bị hủy khi thay đổi trang/bộ lọc hoặc unmount. Logout, hết hạn session và đổi
-  tài khoản/role dùng cơ chế clear-session hiện có để hủy request và bỏ private UI cũ.
+  tài khoản/role dùng cơ chế clear-session hiện có để hủy request và bỏ private UI cũ. Trước và
+  sau khi tải danh sách, client đối chiếu session hiện tại với ID/role đang hiển thị; thao tác
+  đánh dấu đã đọc cũng kiểm tra cùng danh tính trước khi ghi. Vì vậy đổi cookie từ tab khác
+  khiến provider xóa trạng thái riêng tư thay vì nhận dữ liệu của tài khoản mới vào shell cũ.
+- Khi đánh dấu đã đọc thành công, client tải lại danh sách ở scope hiện tại, kể cả khi một lần
+  làm mới thủ công đang chạy. Nếu tổng mục chưa đọc giảm khiến trang hiện tại vượt giới hạn,
+  giao diện chuyển về trang cuối còn hợp lệ và tải trang đó.
 - Không có fallback fixture khi API thất bại. Nếu kết quả mark-read không rõ, UI báo chưa thể
   xác nhận và cho tải lại trạng thái.
 
@@ -71,6 +77,7 @@ Chạy từ gốc repo sau khi cài các dependency theo README. Trên Windows, 
 python -m pytest tests/backend/unit tests/backend/integration/test_http_body_limits.py -q
 $env:MYSQL_TEST_URL='mysql+asyncmy://test_user:test_password@127.0.0.1:3306'
 python -m pytest tests/backend/integration/test_notifications.py -q
+python -m pytest tests/backend/integration/test_notifications.py::test_recipient_query_plans_and_concurrent_read_with_large_history -q -s --require-mysql
 npm --workspace src/frontend run format:check
 npm --workspace src/frontend run lint
 npm --workspace src/frontend run typecheck
@@ -85,10 +92,30 @@ Thử tay: đăng nhập STUDENT, tạo hoặc hủy lịch, mở `/notification
 dấu đã đọc; reload để xác nhận trạng thái. Đăng nhập STAFF được gán lịch và mở
 `/staff/notifications`; tài khoản khác không thấy thông báo hoặc link lịch của người trước.
 
-Kết quả local ngày 22/10/2026: backend unit và HTTP body-limit **515 passed**; ba ca
-integration notification bị skip vì máy không có `MYSQL_TEST_URL` và MySQL 8.4. Frontend
-unit/component **246 passed**, format/lint/typecheck và production build đạt. Playwright
-nhận diện mười ca inbox trên desktop/mobile, gồm lỗi tải và thử lại, phân trang, kết quả
-mark-read chưa rõ và event expiry từ worker; chưa chạy browser E2E vì thiếu MySQL.
-`EXPLAIN` trên dữ liệu đại diện và xác nhận MySQL transaction/concurrency vẫn cần làm
-trước khi chốt nghiệm thu Issue #33. Không có migration hoặc chỉ mục mới trong branch này.
+Ngày 24/10/2026, bộ regression frontend thêm tình huống đổi cookie ở tab khác sau lần kiểm
+tra focus, hai thứ tự hoàn thành của POST/GET và trang cuối của bộ lọc chưa đọc. Local và
+[Frontend CI](https://github.com/4PMs-3Workers/Production-Readiness-Lab/actions/runs/39997364215)
+đã chạy **254 unit/component tests**; CI cũng chạy **66 mock-mode browser E2E tests**.
+Trong cùng workflow, **60 desktop/mobile real-API E2E tests** qua FastAPI và MySQL 8.4
+đã đạt, gồm luồng hộp thư dùng dữ liệu tạo từ nghiệp vụ và expiry từ worker.
+Backend unit/OpenAPI tại local chạy được phần không cần timezone; toàn bộ suite Windows
+không chạy xong vì môi trường Python thiếu `tzdata==2026.5` và không tải được package.
+MySQL 8.4 không sẵn có trên máy này; backend integration và real-API E2E được chạy trong CI.
+[Backend CI](https://github.com/4PMs-3Workers/Production-Readiness-Lab/actions/runs/39997364247)
+đạt **1.292 tests** không skip, cùng Black, Ruff, Pyright, migration và OpenAPI artifact.
+
+Ca MySQL tải 10.000 thông báo tổng hợp (5.000 cho mỗi người nhận, 80% đã đọc), chạy
+`ANALYZE TABLE`, ghi `EXPLAIN` cho lịch sử và bộ lọc chưa đọc cùng truy vấn đếm, đo 10
+lần truy vấn trang cho mỗi chế độ, rồi gửi 8 request đánh dấu cùng một mục đồng thời.
+Đây là dữ liệu đại diện theo kịch bản tải của lab, không phải số liệu production. Handoff
+cần đối chiếu lại nếu nhóm có phân bố dữ liệu hoặc tải thực khác. Không có migration hoặc
+chỉ mục mới trong branch này.
+
+Trên MySQL 8.4 của CI, cả truy vấn trang lịch sử và trang chưa đọc dùng
+`ix_notifications_recipient_history` (`type=ref`, ước lượng 4.837 hàng mỗi người nhận);
+truy vấn đếm cũng dùng cùng chỉ mục. `EXPLAIN` của truy vấn trang còn báo
+`Using temporary; Using filesort`; vì vậy kết quả này chứng minh chỉ mục được dùng và
+thời gian ở cỡ dữ liệu thử nghiệm, không chứng minh kế hoạch không cần sắp xếp bổ sung.
+Tám POST đồng thời cùng một ID trả HTTP 200 với cùng timestamp; không tạo thêm audit hoặc
+notification và không đổi trạng thái lịch. Chi tiết kế hoạch và số đo có trong log của bước
+`Notification query-plan and concurrent-read evidence` thuộc Backend CI ở trên.
