@@ -158,3 +158,24 @@ def test_origin_accepts_localhost_ip_and_domain(origin):
         Settings.model_validate({**VALID, "APPLICATION_ORIGIN": origin}).application_origin
         == origin
     )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("TELEMETRY_NETWORK_TIMEOUT_SECONDS", "nan"),
+        ("TELEMETRY_NETWORK_TIMEOUT_SECONDS", "inf"),
+        ("TELEMETRY_ITEM_MAX_AGE_SECONDS", "0"),
+        ("TELEMETRY_TRACE_QUEUE_CAPACITY", "513"),
+        ("TELEMETRY_MAX_ATTRIBUTE_CHARS", "11"),
+        ("TELEMETRY_OTLP_ENDPOINT", "http://user:secret-token@collector:4318"),
+    ],
+)
+def test_telemetry_configuration_is_bounded_and_reports_only_field_names(monkeypatch, field, value):
+    for name, expected in VALID.items():
+        monkeypatch.setenv(name, expected)
+    monkeypatch.setenv(field, value)
+    with pytest.raises(ConfigurationError) as error:
+        load_settings()
+    assert field in str(error.value)
+    assert value not in str(error.value)

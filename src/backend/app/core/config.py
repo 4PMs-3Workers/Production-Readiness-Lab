@@ -80,6 +80,36 @@ class Settings(BaseSettings):
     worker_heartbeat_interval_seconds: float = Field(
         default=15, gt=0, alias="WORKER_HEARTBEAT_INTERVAL_SECONDS"
     )
+    telemetry_enabled: bool = Field(default=False, alias="TELEMETRY_ENABLED")
+    telemetry_otlp_endpoint: str = Field(
+        default="http://collector:4318", alias="TELEMETRY_OTLP_ENDPOINT"
+    )
+    service_release: str = Field(default="unknown", alias="SERVICE_RELEASE")
+    telemetry_trace_queue_capacity: int = Field(
+        default=512, gt=0, le=512, alias="TELEMETRY_TRACE_QUEUE_CAPACITY"
+    )
+    telemetry_log_queue_capacity: int = Field(
+        default=256, gt=0, le=256, alias="TELEMETRY_LOG_QUEUE_CAPACITY"
+    )
+    telemetry_max_batch_size: int = Field(default=32, gt=0, le=32, alias="TELEMETRY_MAX_BATCH_SIZE")
+    telemetry_max_item_bytes: int = Field(
+        default=8192, gt=0, le=8192, alias="TELEMETRY_MAX_ITEM_BYTES"
+    )
+    telemetry_max_span_attributes: int = Field(
+        default=16, gt=0, le=16, alias="TELEMETRY_MAX_SPAN_ATTRIBUTES"
+    )
+    telemetry_max_attribute_chars: int = Field(
+        default=128, ge=12, le=128, alias="TELEMETRY_MAX_ATTRIBUTE_CHARS"
+    )
+    telemetry_max_spans_per_request: int = Field(
+        default=64, gt=0, le=64, alias="TELEMETRY_MAX_SPANS_PER_REQUEST"
+    )
+    telemetry_network_timeout_seconds: float = Field(
+        default=0.5, gt=0, le=0.5, alias="TELEMETRY_NETWORK_TIMEOUT_SECONDS"
+    )
+    telemetry_item_max_age_seconds: float = Field(
+        default=1, gt=0, le=1, alias="TELEMETRY_ITEM_MAX_AGE_SECONDS"
+    )
 
     @field_validator("database_url")
     @classmethod
@@ -102,11 +132,42 @@ class Settings(BaseSettings):
         "worker_poll_interval_seconds",
         "worker_grace_seconds",
         "worker_heartbeat_interval_seconds",
+        "telemetry_network_timeout_seconds",
+        "telemetry_item_max_age_seconds",
     )
     @classmethod
     def require_finite_timeout(cls, value: float) -> float:
         if not isfinite(value):
             raise ValueError("Timeout must be finite")
+        return value
+
+    @field_validator("telemetry_otlp_endpoint")
+    @classmethod
+    def require_otlp_endpoint(cls, value: str) -> str:
+        try:
+            parsed = urlsplit(value)
+            valid_port = parsed.port is None or 0 < parsed.port < 65536
+        except ValueError as exc:
+            raise ValueError("Invalid TELEMETRY_OTLP_ENDPOINT") from exc
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or not _valid_hostname(parsed.hostname)
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+            or not valid_port
+        ):
+            raise ValueError("TELEMETRY_OTLP_ENDPOINT must be an HTTP(S) base URL")
+        return value.rstrip("/")
+
+    @field_validator("service_release")
+    @classmethod
+    def require_safe_release(cls, value: str) -> str:
+        if not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", value):
+            raise ValueError("Invalid SERVICE_RELEASE")
         return value
 
     @field_validator("application_origin")
