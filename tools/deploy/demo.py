@@ -9,7 +9,6 @@ import subprocess
 import sys
 import time
 from collections.abc import Iterable
-from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import urlopen
@@ -17,6 +16,7 @@ from urllib.request import urlopen
 # Support both direct execution and import-based operator contract tests.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import evidence  # noqa: E402
+from worker_status import WorkerProgressTracker, latest_worker_progress  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 REVISION_LABEL = "org.opencontainers.image.revision"
@@ -45,24 +45,7 @@ def run(args, timeout=180):
 
 
 def worker_progress(output):
-    for line in reversed(output.splitlines()):
-        try:
-            record = json.loads(line)
-            if record.get("event") != "heartbeat":
-                continue
-            scanned = datetime.fromisoformat(record["last_successful_scan"].replace("Z", "+00:00"))
-            valid = (
-                record.get("phase") == "running"
-                and record.get("database_ok") is True
-                and type(record.get("successful_scans")) is int
-                and record["successful_scans"] > 0
-                and scanned.tzinfo is not None
-                and bool(re.fullmatch(r"[0-9a-f]{32}", record.get("worker_id", "")))
-            )
-            return (record["worker_id"], record["successful_scans"], scanned) if valid else None
-        except (ValueError, KeyError, TypeError, AttributeError):
-            continue
-    return None
+    return latest_worker_progress(output, require_heartbeat=True)
 
 
 def worker_ready(output):
@@ -153,29 +136,26 @@ class Demo:
 
         self.wait(public_ready)
 
-        observation = None
+        tracker = WorkerProgressTracker()
 
         def worker():
-            nonlocal observation
-            ids = self.compose("ps", "-q", "worker")
-            if not re.fullmatch(r"[0-9a-f]{12,64}", ids):
+            try:
+                ids = self.compose("ps", "-q", "worker")
+                if not re.fullmatch(r"[0-9a-f]{12,64}", ids):
+                    tracker.observe(None, running=False)
+                    return False
+                running = run(["docker", "inspect", "--format", "{{.State.Running}}", ids])
+                if running != "true":
+                    tracker.observe(None, running=False)
+                    return False
+                logs = self.compose(
+                    "logs", "--no-color", "--no-log-prefix", "--tail", "200", "worker"
+                )
+                progress = latest_worker_progress(logs, require_heartbeat=True)
+            except (OperationFailed, OSError, ValueError):
+                tracker.observe(None, running=False)
                 return False
-            running = run(["docker", "inspect", "--format", "{{.State.Running}}", ids])
-            # Docker's --since filter establishes heartbeat freshness independently of DB time.
-            logs = self.compose(
-                "logs", "--no-color", "--no-log-prefix", "--since", "30s", "--tail", "200", "worker"
-            )
-            progress = worker_progress(logs)
-            if running != "true" or progress is None:
-                return False
-            previous = observation
-            observation = progress
-            return (
-                previous is not None
-                and progress[0] == previous[0]
-                and progress[1] > previous[1]
-                and progress[2] > previous[2]
-            )
+            return tracker.observe(progress, running=True)
 
         self.wait(worker)
         api = self.compose("images", "-q", "api")

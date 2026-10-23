@@ -25,6 +25,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
+from tools.deploy.worker_status import WorkerProgress, WorkerProgressTracker, latest_worker_progress
 
 ROOT = Path(__file__).resolve().parents[2]
 DEPLOY = ROOT / "tools/deploy"
@@ -412,6 +413,7 @@ class ComposeAcceptance:
         self.started = True
         self.wait_gateway()
         self.require_worker_identity()
+        self.wait_heartbeat()
         self.volume_before = one_volume(
             self.volume_name,
             {
@@ -482,21 +484,21 @@ class ComposeAcceptance:
             raise AcceptanceFailure("The API does not run the shared image's default API command")
         return api_id, worker_id
 
-    def worker_records(self) -> list[dict[str, object]]:
+    def worker_log_output(self) -> str:
         result = self.compose(
             "logs",
             "--no-color",
             "--no-log-prefix",
-            "--since",
-            "90s",
             "--tail",
             "400",
             "worker",
             timeout=30,
         )
-        output = require_success(result, "The test-owned worker progress could not be read")
+        return require_success(result, "The test-owned worker progress could not be read")
+
+    def worker_records(self) -> list[dict[str, object]]:
         records = []
-        for line in output.splitlines():
+        for line in self.worker_log_output().splitlines():
             try:
                 record = json.loads(line)
             except json.JSONDecodeError:
@@ -505,33 +507,32 @@ class ComposeAcceptance:
                 records.append(record)
         return records
 
-    @staticmethod
-    def valid_heartbeat(record: dict[str, object]) -> bool:
-        return (
-            record.get("event") in {"heartbeat", "scan"}
-            and record.get("phase") == "running"
-            and record.get("database_ok") is True
-            and isinstance(record.get("successful_scans"), int)
-            and record["successful_scans"] > 0
-            and isinstance(record.get("last_successful_scan"), str)
-            and bool(re.fullmatch(r"[0-9a-f]{32}", str(record.get("worker_id", ""))))
-        )
-
-    def wait_heartbeat(
-        self, *, worker_id: str | None = None, scans_above: int = 0
-    ) -> dict[str, object]:
-        found: dict[str, object] | None = None
+    def wait_heartbeat(self, *, excluded_worker_id: str | None = None) -> WorkerProgress:
+        tracker = WorkerProgressTracker(excluded_worker_id=excluded_worker_id)
+        found: WorkerProgress | None = None
 
         def search() -> bool:
             nonlocal found
-            for record in reversed(self.worker_records()):
-                if not self.valid_heartbeat(record):
-                    continue
-                if worker_id is not None and record.get("worker_id") == worker_id:
-                    continue
-                if int(record["successful_scans"]) <= scans_above:
-                    continue
-                found = record
+            try:
+                worker_id = require_success(
+                    self.compose("ps", "-q", "worker"), "The worker container is missing"
+                )
+                if not re.fullmatch(r"[0-9a-f]{64}", worker_id):
+                    tracker.observe(None, running=False)
+                    return False
+                running = require_success(
+                    invoke(["docker", "inspect", "--format", "{{.State.Running}}", worker_id]),
+                    "The worker container could not be inspected",
+                )
+                if running != "true":
+                    tracker.observe(None, running=False)
+                    return False
+                progress = latest_worker_progress(self.worker_log_output(), require_heartbeat=False)
+            except AcceptanceFailure:
+                tracker.observe(None, running=False)
+                return False
+            if tracker.observe(progress, running=True):
+                found = progress
                 return True
             return False
 
@@ -749,7 +750,7 @@ class ComposeAcceptance:
 
     def expire_worker_case(self, appointment_id: str, proposal_id: str) -> None:
         initial = self.wait_heartbeat()
-        old_worker_id = str(initial["worker_id"])
+        old_worker_id = initial.worker_id
         require_success(
             self.compose("stop", "--timeout", "20", "worker", timeout=45),
             "The test-owned worker could not be stopped for the overdue-proposal setup",
@@ -774,8 +775,8 @@ class ComposeAcceptance:
             self.compose("start", "worker", timeout=45),
             "The test-owned worker could not restart",
         )
-        resumed = self.wait_heartbeat(worker_id=old_worker_id)
-        new_worker_id = str(resumed["worker_id"])
+        resumed = self.wait_heartbeat(excluded_worker_id=old_worker_id)
+        new_worker_id = resumed.worker_id
         if new_worker_id == old_worker_id:
             raise AcceptanceFailure("The worker did not resume in a new process identity")
 
@@ -844,6 +845,7 @@ class ComposeAcceptance:
         )
         self.wait_gateway()
         self.require_worker_identity()
+        self.wait_heartbeat()
         if (
             self.sql(
                 "SELECT COUNT(*) FROM appointments "
@@ -872,6 +874,7 @@ class ComposeAcceptance:
         if before != after:
             raise AcceptanceFailure("The persistent MySQL volume identity changed during restart")
         self.wait_gateway()
+        self.wait_heartbeat()
         current_api_id = require_success(
             self.compose("ps", "-q", "api"), "The API container is missing"
         )

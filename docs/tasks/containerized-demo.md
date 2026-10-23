@@ -144,7 +144,11 @@ seed bằng profile seed. Các profile chỉ được dùng khi đọc Compose c
 vẫn không khởi chạy migration hoặc seed.
 
 Nếu không muốn cấp demo accounts, bỏ qua seed. Sau migration (và tùy chọn seed),
-khởi động và xác minh gateway, frontend, API, schema cùng heartbeat/tiến triển worker:
+khởi động và xác minh gateway, frontend, API, schema cùng tiến triển mới của worker.
+CLI đọc heartbeat có cấu trúc trong log và yêu cầu cùng một worker process tăng
+`successful_scans` qua hai lần kiểm tra khi service đang chạy. Timestamp phải có
+múi giờ hợp lệ nhưng không được dùng đồng hồ host hay thời gian DB làm bằng chứng
+worker vừa hoạt động; khi worker dừng, lỗi hoặc đổi process, bộ theo dõi bắt đầu lại.
 
 ```sh
 tools/deploy/demo.sh up --overlay local
@@ -156,6 +160,11 @@ Mở `http://localhost:8080/login`. Tài khoản hư cấu và các luồng đ�
 mô tả trong [hướng dẫn seed](demo-seed.md). Dùng `tools/deploy/demo.sh stop --overlay local`
 để dừng container mà giữ nguyên database. `tools/deploy/demo.sh down --overlay local`
 cũng gỡ container/network nhưng giữ nguyên volume dữ liệu; `up` sau đó dùng lại volume.
+
+Smoke acceptance cũng xác nhận worker tạo scan mới sau startup, sau khi API/MySQL
+restart và sau khi schema/database outage phục hồi. Khi chủ động restart worker để
+kiểm tra phục hồi, acceptance loại trừ worker ID cũ và chỉ chấp nhận tiến triển từ
+process mới; log cũ hoặc heartbeat lặp lại không đủ để vượt qua kiểm tra.
 
 Script tuần tự hóa thao tác bằng lock local, kiểm tra source sạch và ghi manifest tại
 `build/deploy/<source-sha>/manifest.json`. Manifest lưu commit, image ID/digest,
