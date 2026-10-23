@@ -7,6 +7,9 @@ if (!['api', 'mock'].includes(process.env.NEXT_PUBLIC_APP_MODE ?? 'api')) {
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // Opt in only for the container; regular builds retain next start support.
+  ...(process.env.NEXT_OUTPUT_STANDALONE === '1' ? { output: 'standalone' as const } : {}),
+  outputFileTracingRoot: fileURLToPath(new URL('../..', import.meta.url)),
   async rewrites() {
     const upstream = process.env.API_UPSTREAM_URL;
     if (!upstream) return [];

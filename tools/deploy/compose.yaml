@@ -1,0 +1,165 @@
+name: prl-demo
+
+x-backend: &backend
+  image: prl-backend:${PRL_IMAGE_TAG:-local}
+  build:
+    context: ../..
+    dockerfile: Dockerfile.backend
+  init: true
+  read_only: true
+  tmpfs: ['/tmp:size=16m,mode=1777']
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  mem_limit: 512m
+  cpus: 1.0
+  pids_limit: 128
+  stop_grace_period: 40s
+  logging:
+    driver: json-file
+    options: { max-size: 10m, max-file: '3' }
+
+x-runtime: &runtime
+  <<: *backend
+  env_file:
+    - path: ${PRL_RUNTIME_ENV_FILE:?Set external runtime env-file path}
+      format: raw
+  environment:
+    ACCEPTED_SCHEMA_REVISIONS: 20261019_1200_proposal_replay
+  networks: [data]
+
+services:
+  mysql:
+    image: mysql:8.4.11
+    env_file:
+      - path: ${PRL_DB_ENV_FILE:?Set external MySQL bootstrap env-file path}
+        format: raw
+    environment:
+      MYSQL_DATABASE: prl
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql/10-identities.sh:/docker-entrypoint-initdb.d/10-identities.sh:ro
+      - ./mysql/apply-grants.sh:/opt/prl/apply-grants.sh:ro
+      - ./mysql/grants.sql:/opt/prl/grants.sql:ro
+    networks: [data]
+    restart: on-failure:3
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 256
+    stop_grace_period: 60s
+    healthcheck:
+      # Socket-only SELECT; no credentials in arguments or output.
+      test:
+        [
+          CMD-SHELL,
+          'MYSQL_PWD="$${MYSQL_ROOT_PASSWORD}" mysql --protocol=socket -uroot --connect-timeout=3 --batch --skip-column-names -e "SELECT 1" >/dev/null 2>&1',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 30s
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: '3' }
+
+  migrate:
+    <<: *backend
+    profiles: [operations]
+    command: [python, -m, app.deploy, migrate]
+    env_file:
+      - path: ${PRL_MIGRATION_ENV_FILE:?Set external migration env-file path}
+        format: raw
+    networks: [data]
+    restart: 'no'
+    depends_on:
+      mysql: { condition: service_healthy }
+
+  schema:
+    <<: *runtime
+    command: [python, -m, app.deploy, schema]
+    restart: 'no'
+    depends_on:
+      mysql: { condition: service_healthy }
+
+  seed:
+    <<: *backend
+    profiles: [seed]
+    command: [python, tools/scripts/seed_demo.py]
+    env_file:
+      - path: ${PRL_SEED_ENV_FILE:?Set external seed env-file path}
+        format: raw
+    networks: [data]
+    restart: 'no'
+    depends_on:
+      schema: { condition: service_completed_successfully }
+
+  api:
+    <<: *runtime
+    # Use Dockerfile.backend's reviewed exec-form Uvicorn CMD.
+    networks: [proxy, data]
+    restart: on-failure:3
+    depends_on:
+      mysql: { condition: service_healthy }
+      schema: { condition: service_completed_successfully }
+    healthcheck:
+      test:
+        [
+          CMD,
+          python,
+          -c,
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3).close()",
+        ]
+      interval: 5s
+      timeout: 4s
+      retries: 6
+      start_period: 15s
+
+  worker:
+    <<: *runtime
+    command: [python, -m, app.worker]
+    restart: on-failure:3
+    depends_on:
+      mysql: { condition: service_healthy }
+      schema: { condition: service_completed_successfully }
+    # The reviewed worker reports live heartbeat/progress on stdout; lifecycle
+    # orchestration checks freshness there. A DB-only probe cannot prove progress.
+
+  frontend:
+    image: prl-frontend:${PRL_IMAGE_TAG:-local}
+    build:
+      context: ../..
+      dockerfile: Dockerfile.frontend
+    init: true
+    read_only: true
+    tmpfs: ['/tmp:size=16m,mode=1777']
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [proxy]
+    restart: on-failure:3
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 128
+    stop_grace_period: 20s
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:3000/login',{signal:AbortSignal.timeout(3000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 4s
+      retries: 6
+      start_period: 15s
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: '3' }
+
+networks:
+  proxy:
+    internal: true
+  data:
+    internal: true
+
+volumes:
+  mysql_data:

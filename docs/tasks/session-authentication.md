@@ -112,8 +112,12 @@ mục hết hạn bị dọn khi truy cập, không tạo background worker. Khi
 đang chặn: từ chối key mới tới cửa sổ có chỗ. Email được lưu dưới dạng digest, không plaintext.
 
 Giới hạn chỉ áp trong một process, reset khi restart, không chia sẻ giữa workers/replicas.
-IP là immediate peer; sau Nginx nhiều người có thể chung bucket. Nhóm gateway cần throttle IP
-thật và body limit bổ sung; khi tăng process phải đánh giá lại ngưỡng. Chưa thêm Redis.
+IP limit dùng immediate peer cho kết nối trực tiếp. Qua gateway, API chỉ nhận
+một địa chỉ `X-Forwarded-For` canonical từ peer gateway được tin cậy; header do client
+gửi bị Nginx thay thế. Thiếu hoặc sai header quay về peer socket. Hai dạng login
+có hoặc không có slash dùng chung quota IP trong backend và cùng rate-limit zone
+ở Nginx. Bộ đếm backend vẫn theo process, reset khi restart và không chia sẻ giữa
+workers/replicas; khi tăng process phải đánh giá lại ngưỡng. Chưa thêm Redis.
 
 ## HTTP contract và ví dụ
 

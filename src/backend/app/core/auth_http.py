@@ -13,6 +13,7 @@ from app.core.config import Settings
 from app.core.http_body import read_limited_body, replay_body
 from app.core.login_throttle import LoginThrottle
 from app.core.origin import require_same_origin
+from app.core.request_context import get_client_ip
 
 
 class AuthHttpMiddleware:
@@ -42,7 +43,7 @@ class AuthHttpMiddleware:
                 path = route_path.rstrip("/")
                 downstream_receive = receive
                 if path == "/api/v1/auth/login" and scope["method"] == "POST":
-                    self.throttle.check_ip(request.client.host if request.client else "unknown")
+                    self.throttle.check_ip(get_client_ip(request))
                     require_same_origin(request, self.settings)
                     media = request.headers.get("content-type", "").split(";")[0].strip().lower()
                     if media != "application/json":

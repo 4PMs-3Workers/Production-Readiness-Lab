@@ -140,6 +140,7 @@ Production-Readiness-Lab/
 | [Khả năng tiếp nhận của nhân viên](docs/tasks/staff-availability-management.md) | API nhu cầu tiếp nhận/khoảng không nhận, CSRF, khóa với booking và phục hồi retry. |
 | [Đề nghị đổi lịch](docs/tasks/appointment-change-proposals.md)                  | API staff/student, replay/precondition, migration và shared expiry transition.     |
 | [Worker hết hạn đề nghị](docs/tasks/change-proposal-expiry-worker.md) | Lệnh chạy process riêng, heartbeat/backlog, shutdown và phục hồi sau crash. |
+| [Demo Docker Compose](docs/tasks/containerized-demo.md) | Tạo secret/env ngoài repo, build, migrate, seed opt-in, vận hành gateway và giữ volume. |
 | [Lịch sử và quản lý lịch hẹn](docs/tasks/student-appointment-management.md)     | API lịch sử, ngữ cảnh ngày đặt, hủy lịch và hành vi retry.                         |
 | [Task frontend bootstrap](docs/tasks/frontend-bootstrap.md)                     | Nền tảng, routes, các mốc triển khai, cài đặt và kiểm chứng.                       |
 | [Mock services và UI đặt lịch](docs/tasks/frontend-mock-services.md)            | Chi tiết fixtures, preset, clock và thao tác đặt lịch bằng dữ liệu demo.           |
@@ -155,6 +156,26 @@ Production-Readiness-Lab/
 | [Git Flow](docs/other/GITFLOW.md)                                               | Vai trò các branch, Pull Request và quy trình release/hotfix.                      |
 
 ## Phát triển và kiểm thử
+
+### Chạy demo đầy đủ bằng Docker Compose
+
+Stack Compose chạy MySQL, API, frontend, worker và Nginx với cổng HTTP local tại
+`127.0.0.1:8080`. Trước tiên làm theo [hướng dẫn containerized demo](docs/tasks/containerized-demo.md)
+để tạo bốn env file ngoài repository và nạp `paths.env` vào shell. Từ checkout sạch,
+chạy migration một lần; seed accounts là tùy chọn:
+
+```sh
+tools/deploy/demo.sh config --overlay local
+tools/deploy/demo.sh build --overlay local
+tools/deploy/demo.sh migrate --overlay local
+tools/deploy/demo.sh seed --overlay local  # tùy chọn
+tools/deploy/demo.sh up --overlay local
+tools/deploy/demo.sh status --overlay local
+```
+
+Mở `http://localhost:8080/login`. `stop` và `down` giữ volume MySQL; không thêm `-v`.
+Các lệnh deploy cần source đã commit/sạch và ghi manifest vào `build/deploy/`. Đây là
+nền tảng smoke cho triển khai demo, chưa phải production hoặc SLO acceptance.
 
 ### Chạy frontend
 

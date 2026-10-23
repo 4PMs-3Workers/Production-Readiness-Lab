@@ -20,7 +20,7 @@ from app.core.config import Settings, load_settings
 from app.core.database import create_database_engine
 from app.core.login_throttle import LoginThrottle
 from app.core.passwords import PasswordPolicy, PasswordService
-from app.core.request_context import RequestIdMiddleware
+from app.core.request_context import RequestIdMiddleware, TrustedGatewayMiddleware
 
 EngineFactory = Callable[..., AsyncEngine]
 logger = logging.getLogger("app.errors")
@@ -114,6 +114,7 @@ def create_app(
     install_error_handlers(app)
     app.add_middleware(AuthHttpMiddleware, settings=config, throttle=app.state.login_throttle)
     app.add_middleware(PrivateApiHttpMiddleware, settings=config)
+    app.add_middleware(TrustedGatewayMiddleware, trusted_gateway_cidrs=config.trusted_gateway_cidrs)
     app.add_middleware(RequestIdMiddleware, trusted_gateway_cidrs=config.trusted_gateway_cidrs)
     app.include_router(health_router)
     app.include_router(api_v1_router)

@@ -1,0 +1,29 @@
+# Repository-root context; shared exclusions are maintained in .dockerignore.
+FROM node:24.17.0-bookworm-slim@sha256:862263c612aa437e3037674b85419622a9d93bff80aa1eee5398dfe686375532 AS dependencies
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY src/frontend/package.json ./src/frontend/package.json
+RUN npm ci --no-audit --no-fund
+
+FROM dependencies AS build
+ENV NEXT_TELEMETRY_DISABLED=1 \
+    NEXT_PUBLIC_APP_MODE=api \
+    NEXT_OUTPUT_STANDALONE=1
+COPY src/frontend ./src/frontend
+RUN npm run build --workspace @prl/frontend
+
+FROM node:24.17.0-bookworm-slim@sha256:862263c612aa437e3037674b85419622a9d93bff80aa1eee5398dfe686375532 AS runtime
+ARG PRL_SOURCE_SHA
+LABEL org.opencontainers.image.revision=$PRL_SOURCE_SHA
+WORKDIR /app
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    HOSTNAME=0.0.0.0 \
+    PORT=3000
+# Monorepo tracing preserves src/frontend beneath the standalone root.
+COPY --from=build --chown=node:node /app/src/frontend/.next/standalone ./
+COPY --from=build --chown=node:node /app/src/frontend/.next/static ./src/frontend/.next/static
+COPY --from=build --chown=node:node /app/src/frontend/public ./src/frontend/public
+USER node
+EXPOSE 3000
+CMD ["node", "src/frontend/server.js"]
