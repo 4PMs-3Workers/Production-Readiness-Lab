@@ -40,6 +40,11 @@ interface StaffWriteOptions extends ServiceRequestOptions {
   readonly expectedUserId: string;
 }
 
+interface NotificationAccessOptions extends ServiceRequestOptions {
+  readonly expectedUserId?: string;
+  readonly expectedRole?: 'STUDENT' | 'STAFF';
+}
+
 interface WirePage<T> {
   items: T[];
   page: number;
@@ -567,20 +572,38 @@ export class ApiServices {
   }
   async notificationPage(
     query: NotificationQuery,
-    options?: ServiceRequestOptions,
+    options?: NotificationAccessOptions,
   ): Promise<NotificationPage> {
+    await this.verifyNotificationOwner(options);
     const params = new URLSearchParams({
       page: String(query.page),
       page_size: String(query.pageSize),
       unread_only: String(query.unreadOnly),
     });
-    return mapPage(
+    const page = mapPage(
       await this.request<WirePage<WireNotification>>(`/notifications?${params}`, options),
       notification,
     );
+    await this.verifyNotificationOwner(options);
+    return page;
   }
-  async markNotificationRead(id: string, options?: ServiceRequestOptions) {
+  private async verifyNotificationOwner(options?: NotificationAccessOptions) {
+    if (!options?.expectedUserId || !options.expectedRole) return;
     const currentUser = await this.me(options);
+    if (currentUser.id !== options.expectedUserId || currentUser.role !== options.expectedRole) {
+      this.invalidateSession();
+      throw new ApiError('ACCOUNT_CHANGED', 401);
+    }
+  }
+  async markNotificationRead(id: string, options?: NotificationAccessOptions) {
+    const currentUser = await this.me(options);
+    if (
+      options?.expectedUserId &&
+      (currentUser.id !== options.expectedUserId || currentUser.role !== options.expectedRole)
+    ) {
+      this.invalidateSession();
+      throw new ApiError('ACCOUNT_CHANGED', 401);
+    }
     if (currentUser.role !== 'STUDENT' && currentUser.role !== 'STAFF')
       throw new ApiError('FORBIDDEN_ROLE', 403);
     const result = await this.write<{ id: string; read_at: string }>(

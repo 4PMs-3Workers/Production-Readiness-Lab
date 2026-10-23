@@ -52,6 +52,10 @@ describe('NotificationInbox', () => {
   });
 
   it('shows the notification, authorized appointment link, and persists read state', async () => {
+    services.notificationPage.mockResolvedValueOnce(page).mockResolvedValue({
+      ...page,
+      items: [{ ...page.items[0], readAt: '2026-10-22T03:04:05Z' }],
+    });
     render(<NotificationInbox />);
 
     expect(await screen.findByText('Lịch hẹn đã được tạo')).toBeTruthy();
@@ -61,7 +65,10 @@ describe('NotificationInbox', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Đánh dấu đã đọc' }));
 
     await waitFor(() =>
-      expect(services.markNotificationRead).toHaveBeenCalledWith('notification-a'),
+      expect(services.markNotificationRead).toHaveBeenCalledWith('notification-a', {
+        expectedUserId: 'student-a',
+        expectedRole: 'STUDENT',
+      }),
     );
     expect(await screen.findByText('Đã đọc')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Đánh dấu đã đọc' })).toBeNull();
@@ -158,5 +165,91 @@ describe('NotificationInbox', () => {
 
     expect(await screen.findByText('Đã đọc')).toBeTruthy();
     expect(screen.queryByText(/Chưa thể xác nhận trạng thái đã đọc/)).toBeNull();
+  });
+
+  it('reconciles a successful read when an older refresh finishes before the write', async () => {
+    let finishRead!: (value: { id: string; readAt: string }) => void;
+    services.markNotificationRead.mockImplementation(
+      () => new Promise((resolve) => (finishRead = resolve)),
+    );
+    services.notificationPage
+      .mockResolvedValueOnce(page)
+      .mockResolvedValueOnce(page)
+      .mockResolvedValueOnce({
+        ...page,
+        items: [{ ...page.items[0], readAt: '2026-10-22T03:04:05Z' }],
+      });
+    render(<NotificationInbox />);
+    await screen.findByText('Lịch hẹn đã được tạo');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Đánh dấu đã đọc' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Làm mới' }));
+    await waitFor(() => expect(services.notificationPage).toHaveBeenCalledTimes(2));
+    await screen.findByText('Chưa đọc');
+    await act(async () => finishRead({ id: 'notification-a', readAt: '2026-10-22T03:04:05Z' }));
+
+    expect(await screen.findByText('Đã đọc')).toBeVisible();
+    expect(screen.queryByText('Chưa đọc')).not.toBeInTheDocument();
+  });
+
+  it('ignores an older unread refresh response after a successful write', async () => {
+    let finishRead!: (value: { id: string; readAt: string }) => void;
+    let finishOldRefresh!: (value: NotificationPage) => void;
+    services.markNotificationRead.mockImplementation(
+      () => new Promise((resolve) => (finishRead = resolve)),
+    );
+    services.notificationPage
+      .mockResolvedValueOnce(page)
+      .mockImplementationOnce(() => new Promise((resolve) => (finishOldRefresh = resolve)))
+      .mockResolvedValueOnce({
+        ...page,
+        items: [{ ...page.items[0], readAt: '2026-10-22T03:04:05Z' }],
+      });
+    render(<NotificationInbox />);
+    await screen.findByText('Lịch hẹn đã được tạo');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Đánh dấu đã đọc' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Làm mới' }));
+    await waitFor(() => expect(services.notificationPage).toHaveBeenCalledTimes(2));
+    await act(async () => finishRead({ id: 'notification-a', readAt: '2026-10-22T03:04:05Z' }));
+    await act(async () => finishOldRefresh(page));
+
+    expect(await screen.findByText('Đã đọc')).toBeVisible();
+    expect(screen.queryByText('Chưa đọc')).not.toBeInTheDocument();
+  });
+
+  it('returns to the last valid unread page after reading its only item', async () => {
+    const firstPageItems = Array.from({ length: 20 }, (_, index) => ({
+      ...page.items[0],
+      id: `notification-${index}`,
+      summary: `Thông báo ${index}`,
+    }));
+    let markedRead = false;
+    services.notificationPage.mockImplementation(
+      async (query: { page: number; unreadOnly: boolean }) =>
+        query.page === 2
+          ? {
+              ...page,
+              page: 2,
+              total: markedRead ? 20 : 21,
+              items: markedRead ? [] : [{ ...page.items[0], id: 'last-unread' }],
+            }
+          : { ...page, total: markedRead ? 20 : 21, items: firstPageItems },
+    );
+    services.markNotificationRead.mockImplementation(async () => {
+      markedRead = true;
+      return { id: 'last-unread', readAt: '2026-10-22T03:04:05Z' };
+    });
+    render(<NotificationInbox />);
+    await screen.findByText('Thông báo 0');
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Chỉ xem thông báo chưa đọc' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Trang sau' }));
+    expect(await screen.findByText('Trang 2 / 2')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Đánh dấu đã đọc' }));
+
+    expect(await screen.findByText('Trang 1 / 1')).toBeVisible();
+    expect(screen.getByText('Thông báo 0')).toBeVisible();
+    expect(screen.queryByText('Trang 2 / 1')).not.toBeInTheDocument();
   });
 });

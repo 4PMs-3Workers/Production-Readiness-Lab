@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApi } from '@/features/api/api-provider';
 import { errorMessage } from '@/services/api/errors';
 import type { NotificationPage } from '@/services/notification-contracts';
@@ -14,10 +14,14 @@ type InboxState =
 type StoredInboxState = { key: string; value: Exclude<InboxState, { status: 'loading' }> };
 
 export function NotificationInbox() {
-  const { services, session } = useApi();
+  const { services, session, revision } = useApi();
   const userKey =
-    session.status === 'authenticated' ? `${session.user.id}:${session.user.role}` : '';
-  const role = session.status === 'authenticated' ? session.user.role : 'STUDENT';
+    session.status === 'authenticated'
+      ? `${session.user.id}:${session.user.role}:${revision ?? 0}`
+      : '';
+  const role =
+    session.status === 'authenticated' && session.user.role === 'STAFF' ? 'STAFF' : 'STUDENT';
+  const expectedUserId = session.status === 'authenticated' ? session.user.id : '';
   const [page, setPage] = useState(1);
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [refreshCount, setRefreshCount] = useState(0);
@@ -25,18 +29,35 @@ export function NotificationInbox() {
   const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(() => new Set());
   const [readError, setReadError] = useState<string | null>(null);
   const [timezone, setTimezone] = useState('Asia/Ho_Chi_Minh');
+  const activeUserKey = useRef<string | null>(null);
   const requestKey = `${userKey}:${page}:${unreadOnly}:${refreshCount}`;
   const state: InboxState =
     storedState?.key === requestKey ? storedState.value : { status: 'loading' };
 
   useEffect(() => {
+    activeUserKey.current = userKey;
+    return () => {
+      if (activeUserKey.current === userKey) activeUserKey.current = null;
+    };
+  }, [userKey]);
+
+  useEffect(() => {
     const controller = new AbortController();
     let active = true;
     services
-      .notificationPage({ page, pageSize: 20, unreadOnly }, { signal: controller.signal })
+      .notificationPage(
+        { page, pageSize: 20, unreadOnly },
+        { signal: controller.signal, expectedUserId, expectedRole: role },
+      )
       .then(
         (data) => {
-          if (active) setStoredState({ key: requestKey, value: { status: 'success', data } });
+          if (!active) return;
+          const lastPage = Math.max(1, Math.ceil(data.total / data.pageSize));
+          if (page > lastPage) {
+            setPage(lastPage);
+            return;
+          }
+          setStoredState({ key: requestKey, value: { status: 'success', data } });
         },
         (error: unknown) => {
           if (active && !(error instanceof Error && error.name === 'AbortError'))
@@ -50,7 +71,7 @@ export function NotificationInbox() {
       active = false;
       controller.abort();
     };
-  }, [services, userKey, page, unreadOnly, refreshCount, requestKey]);
+  }, [services, userKey, expectedUserId, role, page, unreadOnly, refreshCount, requestKey]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -84,34 +105,37 @@ export function NotificationInbox() {
     setReadError(null);
     setPendingIds((current) => new Set(current).add(id));
     try {
-      const result = await services.markNotificationRead(id);
-      if (unreadOnly) {
-        setRefreshCount((value) => value + 1);
-        return;
-      }
-      setStoredState((current) => {
-        if (current?.key !== requestKey || current.value.status !== 'success') return current;
-        return {
-          key: requestKey,
-          value: {
-            status: 'success',
-            data: {
-              ...current.value.data,
-              items: current.value.data.items.map((item) =>
-                item.id === id ? { ...item, readAt: result.readAt } : item,
-              ),
+      const result = await services.markNotificationRead(id, {
+        expectedUserId,
+        expectedRole: role,
+      });
+      if (activeUserKey.current !== userKey) return;
+      if (!unreadOnly)
+        setStoredState((current) => {
+          if (current?.key !== requestKey || current.value.status !== 'success') return current;
+          return {
+            key: requestKey,
+            value: {
+              status: 'success',
+              data: {
+                ...current.value.data,
+                items: current.value.data.items.map((item) =>
+                  item.id === id ? { ...item, readAt: result.readAt } : item,
+                ),
+              },
             },
-          },
-        };
-      });
+          };
+        });
+      setRefreshCount((value) => value + 1);
     } catch (error) {
-      setReadError(errorMessage(error));
+      if (activeUserKey.current === userKey) setReadError(errorMessage(error));
     } finally {
-      setPendingIds((current) => {
-        const next = new Set(current);
-        next.delete(id);
-        return next;
-      });
+      if (activeUserKey.current === userKey)
+        setPendingIds((current) => {
+          const next = new Set(current);
+          next.delete(id);
+          return next;
+        });
     }
   }
 
