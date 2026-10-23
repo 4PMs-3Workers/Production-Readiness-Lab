@@ -95,6 +95,7 @@ _ATTRIBUTE_NAMES = frozenset(
         "worker.name",
         "worker.phase",
         "worker.outcome",
+        "business.outcome",
     }
 )
 _LOG_FIELDS = frozenset(
@@ -385,6 +386,16 @@ def sanitize_span_attributes(
                 safe[key] = value
         elif key == "worker.outcome":
             if isinstance(value, str) and value in WORKER_OUTCOMES:
+                safe[key] = value
+        elif key == "business.outcome":
+            if isinstance(value, str) and value in {
+                "committed",
+                "replayed",
+                "noop",
+                "staged",
+                "failed",
+                "commit_unknown",
+            }:
                 safe[key] = value
     return safe
 

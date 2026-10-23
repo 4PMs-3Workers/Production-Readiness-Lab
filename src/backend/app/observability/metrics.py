@@ -13,7 +13,15 @@ DROP_REASONS = frozenset(
     {"queue_full", "oversize", "expired", "export_failed", "shutdown", "invalid"}
 )
 FAILURE_REASONS = frozenset(
-    {"pool_timeout", "connection_error", "statement_error", "transaction_error", "unknown"}
+    {
+        "pool_timeout",
+        "lock_timeout",
+        "deadlock",
+        "connection_error",
+        "statement_error",
+        "transaction_error",
+        "unknown",
+    }
 )
 HISTOGRAM_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 3, 5)
 

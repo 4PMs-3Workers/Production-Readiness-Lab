@@ -2,6 +2,7 @@
 
 import asyncio
 from collections import Counter
+from functools import partial
 from typing import Annotated
 from uuid import UUID
 
@@ -15,6 +16,7 @@ from app.dependencies.catalog import require_student
 from app.dependencies.database import get_db_session
 from app.dependencies.staff import require_staff
 from app.domain.auth import AuthContext
+from app.observability.database import record_database_failure
 from app.schemas.appointments import IdempotencyKey
 from app.schemas.change_proposals import (
     ProposalCreateReceipt,
@@ -58,12 +60,17 @@ async def staff_history(
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> ProposalHistoryResponse:
     _guard(request, write=False)
+    telemetry = getattr(request.app.state, "telemetry", None)
     return await service.list_proposals(
         db,
         appointment_id=appointment_id,
         query=query,
         context=context,
         settings=request.app.state.settings,
+        span_factory=telemetry.span if telemetry is not None else None,
+        failure_callback=(
+            partial(record_database_failure, telemetry) if telemetry is not None else None
+        ),
     )
 
 
@@ -81,12 +88,17 @@ async def student_history(
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> ProposalHistoryResponse:
     _guard(request, write=False)
+    telemetry = getattr(request.app.state, "telemetry", None)
     return await service.list_proposals(
         db,
         appointment_id=appointment_id,
         query=query,
         context=context,
         settings=request.app.state.settings,
+        span_factory=telemetry.span if telemetry is not None else None,
+        failure_callback=(
+            partial(record_database_failure, telemetry) if telemetry is not None else None
+        ),
     )
 
 
@@ -119,6 +131,7 @@ async def create_proposal(
     """
     del _csrf
     _guard(request, write=True)
+    telemetry = getattr(request.app.state, "telemetry", None)
     receipt, replayed = await service.create_proposal(
         db,
         appointment_id=appointment_id,
@@ -128,6 +141,10 @@ async def create_proposal(
         request_id=request.state.request_id,
         settings=request.app.state.settings,
         deadline=_deadline(request),
+        span_factory=telemetry.span if telemetry is not None else None,
+        failure_callback=(
+            partial(record_database_failure, telemetry) if telemetry is not None else None
+        ),
     )
     if replayed:
         response.status_code = 200
@@ -153,6 +170,7 @@ async def accept_proposal(
     """A repeated accept returns the saved resolution even after later transitions."""
     del _csrf, payload
     _guard(request, write=True)
+    telemetry = getattr(request.app.state, "telemetry", None)
     return await service.decide_proposal(
         db,
         appointment_id=appointment_id,
@@ -162,6 +180,10 @@ async def accept_proposal(
         request_id=request.state.request_id,
         settings=request.app.state.settings,
         deadline=_deadline(request),
+        span_factory=telemetry.span if telemetry is not None else None,
+        failure_callback=(
+            partial(record_database_failure, telemetry) if telemetry is not None else None
+        ),
     )
 
 
@@ -184,6 +206,7 @@ async def decline_proposal(
     """Decline needs no new-booking eligibility; same-action retries have no side effects."""
     del _csrf, payload
     _guard(request, write=True)
+    telemetry = getattr(request.app.state, "telemetry", None)
     return await service.decide_proposal(
         db,
         appointment_id=appointment_id,
@@ -193,4 +216,8 @@ async def decline_proposal(
         request_id=request.state.request_id,
         settings=request.app.state.settings,
         deadline=_deadline(request),
+        span_factory=telemetry.span if telemetry is not None else None,
+        failure_callback=(
+            partial(record_database_failure, telemetry) if telemetry is not None else None
+        ),
     )

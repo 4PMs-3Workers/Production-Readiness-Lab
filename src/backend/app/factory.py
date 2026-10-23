@@ -24,6 +24,7 @@ from app.core.database import create_database_engine
 from app.core.login_throttle import LoginThrottle
 from app.core.passwords import PasswordPolicy, PasswordService
 from app.core.request_context import RequestIdMiddleware, TrustedGatewayMiddleware
+from app.observability.database import attach_database
 from app.observability.http import (
     new_trace_id,
     normalize_method,
@@ -36,6 +37,10 @@ from app.observability.runtime import TelemetryRuntime, create_telemetry
 EngineFactory = Callable[..., AsyncEngine]
 TelemetryFactory = Callable[..., TelemetryRuntime]
 logger = logging.getLogger("app.errors")
+
+
+def _noop() -> None:
+    pass
 
 
 class ResponseInterruptedError(RuntimeError):
@@ -175,6 +180,7 @@ def create_app(
         pending_readiness_tasks: set[asyncio.Task[None]] = set()
         app.state.pending_readiness_tasks = pending_readiness_tasks
         telemetry: TelemetryRuntime | None = None
+        database_detach: Callable[[], None] = _noop
         try:
             app.state.session_factory = async_sessionmaker(engine, expire_on_commit=False)
             app.state.passwords = await PasswordService.create(
@@ -192,6 +198,7 @@ def create_app(
                 factory = telemetry_factory or create_telemetry
                 telemetry = factory(config, service="api")
                 telemetry.register_routes(templates)
+                database_detach = attach_database(engine, telemetry)
             except Exception:
                 if telemetry is not None:
                     try:
@@ -207,6 +214,10 @@ def create_app(
                     if pending_readiness_tasks:
                         await asyncio.gather(*pending_readiness_tasks, return_exceptions=True)
                 finally:
+                    try:
+                        database_detach()
+                    except Exception:
+                        pass
                     try:
                         if telemetry is not None:
                             await telemetry.close(asyncio.get_running_loop().time() + 1.0)

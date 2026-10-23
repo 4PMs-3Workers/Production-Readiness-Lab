@@ -30,6 +30,8 @@ from app.domain.availability import (
 )
 from app.domain.change_proposals import proposal_request_hash
 from app.models import Appointment, AuditEvent, ChangeProposal, Notification, ServiceSetting, User
+from app.observability.records import SpanName
+from app.observability.tracing import SpanFactory, safe_span, set_business_outcome
 from app.repositories import appointments, availability, catalog, users
 from app.repositories import change_proposals as repository
 from app.schemas.change_proposals import (
@@ -50,6 +52,7 @@ ExpiryTransition = Literal["EXPIRED", "NOT_DUE", "TERMINAL", "NOT_FOUND", "INCON
 Decision = Literal["ACCEPTED", "DECLINED"]
 _CREATION_CONSTRAINT = "uq_change_proposals_creation_request"
 _CONSTRAINT_KEY = re.compile(r"for key\s+(['\"`])([^'\"`]+)\1\s*$", re.IGNORECASE)
+FailureCallback = Callable[[BaseException], object]
 
 
 class _NamedDuplicate(Exception):
@@ -255,6 +258,9 @@ async def _write(
     operation: Callable[[], Awaitable[tuple[T, bool]]],
     settings: Settings,
     deadline: float,
+    *,
+    span_factory: SpanFactory | None = None,
+    failure_callback: FailureCallback | None = None,
 ) -> tuple[T, bool]:
     """Each attempt owns its transaction; unknown commits are never replayed here."""
     try:
@@ -266,12 +272,27 @@ async def _write(
                         result, changed = await operation()
                         if changed:
                             await db.flush()
-                            await commit_safely(db, transaction, known_abort=_creation_duplicate)
+                            await commit_safely(
+                                db,
+                                transaction,
+                                known_abort=_creation_duplicate,
+                                span_factory=span_factory,
+                                failure_callback=failure_callback,
+                            )
                         else:
-                            await rollback(db)
+                            await rollback(
+                                db,
+                                span_factory=span_factory,
+                                failure_callback=failure_callback,
+                            )
                         return result, changed
                 except SQLAlchemyError as error:
-                    await rollback(db)
+                    if failure_callback is not None:
+                        try:
+                            failure_callback(error)
+                        except BaseException:
+                            pass
+                    await rollback(db, span_factory=span_factory, failure_callback=failure_callback)
                     if _creation_duplicate(error):
                         raise _NamedDuplicate() from None
                     if (
@@ -286,17 +307,24 @@ async def _write(
                     await asyncio.sleep(delay)
         raise ServiceUnavailable()
     except BookingDateError:
-        await rollback(db)
+        await rollback(db, span_factory=span_factory, failure_callback=failure_callback)
         raise _conflict("BOOKING_DATE_INVALID") from None
-    except (TimeoutError, CommitOutcomeUnknown, AvailabilityConfigurationError, OverflowError):
-        await rollback(db)
+    except (
+        TimeoutError,
+        CommitOutcomeUnknown,
+        AvailabilityConfigurationError,
+        OverflowError,
+    ) as error:
+        await rollback(db, span_factory=span_factory, failure_callback=failure_callback)
+        if isinstance(error, CommitOutcomeUnknown):
+            raise
         raise ServiceUnavailable() from None
     except BaseException:
-        await rollback(db)
+        await rollback(db, span_factory=span_factory, failure_callback=failure_callback)
         raise
 
 
-async def create_proposal(
+async def _create_proposal_impl(
     db: AsyncSession,
     *,
     appointment_id: UUID,
@@ -306,6 +334,8 @@ async def create_proposal(
     request_id: str,
     settings: Settings,
     deadline: float,
+    span_factory: SpanFactory | None = None,
+    failure_callback: FailureCallback | None = None,
 ) -> tuple[ProposalCreateReceipt, bool]:
     """Return the immutable creation receipt and whether this is a replay."""
     _require_role(context, "STAFF")
@@ -396,13 +426,66 @@ async def create_proposal(
         return _receipt(proposal), True
 
     try:
-        receipt, changed = await _write(db, operation, settings, deadline)
+        receipt, changed = await _write(
+            db,
+            operation,
+            settings,
+            deadline,
+            span_factory=span_factory,
+            failure_callback=failure_callback,
+        )
     except _NamedDuplicate:
-        receipt, changed = await _write(db, lambda: operation(replay_only=True), settings, deadline)
+        receipt, changed = await _write(
+            db,
+            lambda: operation(replay_only=True),
+            settings,
+            deadline,
+            span_factory=span_factory,
+            failure_callback=failure_callback,
+        )
     return receipt, not changed
 
 
-async def decide_proposal(
+async def create_proposal(
+    db: AsyncSession,
+    *,
+    appointment_id: UUID,
+    payload: ProposalCreateRequest,
+    context: AuthContext,
+    idempotency_key: str,
+    request_id: str,
+    settings: Settings,
+    deadline: float,
+    span_factory: SpanFactory | None = None,
+    failure_callback: FailureCallback | None = None,
+) -> tuple[ProposalCreateReceipt, bool]:
+    """Create a proposal under an optional owner-injected business span."""
+    with safe_span(span_factory, "proposal.create") as span:
+        try:
+            result = await _create_proposal_impl(
+                db,
+                appointment_id=appointment_id,
+                payload=payload,
+                context=context,
+                idempotency_key=idempotency_key,
+                request_id=request_id,
+                settings=settings,
+                deadline=deadline,
+                span_factory=span_factory,
+                failure_callback=failure_callback,
+            )
+        except CommitOutcomeUnknown:
+            set_business_outcome(span, "commit_unknown")
+            raise ServiceUnavailable() from None
+        except BaseException:
+            set_business_outcome(span, "failed")
+            raise
+        else:
+            set_business_outcome(span, "replayed" if result[1] else "committed")
+            return result
+
+
+async def _decide_proposal_impl(
     db: AsyncSession,
     *,
     appointment_id: UUID,
@@ -412,7 +495,9 @@ async def decide_proposal(
     request_id: str,
     settings: Settings,
     deadline: float,
-) -> ProposalResolution:
+    span_factory: SpanFactory | None = None,
+    failure_callback: FailureCallback | None = None,
+) -> tuple[ProposalResolution, bool]:
     _require_role(context, "STUDENT")
 
     async def operation() -> tuple[ProposalResolution, bool]:
@@ -449,8 +534,54 @@ async def decide_proposal(
         _effects(db, row, proposal, f"CHANGE_PROPOSAL_{decision}", context.user_id, request_id)
         return _resolution(proposal, context.user_id), True
 
-    result, _ = await _write(db, operation, settings, deadline)
-    return result
+    return await _write(
+        db,
+        operation,
+        settings,
+        deadline,
+        span_factory=span_factory,
+        failure_callback=failure_callback,
+    )
+
+
+async def decide_proposal(
+    db: AsyncSession,
+    *,
+    appointment_id: UUID,
+    proposal_id: UUID,
+    decision: Decision,
+    context: AuthContext,
+    request_id: str,
+    settings: Settings,
+    deadline: float,
+    span_factory: SpanFactory | None = None,
+    failure_callback: FailureCallback | None = None,
+) -> ProposalResolution:
+    """Resolve a proposal under an optional owner-injected business span."""
+    span_name: SpanName = "proposal.accept" if decision == "ACCEPTED" else "proposal.decline"
+    with safe_span(span_factory, span_name) as span:
+        try:
+            result, changed = await _decide_proposal_impl(
+                db,
+                appointment_id=appointment_id,
+                proposal_id=proposal_id,
+                decision=decision,
+                context=context,
+                request_id=request_id,
+                settings=settings,
+                deadline=deadline,
+                span_factory=span_factory,
+                failure_callback=failure_callback,
+            )
+        except CommitOutcomeUnknown:
+            set_business_outcome(span, "commit_unknown")
+            raise ServiceUnavailable() from None
+        except BaseException:
+            set_business_outcome(span, "failed")
+            raise
+        else:
+            set_business_outcome(span, "committed" if changed else "noop")
+            return result
 
 
 async def list_proposals(
@@ -460,10 +591,17 @@ async def list_proposals(
     query: ProposalHistoryQuery,
     context: AuthContext,
     settings: Settings,
+    span_factory: SpanFactory | None = None,
+    failure_callback: FailureCallback | None = None,
 ) -> ProposalHistoryResponse:
     if context.role not in {"STAFF", "STUDENT"}:
         raise AppError(403, "FORBIDDEN_ROLE", "This operation is not allowed", "business")
-    async with read_transaction(db, settings):
+    async with read_transaction(
+        db,
+        settings,
+        span_factory=span_factory,
+        failure_callback=failure_callback,
+    ):
         rows = await repository.history_snapshot(
             db, appointment_id, context.user_id, context.role, query
         )
@@ -486,7 +624,7 @@ async def list_proposals(
         )
 
 
-async def expire_change_proposal_in_transaction(
+async def _expire_change_proposal_impl(
     db: AsyncSession,
     *,
     proposal_id: UUID,
@@ -528,3 +666,37 @@ async def expire_change_proposal_in_transaction(
     row.cancel_reason = "CHANGE_PROPOSAL_EXPIRED"
     _effects(db, row, proposal, "CHANGE_PROPOSAL_EXPIRED", None, request_id)
     return "EXPIRED"
+
+
+async def expire_change_proposal_in_transaction(
+    db: AsyncSession,
+    *,
+    proposal_id: UUID,
+    settings: Settings,
+    request_id: str,
+    span_factory: SpanFactory | None = None,
+    failure_callback: FailureCallback | None = None,
+) -> ExpiryTransition:
+    """Trace the shared staging boundary without claiming its caller's commit."""
+    with safe_span(span_factory, "proposal.expire") as span:
+        try:
+            result = await _expire_change_proposal_impl(
+                db,
+                proposal_id=proposal_id,
+                settings=settings,
+                request_id=request_id,
+            )
+        except SQLAlchemyError as error:
+            if failure_callback is not None:
+                try:
+                    failure_callback(error)
+                except BaseException:
+                    pass
+            set_business_outcome(span, "failed")
+            raise
+        except BaseException:
+            set_business_outcome(span, "failed")
+            raise
+        else:
+            set_business_outcome(span, "staged" if result == "EXPIRED" else "noop")
+            return result
