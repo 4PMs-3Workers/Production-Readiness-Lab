@@ -14,7 +14,7 @@ RUNTIME_PINS = {
     "markupsafe": "3.0.4",
 }
 DEVELOPMENT_PINS = {
-    "black": "26.3.1",
+    "black": "26.10.1",
     "pytest": "9.0.3",
     "pytest-asyncio": "1.4.0",
     "pytokens": "0.4.1",
