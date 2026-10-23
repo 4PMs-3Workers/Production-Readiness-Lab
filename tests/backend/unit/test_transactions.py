@@ -48,6 +48,20 @@ async def test_failed_rollback_invalidates_and_failed_invalidation_is_contained(
     db.invalidate.assert_awaited_once()
 
 
+async def test_generic_rollback_error_uses_transaction_failure_category():
+    error = SQLAlchemyError("private rollback detail")
+    failure_callback = Mock()
+    db = Mock(
+        in_transaction=Mock(return_value=True),
+        rollback=AsyncMock(side_effect=error),
+        invalidate=AsyncMock(),
+    )
+
+    await rollback(db, failure_callback=failure_callback)
+
+    failure_callback.assert_called_once_with(error, kind="transaction")
+
+
 @pytest.mark.parametrize("code", [1205, 1213, 2013])
 async def test_commit_distinguishes_known_retryable_abort_from_unknown_outcome(code):
     error = OperationalError("COMMIT", {}, Exception(code, "driver detail"))
@@ -68,6 +82,18 @@ async def test_named_known_abort_stays_available_to_booking_replay_recovery():
         await commit_safely(db, transaction, known_abort=lambda candidate: candidate is error)
     assert caught.value is error
     db.invalidate.assert_not_awaited()
+
+
+async def test_generic_commit_error_uses_transaction_failure_category():
+    error = SQLAlchemyError("private commit detail")
+    failure_callback = Mock()
+    db = Mock(in_transaction=Mock(return_value=True), rollback=AsyncMock(), invalidate=AsyncMock())
+    transaction = Mock(commit=AsyncMock(side_effect=error))
+
+    with pytest.raises(CommitOutcomeUnknown):
+        await commit_safely(db, transaction, failure_callback=failure_callback)
+
+    failure_callback.assert_called_once_with(error, kind="transaction")
 
 
 async def test_cancellation_during_commit_invalidates_and_propagates():

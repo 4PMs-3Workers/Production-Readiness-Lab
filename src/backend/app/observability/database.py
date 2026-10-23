@@ -4,7 +4,7 @@ import threading
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from time import perf_counter
-from typing import Protocol, cast
+from typing import Literal, Protocol, cast
 
 from sqlalchemy import event
 from sqlalchemy.engine import Connection, ExecutionContext
@@ -17,6 +17,7 @@ from app.observability.tracing import safe_span
 _FAILURE_MARKER = "_prl_database_failure_recorded"
 _CONNECTION_ERROR_CODES = frozenset({2002, 2003, 2006, 2013, 2055})
 _STATEMENT_OPERATIONS = frozenset({"SELECT", "INSERT", "UPDATE", "DELETE"})
+_FailureKind = Literal["statement", "transaction"]
 
 
 class _SpanLike(Protocol):
@@ -61,7 +62,7 @@ def _error_code(error: BaseException) -> int | None:
     return None
 
 
-def _failure_reason(error: BaseException, *, kind: str = "statement") -> str:
+def _failure_reason(error: BaseException, *, kind: _FailureKind = "statement") -> str:
     if any(isinstance(current, TimeoutError) for current in _error_chain(error)):
         return "pool_timeout"
     code = _error_code(error)
@@ -88,7 +89,7 @@ def record_database_failure(
     telemetry: TelemetryRuntime | None,
     error: BaseException,
     *,
-    kind: str = "statement",
+    kind: _FailureKind = "statement",
 ) -> None:
     """Record typed failures once per telemetry owner across listener and service layers."""
     if telemetry is None:
@@ -199,12 +200,12 @@ def attach_database(engine: AsyncEngine, telemetry: TelemetryRuntime) -> Callabl
         connection: Connection,
         context: ExecutionContext | None,
         error: BaseException | None = None,
-    ) -> None:
+    ) -> bool:
         key = id(context) if context is not None else id(connection)
         with pending_lock:
             pending = pending_spans.pop(key, None)
         if pending is None:
-            return
+            return False
         manager, started, operation = pending
         try:
             telemetry.metrics.record_db_statement(operation, max(0.0, perf_counter() - started))
@@ -217,6 +218,7 @@ def attach_database(engine: AsyncEngine, telemetry: TelemetryRuntime) -> Callabl
                 manager.__exit__(type(error) if error is not None else None, error, None)
             except BaseException:
                 pass
+        return True
 
     def after_cursor_execute(
         connection: Connection,
@@ -233,10 +235,12 @@ def attach_database(engine: AsyncEngine, telemetry: TelemetryRuntime) -> Callabl
         error = exception_context.sqlalchemy_exception or exception_context.original_exception
         context = exception_context.execution_context
         connection = exception_context.connection
+        kind = "statement" if context is not None else "transaction"
         if connection is not None:
-            finish_statement(connection, context, error)
+            if not finish_statement(connection, context, error):
+                record_database_failure(telemetry, error, kind=kind)
         else:
-            record_database_failure(telemetry, error)
+            record_database_failure(telemetry, error, kind=kind)
 
     def on_connect(dbapi_connection: object, connection_record: object) -> None:
         del dbapi_connection, connection_record

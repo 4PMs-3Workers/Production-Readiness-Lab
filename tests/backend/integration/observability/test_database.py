@@ -12,7 +12,7 @@ import pytest
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from sqlalchemy import text
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api.errors import AppError
@@ -126,7 +126,7 @@ async def test_mysql_lock_timeout_has_one_finite_failure_signal(availability_env
                             text("UPDATE service_settings SET timezone = timezone WHERE id = 1")
                         )
                     # The SQLAlchemy listener and service helper see the same error object.
-                    record_database_failure(runtime, caught.value)
+                    record_database_failure(runtime, caught.value, kind="transaction")
                     await contender.rollback()
             finally:
                 await transaction.rollback()
@@ -136,6 +136,35 @@ async def test_mysql_lock_timeout_has_one_finite_failure_signal(availability_env
         )
 
     assert _sample(runtime, "prl_db_pool_checked_out") == 0
+
+
+async def test_generic_transaction_failures_keep_transaction_reason_and_dedupe_by_owner(
+    availability_env,
+):
+    runtime = availability_env.app.state.telemetry
+    before_transaction = _sample(runtime, "prl_db_failures_total", {"reason": "transaction_error"})
+    before_statement = _sample(runtime, "prl_db_failures_total", {"reason": "statement_error"})
+    first = SQLAlchemyError("private transaction detail")
+
+    record_database_failure(runtime, first, kind="transaction")
+    record_database_failure(runtime, first, kind="statement")
+    record_database_failure(
+        runtime, SQLAlchemyError("another private transaction detail"), kind="transaction"
+    )
+    record_database_failure(
+        runtime,
+        OperationalError("COMMIT", {}, Exception(1213, "private deadlock detail")),
+        kind="transaction",
+    )
+
+    assert (
+        _sample(runtime, "prl_db_failures_total", {"reason": "transaction_error"})
+        == before_transaction + 2
+    )
+    assert (
+        _sample(runtime, "prl_db_failures_total", {"reason": "statement_error"}) == before_statement
+    )
+    assert _sample(runtime, "prl_db_failures_total", {"reason": "deadlock"}) == 1
 
 
 async def test_pool_acquisition_timeout_is_observed_before_any_cursor_event(

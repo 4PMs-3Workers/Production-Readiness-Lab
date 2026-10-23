@@ -17,6 +17,8 @@ from app.core.config import Settings
 from app.core.transactions import (
     RETRYABLE_MYSQL_ERRORS,
     CommitOutcomeUnknown,
+    CommitUnknownCallback,
+    FailureCallback,
     commit_safely,
     mysql_error_code,
     read_transaction,
@@ -52,7 +54,6 @@ ExpiryTransition = Literal["EXPIRED", "NOT_DUE", "TERMINAL", "NOT_FOUND", "INCON
 Decision = Literal["ACCEPTED", "DECLINED"]
 _CREATION_CONSTRAINT = "uq_change_proposals_creation_request"
 _CONSTRAINT_KEY = re.compile(r"for key\s+(['\"`])([^'\"`]+)\1\s*$", re.IGNORECASE)
-FailureCallback = Callable[[BaseException], object]
 
 
 class _NamedDuplicate(Exception):
@@ -261,6 +262,7 @@ async def _write(
     *,
     span_factory: SpanFactory | None = None,
     failure_callback: FailureCallback | None = None,
+    commit_unknown_callback: CommitUnknownCallback | None = None,
 ) -> tuple[T, bool]:
     """Each attempt owns its transaction; unknown commits are never replayed here."""
     try:
@@ -278,6 +280,7 @@ async def _write(
                                 known_abort=_creation_duplicate,
                                 span_factory=span_factory,
                                 failure_callback=failure_callback,
+                                commit_unknown_callback=commit_unknown_callback,
                             )
                         else:
                             await rollback(
@@ -336,6 +339,7 @@ async def _create_proposal_impl(
     deadline: float,
     span_factory: SpanFactory | None = None,
     failure_callback: FailureCallback | None = None,
+    commit_unknown_callback: CommitUnknownCallback | None = None,
 ) -> tuple[ProposalCreateReceipt, bool]:
     """Return the immutable creation receipt and whether this is a replay."""
     _require_role(context, "STAFF")
@@ -433,6 +437,7 @@ async def _create_proposal_impl(
             deadline,
             span_factory=span_factory,
             failure_callback=failure_callback,
+            commit_unknown_callback=commit_unknown_callback,
         )
     except _NamedDuplicate:
         receipt, changed = await _write(
@@ -442,6 +447,7 @@ async def _create_proposal_impl(
             deadline,
             span_factory=span_factory,
             failure_callback=failure_callback,
+            commit_unknown_callback=commit_unknown_callback,
         )
     return receipt, not changed
 
@@ -461,6 +467,13 @@ async def create_proposal(
 ) -> tuple[ProposalCreateReceipt, bool]:
     """Create a proposal under an optional owner-injected business span."""
     with safe_span(span_factory, "proposal.create") as span:
+        commit_unknown = False
+
+        def mark_commit_unknown() -> None:
+            nonlocal commit_unknown
+            commit_unknown = True
+            set_business_outcome(span, "commit_unknown")
+
         try:
             result = await _create_proposal_impl(
                 db,
@@ -473,12 +486,14 @@ async def create_proposal(
                 deadline=deadline,
                 span_factory=span_factory,
                 failure_callback=failure_callback,
+                commit_unknown_callback=mark_commit_unknown,
             )
         except CommitOutcomeUnknown:
             set_business_outcome(span, "commit_unknown")
             raise ServiceUnavailable() from None
         except BaseException:
-            set_business_outcome(span, "failed")
+            if not commit_unknown:
+                set_business_outcome(span, "failed")
             raise
         else:
             set_business_outcome(span, "replayed" if result[1] else "committed")
@@ -497,6 +512,7 @@ async def _decide_proposal_impl(
     deadline: float,
     span_factory: SpanFactory | None = None,
     failure_callback: FailureCallback | None = None,
+    commit_unknown_callback: CommitUnknownCallback | None = None,
 ) -> tuple[ProposalResolution, bool]:
     _require_role(context, "STUDENT")
 
@@ -541,6 +557,7 @@ async def _decide_proposal_impl(
         deadline,
         span_factory=span_factory,
         failure_callback=failure_callback,
+        commit_unknown_callback=commit_unknown_callback,
     )
 
 
@@ -560,6 +577,13 @@ async def decide_proposal(
     """Resolve a proposal under an optional owner-injected business span."""
     span_name: SpanName = "proposal.accept" if decision == "ACCEPTED" else "proposal.decline"
     with safe_span(span_factory, span_name) as span:
+        commit_unknown = False
+
+        def mark_commit_unknown() -> None:
+            nonlocal commit_unknown
+            commit_unknown = True
+            set_business_outcome(span, "commit_unknown")
+
         try:
             result, changed = await _decide_proposal_impl(
                 db,
@@ -572,12 +596,14 @@ async def decide_proposal(
                 deadline=deadline,
                 span_factory=span_factory,
                 failure_callback=failure_callback,
+                commit_unknown_callback=mark_commit_unknown,
             )
         except CommitOutcomeUnknown:
             set_business_outcome(span, "commit_unknown")
             raise ServiceUnavailable() from None
         except BaseException:
-            set_business_outcome(span, "failed")
+            if not commit_unknown:
+                set_business_outcome(span, "failed")
             raise
         else:
             set_business_outcome(span, "committed" if changed else "noop")

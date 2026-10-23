@@ -19,8 +19,9 @@ from app.domain.auth import AuthContext
 from app.models import Appointment, AuditEvent, ChangeProposal, Notification, User
 from app.observability.tracing import safe_span
 from app.repositories import users
+from app.schemas.appointments import AppointmentCreateRequest
 from app.schemas.change_proposals import ProposalCreateRequest
-from app.services import change_proposals
+from app.services import booking, change_proposals
 
 pytestmark = pytest.mark.mysql
 ORIGIN = "http://localhost:3000"
@@ -171,6 +172,212 @@ async def test_unknown_booking_commit_is_never_annotated_as_committed(
             ]
         )
     assert counts == ((1, 1, 2) if server_committed else (0, 0, 0))
+
+
+async def test_cancellation_during_booking_commit_keeps_commit_unknown_outcomes(
+    booking_env, auth_settings, monkeypatch
+):
+    env, _, starts_at = booking_env
+    exporter = _spans(env)
+    payload = AppointmentCreateRequest(
+        purpose_id=env.purpose_id,
+        staff_id=env.staff_id,
+        starts_at=starts_at,
+    )
+    context = AuthContext(
+        session_id=uuid4(),
+        user_id=env.student_id,
+        email="student@example.invalid",
+        name="Test Student",
+        role="STUDENT",
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+    commit_started = asyncio.Event()
+
+    async def wait_for_cancellation(_transaction):
+        commit_started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(AsyncSessionTransaction, "commit", wait_for_cancellation)
+    async with env.factory() as db:
+        task = asyncio.create_task(
+            booking.create_appointment(
+                db,
+                payload,
+                context=context,
+                idempotency_key="trace-booking-cancel-during-commit",
+                request_id="trace-booking-cancel-during-commit",
+                settings=auth_settings,
+                deadline=asyncio.get_running_loop().time() + 10,
+                span_factory=env.app.state.telemetry.span,
+            )
+        )
+        await asyncio.wait_for(commit_started.wait(), timeout=10)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    spans = exporter.get_finished_spans()
+    booking_span = next(span for span in spans if span.name == "booking.create")
+    commit_span = next(span for span in spans if span.name == "db.commit")
+    assert _outcome(booking_span) == "commit_unknown"
+    assert _outcome(commit_span) == "commit_unknown"
+
+
+async def test_precommit_booking_cancellation_remains_failed(
+    booking_env, auth_settings, monkeypatch
+):
+    env, _, starts_at = booking_env
+    exporter = _spans(env)
+    payload = AppointmentCreateRequest(
+        purpose_id=env.purpose_id,
+        staff_id=env.staff_id,
+        starts_at=starts_at,
+    )
+    context = AuthContext(
+        session_id=uuid4(),
+        user_id=env.student_id,
+        email="student@example.invalid",
+        name="Test Student",
+        role="STUDENT",
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+    lookup_started = asyncio.Event()
+
+    async def wait_before_lookup(_db, *, student_id, key):
+        del student_id, key
+        lookup_started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(booking.appointments, "find_creation_request", wait_before_lookup)
+    async with env.factory() as db:
+        task = asyncio.create_task(
+            booking.create_appointment(
+                db,
+                payload,
+                context=context,
+                idempotency_key="trace-booking-cancel-before-commit",
+                request_id="trace-booking-cancel-before-commit",
+                settings=auth_settings,
+                deadline=asyncio.get_running_loop().time() + 10,
+                span_factory=env.app.state.telemetry.span,
+            )
+        )
+        await asyncio.wait_for(lookup_started.wait(), timeout=10)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    spans = exporter.get_finished_spans()
+    booking_span = next(span for span in spans if span.name == "booking.create")
+    assert _outcome(booking_span) == "failed"
+    assert not any(span.name == "db.commit" for span in spans)
+
+
+async def test_cancellation_during_proposal_commit_keeps_business_outcome_unknown(
+    booking_env, auth_settings, monkeypatch
+):
+    env, _, starts_at = booking_env
+    exporter = _spans(env)
+    appointment_id = await _seed_appointment(
+        env,
+        student_id=env.student_id,
+        staff_id=env.staff_id,
+        purpose_id=env.purpose_id,
+        starts_at=starts_at,
+    )
+    staff_context = AuthContext(
+        session_id=uuid4(),
+        user_id=env.staff_id,
+        email="staff@example.invalid",
+        name="Selected Staff",
+        role="STAFF",
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+    student_context = AuthContext(
+        session_id=uuid4(),
+        user_id=env.student_id,
+        email="student@example.invalid",
+        name="Test Student",
+        role="STUDENT",
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+    payload = ProposalCreateRequest(
+        expected_proposal_version=0,
+        expected_pending_proposal_id=None,
+        proposed_starts_at=starts_at + timedelta(minutes=30),
+        proposed_location="Room B",
+    )
+
+    async def run_cancellable(operation_name: str) -> None:
+        commit_started = asyncio.Event()
+
+        async def wait_for_cancellation(_transaction):
+            commit_started.set()
+            await asyncio.Event().wait()
+
+        async with env.factory() as db:
+            if operation_name == "proposal.create":
+                operation = change_proposals.create_proposal(
+                    db,
+                    appointment_id=appointment_id,
+                    payload=payload,
+                    context=staff_context,
+                    idempotency_key="trace-proposal-cancel-during-create-commit",
+                    request_id="trace-proposal-cancel-during-create-commit",
+                    settings=auth_settings,
+                    deadline=asyncio.get_running_loop().time() + 10,
+                    span_factory=env.app.state.telemetry.span,
+                )
+            else:
+                proposal, replayed = await change_proposals.create_proposal(
+                    db,
+                    appointment_id=appointment_id,
+                    payload=payload,
+                    context=staff_context,
+                    idempotency_key="trace-proposal-cancel-during-accept-setup",
+                    request_id="trace-proposal-cancel-during-accept-setup",
+                    settings=auth_settings,
+                    deadline=asyncio.get_running_loop().time() + 10,
+                    span_factory=env.app.state.telemetry.span,
+                )
+                assert not replayed
+                operation = change_proposals.decide_proposal(
+                    db,
+                    appointment_id=appointment_id,
+                    proposal_id=proposal.id,
+                    decision="ACCEPTED",
+                    context=student_context,
+                    request_id="trace-proposal-cancel-during-accept-commit",
+                    settings=auth_settings,
+                    deadline=asyncio.get_running_loop().time() + 10,
+                    span_factory=env.app.state.telemetry.span,
+                )
+
+            with monkeypatch.context() as patch:
+                patch.setattr(AsyncSessionTransaction, "commit", wait_for_cancellation)
+                task = asyncio.create_task(operation)
+                await asyncio.wait_for(commit_started.wait(), timeout=10)
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+
+    for name in ("proposal.create", "proposal.accept"):
+        await run_cancellable(name)
+
+    spans = exporter.get_finished_spans()
+    for name in ("proposal.create", "proposal.accept"):
+        business = next(span for span in spans if span.name == name)
+        commit = next(
+            span
+            for span in spans
+            if span.name == "db.commit"
+            and span.parent is not None
+            and business.context is not None
+            and span.parent.span_id == business.context.span_id
+        )
+        assert _outcome(business) == "commit_unknown"
+        assert _outcome(commit) == "commit_unknown"
 
 
 async def test_proposal_create_accept_noop_and_decline_have_safe_business_outcomes(booking_env):

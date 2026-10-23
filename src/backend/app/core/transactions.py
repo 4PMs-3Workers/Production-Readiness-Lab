@@ -3,7 +3,7 @@
 import asyncio
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import AbstractContextManager, asynccontextmanager, contextmanager
-from typing import Any, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, AsyncSessionTransaction
@@ -13,7 +13,12 @@ from app.core.errors import ServiceUnavailable
 
 RETRYABLE_MYSQL_ERRORS = {1205, 1213}
 SpanFactory = Callable[[Any], AbstractContextManager[object]]
-FailureCallback = Callable[[BaseException], object]
+FailureKind = Literal["statement", "transaction"]
+CommitUnknownCallback = Callable[[], object]
+
+
+class FailureCallback(Protocol):
+    def __call__(self, error: BaseException, *, kind: FailureKind = "statement") -> object: ...
 
 
 class _SpanLike(Protocol):
@@ -57,11 +62,25 @@ def _span_outcome(span: object | None, outcome: str) -> None:
         pass
 
 
-def _report_failure(callback: FailureCallback | None, error: BaseException) -> None:
+def _report_failure(
+    callback: FailureCallback | None,
+    error: BaseException,
+    *,
+    kind: FailureKind = "statement",
+) -> None:
     if callback is None:
         return
     try:
-        callback(error)
+        callback(error, kind=kind)
+    except BaseException:
+        pass
+
+
+def report_commit_unknown(callback: CommitUnknownCallback | None) -> None:
+    if callback is None:
+        return
+    try:
+        callback()
     except BaseException:
         pass
 
@@ -106,7 +125,7 @@ async def rollback(
             else:
                 _span_outcome(span, "noop")
     except SQLAlchemyError as error:
-        _report_failure(failure_callback, error)
+        _report_failure(failure_callback, error, kind="transaction")
         await invalidate(db)
 
 
@@ -130,8 +149,9 @@ async def read_transaction(
                     with _safe_span(span_factory, "db.rollback") as span:
                         try:
                             await transaction.rollback()
-                        except SQLAlchemyError:
+                        except SQLAlchemyError as error:
                             _span_outcome(span, "failed")
+                            _report_failure(failure_callback, error, kind="transaction")
                             raise
                         else:
                             _span_outcome(span, "noop")
@@ -149,6 +169,7 @@ async def commit_safely(
     known_abort: Callable[[SQLAlchemyError], bool] | None = None,
     span_factory: SpanFactory | None = None,
     failure_callback: FailureCallback | None = None,
+    commit_unknown_callback: CommitUnknownCallback | None = None,
 ) -> None:
     try:
         with _safe_span(span_factory, "db.commit") as span:
@@ -162,11 +183,12 @@ async def commit_safely(
                 raise
             except asyncio.CancelledError:
                 _span_outcome(span, "commit_unknown")
+                report_commit_unknown(commit_unknown_callback)
                 raise
             else:
                 _span_outcome(span, "committed")
     except SQLAlchemyError as error:
-        _report_failure(failure_callback, error)
+        _report_failure(failure_callback, error, kind="transaction")
         await rollback(db, span_factory=span_factory, failure_callback=failure_callback)
         if mysql_error_code(error) in RETRYABLE_MYSQL_ERRORS or (
             known_abort is not None and known_abort(error)
