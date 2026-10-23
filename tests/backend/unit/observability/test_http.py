@@ -17,6 +17,7 @@ from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags, Trace
 from app.core.config import Settings
 from app.factory import ResponseInterruptedError, create_app
 from app.observability.runtime import Service, TelemetryRuntime
+from app.services import auth as auth_service
 
 
 @asynccontextmanager
@@ -227,6 +228,46 @@ async def test_early_auth_body_rejection_has_known_route_and_redacts_query_and_b
     encoded = json.dumps(sink.records)
     assert "early-reject-query" not in encoded
     assert "body-secret-too-large" not in encoded
+
+
+async def test_auth_middleware_origin_rejection_is_correlated_before_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    app, sink, _ = instrumented_app()
+    endpoint_calls = 0
+
+    async def unexpected_auth_call(*args, **kwargs):
+        nonlocal endpoint_calls
+        endpoint_calls += 1
+        raise AssertionError("authentication endpoint ran before origin rejection")
+
+    monkeypatch.setattr(auth_service, "login", unexpected_auth_call)
+    async with app_client(app) as client:
+        response = await client.post(
+            "/api/v1/auth/login?query-secret=middleware-origin-rejection",
+            content=json.dumps(
+                {"email": "person@example.test", "password": "body-secret-valid-login"}
+            ),
+            headers={"Content-Type": "application/json"},
+        )
+
+    assert endpoint_calls == 0
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "INVALID_ORIGIN"
+    assert response.headers["X-PRL-Route"] == "/api/v1/auth/login"
+    trace_id = response.headers["X-Trace-ID"]
+    assert re.fullmatch(r"[0-9a-f]{32}", trace_id)
+    request_id = response.headers["X-Request-ID"]
+    matching = _records_for(sink, request_id)
+    assert len(matching) == 1
+    assert matching[0]["request_id"] == request_id
+    assert matching[0]["trace_id"] == trace_id
+    assert matching[0]["route"] == "/api/v1/auth/login"
+    assert matching[0]["status"] == 403
+    assert matching[0]["response_complete"] is True
+    encoded = json.dumps(sink.records)
+    assert "middleware-origin-rejection" not in encoded
+    assert "body-secret-valid-login" not in encoded
 
 
 async def test_404_405_unmatched_and_unknown_method_use_finite_labels():
