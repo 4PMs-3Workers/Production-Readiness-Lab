@@ -16,12 +16,21 @@ from app.schemas.common import ErrorDetail, ErrorResponse
 
 
 def error_response(request: Request, error: AppError) -> JSONResponse:
+    state = request.scope.setdefault("state", {})
+    if error.code == "LOGIN_THROTTLED":
+        state["error_code"] = "LOGIN_THROTTLED"
+        state["internal_outcome"] = "login_throttled"
+    else:
+        state["error_code"] = "http_5xx" if error.status_code >= 500 else "http_4xx"
+        state.pop("internal_outcome", None)
     body = ErrorResponse(
         error=ErrorDetail(
             code=error.code, message=error.message, request_id=get_request_id(request)
         )
     )
-    headers = dict(error.headers or {})
+    headers = {
+        key: value for key, value in (error.headers or {}).items() if key.lower() != "x-prl-outcome"
+    }
     route_path = get_route_path(request.scope)
     if route_path in {"/health/live", "/health/ready"}:
         headers["Cache-Control"] = "no-store"
@@ -29,6 +38,8 @@ def error_response(request: Request, error: AppError) -> JSONResponse:
         headers["Cache-Control"] = "private, no-store"
     headers["X-Error-Class"] = error.error_class
     headers["X-Request-ID"] = get_request_id(request)
+    if error.code == "LOGIN_THROTTLED":
+        headers["X-PRL-Outcome"] = "login_throttled"
     return JSONResponse(status_code=error.status_code, content=body.model_dump(), headers=headers)
 
 

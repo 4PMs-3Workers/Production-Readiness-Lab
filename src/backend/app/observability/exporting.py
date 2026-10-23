@@ -476,6 +476,7 @@ def sanitize_log_attributes(
         "backlog_capped",
         "attempts",
         "error_code",
+        "response_complete",
         "phase",
         "database_ok",
         "outcome",
@@ -558,5 +559,7 @@ def sanitize_log_attributes(
             if isinstance(value, str) and value in WORKER_OUTCOMES:
                 safe[key] = value
         elif key in {"database_ok", "backlog_capped"} and isinstance(value, bool):
+            safe[key] = value
+        elif key == "response_complete" and isinstance(value, bool):
             safe[key] = value
     return safe

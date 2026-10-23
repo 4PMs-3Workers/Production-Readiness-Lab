@@ -103,7 +103,13 @@ class TelemetryMetrics:
         )
 
     def record_http_request(
-        self, route: str, method: str, status: int, duration_seconds: float
+        self,
+        route: str,
+        method: str,
+        status: int,
+        duration_seconds: float,
+        *,
+        response_complete: bool = True,
     ) -> None:
         if self._on_http_request is not None:
             try:
@@ -124,7 +130,8 @@ class TelemetryMetrics:
         if not isfinite(duration) or duration < 0:
             return
         labels = (safe_route, safe_method)
-        self.http_requests.labels(*labels, str(safe_status)).inc()
+        status_label = str(safe_status) if response_complete else "aborted"
+        self.http_requests.labels(*labels, status_label).inc()
         self.http_duration.labels(*labels).observe(duration)
 
     def record_service_error(self, service: str, reason: str) -> None:

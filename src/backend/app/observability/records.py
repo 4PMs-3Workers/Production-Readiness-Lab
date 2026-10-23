@@ -75,6 +75,7 @@ ERROR_CODES = frozenset(
         "connection_error",
         "statement_error",
         "transaction_error",
+        "LOGIN_THROTTLED",
     }
 )
 WORKER_PHASES = frozenset({"starting", "running", "stopping", "stopped"})
@@ -106,6 +107,7 @@ _LOG_FIELDS = frozenset(
         "status",
         "duration_seconds",
         "error_code",
+        "response_complete",
         "worker_id",
         "current_run_id",
         "phase",
@@ -286,6 +288,10 @@ def sanitize_record(
         elif key == "error_code":
             if not isinstance(value, str) or value not in ERROR_CODES:
                 raise InvalidTelemetryRecord("Invalid error code")
+            cleaned[key] = value
+        elif key == "response_complete":
+            if not isinstance(value, bool):
+                raise InvalidTelemetryRecord("Invalid response completion flag")
             cleaned[key] = value
         elif key == "phase":
             if not isinstance(value, str) or value not in WORKER_PHASES:

@@ -249,7 +249,7 @@ bằng giá trị local riêng. Không commit `.env`. Với môi trường demo/
 `APPLICATION_ORIGIN=https://...` và `COOKIE_SECURE=true`. Khởi động từ gốc repo:
 
 ```bash
-python -m uvicorn app.main:app --app-dir src/backend --no-proxy-headers
+python -m uvicorn app.main:app --app-dir src/backend --no-proxy-headers --no-access-log
 ```
 
 API khởi động khi MySQL tạm thời không truy cập được. `/health/live` kiểm tra tiến trình
