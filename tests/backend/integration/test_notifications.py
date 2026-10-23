@@ -2,10 +2,12 @@
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from time import perf_counter
 from uuid import UUID, uuid4
 
+import pytest
 import pytest_asyncio
-from sqlalchemy import func, select
+from sqlalchemy import func, insert, select, text
 
 from app.core.auth_cookies import CSRF_COOKIE
 from app.core.csrf import issue_csrf_token
@@ -14,11 +16,13 @@ from app.domain.auth import AuthContext
 from app.models import (
     Appointment,
     AuditEvent,
+    ChangeProposal,
     Notification,
     Purpose,
     StaffPurpose,
     User,
 )
+from app.repositories import notifications as notification_repository
 
 ORIGIN = "http://localhost:3000"
 STAMP = datetime(2026, 10, 22, 3, 0, tzinfo=UTC)
@@ -76,6 +80,16 @@ async def notification_env(auth_env):
         await db.flush()
         db.add_all(
             [
+                ChangeProposal(
+                    appointment_id=appointment_id,
+                    created_by=staff_id,
+                    created_at=STAMP - timedelta(days=1),
+                    proposed_starts_at=STAMP + timedelta(days=2),
+                    proposed_ends_at=STAMP + timedelta(days=2, minutes=30),
+                    status="EXPIRED",
+                    expires_at=STAMP - timedelta(hours=1),
+                    resolved_at=STAMP - timedelta(hours=1),
+                ),
                 Notification(
                     id=UUID("00000000-0000-0000-0000-000000000001"),
                     recipient_id=student_id,
@@ -178,6 +192,21 @@ async def test_mark_read_is_idempotent_private_and_hides_foreign_ids(notificatio
     client, factory, context, appointment_id, other_student_id, _, _ = notification_env
     notification_id = UUID("00000000-0000-0000-0000-000000000001")
 
+    async with factory() as db:
+        baseline_audits = await db.scalar(select(func.count()).select_from(AuditEvent))
+        baseline_notifications = await db.scalar(select(func.count()).select_from(Notification))
+        baseline_appointment = await db.scalar(
+            select(Appointment.status).where(Appointment.id == appointment_id)
+        )
+        baseline_proposals = (
+            await db.execute(
+                select(ChangeProposal.id, ChangeProposal.status, ChangeProposal.resolved_at).where(
+                    ChangeProposal.appointment_id == appointment_id
+                )
+            )
+        ).all()
+    assert len(baseline_proposals) == 1
+
     first, concurrent = await asyncio.gather(
         client.post(f"/api/v1/notifications/{notification_id}/read", json={}),
         client.post(f"/api/v1/notifications/{notification_id}/read", json={}),
@@ -200,12 +229,23 @@ async def test_mark_read_is_idempotent_private_and_hides_foreign_ids(notificatio
             select(Notification.id).where(Notification.recipient_id == other_student_id)
         )
         audit_count = await db.scalar(select(func.count()).select_from(AuditEvent))
+        notification_count = await db.scalar(select(func.count()).select_from(Notification))
         appointment_status = await db.scalar(
             select(Appointment.status).where(Appointment.id == appointment_id)
         )
+        proposals = (
+            await db.execute(
+                select(ChangeProposal.id, ChangeProposal.status, ChangeProposal.resolved_at).where(
+                    ChangeProposal.appointment_id == appointment_id
+                )
+            )
+        ).all()
     assert persisted == datetime.fromisoformat(first.json()["read_at"].replace("Z", "+00:00"))
     assert own_count == 3
-    assert appointment_status == "UPCOMING"
+    assert appointment_status == baseline_appointment == "UPCOMING"
+    assert proposals == baseline_proposals
+    assert notification_count == baseline_notifications
+    assert audit_count == baseline_audits
 
     foreign = await client.post(f"/api/v1/notifications/{foreign_id}/read", json={})
     missing = await client.post(f"/api/v1/notifications/{uuid4()}/read", json={})
@@ -258,6 +298,100 @@ async def test_staff_can_read_assigned_inbox_but_admin_has_no_implicit_access(no
     )
     assert admin_read.status_code == 403
     assert admin_read.json()["error"]["code"] == "FORBIDDEN_ROLE"
+
+
+@pytest.mark.booking_stress
+async def test_recipient_query_plans_and_concurrent_read_with_large_history(notification_env):
+    client, factory, context, appointment_id, _, staff_id, _ = notification_env
+    # A busy student and staff member each have 5,000 historical events; 80% are read.
+    async with factory.begin() as db:
+        for recipient_id in (context.user_id, staff_id):
+            for start in range(0, 5000, 500):
+                rows = [
+                    {
+                        "id": uuid4(),
+                        "recipient_id": recipient_id,
+                        "appointment_id": appointment_id,
+                        "event_type": "APPOINTMENT_CREATED",
+                        "created_at": STAMP + timedelta(seconds=position),
+                        "read_at": STAMP + timedelta(days=1) if position % 5 else None,
+                    }
+                    for position in range(start, start + 500)
+                ]
+                await db.execute(insert(Notification), rows)
+
+    async with factory() as db:
+        await db.execute(text("ANALYZE TABLE notifications"))
+        await db.commit()
+        for unread_only in (False, True):
+            condition = "AND n.read_at IS NULL" if unread_only else ""
+            statement = text(
+                "EXPLAIN SELECT n.*, a.student_id, a.staff_id, a.starts_at, a.status "
+                "FROM notifications AS n LEFT JOIN appointments AS a "
+                "ON a.id = n.appointment_id WHERE n.recipient_id = :recipient "
+                f"{condition} ORDER BY n.created_at DESC, n.id DESC LIMIT 20"
+            )
+            plan = [
+                dict(row._mapping)
+                for row in (
+                    await db.execute(
+                        statement,
+                        {
+                            "recipient": context.user_id.bytes,
+                        },
+                    )
+                ).all()
+            ]
+            notification_step = next(row for row in plan if row["table"] == "n")
+            print(f"notification plan unread_only={unread_only}: {notification_step}")
+            assert notification_step["key"] == "ix_notifications_recipient_history"
+            assert notification_step["type"] in {"ref", "range"}
+            count_plan = (
+                await db.execute(
+                    text(
+                        "EXPLAIN SELECT COUNT(*) FROM notifications AS n "
+                        f"WHERE n.recipient_id = :recipient {condition}"
+                    ),
+                    {"recipient": context.user_id.bytes},
+                )
+            ).one()
+            print(f"notification count plan unread_only={unread_only}: {dict(count_plan._mapping)}")
+
+            durations = []
+            for _ in range(10):
+                started = perf_counter()
+                records, total = await notification_repository.read_notification_page(
+                    db,
+                    recipient_id=context.user_id,
+                    page=1,
+                    page_size=20,
+                    unread_only=unread_only,
+                )
+                durations.append((perf_counter() - started) * 1000)
+                assert len(records) == 20
+                assert total >= 1000
+            print(
+                f"notification page unread_only={unread_only}: "
+                f"p95={sorted(durations)[-2]:.1f}ms over 10 requests"
+            )
+
+    notification_id = UUID("00000000-0000-0000-0000-000000000001")
+    started = perf_counter()
+    responses = await asyncio.gather(
+        *(client.post(f"/api/v1/notifications/{notification_id}/read", json={}) for _ in range(8))
+    )
+    elapsed = (perf_counter() - started) * 1000
+    print(f"eight concurrent reads of one notification: {elapsed:.1f}ms")
+    assert {response.status_code for response in responses} == {200}
+    assert len({response.json()["read_at"] for response in responses}) == 1
+
+    async with factory() as db:
+        assert await db.scalar(select(func.count()).select_from(Notification)) == 10005
+        assert await db.scalar(select(func.count()).select_from(AuditEvent)) == 0
+        assert (
+            await db.scalar(select(Appointment.status).where(Appointment.id == appointment_id))
+            == "UPCOMING"
+        )
 
 
 async def _count_audits(factory):

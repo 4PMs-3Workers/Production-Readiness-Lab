@@ -3292,6 +3292,19 @@ paths:
       - booking-context
   /api/v1/notifications:
     get:
+      description: 'Returns only the current STUDENT or STAFF recipient''s notifications.
+        Pages are 1-based with `page_size` from 1 to 100 and optional `unread_only`
+        filtering. Rows use deterministic `created_at DESC, id DESC` ordering; `total`
+        counts all matching rows even when the requested page is empty. A known event
+        shows its safe summary and appointment link only while that appointment is
+        accessible to this recipient. An unknown event or inaccessible appointment
+        receives a generic summary and null appointment fields, with no actionable
+        link. Consultation text and internal replay data are never included.
+
+
+        Errors: `INVALID_SESSION` (401), `FORBIDDEN_ROLE` (403), `VALIDATION_ERROR`
+        (422), `INTERNAL_SERVER_ERROR` (500), `SERVICE_UNAVAILABLE` (503). Responses
+        are `private, no-store` with a request ID.'
       operationId: list_notifications_api_v1_notifications_get
       parameters:
       - in: query
@@ -3436,6 +3449,18 @@ paths:
       - notifications
   /api/v1/notifications/{notification_id}/read:
     post:
+      description: 'Send an empty JSON object to mark one notification owned by the
+        current STUDENT or STAFF recipient as read. The response returns the persisted
+        `read_at`; repeated or concurrent calls preserve the first timestamp and create
+        no new business events. Missing and other recipients'' IDs both return `NOT_FOUND`
+        (404). The write requires the signed CSRF token plus a same-origin Origin
+        or Referer.
+
+
+        Other errors: `INVALID_SESSION` (401); `FORBIDDEN_ROLE`, `INVALID_CSRF`, or
+        `INVALID_ORIGIN` (403); `PAYLOAD_TOO_LARGE` (413); `UNSUPPORTED_MEDIA_TYPE`
+        (415); `VALIDATION_ERROR` (422); `INTERNAL_SERVER_ERROR` (500); `SERVICE_UNAVAILABLE`
+        (503). Responses are `private, no-store` with a request ID.'
       operationId: mark_notification_read_api_v1_notifications__notification_id__read_post
       parameters:
       - in: path
@@ -3545,6 +3570,25 @@ paths:
               schema:
                 type: string
         '413':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized notification error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Error class
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '415':
           content:
             application/json:
               schema:

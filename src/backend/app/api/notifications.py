@@ -69,6 +69,19 @@ async def reject_duplicate_notification_query(
     response_model=PageResponse[NotificationListItem],
     responses=_responses({200: PageResponse[NotificationListItem]}, 401, 403, 422, 500, 503),
     summary="List the authenticated user's notifications",
+    description=(
+        "Returns only the current STUDENT or STAFF recipient's notifications. Pages are "
+        "1-based with `page_size` from 1 to 100 and optional `unread_only` filtering. "
+        "Rows use deterministic `created_at DESC, id DESC` ordering; `total` counts all "
+        "matching rows even when the requested page is empty. A known event shows its safe "
+        "summary and appointment link only while that appointment is accessible to this "
+        "recipient. An unknown event or inaccessible appointment receives a generic summary "
+        "and null appointment fields, with no actionable link. Consultation text and internal "
+        "replay data are never included.\n\n"
+        "Errors: `INVALID_SESSION` (401), `FORBIDDEN_ROLE` (403), `VALIDATION_ERROR` (422), "
+        "`INTERNAL_SERVER_ERROR` (500), `SERVICE_UNAVAILABLE` (503). Responses are "
+        "`private, no-store` with a request ID."
+    ),
 )
 async def list_notifications(
     request: Request,
@@ -91,8 +104,19 @@ async def list_notifications(
 @router.post(
     "/notifications/{notification_id}/read",
     response_model=NotificationReadResponse,
-    responses=_responses({200: NotificationReadResponse}, 401, 403, 404, 413, 422, 500, 503),
+    responses=_responses({200: NotificationReadResponse}, 401, 403, 404, 413, 415, 422, 500, 503),
     summary="Persistently mark one owned notification as read",
+    description=(
+        "Send an empty JSON object to mark one notification owned by the current STUDENT or "
+        "STAFF recipient as read. The response returns the persisted `read_at`; repeated or "
+        "concurrent calls preserve the first timestamp and create no new business events. "
+        "Missing and other recipients' IDs both return `NOT_FOUND` (404). The write requires "
+        "the signed CSRF token plus a same-origin Origin or Referer.\n\n"
+        "Other errors: `INVALID_SESSION` (401); `FORBIDDEN_ROLE`, `INVALID_CSRF`, or "
+        "`INVALID_ORIGIN` (403); `PAYLOAD_TOO_LARGE` (413); `UNSUPPORTED_MEDIA_TYPE` (415); "
+        "`VALIDATION_ERROR` (422); `INTERNAL_SERVER_ERROR` (500); "
+        "`SERVICE_UNAVAILABLE` (503). Responses are `private, no-store` with a request ID."
+    ),
     openapi_extra={
         "parameters": [
             {
