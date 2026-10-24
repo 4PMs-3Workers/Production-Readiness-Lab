@@ -32,12 +32,38 @@ import type {
   NotificationPage,
   NotificationQuery,
 } from '@/services/notification-contracts';
+import type {
+  ProposalAccessOptions,
+  ProposalCreateBody,
+  ProposalCreateReceipt,
+  ProposalHistoryPage,
+  ProposalResolution,
+  ProposalWriteOptions,
+} from '@/services/proposal-contracts';
 import { isBusinessDate } from '@/lib/business-time';
 import { ApiError, BookingRejection } from './errors';
 import { parseBookingContext } from './booking-context';
+import {
+  parseProposalHistory,
+  parseProposalReceipt,
+  parseProposalResolution,
+} from './proposal-mapping';
 
 interface StaffWriteOptions extends ServiceRequestOptions {
   readonly expectedUserId: string;
+}
+
+/** A complete proposal POST rejected the operation after checking its saved result. */
+export class ProposalRejection extends ApiError {}
+
+function throwProposalFailure(
+  error: unknown,
+  dispatched: boolean,
+  codes: readonly string[],
+): never {
+  if (dispatched && error instanceof ApiError && error.status === 409 && codes.includes(error.code))
+    throw new ProposalRejection(error.code, error.status, error.requestId, error.retryAfter);
+  throw error;
 }
 
 interface NotificationAccessOptions extends ServiceRequestOptions {
@@ -768,5 +794,111 @@ export class ApiServices {
       'DELETE',
       'STAFF',
     );
+  }
+
+  private async verifyProposalOwner(options: ProposalAccessOptions) {
+    const current = await this.me(options);
+    if (current.id !== options.expectedUserId || current.role !== options.expectedRole) {
+      this.invalidateSession();
+      throw new ApiError('ACCOUNT_CHANGED', 401);
+    }
+  }
+
+  async proposalHistory(
+    appointmentId: string,
+    page: number,
+    options: ProposalAccessOptions,
+  ): Promise<ProposalHistoryPage> {
+    const scopedOptions: ProposalAccessOptions = {
+      ...options,
+      signal: AbortSignal.any([this.scope.signal, ...(options.signal ? [options.signal] : [])]),
+    };
+    await this.verifyProposalOwner(scopedOptions);
+    const prefix =
+      scopedOptions.expectedRole === 'STAFF' ? '/staff/me/appointments' : '/appointments';
+    const result = await this.request<unknown>(
+      `${prefix}/${encodeURIComponent(appointmentId)}/change-proposals?page=${page}&page_size=20`,
+      scopedOptions,
+    );
+    await this.verifyProposalOwner(scopedOptions);
+    return parseProposalHistory(result, appointmentId);
+  }
+
+  async createProposal(
+    appointmentId: string,
+    body: ProposalCreateBody,
+    key: string,
+    options: ProposalWriteOptions,
+  ): Promise<ProposalCreateReceipt> {
+    // Capture the intention before CSRF/account awaits. Never refresh its preconditions on retry.
+    const payload: ProposalCreateBody = {
+      expected_proposal_version: body.expected_proposal_version,
+      expected_pending_proposal_id: body.expected_pending_proposal_id,
+      proposed_starts_at: body.proposed_starts_at,
+      proposed_location: body.proposed_location,
+    };
+    let dispatched = false;
+    let receipt: unknown;
+    try {
+      receipt = await this.write<unknown>(
+        `/staff/me/appointments/${encodeURIComponent(appointmentId)}/change-proposals`,
+        payload,
+        options,
+        { 'Idempotency-Key': key },
+        options.expectedUserId,
+        () => {
+          dispatched = true;
+          options.onDispatch?.();
+        },
+        'POST',
+        'STAFF',
+      );
+    } catch (error) {
+      throwProposalFailure(error, dispatched, [
+        'PROPOSAL_PRECONDITION_FAILED',
+        'APPOINTMENT_STATE_CONFLICT',
+        'PROPOSAL_EXPIRED',
+        'PROPOSAL_NO_CHANGE',
+        'STAFF_UNAVAILABLE',
+        'STUDENT_UNAVAILABLE',
+        'BOOKING_DATE_INVALID',
+      ]);
+    }
+    return parseProposalReceipt(receipt, appointmentId);
+  }
+
+  async decideProposal(
+    appointmentId: string,
+    proposalId: string,
+    action: 'accept' | 'decline',
+    options: ProposalWriteOptions,
+  ): Promise<ProposalResolution> {
+    const userId = options.expectedUserId;
+    let dispatched = false;
+    let resolution: unknown;
+    try {
+      resolution = await this.write<unknown>(
+        `/appointments/${encodeURIComponent(appointmentId)}/change-proposals/${encodeURIComponent(proposalId)}/${action}`,
+        {},
+        options,
+        {},
+        userId,
+        () => {
+          dispatched = true;
+          options.onDispatch?.();
+        },
+        'POST',
+        'STUDENT',
+      );
+    } catch (error) {
+      throwProposalFailure(error, dispatched, [
+        'PROPOSAL_STATE_CONFLICT',
+        'PROPOSAL_EXPIRED',
+        'STAFF_UNAVAILABLE',
+        'STUDENT_UNAVAILABLE',
+        'BOOKING_DATE_INVALID',
+      ]);
+    }
+    return parseProposalResolution(resolution, appointmentId, proposalId, action, userId);
   }
 }

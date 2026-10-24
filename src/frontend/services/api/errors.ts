@@ -14,6 +14,17 @@ const messages: Record<string, string> = {
   APPOINTMENT_NOT_ENDED: 'Chỉ có thể ghi kết quả sau khi buổi hẹn kết thúc.',
   APPOINTMENT_STATE_CONFLICT:
     'Trạng thái lịch hẹn đã thay đổi. Hãy tải lại chi tiết trước khi thao tác.',
+  PROPOSAL_PRECONDITION_FAILED:
+    'Đề xuất đã thay đổi ở phiên khác. Hãy xem dữ liệu mới nhất rồi xác nhận một đề xuất mới.',
+  PROPOSAL_STATE_CONFLICT:
+    'Đề xuất này đã được xử lý hoặc thay thế. Hãy kiểm tra lịch sử mới nhất.',
+  PROPOSAL_EXPIRED: 'Đã quá hạn phản hồi đề xuất. Hệ thống đang cập nhật trạng thái lịch hẹn.',
+  PROPOSAL_NO_CHANGE: 'Đề xuất cần thay đổi thời gian hoặc địa điểm của lịch gốc.',
+  STAFF_UNAVAILABLE:
+    'Người tư vấn không còn trống ở thời gian đề xuất. Lịch gốc vẫn được giữ theo trạng thái hiện tại.',
+  STUDENT_UNAVAILABLE:
+    'Sinh viên có lịch trùng với thời gian đề xuất. Hãy kiểm tra lại lịch hiện tại.',
+  BOOKING_DATE_INVALID: 'Thời gian đề xuất không phù hợp với quy định hiện tại của dịch vụ.',
   UNAVAILABILITY_CONFLICT:
     'Khoảng thời gian này đang có lịch hẹn. Hãy chọn khoảng khác hoặc xử lý lịch trước.',
   VALIDATION_ERROR:
