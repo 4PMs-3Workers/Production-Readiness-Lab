@@ -32,6 +32,7 @@ from app.observability.records import (
     encode_item,
     sanitize_record,
 )
+from app.observability.transport import SanitizingOTLPSession
 
 Service = Literal["api", "worker"]
 TELEMETRY_CLOSE_TIMEOUT_SECONDS = 1.0
@@ -51,6 +52,7 @@ class TelemetryRuntime:
         service: Service,
         *,
         stdout_sink=None,
+        stdout_enabled: bool = True,
         log_exporter=None,
         span_exporter=None,
     ) -> None:
@@ -89,23 +91,26 @@ class TelemetryRuntime:
         self._tracer = self.trace_provider.get_tracer("app.observability", "0.1.0")
         self._logger = self.log_provider.get_logger("app.observability", "0.1.0")
         log_capacity = settings.telemetry_log_queue_capacity
-        self.metrics.configure_queue(service, "stdout", log_capacity)
-        self._publisher = Publisher(
-            stdout_sink,
-            capacity=log_capacity,
-            timeout=settings.telemetry_item_max_age_seconds,
-            max_record_bytes=settings.telemetry_max_item_bytes,
-            include_active_in_capacity=True,
-            on_drop=self._record_stdout_drop,
-            on_queue_change=lambda size: self.metrics.set_queue_size(service, "stdout", size),
-            on_success=lambda amount: self.metrics.record_exported(service, "stdout", amount),
-        )
+        self._publisher: Publisher | None = None
+        if stdout_enabled:
+            self.metrics.configure_queue(service, "stdout", log_capacity)
+            self._publisher = Publisher(
+                stdout_sink,
+                capacity=log_capacity,
+                timeout=settings.telemetry_item_max_age_seconds,
+                max_record_bytes=settings.telemetry_max_item_bytes,
+                include_active_in_capacity=True,
+                on_drop=self._record_stdout_drop,
+                on_queue_change=lambda size: self.metrics.set_queue_size(service, "stdout", size),
+                on_success=lambda amount: self.metrics.record_exported(service, "stdout", amount),
+            )
 
         enabled = settings.telemetry_enabled
         if enabled or log_exporter is not None:
             otlp_logs = log_exporter or OTLPLogExporter(
                 endpoint=f"{settings.telemetry_otlp_endpoint}/v1/logs",
                 timeout=settings.telemetry_network_timeout_seconds,
+                session=SanitizingOTLPSession(),
             )
             self._log_lane = self._new_lane(
                 "logs", otlp_logs, settings.telemetry_log_queue_capacity
@@ -126,6 +131,7 @@ class TelemetryRuntime:
             otlp_traces = span_exporter or OTLPSpanExporter(
                 endpoint=f"{settings.telemetry_otlp_endpoint}/v1/traces",
                 timeout=settings.telemetry_network_timeout_seconds,
+                session=SanitizingOTLPSession(),
             )
             self._trace_lane = self._new_lane(
                 "traces", otlp_traces, settings.telemetry_trace_queue_capacity
@@ -144,6 +150,8 @@ class TelemetryRuntime:
             self.span_processor = None
 
     def _record_stdout_drop(self, reason: str) -> None:
+        if self._publisher is None:
+            return
         self.metrics.record_drop(self.service, "stdout", reason)
         if reason == "export_failed":
             self.metrics.record_export_failed(self.service, "stdout")
@@ -177,11 +185,11 @@ class TelemetryRuntime:
     @property
     def accepted_count(self) -> int:
         """JSON records admitted by the local diagnostic lane."""
-        return self._publisher.accepted_count
+        return self._publisher.accepted_count if self._publisher is not None else 0
 
     @property
     def dropped(self) -> dict[str, int]:
-        counts = self._publisher.dropped
+        counts = self._publisher.dropped if self._publisher is not None else {}
         for lane in (self._log_lane, self._trace_lane):
             if lane is None:
                 continue
@@ -203,17 +211,19 @@ class TelemetryRuntime:
             )
             encoded = encode_item(safe)
             if len(encoded) > self._max_item_bytes:
-                self.metrics.record_drop(self.service, "stdout", "oversize")
+                if self._publisher is not None:
+                    self.metrics.record_drop(self.service, "stdout", "oversize")
                 if self._log_lane is not None:
                     self._log_lane.note_drop("oversize")
                 return False
         except Exception:
-            self.metrics.record_drop(self.service, "stdout", "invalid")
+            if self._publisher is not None:
+                self.metrics.record_drop(self.service, "stdout", "invalid")
             if self._log_lane is not None:
                 self._log_lane.note_drop("invalid")
             return False
         line = encoded.decode("utf-8")
-        accepted = self._publisher.submit(line)
+        accepted = self._publisher.submit(line) if self._publisher is not None else False
         if self._log_lane is not None:
             try:
                 attributes = {
@@ -272,7 +282,9 @@ class TelemetryRuntime:
         except Exception:
             if self._log_lane is not None:
                 self._log_lane.request_close()
-        closers = [self._publisher.close(deadline)]
+        closers = []
+        if self._publisher is not None:
+            closers.append(self._publisher.close(deadline))
         if self._log_lane is not None:
             closers.append(self._log_lane.close(deadline))
         if self._trace_lane is not None:
@@ -284,6 +296,8 @@ class TelemetryRuntime:
             return
 
 
-def create_telemetry(settings: Settings, *, service: Service) -> TelemetryRuntime:
+def create_telemetry(
+    settings: Settings, *, service: Service, stdout_enabled: bool = True
+) -> TelemetryRuntime:
     """Create an isolated runtime for one API or worker process."""
-    return TelemetryRuntime(settings, service)
+    return TelemetryRuntime(settings, service, stdout_enabled=stdout_enabled)

@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from app.core.config import Settings
 from app.core.database import create_database_engine
 from app.core.transactions import mysql_error_code, read_transaction
+from app.observability.database import attach_database
+from app.observability.runtime import TelemetryRuntime
 
 SUPPORTED_SCHEMA_REVISIONS = frozenset({"20261019_1200_proposal_replay"})
 CleanupDeadline = Callable[[], float | None]
@@ -65,6 +67,7 @@ async def open_resources(
     *,
     engine_factory: Callable[..., AsyncEngine] = create_database_engine,
     cleanup_deadline: CleanupDeadline | None = None,
+    telemetry: TelemetryRuntime | None = None,
 ) -> AsyncIterator[WorkerResources]:
     # This executes inside the worker's event loop, never during module import.
     engine = engine_factory(
@@ -74,9 +77,22 @@ async def open_resources(
         max_overflow=settings.db_max_overflow,
         pool_timeout=settings.db_pool_timeout_seconds,
     )
+    detach_database: Callable[[], None] | None = None
     try:
+        if telemetry is not None:
+            try:
+                detach_database = attach_database(engine, telemetry)
+            except Exception:
+                # Listener setup is optional instrumentation and must not fail worker startup.
+                detach_database = None
         yield WorkerResources(engine, async_sessionmaker(engine, expire_on_commit=False))
     finally:
+        if detach_database is not None:
+            try:
+                detach_database()
+            except Exception:
+                # Detaching telemetry listeners must not prevent owned engine cleanup.
+                pass
         deadline = earlier_deadline(
             asyncio.get_running_loop().time() + settings.worker_grace_seconds, cleanup_deadline
         )

@@ -5,7 +5,7 @@ import json
 from collections.abc import Callable
 from dataclasses import asdict
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Protocol
 from uuid import UUID
 
 from app.worker.models import CandidateResult, FailureReason, WorkerState
@@ -14,6 +14,19 @@ from app.worker.publishing import CLEANUP_TIMEOUT_SECONDS, Publisher
 Event = Literal[
     "starting", "ready", "heartbeat", "scan", "candidate", "stopping", "stopped", "fatal"
 ]
+
+
+class EventObserver(Protocol):
+    """Observer hook shared by the worker telemetry owner and focused callers."""
+
+    def observe(
+        self,
+        event: Event,
+        state: WorkerState,
+        *,
+        reason: FailureReason | None = None,
+        result: CandidateResult | None = None,
+    ) -> None: ...
 
 
 def _encode(value: object) -> str:
@@ -25,10 +38,16 @@ def _encode(value: object) -> str:
 
 
 class Reporter:
-    def __init__(self, sink: Callable[[str], object] | None = None) -> None:
+    def __init__(
+        self,
+        sink: Callable[[str], object] | None = None,
+        *,
+        observer: EventObserver | None = None,
+    ) -> None:
         self._publisher = Publisher(sink)
         self._observed_failures = 0
         self._state: WorkerState | None = None
+        self._observer = observer
 
     def _collect_failures(self, state: WorkerState) -> None:
         failures = self._publisher.failures
@@ -59,6 +78,12 @@ class Reporter:
     ) -> bool:
         self._state = state
         self._collect_failures(state)
+        if self._observer is not None:
+            try:
+                self._observer.observe(event, state, reason=reason, result=result)
+            except Exception:
+                # Observer failures are independent of stdout delivery and business work.
+                pass
         try:
             payload = {"event": event, **asdict(state)}
             if reason is not None:

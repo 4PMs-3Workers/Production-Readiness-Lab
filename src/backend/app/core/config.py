@@ -76,6 +76,7 @@ class Settings(BaseSettings):
         default=5, gt=0, alias="WORKER_POLL_INTERVAL_SECONDS"
     )
     worker_batch_size: int = Field(default=100, gt=0, le=1000, alias="WORKER_BATCH_SIZE")
+    worker_replica_slot: int = Field(default=1, ge=1, le=8, alias="WORKER_REPLICA_SLOT")
     worker_grace_seconds: float = Field(default=30, gt=0, alias="WORKER_GRACE_SECONDS")
     worker_heartbeat_interval_seconds: float = Field(
         default=15, gt=0, alias="WORKER_HEARTBEAT_INTERVAL_SECONDS"

@@ -1,5 +1,6 @@
 """Process-owned Prometheus metrics with finite label vocabularies."""
 
+import threading
 from collections.abc import Callable
 from math import isfinite
 
@@ -38,6 +39,8 @@ class TelemetryMetrics:
         self._routes = routes or RouteAllowlist()
         self._on_http_request = on_http_request
         self.registry = CollectorRegistry(auto_describe=True)
+        self._db_duration_lock = threading.Lock()
+        self._db_duration_min_max: dict[str, tuple[float, float]] = {}
         self.http_requests = Counter(
             "prl_http_requests_total",
             "HTTP requests by normalized route, finite method, and status.",
@@ -160,6 +163,18 @@ class TelemetryMetrics:
         if not isfinite(duration) or duration < 0:
             return
         self.db_statement_duration.labels(safe_operation).observe(duration)
+        with self._db_duration_lock:
+            previous = self._db_duration_min_max.get(safe_operation)
+            self._db_duration_min_max[safe_operation] = (
+                duration if previous is None else min(previous[0], duration),
+                duration if previous is None else max(previous[1], duration),
+            )
+
+    @property
+    def db_statement_min_max(self) -> dict[str, tuple[float, float]]:
+        """Return finite duration extrema for worker OTLP histogram DTOs."""
+        with self._db_duration_lock:
+            return self._db_duration_min_max.copy()
 
     def record_db_failure(self, reason: str) -> None:
         safe_reason = reason if isinstance(reason, str) and reason in FAILURE_REASONS else "unknown"
