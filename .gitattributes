@@ -2,6 +2,7 @@
 /src/frontend/** text eol=lf
 /src/frontend/public/** -text
 /tests/frontend/** text eol=lf
+/tests/containers/** text eol=lf
 /tools/scripts/lint-frontend.mjs text eol=lf
 /tools/scripts/start-frontend.ps1 text eol=lf
 /eslint.config.mjs text eol=lf

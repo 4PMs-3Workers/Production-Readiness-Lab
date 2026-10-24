@@ -17,7 +17,10 @@ services:
 
   gateway:
     image: nginx:stable-alpine@sha256:c59d1f8b1e0e42da75be973424cd72e23f7f8adfb54e982f4d1cd0216a5a5576
-    entrypoint: [nginx, -g, 'daemon off;']
+    entrypoint: [/bin/sh, /usr/local/sbin/prl-gateway-entrypoint]
+    environment:
+      PRL_GATEWAY_ENVIRONMENT: demo
+      SERVICE_RELEASE: ${SERVICE_RELEASE:-development}
     user: '101:101'
     init: true
     read_only: true
@@ -27,6 +30,7 @@ services:
     ports: ['${PRL_HTTPS_BIND:-127.0.0.1}:${PRL_HTTPS_PORT:-8443}:8443']
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/gateway-entrypoint.sh:/usr/local/sbin/prl-gateway-entrypoint:ro
       - ./nginx:/etc/nginx/prl:ro
       - ./nginx/https.conf:/etc/nginx/server.conf:ro
       - type: bind
