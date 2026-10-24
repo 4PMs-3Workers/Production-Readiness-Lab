@@ -894,8 +894,8 @@ class FullStackRuntime:
         self.admin_password = "synthetic-" + uuid4().hex
         self.admin_user_file = scratch / "grafana-admin-user"
         self.admin_password_file = scratch / "grafana-admin-password"
-        self.admin_user_file.write_text(self.admin_user + "\n", encoding="utf-8")
-        self.admin_password_file.write_text(self.admin_password + "\n", encoding="utf-8")
+        self.admin_user_file.write_bytes((self.admin_user + "\n").encode("utf-8"))
+        self.admin_password_file.write_bytes((self.admin_password + "\n").encode("utf-8"))
 
         deploy = ROOT / "tools/deploy"
         self.stack.base = [

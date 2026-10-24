@@ -194,6 +194,17 @@ HTTPS bind mặc định `127.0.0.1:8443`. Cần origin/port trùng với public
 đổi `PRL_HTTPS_PORT`; gateway chứng minh liveness, còn API readiness được kiểm tra riêng.
 Kiểm tra TLS từ máy client dùng chứng thư được hệ thống tin cậy trước khi công bố link.
 
+## Tài khoản quản trị dashboard
+
+Khi bật overlay observability, đặt `PRL_GRAFANA_ADMIN_USER_FILE` và
+`PRL_GRAFANA_ADMIN_PASSWORD_FILE` thành đường dẫn tuyệt đối tới hai file UTF-8.
+Mỗi file chứa đúng một dòng; có thể có một ký tự LF ở cuối. CLI từ chối CRLF,
+BOM, NUL và dòng phụ trước khi chạy lệnh cấu hình hoặc triển khai. CLI chỉ đọc,
+không sửa các file này; khoảng trắng ở đầu và cuối là một phần của giá trị.
+
+Grafana chỉ dùng các file để tạo tài khoản quản trị ban đầu khi data store còn
+trống. Thay file không đổi mật khẩu của tài khoản đã có trong volume hiện hữu.
+
 ## Chẩn đoán và dữ liệu bền vững
 
 `/health/gateway` kiểm tra Nginx, `/health/ready` kiểm tra kết nối DB và schema đã

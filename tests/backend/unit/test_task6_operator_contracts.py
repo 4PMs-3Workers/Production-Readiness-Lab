@@ -1,6 +1,7 @@
 """Task 6 operator and manifest contracts."""
 
 import importlib.util
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -145,6 +146,99 @@ def test_invalid_ops_inputs_fail_without_echoing_values(
     if value:
         assert value not in str(caught.value)
     assert "private-credential-value" not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["PRL_GRAFANA_ADMIN_USER_FILE", "PRL_GRAFANA_ADMIN_PASSWORD_FILE"],
+)
+@pytest.mark.parametrize(
+    "contents",
+    [
+        b"synthetic-secret\r\n",
+        b"synthetic-secret\nsecond-line",
+        b"synthetic-secret\n\n",
+        b"synthetic-secret\x00",
+        b"\xef\xbb\xbfsynthetic-secret\n",
+        b"synthetic-secret\xff",
+    ],
+    ids=["crlf", "multiple-lines", "multiple-terminal-lf", "nul", "utf8-bom", "invalid-utf8"],
+)
+def test_grafana_credential_files_reject_ambiguous_line_endings_without_echoing_or_rewriting(
+    observability_environment, monkeypatch, name, contents
+):
+    demo, _ = observability_environment
+    path = Path(os.environ[name])
+    path.write_bytes(contents)
+    monkeypatch.setenv(name, str(path))
+
+    with pytest.raises(demo.OperationFailed) as caught:
+        demo.Demo("https", "a" * 40, observability=True)
+
+    assert "synthetic-secret" not in str(caught.value)
+    assert path.read_bytes() == contents
+
+
+def test_grafana_credential_files_accept_lf_and_remain_unchanged(observability_environment):
+    demo, _ = observability_environment
+    paths = [
+        Path(os.environ["PRL_GRAFANA_ADMIN_USER_FILE"]),
+        Path(os.environ["PRL_GRAFANA_ADMIN_PASSWORD_FILE"]),
+    ]
+    for path in paths:
+        path.write_bytes(b"  synthetic-secret with spaces  \n")
+
+    instance = demo.Demo("https", "a" * 40, observability=True)
+
+    assert instance.ops_origin == "https://ops.example.invalid:8443"
+    assert all(path.read_bytes() == b"  synthetic-secret with spaces  \n" for path in paths)
+
+
+@pytest.mark.parametrize("command", ["status", "stop", "down"])
+def test_recorded_cleanup_skips_grafana_credential_content_validation(
+    observability_environment, monkeypatch, command
+):
+    demo, workspace = observability_environment
+    credential_paths = [
+        Path(os.environ["PRL_GRAFANA_ADMIN_USER_FILE"]),
+        Path(os.environ["PRL_GRAFANA_ADMIN_PASSWORD_FILE"]),
+    ]
+    for path in credential_paths:
+        path.write_bytes(b"synthetic-secret\r\n")
+
+    sha = "a" * 40
+    images = {
+        "collector": {"id": "sha256:" + "c" * 64, "digests": []},
+        "local_alert_receiver": {"id": "sha256:" + "d" * 64, "digests": []},
+    }
+    evidence = demo.evidence
+    manifest = evidence.create_v2(
+        sha,
+        "https",
+        True,
+        "b" * 64,
+        "up",
+        "passed",
+        images,
+        observability_verification={"command": "evidence", "status": "degraded"},
+        deployment_state="active",
+    )
+    root = workspace / "repo"
+    manifest_path = root / "build" / "deploy" / sha / "manifest.json"
+    evidence.write(manifest_path, manifest)
+
+    monkeypatch.setattr(demo, "ROOT", root)
+    monkeypatch.setattr(demo, "run", lambda args, timeout=180: sha)
+    monkeypatch.setattr(demo, "require_clean_source", lambda _sha: None)
+    monkeypatch.setattr(demo.Demo, "execute", lambda self, requested: None)
+    monkeypatch.setattr(
+        demo.Demo,
+        "images",
+        lambda self, configured_only=False: images,
+    )
+
+    assert demo.main([command, "--overlay", "local"]) == 0
+    assert all(path.read_bytes() == b"synthetic-secret\r\n" for path in credential_paths)
 
 
 def test_observability_requires_https_before_any_compose_call(

@@ -116,6 +116,28 @@ def _safe_file(name: str) -> Path:
     return path
 
 
+def _validate_grafana_credential_file(name: str) -> None:
+    path = _safe_file(name)
+    try:
+        contents = path.read_bytes()
+    except OSError:
+        raise OperationFailed() from None
+    if contents.endswith(b"\n"):
+        contents = contents[:-1]
+    if (
+        not contents
+        or b"\n" in contents
+        or b"\r" in contents
+        or b"\x00" in contents
+        or b"\xef\xbb\xbf" in contents
+    ):
+        raise OperationFailed()
+    try:
+        contents.decode("utf-8")
+    except UnicodeDecodeError:
+        raise OperationFailed() from None
+
+
 def _dns_hostname(host: str) -> str:
     if not host or any(ord(char) < 33 or ord(char) > 126 for char in host):
         raise OperationFailed()
@@ -259,8 +281,19 @@ def _image_lock() -> dict[str, str]:
 
 
 class Demo:
-    def __init__(self, overlay, source_sha, observability=False):
-        if overlay not in {"local", "https"} or type(observability) is not bool:
+    def __init__(
+        self,
+        overlay,
+        source_sha,
+        observability=False,
+        *,
+        validate_grafana_credential_format=True,
+    ):
+        if (
+            overlay not in {"local", "https"}
+            or type(observability) is not bool
+            or type(validate_grafana_credential_format) is not bool
+        ):
             raise OperationFailed()
         if observability and overlay != "https":
             raise OperationFailed()
@@ -321,13 +354,16 @@ class Demo:
             self.origin = f"http://localhost:{port}"
             selections["http_port"] = port
         if observability:
+            for name in ("PRL_OPS_TLS_CERT_FILE", "PRL_OPS_TLS_KEY_FILE"):
+                _safe_file(name)
             for name in (
-                "PRL_OPS_TLS_CERT_FILE",
-                "PRL_OPS_TLS_KEY_FILE",
                 "PRL_GRAFANA_ADMIN_USER_FILE",
                 "PRL_GRAFANA_ADMIN_PASSWORD_FILE",
             ):
-                _safe_file(name)
+                if validate_grafana_credential_format:
+                    _validate_grafana_credential_file(name)
+                else:
+                    _safe_file(name)
             self.ops_origin, ops_host, ops_port = _normalize_origin(
                 os.environ.get("PRL_OPS_ORIGIN", ""), operations=True
             )
@@ -711,7 +747,12 @@ def main(argv=None):
                     requested_overlay,
                     requested_observability,
                 )
-            demo = Demo(selected_overlay, sha, observability=selected_observability)
+            demo = Demo(
+                selected_overlay,
+                sha,
+                observability=selected_observability,
+                validate_grafana_credential_format=not cleanup,
+            )
             if (
                 not cleanup
                 and previous is not None
