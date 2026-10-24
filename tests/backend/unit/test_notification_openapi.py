@@ -20,10 +20,17 @@ def test_notification_routes_publish_the_private_paged_contract(auth_settings):
     assert "INVALID_SESSION" in list_route["description"]
     assert "FORBIDDEN_ROLE" in list_route["description"]
     assert "VALIDATION_ERROR" in list_route["description"]
+    assert "409" in list_route["responses"]
+    assert query_parameters["X-Expected-User-ID"]["in"] == "header"
+    assert query_parameters["X-Expected-Role"]["in"] == "header"
+    assert "ACCOUNT_CHANGED" in list_route["description"]
 
     read_route = schema["paths"]["/api/v1/notifications/{notification_id}/read"]["post"]
     headers = {parameter["name"]: parameter for parameter in read_route["parameters"]}
     assert headers["X-CSRF-Token"]["required"] is True
+    assert headers["X-Expected-User-ID"]["in"] == "header"
+    assert headers["X-Expected-Role"]["in"] == "header"
+    assert "409" in read_route["responses"]
     assert read_route["requestBody"]["content"]["application/json"]["schema"]["$ref"].endswith(
         "/NotificationReadRequest"
     )

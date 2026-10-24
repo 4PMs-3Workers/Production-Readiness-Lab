@@ -300,6 +300,34 @@ async def test_staff_can_read_assigned_inbox_but_admin_has_no_implicit_access(no
     assert admin_read.json()["error"]["code"] == "FORBIDDEN_ROLE"
 
 
+async def test_expected_owner_is_bound_to_the_authenticated_notification_request(notification_env):
+    client, factory, context, _, other_student_id, _, _ = notification_env
+    notification_id = UUID("00000000-0000-0000-0000-000000000001")
+    own_headers = {
+        "X-Expected-User-ID": str(context.user_id),
+        "X-Expected-Role": "STUDENT",
+    }
+    assert (await client.get("/api/v1/notifications", headers=own_headers)).status_code == 200
+
+    foreign_headers = {**own_headers, "X-Expected-User-ID": str(other_student_id)}
+    foreign_list = await client.get("/api/v1/notifications", headers=foreign_headers)
+    assert foreign_list.status_code == 409
+    assert foreign_list.json()["error"]["code"] == "ACCOUNT_CHANGED"
+    assert "items" not in foreign_list.json()
+    assert foreign_list.headers["Cache-Control"] == "private, no-store"
+
+    foreign_read = await client.post(
+        f"/api/v1/notifications/{notification_id}/read", json={}, headers=foreign_headers
+    )
+    assert foreign_read.status_code == 409
+    assert foreign_read.json()["error"]["code"] == "ACCOUNT_CHANGED"
+    async with factory() as db:
+        assert (
+            await db.scalar(select(Notification.read_at).where(Notification.id == notification_id))
+            is None
+        )
+
+
 @pytest.mark.booking_stress
 async def test_recipient_query_plans_and_concurrent_read_with_large_history(notification_env):
     client, factory, context, appointment_id, _, staff_id, _ = notification_env

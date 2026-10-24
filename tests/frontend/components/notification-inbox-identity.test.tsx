@@ -25,15 +25,27 @@ function renderInbox() {
   let cookieOwner = 'student-a';
   let delayList = false;
   let finishList!: () => void;
-  const fetcher = vi.fn<typeof fetch>(async (path) => {
+  let delayMe = false;
+  let finishMe!: () => void;
+  const listOwners: string[] = [];
+  const fetcher = vi.fn<typeof fetch>(async (path, init) => {
     const url = String(path);
-    if (url.endsWith('/auth/me'))
-      return Response.json({
-        id: cookieOwner,
-        name: cookieOwner,
-        email: `${cookieOwner}@example.invalid`,
+    if (url.endsWith('/auth/me')) {
+      const ownerAtRequest = cookieOwner;
+      const response = Response.json({
+        id: ownerAtRequest,
+        name: ownerAtRequest,
+        email: `${ownerAtRequest}@example.invalid`,
         role: 'STUDENT',
       });
+      if (delayMe) {
+        delayMe = false;
+        return new Promise<Response>((resolve) => {
+          finishMe = () => resolve(response);
+        });
+      }
+      return response;
+    }
     if (url.endsWith('/booking-context'))
       return Response.json({
         timezone: 'Asia/Ho_Chi_Minh',
@@ -43,27 +55,34 @@ function renderInbox() {
       });
     if (url.includes('/notifications?')) {
       const ownerAtRequest = cookieOwner;
-      const response = Response.json({
-        page: 1,
-        page_size: 20,
-        total: 1,
-        items: [
-          {
-            id: 'notification-a',
-            event_type: 'APPOINTMENT_CREATED',
-            summary: `Private for ${ownerAtRequest}`,
-            created_at: '2026-10-22T03:00:00Z',
-            read_at: null,
-            appointment_id: null,
-            appointment_starts_at: null,
-            appointment_status: null,
-          },
-        ],
-      });
-      if (delayList)
+      listOwners.push(ownerAtRequest);
+      const expectedOwner = new Headers(init?.headers).get('X-Expected-User-ID');
+      const response =
+        expectedOwner && expectedOwner !== ownerAtRequest
+          ? Response.json({ error: { code: 'ACCOUNT_CHANGED' } }, { status: 409 })
+          : Response.json({
+              page: 1,
+              page_size: 20,
+              total: 1,
+              items: [
+                {
+                  id: 'notification-a',
+                  event_type: 'APPOINTMENT_CREATED',
+                  summary: `Private for ${ownerAtRequest}`,
+                  created_at: '2026-10-22T03:00:00Z',
+                  read_at: null,
+                  appointment_id: null,
+                  appointment_starts_at: null,
+                  appointment_status: null,
+                },
+              ],
+            });
+      if (delayList) {
+        delayList = false;
         return new Promise<Response>((resolve) => {
           finishList = () => resolve(response);
         });
+      }
       return response;
     }
     if (url.endsWith('/auth/csrf'))
@@ -84,10 +103,20 @@ function renderInbox() {
     switchCookieToB: () => {
       cookieOwner = 'student-b';
     },
+    switchCookieToA: () => {
+      cookieOwner = 'student-a';
+    },
+    delayNextMe: () => {
+      delayMe = true;
+    },
+    hasHeldMe: () => finishMe !== undefined,
+    finishMe: () => finishMe(),
     delayNextList: () => {
       delayList = true;
     },
+    hasHeldList: () => finishList !== undefined,
     finishList: () => finishList(),
+    listOwners,
     fetcher,
   };
 }
@@ -137,5 +166,38 @@ describe('notification inbox identity boundary', () => {
       expect(screen.getByTestId('session-owner')).not.toHaveTextContent('student-a'),
     );
     expect(screen.queryByText('Private for student-a')).not.toBeInTheDocument();
+  });
+
+  it('rejects a B-authenticated list after the shared cookie returns to A', async () => {
+    const {
+      delayNextMe,
+      hasHeldMe,
+      finishMe,
+      delayNextList,
+      hasHeldList,
+      finishList,
+      switchCookieToA,
+      switchCookieToB,
+      listOwners,
+    } = renderInbox();
+    expect(await screen.findByText('Private for student-a')).toBeVisible();
+
+    delayNextMe();
+    delayNextList();
+    fireEvent.click(screen.getByRole('button', { name: 'Làm mới' }));
+    await waitFor(() => expect(hasHeldMe()).toBe(true));
+    switchCookieToB();
+    finishMe();
+    await waitFor(() => expect(hasHeldList()).toBe(true));
+    expect(listOwners.at(-1)).toBe('student-b');
+    switchCookieToA();
+    finishList();
+
+    await waitFor(() =>
+      expect(screen.getByTestId('session-owner')).not.toHaveTextContent('student-a'),
+    );
+    expect(screen.queryByText('Private for student-b')).not.toBeInTheDocument();
+    fireEvent.focus(window);
+    expect(screen.queryByText('Private for student-b')).not.toBeInTheDocument();
   });
 });

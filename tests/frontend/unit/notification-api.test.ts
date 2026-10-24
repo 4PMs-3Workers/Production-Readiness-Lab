@@ -79,4 +79,58 @@ describe('notification API services', () => {
       new ApiServices(fetcher).notificationPage({ page: 1, pageSize: 20, unreadOnly: false }),
     ).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE', status: 503, requestId: 'request-a' });
   });
+
+  it('binds the displayed identity to the authenticated list request', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(json(user))
+      .mockResolvedValueOnce(json({ items: [notification], page: 1, page_size: 20, total: 1 }))
+      .mockResolvedValueOnce(json(user));
+    await new ApiServices(fetcher).notificationPage(
+      { page: 1, pageSize: 20, unreadOnly: false },
+      { expectedUserId: user.id, expectedRole: 'STUDENT' },
+    );
+
+    expect(fetcher.mock.calls[1][1]?.headers).toMatchObject({
+      'X-Expected-User-ID': user.id,
+      'X-Expected-Role': 'STUDENT',
+    });
+  });
+
+  it('invalidates the provider when the list request authenticates another account', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(json(user))
+      .mockResolvedValueOnce(json({ error: { code: 'ACCOUNT_CHANGED' } }, 409));
+    const services = new ApiServices(fetcher);
+    const invalidate = vi.fn();
+    services.setInvalidSessionHandler(invalidate);
+
+    await expect(
+      services.notificationPage(
+        { page: 1, pageSize: 20, unreadOnly: false },
+        { expectedUserId: user.id, expectedRole: 'STUDENT' },
+      ),
+    ).rejects.toMatchObject({ code: 'ACCOUNT_CHANGED', status: 409 });
+    expect(invalidate).toHaveBeenCalledOnce();
+  });
+
+  it('binds the displayed identity to the authenticated read request', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(json(user))
+      .mockResolvedValueOnce(json({ csrf_token: 'signed-token', user_id: user.id }))
+      .mockResolvedValueOnce(json(user))
+      .mockResolvedValueOnce(json({ id: 'notification-a', read_at: '2026-10-22T03:04:05Z' }));
+
+    await new ApiServices(fetcher).markNotificationRead('notification-a', {
+      expectedUserId: user.id,
+      expectedRole: 'STUDENT',
+    });
+    expect(fetcher.mock.calls[3][1]?.headers).toMatchObject({
+      'X-Expected-User-ID': user.id,
+      'X-Expected-Role': 'STUDENT',
+      'X-CSRF-Token': 'signed-token',
+    });
+  });
 });

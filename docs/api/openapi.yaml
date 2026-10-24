@@ -3302,6 +3302,13 @@ paths:
         link. Consultation text and internal replay data are never included.
 
 
+        Clients showing a known identity may send both `X-Expected-User-ID` and `X-Expected-Role`;
+        they are compared with this same request''s authenticated context before any
+        notification data is returned. A mismatch returns `ACCOUNT_CHANGED` (409);
+        a malformed or incomplete pair returns `VALIDATION_ERROR` (422). Clients omitting
+        both still receive their own session''s inbox.
+
+
         Errors: `INVALID_SESSION` (401), `FORBIDDEN_ROLE` (403), `VALIDATION_ERROR`
         (422), `INTERNAL_SERVER_ERROR` (500), `SERVICE_UNAVAILABLE` (503). Responses
         are `private, no-store` with a request ID.'
@@ -3331,6 +3338,24 @@ paths:
           default: false
           title: Unread Only
           type: boolean
+      - description: Optional with X-Expected-Role; checked against this request's
+          user.
+        in: header
+        name: X-Expected-User-ID
+        required: false
+        schema:
+          format: uuid
+          type: string
+      - description: Optional with X-Expected-User-ID; checked against this request's
+          role.
+        in: header
+        name: X-Expected-Role
+        required: false
+        schema:
+          enum:
+          - STUDENT
+          - STAFF
+          type: string
       responses:
         '200':
           content:
@@ -3367,6 +3392,25 @@ paths:
               schema:
                 type: string
         '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized notification error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Error class
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '409':
           content:
             application/json:
               schema:
@@ -3457,6 +3501,12 @@ paths:
         or Referer.
 
 
+        When supplied together, `X-Expected-User-ID` and `X-Expected-Role` must match
+        this request''s authenticated context; otherwise `ACCOUNT_CHANGED` (409) is
+        returned without marking a notification. An incomplete or malformed pair returns
+        `VALIDATION_ERROR` (422).
+
+
         Other errors: `INVALID_SESSION` (401); `FORBIDDEN_ROLE`, `INVALID_CSRF`, or
         `INVALID_ORIGIN` (403); `PAYLOAD_TOO_LARGE` (413); `UNSUPPORTED_MEDIA_TYPE`
         (415); `VALIDATION_ERROR` (422); `INTERNAL_SERVER_ERROR` (500); `SERVICE_UNAVAILABLE`
@@ -3469,6 +3519,24 @@ paths:
         schema:
           format: uuid
           title: Notification Id
+          type: string
+      - description: Optional with X-Expected-Role; checked against this request's
+          user.
+        in: header
+        name: X-Expected-User-ID
+        required: false
+        schema:
+          format: uuid
+          type: string
+      - description: Optional with X-Expected-User-ID; checked against this request's
+          role.
+        in: header
+        name: X-Expected-Role
+        required: false
+        schema:
+          enum:
+          - STUDENT
+          - STAFF
           type: string
       - description: Signed token matching the prl_csrf cookie.
         in: header
@@ -3551,6 +3619,25 @@ paths:
               schema:
                 type: string
         '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized notification error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Error class
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '409':
           content:
             application/json:
               schema:

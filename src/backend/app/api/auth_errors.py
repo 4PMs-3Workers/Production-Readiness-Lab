@@ -8,6 +8,7 @@ from app.schemas.common import ErrorResponse
 ERRORS = {
     "INVALID_CREDENTIALS": (401, "Invalid email or password"),
     "INVALID_SESSION": (401, "Invalid session"),
+    "ACCOUNT_CHANGED": (409, "Account changed"),
     "FORBIDDEN_ROLE": (403, "Role not permitted"),
     "INVALID_CSRF": (403, "Invalid CSRF token"),
     "INVALID_ORIGIN": (403, "Invalid request origin"),

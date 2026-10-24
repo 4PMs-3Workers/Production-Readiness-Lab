@@ -45,6 +45,14 @@ interface NotificationAccessOptions extends ServiceRequestOptions {
   readonly expectedRole?: 'STUDENT' | 'STAFF';
 }
 
+function notificationOwnerHeaders(options?: NotificationAccessOptions): Record<string, string> {
+  if (!options?.expectedUserId || !options.expectedRole) return {};
+  return {
+    'X-Expected-User-ID': options.expectedUserId,
+    'X-Expected-Role': options.expectedRole,
+  };
+}
+
 interface WirePage<T> {
   items: T[];
   page: number;
@@ -347,7 +355,7 @@ export class ApiServices {
         const code =
           typeof body?.error?.code === 'string' ? body.error.code : 'SERVICE_UNAVAILABLE';
         const requestId = response.headers.get('X-Request-ID') ?? undefined;
-        if (code === 'INVALID_SESSION') this.onInvalidSession?.();
+        if (code === 'INVALID_SESSION' || code === 'ACCOUNT_CHANGED') this.onInvalidSession?.();
         throw new ApiError(
           code,
           response.status,
@@ -581,7 +589,9 @@ export class ApiServices {
       unread_only: String(query.unreadOnly),
     });
     const page = mapPage(
-      await this.request<WirePage<WireNotification>>(`/notifications?${params}`, options),
+      await this.request<WirePage<WireNotification>>(`/notifications?${params}`, options, {
+        headers: notificationOwnerHeaders(options),
+      }),
       notification,
     );
     await this.verifyNotificationOwner(options);
@@ -610,7 +620,7 @@ export class ApiServices {
       `/notifications/${encodeURIComponent(id)}/read`,
       {},
       options,
-      {},
+      notificationOwnerHeaders(options),
       currentUser.id,
       undefined,
       'POST',

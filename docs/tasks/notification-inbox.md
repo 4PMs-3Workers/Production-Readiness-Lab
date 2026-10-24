@@ -15,6 +15,13 @@ chọn (`appointment_id`, `appointment_starts_at`, `appointment_status`). Danh s
 `created_at DESC, id DESC`; `page_size` từ 1 đến 100. `unread_only=true` chỉ lấy mục chưa đọc.
 POST trả `{id, read_at}` với thời điểm đã lưu. Gọi lại giữ nguyên `read_at`.
 
+Giao diện gửi cả `X-Expected-User-ID` và `X-Expected-Role` khi đọc danh sách hoặc đánh dấu
+đã đọc. API so sánh cặp này với session xác thực **trong chính request đó** trước khi truy
+vấn hoặc ghi notification. Nếu khác, API trả `409 ACCOUNT_CHANGED` để client xóa trạng thái
+riêng tư; cặp thiếu hoặc sai định dạng trả `422 VALIDATION_ERROR`. API client không gửi cả
+hai header vẫn đọc theo session của chính mình. Kiểm tra `/auth/me` trước/sau GET tiếp tục
+phát hiện đổi cookie sau request, nhưng không được dùng để chứng minh chủ sở hữu của GET.
+
 `recipient_id` luôn lấy từ session. Chỉ STUDENT và STAFF được đọc hộp thư; STUDENT chỉ nhận
 liên kết lịch thuộc về mình và STAFF chỉ nhận liên kết lịch được giao. ADMIN không có quyền
 ngầm định. ID không tồn tại và ID của người khác trả cùng `404 NOT_FOUND`. POST cần session,
@@ -57,6 +64,8 @@ không đổi trạng thái lịch hay đề xuất.
   sau khi tải danh sách, client đối chiếu session hiện tại với ID/role đang hiển thị; thao tác
   đánh dấu đã đọc cũng kiểm tra cùng danh tính trước khi ghi. Vì vậy đổi cookie từ tab khác
   khiến provider xóa trạng thái riêng tư thay vì nhận dữ liệu của tài khoản mới vào shell cũ.
+  Nếu cookie đổi A → B → A trong lúc tải, backend từ chối ngay request xác thực bằng B nhờ
+  cặp header kỳ vọng A; hai lần kiểm tra `/auth/me` nhìn thấy A không thể chấp nhận dữ liệu B.
 - Khi đánh dấu đã đọc thành công, client tải lại danh sách ở scope hiện tại, kể cả khi một lần
   làm mới thủ công đang chạy. Nếu tổng mục chưa đọc giảm khiến trang hiện tại vượt giới hạn,
   giao diện chuyển về trang cuối còn hợp lệ và tải trang đó.
