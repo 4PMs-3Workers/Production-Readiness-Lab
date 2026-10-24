@@ -45,6 +45,143 @@ GATEWAY_API_IP = "172.30.34.3"
 GATEWAY_IP = "172.30.34.2"
 OWNER_LABEL = "org.prl.task6.owner"
 
+OPS_PROBE_STAGES = (
+    "health",
+    "anonymous_org",
+    "admin_org",
+    "datasources",
+    "ops_business",
+    "ops_health",
+)
+OPS_PROBE_RESPONSE_KINDS = {"dict", "list", "null", "scalar", "invalid", "unavailable"}
+OPS_PROBE_FAILURE_CATEGORIES = {
+    "certificate_validation",
+    "compose_service_missing",
+    "connection_refused",
+    "container_not_running",
+    "missing_file",
+    "mount_configuration",
+    "permission_denied",
+    "python_traceback",
+    "request_error",
+    "timeout",
+    "tls_error",
+    "transport_error",
+    "unclassified_failure",
+}
+OPS_PROBE_DATASOURCE_UIDS = {"prl-loki", "prl-prometheus", "prl-tempo"}
+
+
+def safe_ops_probe_failure_summary(
+    exit_code: int, stdout: str | None, stderr: str | None
+) -> dict[str, object]:
+    safe_stdout = stdout or ""
+    safe_stderr = stderr or ""
+    output = (safe_stdout + "\n" + safe_stderr).lower()
+    categories: set[str] = set()
+    patterns = {
+        "certificate_validation": ("certificate verify failed", "sslcertverificationerror"),
+        "compose_service_missing": ("no such service",),
+        "connection_refused": ("connectionrefusederror", "connection refused"),
+        "container_not_running": ("is not running", "container is stopped"),
+        "missing_file": ("filenotfounderror", "no such file or directory"),
+        "mount_configuration": ("invalid mount config",),
+        "permission_denied": ("permissionerror", "permission denied"),
+        "timeout": ("timeouterror", "timed out", "timeout"),
+        "tls_error": ("sslerror", "tlsv1 alert"),
+        "transport_error": ("httpexception", "connection reset", "broken pipe"),
+    }
+    for category, needles in patterns.items():
+        if any(needle in output for needle in needles):
+            categories.add(category)
+    if "traceback (most recent call last)" in output:
+        categories.add("python_traceback")
+    if not categories and (safe_stdout or safe_stderr):
+        categories.add("unclassified_failure")
+    return {
+        "exit_code": exit_code,
+        "stdout_bytes": len(safe_stdout.encode("utf-8", errors="replace")),
+        "stderr_bytes": len(safe_stderr.encode("utf-8", errors="replace")),
+        "probe_result_marker_present": "task6_probe:" in output,
+        "failure_categories": sorted(categories),
+    }
+
+
+def safe_ops_probe_result_summary(result: object) -> dict[str, object]:
+    if not isinstance(result, dict):
+        return {"available": False}
+
+    observations: dict[str, dict[str, object]] = {}
+    raw_observations = result.get("stage_observations")
+    if isinstance(raw_observations, dict):
+        for stage in OPS_PROBE_STAGES:
+            raw = raw_observations.get(stage)
+            if not isinstance(raw, dict):
+                continue
+            observation: dict[str, object] = {}
+            status = raw.get("http_status")
+            if type(status) is int and 100 <= status <= 599:
+                observation["http_status"] = status
+            kind = raw.get("json_kind")
+            if isinstance(kind, str) and kind in OPS_PROBE_RESPONSE_KINDS:
+                observation["json_kind"] = kind
+            count = raw.get("list_count")
+            if type(count) is int and 0 <= count <= 1000:
+                observation["list_count"] = count
+            category = raw.get("failure_category")
+            if isinstance(category, str) and category in OPS_PROBE_FAILURE_CATEGORIES:
+                observation["failure_category"] = category
+            observations[stage] = observation
+
+    summary: dict[str, object] = {"available": True}
+    for name in (
+        "health",
+        "unauth_org",
+        "admin_org",
+        "datasource_status",
+        "ops_business_status",
+        "ops_health_status",
+        "spoofed_forwarded_status",
+    ):
+        value = result.get(name)
+        summary[name] = value if type(value) is int and 100 <= value <= 599 else None
+
+    raw_uids = result.get("datasource_uids")
+    uids = (
+        sorted(uid for uid in raw_uids if isinstance(uid, str) and uid in OPS_PROBE_DATASOURCE_UIDS)
+        if isinstance(raw_uids, list)
+        else []
+    )
+    summary["datasource_uids"] = uids
+    for field in ("datasource_unknown_uid_count", "datasource_malformed_item_count"):
+        value = result.get(field)
+        summary[field] = value if type(value) is int and 0 <= value <= 1000 else None
+
+    last_stage = result.get("last_stage")
+    summary["last_stage"] = (
+        last_stage if isinstance(last_stage, str) and last_stage in OPS_PROBE_STAGES else None
+    )
+    tls_category = result.get("tls_exception_category")
+    summary["tls_exception_category"] = (
+        tls_category
+        if isinstance(tls_category, str) and tls_category in {"certificate_validation", "tls_error"}
+        else None
+    )
+    raw_categories = result.get("failure_categories")
+    summary["failure_categories"] = (
+        sorted(
+            {
+                item
+                for item in raw_categories
+                if isinstance(item, str) and item in OPS_PROBE_FAILURE_CATEGORIES
+            }
+        )
+        if isinstance(raw_categories, list)
+        else []
+    )
+    summary["stage_observations"] = observations
+    return summary
+
 
 def summarize_loki_signal(
     http_status: int | None,
@@ -796,6 +933,7 @@ class FullStackRuntime:
         self.heartbeat_observations: list[dict[str, object]] = []
         self.observed_worker_id: str | None = None
         self.worker_stream_diagnostic: dict[str, object] | None = None
+        self.last_operations_probe: dict[str, object] = {"available": False}
 
     def wait_app_gateway(self) -> None:
         deadline = time.monotonic() + 90
@@ -1144,6 +1282,7 @@ class FullStackRuntime:
             ),
             "tempo": sink_observations.get("tempo", {"failure_category": "not_observed"}),
             "collector_counters": self._safe_collector_counter_snapshot(),
+            "operations_probe": getattr(self, "last_operations_probe", {"available": False}),
             "services": services,
         }
 
@@ -1429,42 +1568,127 @@ class Connection(http.client.HTTPSConnection):
         raw = socket.create_connection(("127.0.0.1", self.port), self.timeout)
         self.sock = self._context.wrap_socket(raw, server_hostname=self.host)
 
+def failure_category(error):
+    if isinstance(error, ssl.SSLCertVerificationError):
+        return "certificate_validation"
+    if isinstance(error, ssl.SSLError):
+        return "tls_error"
+    if isinstance(error, ConnectionRefusedError):
+        return "connection_refused"
+    if isinstance(error, TimeoutError):
+        return "timeout"
+    if isinstance(error, FileNotFoundError):
+        return "missing_file"
+    if isinstance(error, PermissionError):
+        return "permission_denied"
+    if isinstance(error, (OSError, http.client.HTTPException)):
+        return "transport_error"
+    return "request_error"
+
+def json_kind(value, valid):
+    if not valid:
+        return "invalid"
+    if isinstance(value, dict):
+        return "dict"
+    if isinstance(value, list):
+        return "list"
+    if value is None:
+        return "null"
+    return "scalar"
+
 context = ssl.create_default_context(cafile="/run/prl/ops.crt")
 user = open("/run/prl/admin-user", encoding="utf-8").read().strip()
 password = open("/run/prl/admin-password", encoding="utf-8").read().strip()
 credential = "Basic " + base64.b64encode((user + ":" + password).encode()).decode()
+stage_observations = {}
+failure_categories = set()
+last_stage = None
 
-def request(path, authenticated=False):
-    connection = Connection("ops.example.invalid", 8443, timeout=4, context=context)
-    headers = {"Host": "ops.example.invalid", "Connection": "close"}
-    if authenticated:
-        headers["Authorization"] = credential
-    connection.request("GET", path, headers=headers)
-    response = connection.getresponse()
-    status = response.status
-    raw = response.read()
-    connection.close()
+def request(stage, path, authenticated=False):
+    global last_stage
+    last_stage = stage
+    connection = None
     try:
-        return status, json.loads(raw)
-    except Exception:
-        return status, {}
+        connection = Connection("ops.example.invalid", 8443, timeout=4, context=context)
+        headers = {"Host": "ops.example.invalid", "Connection": "close"}
+        if authenticated:
+            headers["Authorization"] = credential
+        connection.request("GET", path, headers=headers)
+        response = connection.getresponse()
+        status = response.status
+        raw = response.read()
+        try:
+            value = json.loads(raw)
+            valid = True
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            value = None
+            valid = False
+        observation = {"http_status": status, "json_kind": json_kind(value, valid)}
+        if isinstance(value, list):
+            observation["list_count"] = min(len(value), 1000)
+        stage_observations[stage] = observation
+        return status, value
+    except Exception as error:
+        category = failure_category(error)
+        failure_categories.add(category)
+        stage_observations[stage] = {
+            "http_status": None,
+            "json_kind": "unavailable",
+            "failure_category": category,
+        }
+        return None, None
+    finally:
+        if connection is not None:
+            connection.close()
 
-health, _ = request("/api/health")
-unauthenticated, _ = request("/api/org")
-admin_status, _ = request("/api/org", True)
-datasource_status, datasources = request("/api/datasources", True)
-ops_business, _ = request("/api/v1/health-shaped", False)
-ops_health, _ = request("/health/gateway", False)
+health, _ = request("health", "/api/health")
+unauthenticated, _ = request("anonymous_org", "/api/org")
+admin_status, _ = request("admin_org", "/api/org", True)
+datasource_status, datasources = request("datasources", "/api/datasources", True)
+ops_business, _ = request("ops_business", "/api/v1/health-shaped", False)
+ops_health, _ = request("ops_health", "/health/gateway", False)
+
+datasource_uids = []
+unknown_uid_count = 0
+malformed_item_count = 0
+if isinstance(datasources, list):
+    for item in datasources:
+        if not isinstance(item, dict):
+            malformed_item_count += 1
+            continue
+        uid = item.get("uid")
+        if isinstance(uid, str) and uid in {"prl-loki", "prl-prometheus", "prl-tempo"}:
+            datasource_uids.append(uid)
+        elif isinstance(uid, str) and uid:
+            unknown_uid_count += 1
+        else:
+            malformed_item_count += 1
+
+tls_categories = {"certificate_validation", "tls_error"}
+tls_errors = failure_categories & tls_categories
 print("TASK6_PROBE:" + json.dumps({
     "health": health,
     "unauth_org": unauthenticated,
     "admin_org": admin_status,
     "datasource_status": datasource_status,
-    "datasource_uids": sorted(item.get("uid", "") for item in datasources),
+    "datasource_uids": sorted(datasource_uids),
+    "datasource_unknown_uid_count": unknown_uid_count,
+    "datasource_malformed_item_count": malformed_item_count,
     "ops_business_status": ops_business,
     "ops_health_status": ops_health,
+    "stage_observations": stage_observations,
+    "last_stage": last_stage,
+    "tls_exception_category": (
+        "certificate_validation"
+        if "certificate_validation" in tls_errors
+        else "tls_error"
+        if "tls_error" in tls_errors
+        else None
+    ),
+    "failure_categories": sorted(failure_categories),
 }, separators=(",", ":")))
 """
+
         negative_script = """import http.client
 import json
 import ssl
@@ -1538,13 +1762,30 @@ print("TASK6_PROBE:" + json.dumps({"spoofed_forwarded_status": status}))
     def run_probe(self, profile: str, service: str) -> dict[str, object]:
         result = self.compose("--profile", profile, "run", "--rm", "-T", service)
         if result.returncode:
+            failure = safe_ops_probe_failure_summary(
+                result.returncode, result.stdout, result.stderr
+            )
+            self.last_operations_probe = {"available": True, "command_failure": failure}
+            print(
+                "TASK6_OPS_PROBE_FAILURE:"
+                + json.dumps(self.last_operations_probe, sort_keys=True, separators=(",", ":"))
+            )
             raise AcceptanceFailure("A bounded UUID-owned operations probe failed")
-        for line in reversed(result.stdout.splitlines()):
+        for line in reversed((result.stdout or "").splitlines()):
             if line.startswith("TASK6_PROBE:"):
                 try:
-                    return json.loads(line.removeprefix("TASK6_PROBE:"))
+                    payload = json.loads(line.removeprefix("TASK6_PROBE:"))
                 except json.JSONDecodeError:
                     break
+                summary = safe_ops_probe_result_summary(payload)
+                self.last_operations_probe = summary
+                print(
+                    "TASK6_OPS_PROBE_SUMMARY:"
+                    + json.dumps(summary, sort_keys=True, separators=(",", ":"))
+                )
+                if isinstance(payload, dict):
+                    return payload
+                break
         raise AcceptanceFailure("An operations probe returned no sanitized result")
 
     def gateway_operations_records(self) -> list[dict[str, object]]:
@@ -2113,14 +2354,24 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         }
 
         positive = runtime.run_probe("task6-ops-probe", "task6_ops_probe")
+        stage_observations = positive.get("stage_observations")
+        if not isinstance(stage_observations, dict):
+            raise AcceptanceFailure("The OPS probe omitted safe per-request response observations")
         if (
             positive.get("health") != 200
             or positive.get("unauth_org") != 401
             or positive.get("admin_org") != 200
             or positive.get("datasource_status") != 200
             or positive.get("datasource_uids") != ["prl-loki", "prl-prometheus", "prl-tempo"]
+            or positive.get("datasource_unknown_uid_count") != 0
+            or positive.get("datasource_malformed_item_count") != 0
+            or set(stage_observations) != set(OPS_PROBE_STAGES)
+            or stage_observations.get("datasources", {}).get("json_kind") != "list"
         ):
-            raise AcceptanceFailure("The verified OPS HTTPS/auth/datasource probe failed")
+            raise AcceptanceFailure(
+                "The verified OPS HTTPS/auth/datasource probe failed: "
+                + json.dumps(runtime.last_operations_probe, sort_keys=True, separators=(",", ":"))
+            )
         if not all(
             isinstance(positive.get(name), int)
             for name in ("ops_business_status", "ops_health_status")

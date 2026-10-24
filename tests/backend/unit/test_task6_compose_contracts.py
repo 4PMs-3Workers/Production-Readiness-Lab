@@ -228,6 +228,116 @@ def test_worker_resource_identity_projects_only_allowlisted_resource_dimensions(
     )
 
 
+def test_ops_probe_failure_summary_classifies_without_exposing_output():
+    stdout = "TASK6_PROBE:admin_password=synthetic-secret"
+    stderr = "Traceback (most recent call last): ConnectionRefusedError: user=admin"
+
+    summary = telemetry_stack.safe_ops_probe_failure_summary(17, stdout, stderr)
+
+    assert summary == {
+        "exit_code": 17,
+        "stdout_bytes": len(stdout.encode("utf-8")),
+        "stderr_bytes": len(stderr.encode("utf-8")),
+        "probe_result_marker_present": True,
+        "failure_categories": ["connection_refused", "python_traceback"],
+    }
+    serialized = json.dumps(summary)
+    assert "synthetic-secret" not in serialized
+    assert "admin" not in serialized
+
+
+def test_ops_probe_result_summary_keeps_http_shape_and_discards_response_values():
+    payload = {
+        "health": 200,
+        "unauth_org": 401,
+        "admin_org": 200,
+        "datasource_status": 200,
+        "datasource_uids": ["prl-loki", "synthetic-admin-secret", {"uid": "hidden"}],
+        "datasource_unknown_uid_count": 2,
+        "datasource_malformed_item_count": 1,
+        "stage_observations": {
+            "health": {"http_status": 200, "json_kind": "dict"},
+            "datasources": {
+                "http_status": 200,
+                "json_kind": "dict",
+                "body": {"admin_password": "synthetic-secret"},
+            },
+        },
+        "last_stage": "datasources",
+        "tls_exception_category": None,
+        "failure_categories": ["connection_refused", "synthetic-secret"],
+    }
+
+    summary = telemetry_stack.safe_ops_probe_result_summary(payload)
+
+    assert summary["stage_observations"] == {
+        "health": {"http_status": 200, "json_kind": "dict"},
+        "datasources": {"http_status": 200, "json_kind": "dict"},
+    }
+    assert summary["last_stage"] == "datasources"
+    assert summary["datasource_uids"] == ["prl-loki"]
+    assert summary["datasource_unknown_uid_count"] == 2
+    assert summary["datasource_malformed_item_count"] == 1
+    assert summary["failure_categories"] == ["connection_refused"]
+    serialized = json.dumps(summary)
+    assert "synthetic-secret" not in serialized
+    assert "admin_password" not in serialized
+
+
+def test_run_probe_records_only_allowlisted_stage_details(capsys):
+    payload = {
+        "health": 200,
+        "unauth_org": 401,
+        "admin_org": 200,
+        "datasource_status": 200,
+        "datasource_uids": ["prl-loki", "prl-prometheus", "prl-tempo"],
+        "stage_observations": {
+            "datasources": {"http_status": 200, "json_kind": "list", "list_count": 3},
+        },
+        "last_stage": "datasources",
+        "tls_exception_category": None,
+        "failure_categories": [],
+        "admin_password": "synthetic-secret",
+    }
+    runtime = SimpleNamespace(
+        compose=lambda *_args: SimpleNamespace(
+            returncode=0,
+            stdout="TASK6_PROBE:" + json.dumps(payload),
+            stderr="",
+        ),
+        last_operations_probe={"available": False},
+    )
+
+    result = telemetry_stack.FullStackRuntime.run_probe(runtime, "profile", "service")
+    output = capsys.readouterr().out
+
+    assert result == payload
+    assert runtime.last_operations_probe["stage_observations"] == {
+        "datasources": {"http_status": 200, "json_kind": "list", "list_count": 3}
+    }
+    assert "synthetic-secret" not in output
+    assert "TASK6_OPS_PROBE_SUMMARY:" in output
+
+
+def test_ops_probe_result_summary_rejects_unknown_stage_and_json_shapes():
+    summary = telemetry_stack.safe_ops_probe_result_summary(
+        {
+            "stage_observations": {
+                "unknown-secret-stage": {"http_status": 200, "json_kind": "dict"},
+                "datasources": {"http_status": True, "json_kind": ["admin"]},
+            },
+            "last_stage": ["secret"],
+            "tls_exception_category": ["admin"],
+            "failure_categories": [{"secret": "value"}],
+        }
+    )
+
+    assert summary["last_stage"] is None
+    assert summary["tls_exception_category"] is None
+    assert summary["stage_observations"] == {"datasources": {}}
+    assert summary["failure_categories"] == []
+
+
 def test_mysql_and_gateway_lock_metadata_does_not_change_legacy_base_tag_contract():
     lock = json.loads((INFRA / "images.lock.json").read_text(encoding="utf-8-sig"))
     base = yaml.safe_load((DEPLOY / "compose.yaml").read_text())
