@@ -33,6 +33,13 @@ processors:
     check_interval: 1s
     limit_mib: 384
     spike_limit_mib: 64
+  transform/worker_identity:
+    error_mode: ignore
+    metric_statements:
+      - context: datapoint
+        statements:
+          - 'set(datapoint.attributes["service.name"], resource.attributes["service.name"]) where resource.attributes["service.name"] == "worker"'
+          - 'set(datapoint.attributes["deployment.environment.name"], resource.attributes["deployment.environment.name"]) where resource.attributes["service.name"] == "worker" and resource.attributes["deployment.environment.name"] != nil'
   batch:
     send_batch_size: 64
     send_batch_max_size: 64
@@ -94,6 +101,7 @@ service:
         - otlp
       processors:
         - memory_limiter
+        - transform/worker_identity
         - batch
       exporters:
         - prometheus

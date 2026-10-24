@@ -198,6 +198,36 @@ def test_filelog_promotes_validated_gateway_metadata_to_loki_resource_labels():
     ]
 
 
+def test_worker_resource_identity_projects_only_allowlisted_resource_dimensions():
+    collector = yaml.safe_load((INFRA / "otel-collector.yaml").read_text())
+    processor = collector["processors"]["transform/worker_identity"]
+    projection = processor["metric_statements"]
+    assert projection == [
+        {
+            "context": "datapoint",
+            "statements": [
+                'set(datapoint.attributes["service.name"], resource.attributes["service.name"]) '
+                'where resource.attributes["service.name"] == "worker"',
+                'set(datapoint.attributes["deployment.environment.name"], '
+                'resource.attributes["deployment.environment.name"]) '
+                'where resource.attributes["service.name"] == "worker" and '
+                'resource.attributes["deployment.environment.name"] != nil',
+            ],
+        }
+    ]
+    assert processor["error_mode"] == "ignore"
+    assert "transform/worker_identity" in collector["service"]["pipelines"]["metrics"]["processors"]
+    assert (
+        "transform/worker_identity" not in collector["service"]["pipelines"]["logs"]["processors"]
+    )
+    assert (
+        "transform/worker_identity" not in collector["service"]["pipelines"]["traces"]["processors"]
+    )
+    assert (
+        collector["exporters"]["prometheus"]["resource_to_telemetry_conversion"]["enabled"] is False
+    )
+
+
 def test_mysql_and_gateway_lock_metadata_does_not_change_legacy_base_tag_contract():
     lock = json.loads((INFRA / "images.lock.json").read_text(encoding="utf-8-sig"))
     base = yaml.safe_load((DEPLOY / "compose.yaml").read_text())
