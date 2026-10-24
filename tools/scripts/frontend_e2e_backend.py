@@ -44,6 +44,7 @@ from app.models import (
 )
 from app.worker.models import Outcome
 from app.worker.processing import process_candidate
+from app.worker.runtime import run_worker
 
 RUNTIME = Path("build/frontend-api")
 FIXTURE = RUNTIME / "fixture.json"
@@ -229,6 +230,11 @@ class ProbeCommittedResponse:
             or not (
                 scope["path"] in {"/api/v1/appointments", "/api/v1/staff/me/unavailability"}
                 or re.fullmatch(r"/api/v1/notifications/[a-f0-9-]{36}/read", scope["path"])
+                or re.fullmatch(
+                    r"/api/v1/(?:staff/me/)?appointments/[a-f0-9-]{36}/change-proposals"
+                    r"(?:/[a-f0-9-]{36}/(?:accept|decline))?",
+                    scope["path"],
+                )
             )
             or not (LOSS.exists() or HOLD.exists())
         ):
@@ -278,6 +284,13 @@ async def operate(args):
             await cleanup(read_fixture())
         return
     fixture = read_fixture()
+    if args.action == "worker-once":
+        # Each CLI invocation owns a fresh worker lifecycle and scans durable rows.
+        # Running this before/after making a proposal due exercises restart recovery.
+        result = await run_worker(settings_for(fixture), once=True)
+        if result != 0:
+            raise RuntimeError("The real proposal expiry worker failed")
+        return
     if args.action == "arm-loss":
         LOSS.write_text("once", encoding="ascii")
         return
@@ -304,6 +317,11 @@ async def operate(args):
                     Session,
                 ):
                     await db.execute(delete(model))
+                await db.execute(
+                    update(Purpose)
+                    .where(Purpose.id == UUID(fixture["purpose"]))
+                    .values(duration_minutes=30, is_active=True)
+                )
                 await db.execute(
                     update(StaffPurpose)
                     .where(StaffPurpose.staff_id == UUID(fixture["staff"]))
@@ -356,6 +374,125 @@ async def operate(args):
                 )
                 await db.flush()
                 print(json.dumps({"id": str(identifier)}))
+            elif args.action == "seed-proposal-appointment":
+                setting = await db.get(ServiceSetting, 1)
+                if setting is None:
+                    raise RuntimeError("Cannot seed a proposal appointment without settings")
+                now = (
+                    (await db.execute(text("SELECT UTC_TIMESTAMP(6)")))
+                    .scalar_one()
+                    .replace(tzinfo=UTC)
+                )
+                zone = ZoneInfo(setting.timezone)
+                date = now.astimezone(zone).date() + timedelta(days=2)
+                starts_at = datetime.combine(date, time(10), zone).astimezone(UTC)
+                identifier = uuid4()
+                db.add(
+                    Appointment(
+                        id=identifier,
+                        student_id=UUID(fixture["student"]),
+                        staff_id=UUID(fixture["staff"]),
+                        purpose_id=UUID(fixture["purpose"]),
+                        starts_at=starts_at,
+                        ends_at=starts_at + timedelta(minutes=30),
+                        duration_minutes=30,
+                        location="  Phòng gốc A204  ",
+                        status="UPCOMING",
+                        creation_request_key="proposal-portal-fixture",
+                        creation_request_hash=hashlib.sha256(b"proposal-portal-fixture").digest(),
+                    )
+                )
+                # Current catalog duration must not replace the reservation's 30 minutes.
+                await db.execute(
+                    update(Purpose)
+                    .where(Purpose.id == UUID(fixture["purpose"]))
+                    .values(duration_minutes=60)
+                )
+                await db.flush()
+                print(
+                    json.dumps(
+                        {
+                            "id": str(identifier),
+                            "date": str(date),
+                            "nextDate": str(date + timedelta(days=1)),
+                            "startsAt": starts_at.isoformat(),
+                            "location": "  Phòng gốc A204  ",
+                        }
+                    )
+                )
+            elif args.action == "block-proposed-slot":
+                proposal = await db.get(ChangeProposal, UUID(args.id))
+                if proposal is None or proposal.created_by != UUID(fixture["staff"]):
+                    raise RuntimeError("Slot blocking requires the fixture staff proposal")
+                db.add(
+                    StaffUnavailability(
+                        staff_id=UUID(fixture["staff"]),
+                        starts_at=proposal.proposed_starts_at,
+                        ends_at=proposal.proposed_ends_at,
+                    )
+                )
+            elif args.action == "inspect-proposals":
+                appointment = await db.get(Appointment, UUID(args.id))
+                if appointment is None or appointment.student_id != UUID(fixture["student"]):
+                    raise RuntimeError("Inspection requires the fixture student's appointment")
+                proposals = (
+                    await db.scalars(
+                        select(ChangeProposal)
+                        .where(ChangeProposal.appointment_id == appointment.id)
+                        .order_by(ChangeProposal.created_version, ChangeProposal.id)
+                    )
+                ).all()
+                actions = (
+                    "CHANGE_PROPOSAL_CREATED",
+                    "CHANGE_PROPOSAL_REPLACED",
+                    "CHANGE_PROPOSAL_ACCEPTED",
+                    "CHANGE_PROPOSAL_DECLINED",
+                    "CHANGE_PROPOSAL_EXPIRED",
+                )
+                print(
+                    json.dumps(
+                        {
+                            "appointmentStatus": appointment.status,
+                            "startsAt": appointment.starts_at.isoformat(),
+                            "endsAt": appointment.ends_at.isoformat(),
+                            "location": appointment.location,
+                            "durationMinutes": appointment.duration_minutes,
+                            "proposalVersion": appointment.proposal_version,
+                            "proposals": [
+                                {
+                                    "id": str(proposal.id),
+                                    "status": proposal.status,
+                                    "location": proposal.proposed_location,
+                                    "startsAt": proposal.proposed_starts_at.isoformat(),
+                                    "endsAt": proposal.proposed_ends_at.isoformat(),
+                                }
+                                for proposal in proposals
+                            ],
+                            "audits": {
+                                action: await db.scalar(
+                                    select(func.count())
+                                    .select_from(AuditEvent)
+                                    .where(
+                                        AuditEvent.entity_id.in_([str(p.id) for p in proposals]),
+                                        AuditEvent.action == action,
+                                    )
+                                )
+                                for action in actions
+                            },
+                            "notifications": {
+                                action: await db.scalar(
+                                    select(func.count())
+                                    .select_from(Notification)
+                                    .where(
+                                        Notification.appointment_id == appointment.id,
+                                        Notification.event_type == action,
+                                    )
+                                )
+                                for action in actions
+                            },
+                        }
+                    )
+                )
             elif args.action == "seed-staff-appointments":
                 setting = await db.get(ServiceSetting, 1)
                 if setting is None:
@@ -554,9 +691,9 @@ async def operate(args):
                             created_at=now - timedelta(minutes=index + 1),
                         )
                     )
-            elif args.action == "expire-proposal":
-                proposal_for_expiry = UUID(args.id)
-                proposal = await db.get(ChangeProposal, proposal_for_expiry)
+            elif args.action in {"expire-proposal", "make-proposal-due"}:
+                proposal_id = UUID(args.id)
+                proposal = await db.get(ChangeProposal, proposal_id)
                 if proposal is None or proposal.created_by != UUID(fixture["staff"]):
                     raise RuntimeError("Expiry requires a proposal created by the fixture staff")
                 now = (
@@ -566,6 +703,8 @@ async def operate(args):
                 )
                 proposal.created_at = now - timedelta(days=1)
                 proposal.expires_at = now - timedelta(minutes=1)
+                if args.action == "expire-proposal":
+                    proposal_for_expiry = proposal_id
         if proposal_for_expiry is not None:
             sessions = async_sessionmaker(engine, expire_on_commit=False)
             result = await process_candidate(
@@ -616,6 +755,8 @@ def main():
             "history",
             "seed-notification-history",
             "expire-proposal",
+            "make-proposal-due",
+            "worker-once",
             "arm-loss",
             "arm-hold",
             "release-response",
@@ -624,6 +765,9 @@ def main():
             "settings-restore",
             "seed-timezone-appointment",
             "seed-staff-appointments",
+            "seed-proposal-appointment",
+            "block-proposed-slot",
+            "inspect-proposals",
             "inspect-staff-portal",
             "cleanup",
         ),
