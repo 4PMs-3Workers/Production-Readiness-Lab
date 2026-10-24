@@ -25,9 +25,9 @@ import os
 from app.worker import processing
 from app.worker.__main__ import main
 original_commit = processing.commit_safely
-async def interrupted_commit(db, transaction):
+async def interrupted_commit(db, transaction, **kwargs):
     if os.environ["WORKER_TEST_CRASH_PHASE"] == "after":
-        await original_commit(db, transaction)
+        await original_commit(db, transaction, **kwargs)
     os._exit(19)
 processing.commit_safely = interrupted_commit
 raise SystemExit(main(["--once"]))

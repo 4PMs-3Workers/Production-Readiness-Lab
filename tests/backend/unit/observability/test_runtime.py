@@ -258,6 +258,34 @@ async def test_runtime_admission_counts_the_active_stdout_write(auth_settings):
         await runtime.close(asyncio.get_running_loop().time() + 1)
 
 
+async def test_runtime_reports_log_lane_drop_when_stdout_is_disabled(auth_settings):
+    runtime_module = _runtime_module()
+    entered, release = threading.Event(), threading.Event()
+
+    def blocked_export(_batch):
+        entered.set()
+        release.wait()
+        return True
+
+    settings = auth_settings.model_copy(
+        update={"telemetry_log_queue_capacity": 1, "telemetry_max_batch_size": 1}
+    )
+    runtime = runtime_module.TelemetryRuntime(
+        settings,
+        "worker",
+        stdout_enabled=False,
+        log_exporter=blocked_export,
+    )
+    try:
+        runtime.emit({"event": "worker.heartbeat"})
+        assert entered.wait(1)
+        runtime.emit({"event": "worker.heartbeat"})
+        assert runtime.dropped["queue_full"] == 1
+    finally:
+        release.set()
+        await runtime.close(asyncio.get_running_loop().time() + 1)
+
+
 async def test_runtime_counts_failed_stdout_export_once(auth_settings):
     runtime_module = _runtime_module()
 

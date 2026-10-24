@@ -194,7 +194,7 @@ class TelemetryRuntime:
             if lane is None:
                 continue
             for reason, count in lane.dropped.items():
-                counts[reason] += count
+                counts[reason] = counts.get(reason, 0) + count
         return counts
 
     def emit(self, record: Mapping[str, object]) -> bool:
