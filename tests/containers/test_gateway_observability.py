@@ -4,6 +4,8 @@ import json
 import os
 import re
 import shutil
+import socket
+import ssl
 import subprocess
 import sys
 import time
@@ -113,7 +115,73 @@ def wait_record(base, env, request_id, timeout=5):
     pytest.fail(f"gateway did not emit access event for request id {request_id}")
 
 
-def reconfigure_nginx(gateway, tmp_path, *, routes=None, proxy=None, sink=None):
+def open_gateway_connection(gateway):
+    client, mode, _, env = gateway
+    port = client.base_url.port
+    connection = socket.create_connection(("127.0.0.1", port), timeout=5)
+    if mode == "https":
+        context = ssl.create_default_context(cafile=env["PRL_TLS_CERT_FILE"])
+        connection = context.wrap_socket(connection, server_hostname="localhost")
+    connection.settimeout(5)
+    return connection, port
+
+
+def read_raw_http_response(connection):
+    chunks = []
+    while True:
+        try:
+            chunk = connection.recv(4096)
+        except (ConnectionResetError, TimeoutError):
+            break
+        if not chunk:
+            break
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def parse_raw_http_response(raw):
+    if b"\r\n\r\n" not in raw:
+        pytest.fail(f"gateway returned an incomplete raw HTTP response: {raw!r}")
+    head, body = raw.split(b"\r\n\r\n", 1)
+    lines = head.split(b"\r\n")
+    status = int(lines[0].split()[1])
+    headers = {}
+    for line in lines[1:]:
+        if b":" in line:
+            name, value = line.split(b":", 1)
+            headers[name.decode().lower()] = value.decode().strip()
+    return status, headers, body
+
+
+def wait_new_gateway_record(base, env, previous_ids, predicate, timeout=5):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        records, output = gateway_records(base, env)
+        for record in records:
+            if record.get("request_id") not in previous_ids and predicate(record):
+                return record, output
+        time.sleep(0.1)
+    pytest.fail("gateway did not emit the expected new access event")
+
+
+def wait_for_upstream_file(base, env, path, timeout=5):
+    deadline = time.monotonic() + timeout
+    command = [*base, "exec", "-T", "api", "test", "-f", path]
+    while time.monotonic() < deadline:
+        result = subprocess.run(
+            command, cwd=ROOT, env=env, text=True, capture_output=True, timeout=10
+        )
+        if result.returncode == 0:
+            return
+        if result.returncode != 1:
+            pytest.fail(result.stdout + result.stderr)
+        time.sleep(0.05)
+    pytest.fail("controlled API fixture did not confirm the delayed request")
+
+
+def reconfigure_nginx(
+    gateway, tmp_path, *, routes=None, proxy=None, sink=None, nginx=None
+):
     _, _, base, env = gateway
     compose_file = Path(base[-1])
     merged = json.loads(compose_file.read_text())
@@ -132,6 +200,15 @@ def reconfigure_nginx(gateway, tmp_path, *, routes=None, proxy=None, sink=None):
     if sink is not None:
         (copied / "file-sink.conf").write_text(sink)
     directory_mount["source"] = str(copied)
+    if nginx is not None:
+        main_mount = next(
+            volume
+            for volume in gateway_config["volumes"]
+            if volume.get("target") == "/etc/nginx/nginx.conf"
+        )
+        main_config = tmp_path / "nginx-main.conf"
+        main_config.write_text(nginx)
+        main_mount["source"] = str(main_config)
     compose_file.write_text(json.dumps(merged))
     run(*base, "config", "--quiet", env=env)
     run(*base, "up", "-d", "--no-deps", "--force-recreate", "gateway", env=env)
@@ -539,6 +616,33 @@ def test_invalid_or_zero_api_trace_is_not_logged(gateway, fixture):
             "/api/v1/auth/login",
         ),
         (
+            "POST",
+            "/api/v1/auth/login?prl_test=login_throttled_missing_class",
+            429,
+            "service_failure",
+            "capacity_or_unclassified_429",
+            "unknown",
+            "/api/v1/auth/login",
+        ),
+        (
+            "POST",
+            "/api/v1/auth/login?prl_test=login_throttled_business_class",
+            429,
+            "service_failure",
+            "capacity_or_unclassified_429",
+            "business",
+            "/api/v1/auth/login",
+        ),
+        (
+            "POST",
+            "/api/v1/auth/login?prl_test=login_throttled_service_class",
+            429,
+            "service_failure",
+            "service_error",
+            "service",
+            "/api/v1/auth/login",
+        ),
+        (
             "GET",
             "/api/v1/not-a-published-operation",
             404,
@@ -574,6 +678,167 @@ def test_classification_truth_table(
     assert re.fullmatch(r"[a-f0-9]{32}", record["trace_id"]), record
     assert int(record["trace_id"], 16) != 0
     assert "secret-error-class-canary" not in raw_logs
+
+
+def test_upstream_read_timeout_is_a_safe_service_failure(gateway, tmp_path):
+    client, _, base, env = gateway
+    proxy = (ROOT / "tools/deploy/nginx/proxy.conf").read_text()
+    assert "proxy_read_timeout 10s;" in proxy
+    proxy = proxy.replace("proxy_read_timeout 10s;", "proxy_read_timeout 250ms;", 1)
+    reconfigure_nginx(gateway, tmp_path, proxy=proxy)
+
+    response = client.get(
+        "/api/v1/purposes?prl_test=upstream_timeout&private=timeout-canary"
+    )
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "SERVICE_UNAVAILABLE"
+    record, raw_logs = wait_record(base, env, response.headers["x-request-id"])
+    assert record["status"] == 503
+    assert record["route"] == "/api/v1/purposes"
+    assert record["upstream_identity"] == "api"
+    assert record["upstream_outcome"] == "upstream_timeout"
+    assert record["classification"] == "service_failure"
+    assert record["error_class"] == "service"
+    assert "timeout-canary" not in raw_logs
+
+
+def test_published_client_disconnect_is_excluded_before_api_headers(gateway):
+    client, _, base, env = gateway
+    probe = uuid4().hex
+    marker = f"/tmp/prl-client-disconnect-{probe}"
+    previous_ids = {record["request_id"] for record in gateway_records(base, env)[0]}
+    connection, port = open_gateway_connection(gateway)
+    request = (
+        f"GET /api/v1/purposes?prl_test=client_disconnect&probe={probe}"
+        "&private=client-disconnect-canary HTTP/1.1\r\n"
+        f"Host: localhost:{port}\r\n"
+        "Connection: close\r\n\r\n"
+    )
+    try:
+        connection.sendall(request.encode())
+        wait_for_upstream_file(base, env, marker)
+    finally:
+        connection.close()
+
+    record, raw_logs = wait_new_gateway_record(
+        base,
+        env,
+        previous_ids,
+        lambda value: (
+            value.get("route") == "/api/v1/purposes"
+            and value.get("upstream_outcome") == "client_disconnect"
+        ),
+    )
+    assert record["status"] == 499
+    assert record["method"] == "GET"
+    assert record["upstream_identity"] == "api"
+    assert record["classification"] == "excluded"
+    assert record["trace_id"] == ""
+    assert "client-disconnect-canary" not in raw_logs
+
+
+def test_malformed_published_request_is_local_input_400(gateway):
+    _, _, base, env = gateway
+    previous_ids = {record["request_id"] for record in gateway_records(base, env)[0]}
+    connection, port = open_gateway_connection(gateway)
+    request = (
+        "POST /api/v1/auth/login?private=malformed-url-canary HTTP/1.1\r\n"
+        f"Host: localhost:{port}\r\n"
+        "X-Invalid Header: malformed-header-canary\r\n"
+        "Content-Length: 2\r\n"
+        "Connection: close\r\n\r\n{}"
+    )
+    try:
+        connection.sendall(request.encode())
+        raw = read_raw_http_response(connection)
+    finally:
+        connection.close()
+    status, headers, body = parse_raw_http_response(raw)
+    assert status == 400
+    assert json.loads(body)["error"]["code"] == "HTTP_ERROR"
+    record, raw_logs = wait_new_gateway_record(
+        base,
+        env,
+        previous_ids,
+        lambda value: value.get("status") == 400
+        and value.get("route") == "/api/v1/auth/login",
+    )
+    assert record["upstream_identity"] == "none"
+    assert record["upstream_outcome"] == "gateway_input"
+    assert record["classification"] == "excluded"
+    assert record["error_class"] == "input"
+    assert headers["x-error-class"] == "input"
+    assert "malformed-url-canary" not in raw_logs
+    assert "malformed-header-canary" not in raw_logs
+
+
+def test_incomplete_login_body_is_local_input_408(gateway, tmp_path):
+    _, _, base, env = gateway
+    nginx = (ROOT / "tools/deploy/nginx/nginx.conf").read_text()
+    assert "client_body_timeout 10s;" in nginx
+    nginx = nginx.replace("client_body_timeout 10s;", "client_body_timeout 250ms;", 1)
+    reconfigure_nginx(gateway, tmp_path, nginx=nginx)
+    previous_ids = {record["request_id"] for record in gateway_records(base, env)[0]}
+
+    connection, port = open_gateway_connection(gateway)
+    request = (
+        "POST /api/v1/auth/login?private=body-timeout-canary HTTP/1.1\r\n"
+        f"Host: localhost:{port}\r\n"
+        "Content-Type: application/json\r\n"
+        "Content-Length: 10\r\n"
+        "Connection: close\r\n\r\n{}"
+    )
+    try:
+        connection.sendall(request.encode())
+        raw = read_raw_http_response(connection)
+    finally:
+        connection.close()
+    # This pinned Nginx closes after its core client-body timeout without a wire
+    # response; the access event still carries the generated local 408 status.
+    assert raw == b""
+    record, raw_logs = wait_new_gateway_record(
+        base,
+        env,
+        previous_ids,
+        lambda value: value.get("status") == 408
+        and value.get("route") == "/api/v1/auth/login",
+    )
+    assert record["upstream_identity"] == "none"
+    assert record["upstream_outcome"] == "gateway_input"
+    assert record["classification"] == "excluded"
+    assert record["error_class"] == "input"
+    assert "body-timeout-canary" not in raw_logs
+
+
+def test_nonlogin_local_429_is_not_a_login_throttle(gateway, tmp_path):
+    client, _, base, env = gateway
+    routes = (ROOT / "tools/deploy/nginx/routes.conf").read_text()
+    local_limiter = (
+        "location = /api/v1/purposes {\n"
+        "    limit_req zone=login burst=1 nodelay;\n"
+        "    include /etc/nginx/prl/proxy.conf;\n"
+        "    proxy_pass http://172.30.34.3:8000;\n"
+        "}\n\n"
+        "location = /api/v1 {"
+    )
+    routes = routes.replace("location = /api/v1 {", local_limiter, 1)
+    reconfigure_nginx(gateway, tmp_path, routes=routes)
+
+    responses = [
+        client.get("/api/v1/purposes?private=local-capacity") for _ in range(5)
+    ]
+    response = next(
+        (candidate for candidate in responses if candidate.status_code == 429), None
+    )
+    assert response is not None, [candidate.status_code for candidate in responses]
+    assert response.json()["error"]["code"] == "RATE_LIMITED"
+    assert response.headers["x-error-class"] == "service"
+    record, raw_logs = wait_record(base, env, response.headers["x-request-id"])
+    assert record["upstream_identity"] == "none"
+    assert record["upstream_outcome"] == "capacity_or_unclassified_429"
+    assert record["classification"] == "service_failure"
+    assert record["error_class"] == "service"
+    assert "local-capacity" not in raw_logs
 
 
 def test_local_body_rejection_and_exact_login_limit_are_finite(gateway):

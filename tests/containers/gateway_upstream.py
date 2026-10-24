@@ -3,10 +3,12 @@
 No database, password authentication, or replacement application server is provided.
 """
 
+import asyncio
 import re
 import secrets
 import sys
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import UUID
 
 import uvicorn
@@ -127,6 +129,19 @@ async def echo(request: Request, path: str):
         return safe_response(
             request, status=200, route_marker=route, trace_id="0" * 32
         )
+    if fixture == "upstream_timeout":
+        await asyncio.sleep(2)
+        return safe_response(request, status=200, route_marker=route)
+    if fixture == "client_disconnect":
+        probe = request.query_params.get("probe", "")
+        if re.fullmatch(r"[a-f0-9]{32}", probe):
+            marker = Path("/tmp") / f"prl-client-disconnect-{probe}"
+            marker.touch()
+            try:
+                await asyncio.sleep(2)
+            finally:
+                marker.unlink(missing_ok=True)
+        return safe_response(request, status=200, route_marker=route)
     if fixture == "service":
         return safe_response(
             request, status=503, error_class="service", route_marker=route
@@ -140,6 +155,26 @@ async def echo(request: Request, path: str):
             request,
             status=429,
             error_class="input",
+            route_marker=route,
+            outcome="login_throttled",
+        )
+    if fixture == "login_throttled_missing_class":
+        return safe_response(
+            request, status=429, route_marker=route, outcome="login_throttled"
+        )
+    if fixture == "login_throttled_business_class":
+        return safe_response(
+            request,
+            status=429,
+            error_class="business",
+            route_marker=route,
+            outcome="login_throttled",
+        )
+    if fixture == "login_throttled_service_class":
+        return safe_response(
+            request,
+            status=429,
+            error_class="service",
             route_marker=route,
             outcome="login_throttled",
         )
