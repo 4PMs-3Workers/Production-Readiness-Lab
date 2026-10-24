@@ -17,7 +17,17 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/appointments',
   useSearchParams: () => new URLSearchParams(''),
 }));
-const user = { id: 'a', name: 'Fictional Student A', email: 'a@example.invalid', role: 'STUDENT' };
+vi.mock('@/features/proposals/proposal-panel', () => ({ ProposalPanel: () => null }));
+const STUDENT_A = '10000000-0000-4000-8000-000000000001';
+const STUDENT_B = '10000000-0000-4000-8000-000000000002';
+const STAFF_A = '20000000-0000-4000-8000-000000000001';
+const STAFF_B = '20000000-0000-4000-8000-000000000002';
+const user = {
+  id: STUDENT_A,
+  name: 'Fictional Student A',
+  email: 'a@example.invalid',
+  role: 'STUDENT',
+};
 const error = (code: string, status: number) => Response.json({ error: { code } }, { status });
 const json = (value: unknown) => Response.json(value);
 beforeEach(() => router.replace.mockClear());
@@ -32,7 +42,7 @@ function PrivateView() {
       <button onClick={() => void logout().catch(() => {})}>logout</button>
       <button
         onClick={() =>
-          intents.prepare('a', {
+          intents.prepare(STUDENT_A, {
             purpose_id: 'p',
             staff_id: 's',
             starts_at: '2026-10-20T01:00:00Z',
@@ -49,7 +59,7 @@ function PrivateView() {
 describe('API session boundaries', () => {
   it('makes a staff write recoverable after focus failure aborts it and the session recovers', async () => {
     const staff = {
-      id: 'staff-a',
+      id: STAFF_A,
       name: 'Fictional Staff A',
       email: 'staff-a@example.invalid',
       role: 'STAFF',
@@ -138,11 +148,11 @@ describe('API session boundaries', () => {
   });
 
   it.each([
-    ['another STAFF account', { id: 'staff-b', role: 'STAFF' }],
-    ['a STUDENT role', { id: 'staff-a', role: 'STUDENT' }],
+    ['another STAFF account', { id: STAFF_B, role: 'STAFF' }],
+    ['a STUDENT role', { id: STAFF_A, role: 'STUDENT' }],
   ])('hides private staff content when mutation preflight detects %s', async (_, changed) => {
     const staff = {
-      id: 'staff-a',
+      id: STAFF_A,
       name: 'Fictional Staff A',
       email: 'staff-a@example.invalid',
       role: 'STAFF',
@@ -169,7 +179,7 @@ describe('API session boundaries', () => {
             onClick={() =>
               void api.services
                 .recordStaffOutcome('appointment-1', 'COMPLETED', {
-                  expectedUserId: 'staff-a',
+                  expectedUserId: STAFF_A,
                 })
                 .catch(() => {})
             }
@@ -187,14 +197,15 @@ describe('API session boundaries', () => {
       </ApiProvider>,
     );
     await screen.findByText('Nội dung trao đổi riêng của STAFF A');
+    await waitFor(() => expect(staffChanges).toBeDefined());
     act(() => {
       staffChanges.begin({
-        userId: 'staff-a',
+        userId: STAFF_A,
         appointmentId: 'appointment-1',
         status: 'COMPLETED',
       });
     });
-    expect(staffChanges.get('staff-a', 'appointment-1')).not.toBeNull();
+    expect(staffChanges.get(STAFF_A, 'appointment-1')).not.toBeNull();
     switched = true;
     await userEvent.click(screen.getByRole('button', { name: 'Ghi kết quả' }));
 
@@ -202,7 +213,7 @@ describe('API session boundaries', () => {
       expect(screen.queryByText('Nội dung trao đổi riêng của STAFF A')).not.toBeInTheDocument(),
     );
     expect(fetcher.mock.calls.every(([path]) => !String(path).endsWith('/outcome'))).toBe(true);
-    expect(staffChanges.get('staff-a', 'appointment-1')).toBeNull();
+    expect(staffChanges.get(STAFF_A, 'appointment-1')).toBeNull();
     expect(router.replace).toHaveBeenCalled();
   });
 
@@ -267,7 +278,7 @@ describe('API session boundaries', () => {
         expect(api.intents.snapshot()).toBeNull();
         return;
       }
-      if (recovery === 'different-student') active = { ...user, id: 'b', name: 'Student B' };
+      if (recovery === 'different-student') active = { ...user, id: STUDENT_B, name: 'Student B' };
       await act(async () => api.login({ email: active.email, password: 'fictional' }));
       if (recovery === 'different-student') {
         expect(api.intents.snapshot()).toBeNull();
@@ -386,7 +397,7 @@ describe('API session boundaries', () => {
       window.dispatchEvent(new Event('focus'));
     });
     expect(screen.getByText('private:Fictional Student A')).not.toBeVisible();
-    await act(async () => finish(json({ ...user, id: 'b', name: 'Fictional Student B' })));
+    await act(async () => finish(json({ ...user, id: STUDENT_B, name: 'Fictional Student B' })));
     expect(await screen.findByText('private:Fictional Student B')).toBeVisible();
     expect(screen.queryByText('pending:fictional')).not.toBeInTheDocument();
   });
