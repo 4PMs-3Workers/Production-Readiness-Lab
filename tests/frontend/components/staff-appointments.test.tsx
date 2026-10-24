@@ -9,6 +9,7 @@ import {
 import type { StaffAppointment, StaffAppointmentDetail } from '@/services/staff-contracts';
 import { ApiError } from '@/services/api/errors';
 import { StaffChangeIntentStore } from '@/services/api/staff-change-intent';
+import { ProposalIntentStore } from '@/services/api/proposal-intent';
 
 const services = vi.hoisted(() => ({
   staffContext: vi.fn(),
@@ -18,11 +19,15 @@ const services = vi.hoisted(() => ({
   recordStaffOutcome: vi.fn(),
 }));
 const staffChanges = new StaffChangeIntentStore();
+const STAFF = '20000000-0000-4000-8000-000000000001';
+const proposalIntents = new ProposalIntentStore();
+vi.mock('@/features/proposals/proposal-panel', () => ({ ProposalPanel: () => null }));
 vi.mock('@/features/api/api-provider', () => ({
   useApi: () => ({
     services,
     staffChanges,
-    session: { status: 'authenticated', user: { id: 'staff-1', role: 'STAFF' } },
+    proposalIntents,
+    session: { status: 'authenticated', user: { id: STAFF, role: 'STAFF' } },
   }),
 }));
 
@@ -53,6 +58,8 @@ const detail: StaffAppointmentDetail = {
 beforeEach(() => {
   vi.clearAllMocks();
   staffChanges.clearAll();
+  proposalIntents.suspend();
+  proposalIntents.bindAccount(STAFF, 'STAFF');
   services.staffContext.mockResolvedValue({
     timezone: 'Asia/Ho_Chi_Minh',
     businessDate: '2026-10-20',
@@ -197,7 +204,7 @@ describe('staff assigned appointments', () => {
     await waitFor(() =>
       expect(services.recordStaffOutcome).toHaveBeenCalledWith(item.id, 'NO_SHOW', {
         signal: expect.any(AbortSignal),
-        expectedUserId: 'staff-1',
+        expectedUserId: STAFF,
       }),
     );
   });
@@ -220,7 +227,7 @@ describe('staff assigned appointments', () => {
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Đã hủy lịch'));
     expect(services.cancelStaffAppointment).toHaveBeenCalledWith(item.id, 'Sinh viên đề nghị', {
       signal: expect.any(AbortSignal),
-      expectedUserId: 'staff-1',
+      expectedUserId: STAFF,
     });
     expect(reloaded).toHaveBeenCalledOnce();
     expect(dialog).not.toBeVisible();
@@ -332,7 +339,7 @@ describe('staff assigned appointments', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('buổi hẹn kết thúc');
     expect(screen.queryByText('Đã cập nhật kết quả')).not.toBeInTheDocument();
-    expect(staffChanges.get('staff-1', 'appointment-1')).toBeNull();
+    expect(staffChanges.get(STAFF, 'appointment-1')).toBeNull();
   });
 
   it('releases an unresolved cancellation after its exact retry passes the deadline', async () => {

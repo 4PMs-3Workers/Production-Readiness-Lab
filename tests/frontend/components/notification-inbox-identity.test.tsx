@@ -6,6 +6,8 @@ import { NotificationInbox } from '@/features/notifications/notification-inbox';
 import { ApiServices } from '@/services/api/client';
 
 const router = vi.hoisted(() => ({ replace: vi.fn() }));
+const STUDENT_A = '10000000-0000-4000-8000-000000000001';
+const STUDENT_B = '10000000-0000-4000-8000-000000000002';
 vi.mock('next/navigation', () => ({
   useRouter: () => router,
   usePathname: () => '/notifications',
@@ -22,7 +24,7 @@ function SessionIdentity() {
 }
 
 function renderInbox() {
-  let cookieOwner = 'student-a';
+  let cookieOwner = STUDENT_A;
   let delayList = false;
   let finishList!: () => void;
   let delayMe = false;
@@ -101,10 +103,10 @@ function renderInbox() {
   );
   return {
     switchCookieToB: () => {
-      cookieOwner = 'student-b';
+      cookieOwner = STUDENT_B;
     },
     switchCookieToA: () => {
-      cookieOwner = 'student-a';
+      cookieOwner = STUDENT_A;
     },
     delayNextMe: () => {
       delayMe = true;
@@ -124,33 +126,33 @@ function renderInbox() {
 describe('notification inbox identity boundary', () => {
   it('clears the rendered account when a mark-read preflight sees another cookie owner', async () => {
     const { switchCookieToB } = renderInbox();
-    expect(await screen.findByText('Private for student-a')).toBeVisible();
+    expect(await screen.findByText(`Private for ${STUDENT_A}`)).toBeVisible();
 
     switchCookieToB();
     fireEvent.click(screen.getByRole('button', { name: 'Đánh dấu đã đọc' }));
 
     await waitFor(() =>
-      expect(screen.queryByText('Private for student-a')).not.toBeInTheDocument(),
+      expect(screen.queryByText(`Private for ${STUDENT_A}`)).not.toBeInTheDocument(),
     );
-    expect(screen.getByTestId('session-owner')).not.toHaveTextContent('student-a');
+    expect(screen.getByTestId('session-owner')).not.toHaveTextContent(STUDENT_A);
   });
 
   it('does not render another account inbox under the previous provider identity', async () => {
     const { switchCookieToB } = renderInbox();
-    expect(await screen.findByText('Private for student-a')).toBeVisible();
+    expect(await screen.findByText(`Private for ${STUDENT_A}`)).toBeVisible();
 
     switchCookieToB();
     fireEvent.click(screen.getByRole('button', { name: 'Làm mới' }));
 
     await waitFor(() =>
-      expect(screen.getByTestId('session-owner')).not.toHaveTextContent('student-a'),
+      expect(screen.getByTestId('session-owner')).not.toHaveTextContent(STUDENT_A),
     );
-    expect(screen.queryByText('Private for student-a')).not.toBeInTheDocument();
+    expect(screen.queryByText(`Private for ${STUDENT_A}`)).not.toBeInTheDocument();
   });
 
   it('invalidates a list whose response arrives after the shared cookie changes', async () => {
     const { switchCookieToB, delayNextList, finishList, fetcher } = renderInbox();
-    expect(await screen.findByText('Private for student-a')).toBeVisible();
+    expect(await screen.findByText(`Private for ${STUDENT_A}`)).toBeVisible();
 
     delayNextList();
     fireEvent.click(screen.getByRole('button', { name: 'Làm mới' }));
@@ -163,9 +165,9 @@ describe('notification inbox identity boundary', () => {
     finishList();
 
     await waitFor(() =>
-      expect(screen.getByTestId('session-owner')).not.toHaveTextContent('student-a'),
+      expect(screen.getByTestId('session-owner')).not.toHaveTextContent(STUDENT_A),
     );
-    expect(screen.queryByText('Private for student-a')).not.toBeInTheDocument();
+    expect(screen.queryByText(`Private for ${STUDENT_A}`)).not.toBeInTheDocument();
   });
 
   it('rejects a B-authenticated list after the shared cookie returns to A', async () => {
@@ -180,7 +182,7 @@ describe('notification inbox identity boundary', () => {
       switchCookieToB,
       listOwners,
     } = renderInbox();
-    expect(await screen.findByText('Private for student-a')).toBeVisible();
+    expect(await screen.findByText(`Private for ${STUDENT_A}`)).toBeVisible();
 
     delayNextMe();
     delayNextList();
@@ -189,15 +191,15 @@ describe('notification inbox identity boundary', () => {
     switchCookieToB();
     finishMe();
     await waitFor(() => expect(hasHeldList()).toBe(true));
-    expect(listOwners.at(-1)).toBe('student-b');
+    expect(listOwners.at(-1)).toBe(STUDENT_B);
     switchCookieToA();
     finishList();
 
     await waitFor(() =>
-      expect(screen.getByTestId('session-owner')).not.toHaveTextContent('student-a'),
+      expect(screen.getByTestId('session-owner')).not.toHaveTextContent(STUDENT_A),
     );
-    expect(screen.queryByText('Private for student-b')).not.toBeInTheDocument();
+    expect(screen.queryByText(`Private for ${STUDENT_B}`)).not.toBeInTheDocument();
     fireEvent.focus(window);
-    expect(screen.queryByText('Private for student-b')).not.toBeInTheDocument();
+    expect(screen.queryByText(`Private for ${STUDENT_B}`)).not.toBeInTheDocument();
   });
 });

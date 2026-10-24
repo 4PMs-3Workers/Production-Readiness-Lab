@@ -11,6 +11,8 @@ import {
 } from 'react';
 import { useApi } from '@/features/api/api-provider';
 import { ApiFeedback } from '@/features/api/api-feedback';
+import { ProposalPanel } from '@/features/proposals/proposal-panel';
+import { formatCancellationReason } from '@/lib/appointment-reason';
 import { Pagination } from '@/features/api/api-booking-fields';
 import { useApiResource } from '@/features/api/use-api-resource';
 import { ApiError, errorMessage } from '@/services/api/errors';
@@ -282,7 +284,7 @@ function StaffAppointmentDetailContent({ appointmentId }: { appointmentId: strin
           {appointment.cancelReason && (
             <div className={staffStyles.description}>
               <dt>Lý do hủy</dt>
-              <dd>{appointment.cancelReason}</dd>
+              <dd>{formatCancellationReason(appointment.cancelReason)}</dd>
             </div>
           )}
           {appointment.cancelledAt && (
@@ -324,6 +326,12 @@ function StaffAppointmentDetailContent({ appointmentId }: { appointmentId: strin
         </dl>
       </section>
       <StaffAppointmentActions key={appointment.id} appointment={appointment} onReload={refresh} />
+      <ProposalPanel
+        appointment={appointment}
+        role="STAFF"
+        timezone={context.state.data.timezone}
+        onRefresh={refresh}
+      />
     </div>
   );
 }
@@ -335,7 +343,7 @@ export function StaffAppointmentActions({
   appointment: StaffAppointmentDetail;
   onReload: (signal: AbortSignal) => Promise<StaffAppointmentDetail>;
 }) {
-  const { services, session, staffChanges } = useApi();
+  const { services, session, staffChanges, proposalIntents } = useApi();
   const expectedUserId =
     session.status === 'authenticated' && session.user.role === 'STAFF' ? session.user.id : null;
   const [showCancel, setShowCancel] = useState(false);
@@ -350,6 +358,11 @@ export function StaffAppointmentActions({
     () => null,
   );
   const unresolved = savedChange?.change ?? null;
+  const unresolvedProposal = useSyncExternalStore(
+    proposalIntents.subscribe,
+    () => proposalIntents.get(expectedUserId, 'STAFF', appointment.id),
+    () => null,
+  );
   const [refreshRequired, setRefreshRequired] = useState(false);
   const activeRequest = useRef<{ controller: AbortController; version: number | null } | null>(
     null,
@@ -362,7 +375,8 @@ export function StaffAppointmentActions({
   const cancelDialog = useRef<HTMLElement>(null);
   const outcomeDialog = useRef<HTMLElement>(null);
   const cancellable = appointment.status === 'UPCOMING' || appointment.status === 'CHANGE_PENDING';
-  const actionsLocked = pending || unresolved !== null || refreshRequired;
+  const actionsLocked =
+    pending || unresolved !== null || unresolvedProposal !== null || refreshRequired;
   useEffect(
     () => () => {
       if (activeRequest.current) {

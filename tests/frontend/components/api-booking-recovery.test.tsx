@@ -14,7 +14,7 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(''),
 }));
 const user = {
-  id: 'student',
+  id: '10000000-0000-4000-8000-000000000001',
   name: 'Fictional Student',
   email: 'a@example.invalid',
   role: 'STUDENT',
@@ -516,7 +516,7 @@ describe('booking recovery boundaries', () => {
       if (recovery !== 'same-student') {
         if (recovery === 'logout') await act(async () => fixture.api().logout());
         else {
-          activeUser = { ...user, id: 'other-student' };
+          activeUser = { ...user, id: '10000000-0000-4000-8000-000000000002' };
           await act(async () =>
             fixture.api().login({ email: activeUser.email, password: 'fictional' }),
           );
