@@ -2,7 +2,9 @@
 
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, useSyncExternalStore } from 'react';
+import { ProposalPanel } from '@/features/proposals/proposal-panel';
+import { formatCancellationReason } from '@/lib/appointment-reason';
 import { useApi } from './api-provider';
 import { ApiFeedback } from './api-feedback';
 import { Pagination } from './api-booking-fields';
@@ -211,6 +213,7 @@ function ApiDetail({ id }: { id: string }) {
   const { services, intents } = useApi();
   const timezone = useAppointmentTimezone();
   const [notice, setNotice] = useState('');
+  const [confirmed, setConfirmed] = useState<AppointmentDetail | null>(null);
   const load = useCallback(
     async (signal: AbortSignal) => {
       return services.detail(id, { signal });
@@ -236,7 +239,13 @@ function ApiDetail({ id }: { id: string }) {
         </section>
       </div>
     );
-  const appointment = state.data;
+  const appointment = confirmed ?? state.data;
+  const refresh = async (signal: AbortSignal) => {
+    const latest = await services.detail(id, { signal });
+    signal.throwIfAborted();
+    setConfirmed(latest);
+    return latest;
+  };
   const date = getBusinessDate(appointment.startsAt, timezone.state.timezone);
   return (
     <div className={styles.booking}>
@@ -285,13 +294,16 @@ function ApiDetail({ id }: { id: string }) {
             </p>
           )}
           {appointment.cancelReason && (
-            <p className={styles.freeText}>Lý do hủy: {appointment.cancelReason}</p>
+            <p className={styles.freeText}>
+              Lý do hủy: {formatCancellationReason(appointment.cancelReason)}
+            </p>
           )}
           {(appointment.status === 'UPCOMING' || appointment.status === 'CHANGE_PENDING') && (
             <CancelAppointment
               appointment={appointment}
               onRefresh={(message) => {
                 setNotice(message);
+                setConfirmed(null);
                 retry();
               }}
             />
@@ -306,6 +318,14 @@ function ApiDetail({ id }: { id: string }) {
           </Link>
         </div>
       </section>
+      {timezone.state.status === 'ready' && (
+        <ProposalPanel
+          appointment={{ ...appointment, durationMinutes: appointment.purpose.durationMinutes }}
+          role="STUDENT"
+          timezone={timezone.state.timezone}
+          onRefresh={refresh}
+        />
+      )}
     </div>
   );
 }
@@ -317,14 +337,20 @@ function CancelAppointment({
   appointment: AppointmentDetail;
   onRefresh: (message: string) => void;
 }) {
-  const { services } = useApi();
+  const { services, session, proposalIntents } = useApi();
+  const userId = session.status === 'authenticated' ? session.user.id : null;
+  const unresolvedProposal = useSyncExternalStore(
+    proposalIntents.subscribe,
+    () => proposalIntents.get(userId, 'STUDENT', appointment.id),
+    () => null,
+  );
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const pending = useRef(false);
   async function cancel() {
-    if (pending.current) return;
+    if (pending.current || unresolvedProposal) return;
     pending.current = true;
     setBusy(true);
     setError('');
@@ -347,7 +373,12 @@ function CancelAppointment({
   return (
     <div className={styles.cancelSection}>
       {!open ? (
-        <button className={styles.secondaryButton} type="button" onClick={() => setOpen(true)}>
+        <button
+          className={styles.secondaryButton}
+          type="button"
+          disabled={Boolean(unresolvedProposal)}
+          onClick={() => setOpen(true)}
+        >
           Hủy lịch hẹn
         </button>
       ) : (
@@ -363,7 +394,7 @@ function CancelAppointment({
               id="cancel-reason"
               maxLength={2000}
               rows={3}
-              disabled={busy}
+              disabled={busy || Boolean(unresolvedProposal)}
               value={reason}
               onChange={(event) => setReason(event.target.value)}
             />
@@ -373,7 +404,7 @@ function CancelAppointment({
             <button
               className={styles.primaryButton}
               type="button"
-              disabled={busy}
+              disabled={busy || Boolean(unresolvedProposal)}
               onClick={() => void cancel()}
             >
               {busy ? 'Đang hủy…' : 'Xác nhận hủy lịch'}
