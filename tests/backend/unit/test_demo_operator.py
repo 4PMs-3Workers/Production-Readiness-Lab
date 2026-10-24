@@ -129,6 +129,19 @@ def operator(monkeypatch, tmp_path):
                 )
         if args[:2] == ["docker", "inspect"]:
             return "true" if "{{.State.Running}}" in args else "healthy"
+        if args[:2] == ["docker", "logs"]:
+            from datetime import datetime
+
+            return json.dumps(
+                {
+                    "event": "heartbeat",
+                    "phase": "running",
+                    "database_ok": True,
+                    "worker_id": "a" * 32,
+                    "successful_scans": len(calls),
+                    "last_successful_scan": datetime.now(UTC).isoformat(),
+                }
+            )
         if args[:3] == ["docker", "image", "inspect"]:
             return json.dumps(
                 {
@@ -336,6 +349,18 @@ def test_subprocess_failure_discards_both_output_streams(capsys):
     assert "secret" not in captured.out + captured.err
 
 
+def test_subprocess_success_returns_stdout_without_stderr():
+    demo = module("demo")
+    output = demo.run(
+        [
+            sys.executable,
+            "-c",
+            "print('reporter-json'); print('sdk-warning', file=__import__('sys').stderr)",
+        ]
+    )
+    assert output == "reporter-json"
+
+
 def test_status_is_read_only_and_never_starts_dependencies(operator):
     demo, calls = operator
     assert demo.main(["status", "--overlay", "local"]) == 0
@@ -423,6 +448,15 @@ def test_stale_images_fail_before_any_application_execution(operator, monkeypatc
     assert not any(step[0] in {"run", "up", "exec"} for step in compose_calls(calls))
     captured = capsys.readouterr()
     assert "private-password" not in captured.out + captured.err
+
+
+def test_operator_reads_worker_progress_from_direct_container_logs(operator):
+    demo, calls = operator
+
+    assert demo.main(["up", "--overlay", "local"]) == 0
+
+    assert ["docker", "logs", "--tail", "200", "b" * 64] in calls
+    assert not any(step[:1] == ["logs"] for step in compose_calls(calls))
 
 
 @pytest.mark.parametrize("dirty", [" M Dockerfile.backend", "?? private-secret-file"])

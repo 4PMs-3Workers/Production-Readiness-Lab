@@ -100,11 +100,17 @@ def one_volume(name: str, labels: dict[str, str] | None = None) -> dict[str, obj
 
 
 class ComposeAcceptance:
-    def __init__(self, scratch: Path) -> None:
+    def __init__(
+        self,
+        scratch: Path,
+        *,
+        origin_scheme: str = "http",
+        origin_host: str = "localhost",
+    ) -> None:
         self.project = PROJECT_PREFIX + uuid4().hex
         self.image_tag = "task6-" + uuid4().hex[:20]
         self.port = self._free_port()
-        self.origin = f"http://localhost:{self.port}"
+        self.origin = f"{origin_scheme}://{origin_host}:{self.port}"
         self.volume_name = f"{self.project}_mysql_data"
         self.expected_sha = self._source_revision()
         self.seed_passwords = {
@@ -476,6 +482,7 @@ class ComposeAcceptance:
             "--app-dir",
             "src/backend",
             "--no-proxy-headers",
+            "--no-access-log",
             "--host",
             "0.0.0.0",
             "--port",
@@ -485,15 +492,12 @@ class ComposeAcceptance:
         return api_id, worker_id
 
     def worker_log_output(self) -> str:
-        result = self.compose(
-            "logs",
-            "--no-color",
-            "--no-log-prefix",
-            "--tail",
-            "400",
-            "worker",
-            timeout=30,
+        worker_id = require_success(
+            self.compose("ps", "-q", "worker"), "The test-owned worker container is missing"
         )
+        if not re.fullmatch(r"[0-9a-f]{64}", worker_id):
+            raise AcceptanceFailure("The test-owned worker container identity is invalid")
+        result = invoke(["docker", "logs", "--tail", "400", worker_id], timeout=30)
         return require_success(result, "The test-owned worker progress could not be read")
 
     def worker_records(self) -> list[dict[str, object]]:

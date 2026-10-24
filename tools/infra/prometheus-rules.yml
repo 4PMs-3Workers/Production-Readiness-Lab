@@ -1,0 +1,10 @@
+groups:
+  - name: telemetry-foundation
+    rules:
+      - alert: TelemetryCollectorUnavailable
+        expr: up{job="collector"} == 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: The telemetry Collector scrape target is unavailable.

@@ -1,0 +1,2 @@
+# One local Linux filesystem volume bounds bytes and retains uid/gid/mode for the
+# reviewed Task5 nginx(101) -> collector supplementary-group(101) handoff.

@@ -1,0 +1,275 @@
+# Opt-in only. demo.sh appends this after compose.yaml and compose.https.yaml.
+services:
+  mysql:
+    image: mysql:8.4.11@sha256:24989179f58856db763f418010c1169fecc944e3ec1ea7e921572d83eb070f70
+
+  api:
+    environment:
+      TELEMETRY_ENABLED: "true"
+      TELEMETRY_OTLP_ENDPOINT: http://collector:4318
+      SERVICE_RELEASE: ${SERVICE_RELEASE:?Operator must set the source revision}
+    networks: [proxy, data, telemetry]
+
+  worker:
+    environment:
+      ENVIRONMENT: demo
+      COOKIE_SECURE: "true"
+      TELEMETRY_ENABLED: "true"
+      TELEMETRY_OTLP_ENDPOINT: http://collector:4318
+      SERVICE_RELEASE: ${SERVICE_RELEASE:?Operator must set the source revision}
+    networks: [data, telemetry]
+
+  gateway:
+    environment:
+      SERVICE_RELEASE: ${SERVICE_RELEASE:?Operator must set the source revision}
+      PRL_GATEWAY_ENVIRONMENT: demo
+      PRL_OPS_HOST: ${PRL_OPS_HOST:?Set a distinct operations HTTPS hostname}
+      PRL_OPS_CIDRS: ${PRL_OPS_CIDRS:?Set an operations client CIDR allowlist}
+    volumes:
+      - ./nginx/file-sink-observability.conf:/etc/nginx/prl/file-sink.conf:ro
+      - type: bind
+        source: ${PRL_OPS_TLS_CERT_FILE:?Set the external operations TLS certificate}
+        target: /etc/nginx/tls/ops.crt
+        read_only: true
+        bind: { create_host_path: false }
+      - type: bind
+        source: ${PRL_OPS_TLS_KEY_FILE:?Set the external operations TLS private key}
+        target: /etc/nginx/tls/ops.key
+        read_only: true
+        bind: { create_host_path: false }
+      - gateway_logs:/var/log/prl
+    networks:
+      edge: {}
+      proxy: {}
+      gateway_api: { ipv4_address: 172.30.34.2 }
+      ops_grafana: {}
+
+  gateway_log_rotate:
+    image: nginx:stable-alpine@sha256:c59d1f8b1e0e42da75be973424cd72e23f7f8adfb54e982f4d1cd0216a5a5576
+    entrypoint: [/bin/sh, /usr/local/sbin/prl-gateway-log-rotate]
+    user: "101:101"
+    init: true
+    read_only: true
+    tmpfs: ["/tmp:size=2m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pid: service:gateway
+    network_mode: service:gateway
+    depends_on:
+      gateway: { condition: service_started }
+    volumes:
+      - gateway_logs:/var/log/prl
+      - ../infra/gateway-log-rotate.sh:/usr/local/sbin/prl-gateway-log-rotate:ro
+    restart: on-failure:3
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 32
+    stop_grace_period: 5s
+    logging:
+      driver: json-file
+      options: { max-size: 1m, max-file: "2" }
+
+  collector:
+    image: prl-collector:${PRL_IMAGE_TAG:-local}
+    build:
+      context: ../..
+      dockerfile: tools/infra/collector.Dockerfile
+      args:
+        PRL_SOURCE_SHA: ${SERVICE_RELEASE:?Operator must set the source revision}
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    user: "10001:10001"
+    group_add: ["101"]
+    init: true
+    read_only: true
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - ../infra/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - gateway_logs:/var/log/prl:ro
+      - collector_file_storage:/var/lib/otelcol/file_storage
+    networks: [telemetry]
+    restart: on-failure:3
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 128
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }
+
+  prometheus:
+    image: prom/prometheus:v3.15.1@sha256:fa3302279710be2f21a8301ec17a8b4f2301fd829bd113839b3b6b02b6f191a2
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=14d
+      - --storage.tsdb.wal-compression
+    read_only: true
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - ../infra/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../infra/prometheus-rules.yml:/etc/prometheus/rules/telemetry-foundation.yml:ro
+      - prometheus_data:/prometheus
+    networks: [telemetry]
+    restart: on-failure:3
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 128
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }
+
+  loki:
+    image: grafana/loki:3.7.9@sha256:0db216b630ae1f348a1584c67f3cead8b4c1fc839169a39501db664744158e28
+    command: ["--config.file=/etc/loki/loki.yaml"]
+    read_only: true
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - ../infra/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki_data:/loki
+    networks: [telemetry]
+    restart: on-failure:3
+    mem_limit: 768m
+    cpus: 1.0
+    pids_limit: 128
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }
+
+  tempo:
+    image: grafana/tempo:3.1.1@sha256:64e2fbd56d9c2b3412a4b430a58ea59e91a670b1e75f920a0c702213ad145044
+    command: ["-target=all", "-config.file=/etc/tempo/tempo.yaml"]
+    read_only: true
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - ../infra/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    networks: [telemetry]
+    restart: on-failure:3
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 128
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }
+
+  grafana:
+    image: grafana/grafana:13.2.4@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f
+    environment:
+      GF_SERVER_PROTOCOL: http
+      GF_SERVER_HTTP_PORT: "3000"
+      GF_SERVER_DOMAIN: ${PRL_OPS_HOST:?Set a distinct operations HTTPS hostname}
+      GF_SERVER_ROOT_URL: ${PRL_OPS_ORIGIN:?Set the operations HTTPS origin}/
+      GF_SERVER_ENFORCE_DOMAIN: "true"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "false"
+      GF_SERVER_ENABLE_GZIP: "true"
+      GF_LIVE_ALLOWED_ORIGINS: ${PRL_OPS_ORIGIN:?Set the operations HTTPS origin}
+      GF_SECURITY_ADMIN_USER__FILE: /run/secrets/grafana-admin-user
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana-admin-password
+      GF_SECURITY_COOKIE_SECURE: "true"
+      GF_SECURITY_COOKIE_HTTPONLY: "true"
+      GF_SECURITY_COOKIE_SAMESITE: strict
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_AUTH_BASIC_ENABLED: "true"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_LOG_MODE: console
+      GF_LOG_LEVEL: warn
+    read_only: true
+    tmpfs: ["/tmp:size=32m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ../infra/grafana-datasources.yml:/etc/grafana/provisioning/datasources/prl.yml:ro
+      - type: bind
+        source: ${PRL_GRAFANA_ADMIN_USER_FILE:?Set an external Grafana administrator username file}
+        target: /run/secrets/grafana-admin-user
+        read_only: true
+        bind: { create_host_path: false }
+      - type: bind
+        source: ${PRL_GRAFANA_ADMIN_PASSWORD_FILE:?Set an external Grafana administrator password file}
+        target: /run/secrets/grafana-admin-password
+        read_only: true
+        bind: { create_host_path: false }
+    networks: [telemetry, ops_grafana]
+    restart: on-failure:3
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 128
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }
+
+  alertmanager:
+    image: prom/alertmanager:v0.34.1@sha256:e9733bafb1bdef9b00e25a21f8f99dc26a22224bf16641ad754d1649f4c3357a
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    read_only: true
+    tmpfs: ["/tmp:size=8m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - ../infra/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    networks: [telemetry]
+    restart: on-failure:3
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 64
+    stop_grace_period: 15s
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }
+
+  local_alert_receiver:
+    image: prl-backend:${PRL_IMAGE_TAG:-local}
+    command: [python, -m, app.observability.alert_receiver]
+    user: "10001:10001"
+    init: true
+    read_only: true
+    tmpfs: ["/tmp:size=8m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      PRL_EXPECTED_WORKER_SLOTS: ${PRL_EXPECTED_WORKER_SLOTS:-1}
+    networks: [telemetry]
+    restart: on-failure:3
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 64
+    stop_grace_period: 5s
+    logging:
+      driver: json-file
+      options: { max-size: 1m, max-file: "2" }
+
+networks:
+  telemetry:
+    internal: true
+  ops_grafana:
+    internal: true
+
+volumes:
+  gateway_logs:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=64m,uid=101,gid=101,mode=1770
+  collector_file_storage: {}
+  prometheus_data: {}
+  loki_data: {}
+  tempo_data: {}
+  grafana_data: {}
+  alertmanager_data: {}
