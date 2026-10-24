@@ -13,6 +13,7 @@ WRITE_PATHS = [
     f"/api/v1/appointments/{APPOINTMENT}/cancel",
     f"/api/v1/staff/me/appointments/{APPOINTMENT}/cancel",
     f"/api/v1/staff/me/appointments/{APPOINTMENT}/outcome",
+    f"/api/v1/notifications/{APPOINTMENT}/read",
     "/api/v1/auth/logout",
 ]
 
@@ -65,6 +66,7 @@ async def test_oversized_unauthenticated_posts_never_reach_json_parser(
     [
         ("/api/v1/appointments", 32767, 401),
         ("/api/v1/appointments", 32768, 401),
+        (f"/api/v1/notifications/{APPOINTMENT}/read", 32768, 401),
         ("/api/v1/auth/logout", 32767, 204),
         ("/api/v1/auth/logout", 32768, 204),
         ("/api/v1/auth/login", 4095, 422),

@@ -85,3 +85,12 @@ def _register_staff_context() -> None:
 
 
 _register_staff_context()
+
+
+def _register_notifications() -> None:
+    from app.api.notifications import router
+
+    api_v1_router.include_router(router)
+
+
+_register_notifications()

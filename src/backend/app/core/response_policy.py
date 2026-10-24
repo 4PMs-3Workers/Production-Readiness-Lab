@@ -7,6 +7,7 @@ CATALOG_PATHS = frozenset(
     {"/api/v1/purposes", "/api/v1/staff", "/api/v1/availability", "/api/v1/booking-context"}
 )
 APPOINTMENT_COLLECTION_PATH = "/api/v1/appointments"
+NOTIFICATION_COLLECTION_PATH = "/api/v1/notifications"
 STUDENT_PROFILE_PATH = "/api/v1/students/me"
 STAFF_APPOINTMENT_PREFIX = "/api/v1/staff/me/appointments"
 STAFF_CONTEXT_PATH = "/api/v1/staff/me/context"
@@ -29,6 +30,15 @@ def is_appointment_path(scope: Scope) -> bool:
         return False
     path = get_route_path(scope).rstrip("/") or "/"
     return path == APPOINTMENT_COLLECTION_PATH or path.startswith(APPOINTMENT_COLLECTION_PATH + "/")
+
+
+def is_notification_path(scope: Scope) -> bool:
+    if scope["type"] != "http":
+        return False
+    path = get_route_path(scope).rstrip("/") or "/"
+    return path == NOTIFICATION_COLLECTION_PATH or path.startswith(
+        NOTIFICATION_COLLECTION_PATH + "/"
+    )
 
 
 def is_staff_appointment_path(scope: Scope) -> bool:
@@ -57,6 +67,7 @@ def uses_private_api_middleware(scope: Scope) -> bool:
     return (
         is_catalog_path(scope)
         or is_appointment_path(scope)
+        or is_notification_path(scope)
         or is_student_profile_path(scope)
         or is_staff_appointment_path(scope)
         or is_staff_configuration_path(scope)
@@ -71,6 +82,7 @@ def requires_request_deadline(scope: Scope) -> bool:
     return (
         ((is_catalog_path(scope) or is_student_profile_path(scope)) and method == "GET")
         or (is_appointment_path(scope) and method in {"GET", "POST"})
+        or (is_notification_path(scope) and method in {"GET", "POST"})
         or (is_staff_appointment_path(scope) and method in {"GET", "POST"})
         or (is_staff_configuration_path(scope) and method in {"GET", "PUT", "POST", "DELETE"})
         or (is_staff_context_path(scope) and method == "GET")

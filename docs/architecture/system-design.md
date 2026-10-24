@@ -268,6 +268,16 @@ khi hiển thị/tải thêm. Slot availability chỉ có `starts_at` và `ends_
 slot ID ổn định hoặc địa điểm. Kết quả availability là preview có thể thay đổi; thao tác
 booking sau này phải kiểm tra lại quyền, quota và xung đột trong transaction trước khi ghi.
 
+Inbox dùng `GET /api/v1/notifications` với `page`, `page_size` (tối đa 100) và `unread_only`,
+trả `items`, metadata trang và `total` theo thứ tự `created_at DESC, id DESC`. STUDENT/STAFF
+chỉ đọc notification có recipient ID khớp phiên; link lịch được kiểm tra lại theo student
+ownership hoặc staff assignment hiện tại. ADMIN không có quyền ngầm định. `POST
+/api/v1/notifications/{id}/read` cần same-origin và signed CSRF; conditional update giữ nguyên
+`read_at` đã có. ID thiếu/ngoài phạm vi cùng trả `404`; event type lạ hoặc lịch không còn
+được phép xem chỉ có summary chung, không có link. Inbox chỉ trả summary allowlist, không
+trả consultation text. Mọi response là `private, no-store`; khi commit chưa rõ kết quả, service
+đọc lại trạng thái đã commit trước khi retry.
+
 Booking context trả ngày nghiệp vụ theo timezone trong service_settings, ngày đặt nhỏ nhất
 D+1 và ngày lớn nhất D+booking_horizon_days, đều bao gồm biên. Cùng một hàm ngày dùng để
 hiển thị cửa sổ và xác thực booking; cấu hình thiếu hoặc sai trả lỗi dịch vụ đã sanitize. Lịch

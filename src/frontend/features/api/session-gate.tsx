@@ -16,7 +16,14 @@ export function safeReturnPath(value: string | null): string {
   )
     return '/home';
   const path = value.split(/[?#]/)[0];
-  return ['/home', '/profile', '/booking', '/booking/result', '/appointments'].includes(path) ||
+  return [
+    '/home',
+    '/profile',
+    '/booking',
+    '/booking/result',
+    '/appointments',
+    '/notifications',
+  ].includes(path) ||
     /^\/appointments\/[a-zA-Z0-9-]+$/.test(path) ||
     ['/staff/appointments', '/staff/preferences', '/staff/unavailability'].includes(path) ||
     /^\/staff\/appointments\/[a-zA-Z0-9-]+$/.test(path)
