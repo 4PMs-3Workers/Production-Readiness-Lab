@@ -18,6 +18,7 @@ from urllib.parse import urlencode, urlparse
 from uuid import uuid4
 
 import pytest
+import yaml
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -53,6 +54,7 @@ OPS_PROBE_STAGES = (
     "datasources",
     "ops_business",
     "ops_health",
+    "dashboards",
 )
 OPS_PROBE_RESPONSE_KINDS = {"dict", "list", "null", "scalar", "invalid", "unavailable"}
 OPS_PROBE_FAILURE_CATEGORIES = {
@@ -71,6 +73,13 @@ OPS_PROBE_FAILURE_CATEGORIES = {
     "unclassified_failure",
 }
 OPS_PROBE_DATASOURCE_UIDS = {"prl-loki", "prl-prometheus", "prl-tempo"}
+OPS_PROBE_DASHBOARD_UIDS = {
+    "prl-gateway",
+    "prl-api-errors",
+    "prl-db-pool",
+    "prl-worker-progress",
+    "prl-telemetry-loss",
+}
 RECEIVER_HEALTH_TARGETS = frozenset(
     {"alertmanager", "collector", "grafana", "loki", "prometheus", "tempo"}
 )
@@ -544,6 +553,7 @@ def safe_ops_probe_result_summary(result: object) -> dict[str, object]:
         "unauth_org",
         "admin_org",
         "datasource_status",
+        "dashboard_status",
         "ops_business_status",
         "ops_health_status",
         "spoofed_forwarded_status",
@@ -558,6 +568,18 @@ def safe_ops_probe_result_summary(result: object) -> dict[str, object]:
         else []
     )
     summary["datasource_uids"] = uids
+    summary["trace_link_config_ok"] = result.get("trace_link_config_ok") is True
+    summary["tempo_trace_filter_config_ok"] = result.get("tempo_trace_filter_config_ok") is True
+    raw_dashboard_uids = result.get("dashboard_uids")
+    summary["dashboard_uids"] = (
+        sorted(
+            uid
+            for uid in raw_dashboard_uids
+            if isinstance(uid, str) and uid in OPS_PROBE_DASHBOARD_UIDS
+        )
+        if isinstance(raw_dashboard_uids, list)
+        else []
+    )
     for field in ("datasource_unknown_uid_count", "datasource_malformed_item_count"):
         value = result.get(field)
         summary[field] = value if type(value) is int and 0 <= value <= 1000 else None
@@ -1572,6 +1594,401 @@ class FullStackRuntime:
         except json.JSONDecodeError:
             raise AcceptanceFailure("A telemetry API returned invalid JSON") from None
 
+    def api_status(self, url: str, *, method: str, body: object) -> int | None:
+        script = (
+            "import json,sys,urllib.request,urllib.error\n"
+            "url,method,raw=sys.argv[1:4]; data=raw.encode()\n"
+            "req=urllib.request.Request(url,data=data,method=method,headers={'Content-Type':'application/json'})\n"
+            "status=None\n"
+            "try:\n"
+            " with urllib.request.urlopen(req,timeout=5) as response:\n"
+            "  status=response.status\n"
+            "except urllib.error.HTTPError as exc:\n status=exc.code\n"
+            "except (OSError,urllib.error.URLError,TimeoutError):\n status=None\n"
+            "print(json.dumps({'status':status},separators=(',',':')))"
+        )
+        result = acceptance_invoke(
+            [
+                "docker",
+                "exec",
+                self.api_id,
+                "python",
+                "-c",
+                script,
+                url,
+                method,
+                json.dumps(body, separators=(",", ":")),
+            ],
+            timeout=15,
+        )
+        if result.returncode:
+            raise AcceptanceFailure("A bounded in-stack status request failed")
+        try:
+            status = json.loads(result.stdout).get("status")
+        except (json.JSONDecodeError, AttributeError):
+            raise AcceptanceFailure(
+                "A bounded in-stack status request returned invalid data"
+            ) from None
+        return status if type(status) is int else None
+
+    def loki_scalar(self, expression: str) -> float | None:
+        response = self.api_json(
+            "http://loki:3100/loki/api/v1/query?" + urlencode({"query": expression})
+        )
+        if response.get("status") != "success":
+            raise AcceptanceFailure("The pinned Loki query API returned a non-success result")
+        samples = response.get("data", {}).get("result", [])
+        if not isinstance(samples, list):
+            raise AcceptanceFailure("The pinned Loki query API returned an invalid vector")
+        if not samples:
+            return None
+        if len(samples) != 1:
+            raise AcceptanceFailure("A global Task 7 SLI query returned multiple series")
+        value = samples[0].get("value")
+        try:
+            scalar = float(value[1])
+        except (TypeError, ValueError, IndexError):
+            raise AcceptanceFailure(
+                "A pinned Loki SLI query returned a nonnumeric sample"
+            ) from None
+        if not math.isfinite(scalar):
+            raise AcceptanceFailure("A pinned Loki SLI query returned a nonfinite sample")
+        return scalar
+
+    def push_gateway_json_logs(self, entries: list[dict[str, object]]) -> None:
+        for offset in range(0, len(entries), 50):
+            now = time.time_ns()
+            batch = entries[offset : offset + 50]
+            values = [
+                [str(now + index * 1_000_000), json.dumps(entry, separators=(",", ":"))]
+                for index, entry in enumerate(batch)
+            ]
+            status = self.api_status(
+                "http://loki:3100/loki/api/v1/push",
+                method="POST",
+                body={
+                    "streams": [
+                        {
+                            "stream": {
+                                "service_name": "gateway",
+                                "deployment_environment_name": "demo",
+                            },
+                            "values": values,
+                        }
+                    ]
+                },
+            )
+            if status not in {200, 204}:
+                raise AcceptanceFailure(
+                    "The pinned Loki push API rejected bounded gateway test events"
+                )
+
+    def gateway_sli_truth_table(self) -> dict[str, object]:
+        document = yaml.safe_load(
+            (ROOT / "tools/infra/loki-rules/fake/gateway-sli.yml").read_text(encoding="utf-8")
+        )
+        recordings = {
+            rule["record"]: rule["expr"]
+            for group in document["groups"]
+            for rule in group["rules"]
+            if "record" in rule
+        }
+        alert_expressions = {
+            rule["alert"]: rule["expr"]
+            for group in document["groups"]
+            for rule in group["rules"]
+            if "alert" in rule
+        }
+        events: list[dict[str, object]] = []
+        for index in range(100):
+            events.append(
+                {
+                    "event": "gateway.request",
+                    "classification": "success",
+                    "route": "/__task7_alert_fixture",
+                    "duration_seconds": 0.25 if index < 85 else 0.75,
+                }
+            )
+        cohort = "/__task7_sli_truth"
+        for duration in [0.1] * 16 + [0.500, 0.501]:
+            events.append(
+                {
+                    "event": "gateway.request",
+                    "classification": "success",
+                    "route": cohort,
+                    "duration_seconds": duration,
+                }
+            )
+        for route, count in ((cohort, 2), ("/__task7_all_errors", 2)):
+            events.extend(
+                {
+                    "event": "gateway.request",
+                    "classification": "service_failure",
+                    "route": route,
+                    "duration_seconds": 0.2,
+                }
+                for _ in range(count)
+            )
+        for route, count in (("/__task7_all_slow", 20), ("/__task7_sub20", 19)):
+            events.extend(
+                {
+                    "event": "gateway.request",
+                    "classification": "success",
+                    "route": route,
+                    "duration_seconds": 0.75,
+                }
+                for _ in range(count)
+            )
+        events.extend(
+            {
+                "event": "gateway.request",
+                "classification": "success",
+                "route": "/__task7_recovered",
+                "duration_seconds": 0.25,
+            }
+            for _ in range(20)
+        )
+        events.append(
+            {
+                "event": "gateway.request",
+                "classification": "out_of_scope",
+                "route": "/__task7_excluded_only",
+                "duration_seconds": 0.1,
+            }
+        )
+        self.push_gateway_json_logs(events)
+
+        def filter_expression(expression: str, route: str) -> str:
+            marker = "| keep event, classification, route"
+            if marker not in expression:
+                raise AcceptanceFailure("A Task 7 SLI query lost its finite field projection")
+            return expression.replace(marker, f'| route="{route}" {marker}')
+
+        def route_query(name: str, route: str) -> float | None:
+            return self.loki_scalar(filter_expression(recordings[name], route))
+
+        def route_alert_query(name: str, route: str) -> float | None:
+            return self.loki_scalar(filter_expression(alert_expressions[name], route))
+
+        availability = route_query("prl:gateway_availability:ratio5m", cohort)
+        fast_success = route_query("prl:gateway_fast_success:ratio5m", cohort)
+        all_errors_availability = route_query(
+            "prl:gateway_availability:ratio5m", "/__task7_all_errors"
+        )
+        all_errors_fast = route_query("prl:gateway_fast_success:ratio5m", "/__task7_all_errors")
+        excluded_only = route_query("prl:gateway_availability:ratio5m", "/__task7_excluded_only")
+        empty = route_query("prl:gateway_availability:ratio5m", "/__task7_empty")
+        all_slow_successful_requests = route_query(
+            "prl:gateway_successful_requests:sum5m", "/__task7_all_slow"
+        )
+        all_slow_success_ratio = route_query(
+            "prl:gateway_fast_success:ratio5m", "/__task7_all_slow"
+        )
+        all_slow_alert_predicate = route_alert_query(
+            "GatewayFastSuccessBelowSLO", "/__task7_all_slow"
+        )
+        all_errors_alert_predicate = route_alert_query(
+            "GatewayFastSuccessBelowSLO", "/__task7_all_errors"
+        )
+        sub20_alert_predicate = route_alert_query("GatewayFastSuccessBelowSLO", "/__task7_sub20")
+        recovered_alert_predicate = route_alert_query(
+            "GatewayFastSuccessBelowSLO", "/__task7_recovered"
+        )
+        healthcheck_count = self.loki_scalar(recordings["prl:gateway_healthcheck:count1m"])
+        fast_alert_predicate = self.loki_scalar(alert_expressions["GatewayFastSuccessBelowSLO"])
+        all_slow_alert_present = all_slow_alert_predicate is not None
+        sub20_alert_suppressed = sub20_alert_predicate is None
+        recovered_alert_suppressed = recovered_alert_predicate is None
+        if (
+            availability is None
+            or not math.isclose(availability, 0.9, rel_tol=1e-6)
+            or fast_success is None
+            or not math.isclose(fast_success, 17 / 18, rel_tol=1e-6)
+            or all_errors_availability is None
+            or not math.isclose(all_errors_availability, 0.0, abs_tol=1e-9)
+            or all_errors_fast is not None
+            or excluded_only is not None
+            or empty is not None
+            or healthcheck_count is None
+            or healthcheck_count < 1
+            or fast_alert_predicate is None
+            or not 0 < fast_alert_predicate < 0.95
+            or all_slow_successful_requests is None
+            or not math.isclose(all_slow_successful_requests, 20.0, abs_tol=1e-9)
+            or all_slow_success_ratio is None
+            or not math.isclose(all_slow_success_ratio, 0.0, abs_tol=1e-9)
+            or not all_slow_alert_present
+            or not math.isclose(all_slow_alert_predicate, 0.0, abs_tol=1e-9)
+            or all_errors_alert_predicate is not None
+            or not sub20_alert_suppressed
+            or not recovered_alert_suppressed
+        ):
+            raise AcceptanceFailure("Pinned Loki SLI queries failed a required truth-table case")
+        return {
+            "availability_success_over_eligible": round(availability, 6),
+            "fast_success_inclusive_500ms": round(fast_success, 6),
+            "all_errors_availability_zero": round(all_errors_availability, 6),
+            "all_errors_fast_success_has_data": all_errors_fast is not None,
+            "excluded_only_has_data": excluded_only is not None,
+            "empty_eligible_window_has_data": empty is not None,
+            "genuine_gateway_healthchecks_in_1m": int(healthcheck_count),
+            "fast_success_alert_predicate_value": round(fast_alert_predicate, 6),
+            "all_slow_successful_requests": int(all_slow_successful_requests),
+            "all_slow_success_ratio": round(all_slow_success_ratio, 6),
+            "all_slow_alert_predicate": round(all_slow_alert_predicate, 6),
+            "all_slow_alert_present": all_slow_alert_present,
+            "all_errors_alert_predicate": all_errors_alert_predicate,
+            "sub20_alert_predicate": sub20_alert_predicate,
+            "sub20_alert_suppressed": sub20_alert_suppressed,
+            "recovered_alert_predicate": recovered_alert_predicate,
+            "recovered_alert_suppressed": recovered_alert_suppressed,
+            "pushed_gateway_json_events": len(events),
+        }
+
+    def alert_receiver_statuses(self, name: str) -> list[dict[str, str]]:
+        records = self.api_json("http://local_alert_receiver:8088/alerts").get("alerts", [])
+        matching = [
+            {"status": item["status"], "severity": item["severity"]}
+            for item in records
+            if isinstance(item, dict) and item.get("alertname") == name
+        ]
+        if any(
+            item["status"] not in {"firing", "resolved"}
+            or item["severity"] not in {"critical", "warning", "info"}
+            for item in matching
+        ):
+            raise AcceptanceFailure("The local receiver returned an invalid rule alert summary")
+        return matching
+
+    def worker_dashboard_metric_inventory(self) -> dict[str, object]:
+        names_response = self.api_json("http://prometheus:9090/api/v1/label/__name__/values")
+        names = set(names_response.get("data", []))
+        expected_worker_gauges = {
+            "prl_db_pool_checked_out_ratio",
+            "prl_db_pool_idle_ratio",
+            "prl_db_pool_overflow_ratio",
+            "prl_telemetry_queue_capacity_ratio",
+            "prl_telemetry_queue_size_ratio",
+        }
+        expected_api_gauges = {
+            "prl_db_pool_checked_out",
+            "prl_db_pool_idle",
+            "prl_db_pool_overflow",
+            "prl_telemetry_queue_capacity",
+            "prl_telemetry_queue_size",
+        }
+        if not expected_worker_gauges <= names or not expected_api_gauges <= names:
+            raise AcceptanceFailure(
+                "The actual API/worker gauge names differ from Task 6 exposition"
+            )
+        verified_worker: dict[str, list[str]] = {}
+        for metric_name in sorted(expected_worker_gauges):
+            samples = (
+                self.api_json(
+                    "http://prometheus:9090/api/v1/query?" + urlencode({"query": metric_name})
+                )
+                .get("data", {})
+                .get("result", [])
+            )
+            matches = [
+                sample.get("metric", {})
+                for sample in samples
+                if sample.get("metric", {}).get("service_name") == "worker"
+                and sample.get("metric", {}).get("deployment_environment_name") == "demo"
+                and sample.get("metric", {}).get("worker_slot") == "1"
+            ]
+            if not matches:
+                raise AcceptanceFailure(
+                    "A worker dashboard gauge lacked its actual finite slot labels"
+                )
+            verified_worker[metric_name] = sorted(matches[0])
+        observed_runtime_counters = sorted(
+            name
+            for name in (
+                "prl_telemetry_exported_total",
+                "prl_telemetry_failed_total",
+                "prl_telemetry_dropped_total",
+            )
+            if name in names
+        )
+        if "prl_telemetry_exported_total" not in observed_runtime_counters:
+            raise AcceptanceFailure("The worker runtime export counter was absent from Prometheus")
+        collector_loss_families = {
+            f"otelcol_{stage}_{kind}"
+            for stage in (
+                "receiver_refused",
+                "receiver_failed",
+                "exporter_enqueue_failed",
+                "exporter_send_failed",
+            )
+            for kind in ("log_records", "metric_points", "spans")
+        }
+        collector_config = yaml.safe_load(
+            (ROOT / "tools/infra/otel-collector.yaml").read_text(encoding="utf-8")
+        )
+        observed_collector_loss_families = []
+        collector_loss_counter_sample_labels: dict[str, list[str]] = {}
+        collector_loss_counter_source_values: dict[str, list[str]] = {}
+        for metric_name in sorted(collector_loss_families & names):
+            samples = (
+                self.api_json(
+                    "http://prometheus:9090/api/v1/query?" + urlencode({"query": metric_name})
+                )
+                .get("data", {})
+                .get("result", [])
+            )
+            matching = [
+                sample.get("metric", {})
+                for sample in samples
+                if sample.get("metric", {}).get("job") == "collector"
+            ]
+            if not matching:
+                continue
+            source_dimension = (
+                "receiver" if metric_name.startswith("otelcol_receiver_") else "exporter"
+            )
+            if any(source_dimension not in labels for labels in matching):
+                raise AcceptanceFailure(
+                    "An observed Collector loss counter lacked its finite source label"
+                )
+            if any(
+                {"request_id", "run_id", "trace_id", "span_id"} & set(labels) for labels in matching
+            ):
+                raise AcceptanceFailure(
+                    "An observed Collector loss counter included a continuous identity label"
+                )
+            configured_components = set(
+                collector_config["receivers" if source_dimension == "receiver" else "exporters"]
+            )
+            source_values = sorted({str(labels[source_dimension]) for labels in matching})
+            if not set(source_values) <= configured_components:
+                raise AcceptanceFailure(
+                    "An observed Collector loss source label exceeded configured components"
+                )
+            observed_collector_loss_families.append(metric_name)
+            collector_loss_counter_sample_labels[metric_name] = sorted(
+                {key for labels in matching for key in labels}
+            )
+            collector_loss_counter_source_values[metric_name] = source_values
+        absent_collector_loss_families = sorted(
+            collector_loss_families - set(observed_collector_loss_families)
+        )
+        return {
+            "worker_gauges": verified_worker,
+            "api_direct_gauge_names": sorted(expected_api_gauges),
+            "worker_runtime_counter_families_observed": observed_runtime_counters,
+            "collector_loss_counter_families_observed": observed_collector_loss_families,
+            "collector_loss_counter_families_absent_or_unmaterialized": (
+                absent_collector_loss_families
+            ),
+            "collector_loss_counter_sample_labels": collector_loss_counter_sample_labels,
+            "collector_loss_counter_source_values": collector_loss_counter_source_values,
+            "collector_loss_counter_absence_semantics": (
+                "A missing family can be zero or unmaterialized; it is not proof of zero loss. "
+                "Use Collector target health and family presence together."
+            ),
+        }
+
     def api_json_observation(self, url: str) -> dict[str, object]:
         script = (
             "import json,sys,urllib.request,urllib.error\n"
@@ -1765,14 +2182,16 @@ class FullStackRuntime:
             for stage in (
                 "receiver_accepted",
                 "receiver_refused",
+                "receiver_failed",
                 "exporter_sent",
+                "exporter_enqueue_failed",
                 "exporter_send_failed",
             )
-            for kind in ("log_records", "spans")
+            for kind in ("log_records", "metric_points", "spans")
         }
         selector = (
-            '{__name__=~"otelcol_(receiver_(accepted|refused)|'
-            'exporter_(sent|send_failed))_(log_records|spans)"}'
+            '{__name__=~"otelcol_(receiver_(accepted|refused|failed)|'
+            'exporter_(sent|enqueue_failed|send_failed))_(log_records|metric_points|spans)"}'
         )
         query = "http://prometheus:9090/api/v1/query?" + urlencode({"query": selector})
         observation = self.api_json_observation(query)
@@ -2382,6 +2801,7 @@ health, _ = request("health", "/api/health")
 unauthenticated, _ = request("anonymous_org", "/api/org")
 admin_status, _ = request("admin_org", "/api/org", True)
 datasource_status, datasources = request("datasources", "/api/datasources", True)
+dashboard_status, dashboards = request("dashboards", "/api/search?type=dash-db", True)
 ops_business, _ = request("ops_business", "/api/v1/health-shaped", False)
 ops_health, _ = request("ops_health", "/health/gateway", False)
 
@@ -2401,6 +2821,36 @@ if isinstance(datasources, list):
         else:
             malformed_item_count += 1
 
+dashboard_uids = sorted(
+    item.get("uid") for item in dashboards
+    if isinstance(dashboards, list) and isinstance(item, dict)
+    and isinstance(item.get("uid"), str) and item.get("uid") in {
+        "prl-gateway", "prl-api-errors", "prl-db-pool", "prl-worker-progress", "prl-telemetry-loss"
+    }
+)
+loki_source = next(
+    (item for item in datasources if isinstance(item, dict) and item.get("uid") == "prl-loki"),
+    {},
+) if isinstance(datasources, list) else {}
+tempo_source = next(
+    (item for item in datasources if isinstance(item, dict) and item.get("uid") == "prl-tempo"),
+    {},
+) if isinstance(datasources, list) else {}
+trace_link_config_ok = any(
+    isinstance(field, dict)
+    and field.get("name") == "TraceID"
+    and field.get("matcherType") == "label"
+    and field.get("matcherRegex") == "^trace_id$"
+    and field.get("datasourceUid") == "prl-tempo"
+    and field.get("url") == "$" + "{__value.raw}"
+    and field.get("urlDisplayLabel") == "View trace"
+    for field in (loki_source.get("jsonData") or {}).get("derivedFields", [])
+)
+tempo_trace_settings = (tempo_source.get("jsonData") or {}).get("tracesToLogsV2", {})
+tempo_trace_filter_config_ok = (
+    tempo_trace_settings.get("datasourceUid") == "prl-loki"
+    and tempo_trace_settings.get("filterByTraceID") is True
+)
 tls_categories = {"certificate_validation", "tls_error"}
 tls_errors = failure_categories & tls_categories
 print("TASK6_PROBE:" + json.dumps({
@@ -2409,6 +2859,10 @@ print("TASK6_PROBE:" + json.dumps({
     "admin_org": admin_status,
     "datasource_status": datasource_status,
     "datasource_uids": sorted(datasource_uids),
+    "trace_link_config_ok": trace_link_config_ok,
+    "tempo_trace_filter_config_ok": tempo_trace_filter_config_ok,
+    "dashboard_status": dashboard_status,
+    "dashboard_uids": dashboard_uids,
     "datasource_unknown_uid_count": unknown_uid_count,
     "datasource_malformed_item_count": malformed_item_count,
     "ops_business_status": ops_business,
@@ -3103,6 +3557,8 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         evidence["project"] = runtime.stack.project
         evidence["source_sha"] = runtime.stack.expected_sha
         evidence["target_matrix"] = runtime.wait_targets()
+        failure_context["stage"] = "gateway_sli_queries_against_pinned_loki"
+        evidence["gateway_sli_truth_table"] = runtime.gateway_sli_truth_table()
         expected_backend_image = "prl-backend:" + runtime.stack.image_tag
         expected_frontend_image = "prl-frontend:" + runtime.stack.image_tag
         if (
@@ -3290,6 +3746,7 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         evidence["worker_metric_names"] = selected_names
         evidence["worker_series_schema"] = runtime.worker_series_schema()
         evidence["target_info_label_schema"] = runtime.target_info_schema
+        evidence["worker_dashboard_metric_inventory"] = runtime.worker_dashboard_metric_inventory()
         receiver_series = (
             runtime.api_json(
                 "http://prometheus:9090/api/v1/query?"
@@ -3392,11 +3849,16 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             or positive.get("unauth_org") != 401
             or positive.get("admin_org") != 200
             or positive.get("datasource_status") != 200
+            or positive.get("dashboard_status") != 200
             or positive.get("datasource_uids") != ["prl-loki", "prl-prometheus", "prl-tempo"]
+            or positive.get("dashboard_uids") != sorted(OPS_PROBE_DASHBOARD_UIDS)
+            or positive.get("trace_link_config_ok") is not True
+            or positive.get("tempo_trace_filter_config_ok") is not True
             or positive.get("datasource_unknown_uid_count") != 0
             or positive.get("datasource_malformed_item_count") != 0
             or set(stage_observations) != set(OPS_PROBE_STAGES)
             or stage_observations.get("datasources", {}).get("json_kind") != "list"
+            or stage_observations.get("dashboards", {}).get("json_kind") != "list"
         ):
             raise AcceptanceFailure(
                 "The verified OPS HTTPS/auth/datasource probe failed: "
@@ -3439,6 +3901,9 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             "anonymous_org": positive["unauth_org"],
             "authenticated_admin_org": positive["admin_org"],
             "datasources": positive["datasource_uids"],
+            "dashboards": positive["dashboard_uids"],
+            "loki_trace_metadata_derived_field": positive["trace_link_config_ok"],
+            "tempo_to_loki_trace_filter": positive["tempo_trace_filter_config_ok"],
             "anonymous_auth_disabled": True,
             "signup_disabled": True,
         }
@@ -3456,6 +3921,113 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         if not receiver_health_is_passed(health):
             raise AcceptanceFailure("The receiver did not observe the telemetry backends healthy")
         evidence["receiver_self_health"] = health
+
+        failure_context["stage"] = "gateway_rule_notification_firing"
+
+        def gateway_rule_firing_received() -> bool:
+            return any(
+                item["status"] == "firing" and item["severity"] == "warning"
+                for item in runtime.alert_receiver_statuses("GatewayFastSuccessBelowSLO")
+            )
+
+        runtime.stack.wait_for(
+            gateway_rule_firing_received,
+            seconds=180,
+            failure="The pinned Loki ruler did not deliver the real gateway SLI alert",
+        )
+        evidence["gateway_rule_firing"] = {
+            "alertname": "GatewayFastSuccessBelowSLO",
+            "status": "firing",
+        }
+
+        rules_document = yaml.safe_load(
+            (ROOT / "tools/infra/loki-rules/fake/gateway-sli.yml").read_text(encoding="utf-8")
+        )
+        recordings = {
+            rule["record"]: rule["expr"]
+            for group in rules_document["groups"]
+            for rule in group["rules"]
+            if "record" in rule
+        }
+        alert_expression = next(
+            rule["expr"]
+            for group in rules_document["groups"]
+            for rule in group["rules"]
+            if rule.get("alert") == "GatewayFastSuccessBelowSLO"
+        )
+        success_expression = recordings["prl:gateway_successful_requests:sum5m"]
+        fast_count_expression = recordings["prl:gateway_fast_successful_requests:sum5m"]
+        ratio_expression = recordings["prl:gateway_fast_success:ratio5m"]
+        success_count = runtime.loki_scalar(success_expression)
+        fast_count = runtime.loki_scalar(fast_count_expression)
+        current_ratio = runtime.loki_scalar(ratio_expression)
+        current_predicate = runtime.loki_scalar(alert_expression)
+        evidence["gateway_rule_pre_recovery_query"] = {
+            "successful_requests": success_count,
+            "fast_successful_requests": fast_count,
+            "fast_success_ratio": current_ratio,
+            "exact_alert_predicate": current_predicate,
+        }
+        if (
+            success_count is None
+            or success_count < 20
+            or fast_count is None
+            or current_ratio is None
+            or current_ratio >= 0.95
+            or current_predicate is None
+        ):
+            raise AcceptanceFailure("The live gateway SLI did not meet the firing truth table")
+        healthy_needed = math.floor(max(0.0, 0.95 * success_count - fast_count) / 0.05) + 101
+        if not 1 <= healthy_needed <= 5000:
+            raise AcceptanceFailure("The calculated bounded recovery fixture exceeded its cap")
+        recovery_events = [
+            {
+                "event": "gateway.request",
+                "classification": "success",
+                "route": "/__task7_recovery",
+                "duration_seconds": 0.2,
+            }
+            for _ in range(healthy_needed)
+        ]
+        runtime.push_gateway_json_logs(recovery_events)
+        recovered_success_count = runtime.loki_scalar(success_expression)
+        recovered_fast_count = runtime.loki_scalar(fast_count_expression)
+        recovered_ratio = runtime.loki_scalar(ratio_expression)
+        recovered_predicate = runtime.loki_scalar(alert_expression)
+        evidence["recovery_query_validation"] = {
+            "successful_requests": recovered_success_count,
+            "fast_successful_requests": recovered_fast_count,
+            "fast_success_ratio": recovered_ratio,
+            "exact_alert_predicate": recovered_predicate,
+            "healthy_success_events_pushed": healthy_needed,
+        }
+        if (
+            recovered_success_count is None
+            or recovered_fast_count is None
+            or recovered_ratio is None
+            or recovered_ratio <= 0.95
+            or recovered_predicate is not None
+        ):
+            raise AcceptanceFailure("The recovery fixture did not clear the live gateway SLI")
+        failure_context["stage"] = "gateway_rule_notification_resolved"
+
+        def gateway_rule_resolved_received() -> bool:
+            return any(
+                item["status"] == "resolved" and item["severity"] == "warning"
+                for item in runtime.alert_receiver_statuses("GatewayFastSuccessBelowSLO")
+            )
+
+        runtime.stack.wait_for(
+            gateway_rule_resolved_received,
+            seconds=90,
+            failure="The local receiver did not receive the resolved gateway SLI alert",
+        )
+        evidence["gateway_rule_resolved"] = {
+            "alertname": "GatewayFastSuccessBelowSLO",
+            "status": "resolved",
+            "healthy_success_events": len(recovery_events),
+            "observed_recovery_ratio": recovered_ratio,
+        }
         evidence["alert_summaries"] = runtime.synthetic_alert_summaries()
 
         health_logs = []
@@ -3636,3 +4208,404 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                     )
                 )
         runtime.cleanup()
+
+
+@pytest.mark.skipif(
+    not _full_stack_enabled(),
+    reason="requires all five opt-in Compose runtime gates",
+)
+def test_gateway_alert_resolution_runtime_diagnostic(tmp_path: Path) -> None:
+    """Exercise the pinned Loki-to-Alertmanager-to-receiver transition in isolation."""
+    runtime = FullStackRuntime(tmp_path, use_acceptance_token=False)
+    evidence: dict[str, object] = {
+        "project": runtime.stack.project,
+        "source_sha": runtime.stack.expected_sha,
+        "started_at_utc": datetime.now(UTC).isoformat(timespec="milliseconds"),
+        "services": ["loki", "alertmanager", "local_alert_receiver"],
+    }
+    cleanup_succeeded = False
+    image_built = False
+    image_name = f"prl-backend:{runtime.stack.image_tag}"
+
+    def utc_now() -> str:
+        return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+    def query_observation(expression: str) -> dict[str, object]:
+        response = runtime.api_json(
+            "http://loki:3100/loki/api/v1/query?" + urlencode({"query": expression})
+        )
+        if response.get("status") != "success":
+            raise AcceptanceFailure("The pinned Loki diagnostic query did not succeed")
+        samples = response.get("data", {}).get("result", [])
+        if not isinstance(samples, list) or len(samples) > 1:
+            raise AcceptanceFailure("The pinned Loki diagnostic returned an invalid vector")
+        observation: dict[str, object] = {
+            "observed_at_utc": utc_now(),
+            "sample_timestamp": None,
+            "value": None,
+            "sample_count": len(samples),
+        }
+        if samples:
+            sample = samples[0]
+            try:
+                timestamp = str(sample["value"][0])
+                value = float(sample["value"][1])
+            except (KeyError, TypeError, ValueError, IndexError):
+                raise AcceptanceFailure("The Loki diagnostic sample was malformed") from None
+            if not math.isfinite(value):
+                raise AcceptanceFailure("The Loki diagnostic sample was not finite")
+            observation.update(sample_timestamp=timestamp, value=value)
+        return observation
+
+    def selected_rule_state() -> dict[str, object]:
+        endpoint = "http://loki:3100/prometheus/api/v1/rules?type=alert"
+        status = runtime.api_status(endpoint, method="GET", body=None)
+        result: dict[str, object] = {"http_status": status, "observed_at_utc": utc_now()}
+        if status != 200:
+            return result
+        payload = runtime.api_json(endpoint)
+        data = payload.get("data", {}) if isinstance(payload, dict) else {}
+        groups = data.get("groups", []) if isinstance(data, dict) else []
+        for group in groups if isinstance(groups, list) else []:
+            for rule in group.get("rules", []) if isinstance(group, dict) else []:
+                if (
+                    rule.get("name") == "GatewayFastSuccessBelowSLO"
+                    or rule.get("alert") == "GatewayFastSuccessBelowSLO"
+                ):
+                    result["group"] = group.get("name")
+                    result["rule"] = {
+                        key: rule.get(key)
+                        for key in (
+                            "name",
+                            "alert",
+                            "state",
+                            "health",
+                            "lastEvaluation",
+                            "evaluationTime",
+                            "lastError",
+                            "activeAt",
+                        )
+                        if key in rule
+                    }
+                    return result
+        result["rule_not_found"] = True
+        return result
+
+    def selected_loki_alerts() -> dict[str, object]:
+        endpoint = "http://loki:3100/prometheus/api/v1/alerts"
+        status = runtime.api_status(endpoint, method="GET", body=None)
+        result: dict[str, object] = {"http_status": status, "observed_at_utc": utc_now()}
+        if status != 200:
+            return result
+        payload = runtime.api_json(endpoint)
+        data = payload.get("data", {}) if isinstance(payload, dict) else {}
+        alerts = data.get("alerts", []) if isinstance(data, dict) else []
+        result["alerts"] = (
+            [
+                {
+                    key: alert.get(key)
+                    for key in ("labels", "state", "activeAt", "value", "annotations")
+                    if key in alert
+                }
+                for alert in alerts
+                if isinstance(alert, dict)
+                and alert.get("labels", {}).get("alertname") == "GatewayFastSuccessBelowSLO"
+            ]
+            if isinstance(alerts, list)
+            else []
+        )
+        return result
+
+    def selected_alertmanager_alerts() -> list[dict[str, object]]:
+        payload = runtime.api_json("http://alertmanager:9093/api/v2/alerts")
+        return (
+            [
+                {
+                    key: alert.get(key)
+                    for key in ("labels", "status", "startsAt", "endsAt", "receiver", "fingerprint")
+                    if key in alert
+                }
+                for alert in payload
+                if isinstance(alert, dict)
+                and alert.get("labels", {}).get("alertname") == "GatewayFastSuccessBelowSLO"
+            ]
+            if isinstance(payload, list)
+            else []
+        )
+
+    def selected_loki_rule_metrics() -> list[str]:
+        script = (
+            "import json,sys,urllib.request; "
+            "lines=urllib.request.urlopen(sys.argv[1],timeout=5).read().decode().splitlines(); "
+            "items=[line for line in lines if not line.startswith('#') "
+            "and any(token in line.lower() for token in ('rule','ruler','evaluation')) "
+            "and ('gateway-sli-alerts' in line or 'evaluation_failures' in line.lower())]; "
+            "print(json.dumps(items[:80],separators=(',',':')))"
+        )
+        result = acceptance_invoke(
+            [
+                "docker",
+                "exec",
+                runtime.api_id,
+                "python",
+                "-c",
+                script,
+                "http://loki:3100/metrics",
+            ],
+            timeout=15,
+        )
+        if result.returncode:
+            return []
+        try:
+            lines = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return []
+        return [line for line in lines if isinstance(line, str)] if isinstance(lines, list) else []
+
+    def selected_receiver_alerts() -> list[dict[str, str]]:
+        payload = runtime.api_json("http://local_alert_receiver:8088/alerts")
+        alerts = payload.get("alerts", []) if isinstance(payload, dict) else []
+        return (
+            [
+                {key: str(alert[key]) for key in ("alertname", "severity", "status", "received_at")}
+                for alert in alerts
+                if isinstance(alert, dict)
+                and alert.get("alertname") == "GatewayFastSuccessBelowSLO"
+            ]
+            if isinstance(alerts, list)
+            else []
+        )
+
+    def boundary_snapshot() -> dict[str, object]:
+        return {
+            "observed_at_utc": utc_now(),
+            "loki_rule": selected_rule_state(),
+            "loki_alerts": selected_loki_alerts(),
+            "loki_rule_metrics": selected_loki_rule_metrics(),
+            "alertmanager_alerts": selected_alertmanager_alerts(),
+            "receiver_alerts": selected_receiver_alerts(),
+        }
+
+    def wait_receiver_status(status: str, *, timeout: float, interval: float) -> dict[str, object]:
+        deadline = time.monotonic() + timeout
+        observations: list[dict[str, object]] = []
+        next_heartbeat = time.monotonic()
+        while time.monotonic() < deadline:
+            if time.monotonic() >= next_heartbeat:
+                runtime.push_gateway_json_logs([{"event": "gateway.healthcheck"}])
+                next_heartbeat = time.monotonic() + 20
+            observed = boundary_snapshot()
+            observations.append(observed)
+            if any(item.get("status") == status for item in observed["receiver_alerts"]):
+                return {"observations": observations, "matched": observed}
+            time.sleep(interval)
+        raise AcceptanceFailure(
+            f"The receiver did not observe GatewayFastSuccessBelowSLO {status} within {timeout}s"
+        )
+
+    try:
+        acceptance_success(
+            runtime.compose("config", "--quiet"), "The isolated Compose files did not parse"
+        )
+        acceptance_success(
+            runtime.compose(
+                "build",
+                "--build-arg",
+                f"PRL_SOURCE_SHA={runtime.stack.expected_sha}",
+                "api",
+                timeout=900,
+            ),
+            "The exact-source receiver image could not be built",
+        )
+        image_built = True
+        image_records = acceptance_json(
+            acceptance_invoke(["docker", "image", "inspect", image_name]),
+            "The isolated receiver image could not be inspected",
+        )
+        image_labels = (image_records[0].get("Config") or {}).get("Labels") or {}
+        if image_labels.get("org.opencontainers.image.revision") != runtime.stack.expected_sha:
+            raise AcceptanceFailure("The diagnostic receiver image did not match the source SHA")
+        acceptance_success(
+            runtime.compose(
+                "up",
+                "-d",
+                "--wait",
+                "--wait-timeout",
+                "120",
+                "loki",
+                "alertmanager",
+                "local_alert_receiver",
+                timeout=180,
+            ),
+            "The bounded Loki alert path did not start",
+        )
+        receiver_id = acceptance_success(
+            runtime.compose("ps", "-q", "local_alert_receiver"),
+            "The isolated receiver container was missing",
+        ).strip()
+        if not re.fullmatch(r"[0-9a-f]{64}", receiver_id):
+            raise AcceptanceFailure("The isolated receiver container identity was invalid")
+        receiver_record = acceptance_json(
+            acceptance_invoke(["docker", "inspect", receiver_id]),
+            "The isolated receiver container could not be inspected",
+        )[0]
+        receiver_labels = (receiver_record.get("Config") or {}).get("Labels") or {}
+        if receiver_labels.get("com.docker.compose.project") != runtime.stack.project:
+            raise AcceptanceFailure("The diagnostic receiver failed its exact UUID owner check")
+        runtime.api_id = receiver_id
+        runtime.stack.wait_for(
+            lambda: runtime.api_status("http://loki:3100/ready", method="GET", body=None) == 200
+            and runtime.api_status("http://alertmanager:9093/-/ready", method="GET", body=None)
+            == 200
+            and runtime.api_status(
+                "http://local_alert_receiver:8088/health/ready", method="GET", body=None
+            )
+            == 200,
+            seconds=90,
+            failure="The three bounded alert-path services did not become ready",
+        )
+        evidence["readiness"] = {"loki": 200, "alertmanager": 200, "receiver": 200}
+        runtime.push_gateway_json_logs([{"event": "gateway.healthcheck"}])
+        evidence["gateway_truth_table"] = runtime.gateway_sli_truth_table()
+
+        rules_document = yaml.safe_load(
+            (ROOT / "tools/infra/loki-rules/fake/gateway-sli.yml").read_text(encoding="utf-8")
+        )
+        recordings = {
+            rule["record"]: rule["expr"]
+            for group in rules_document["groups"]
+            for rule in group["rules"]
+            if "record" in rule
+        }
+        alerts = {
+            rule["alert"]: rule
+            for group in rules_document["groups"]
+            for rule in group["rules"]
+            if "alert" in rule
+        }
+        success_expression = recordings["prl:gateway_successful_requests:sum5m"]
+        fast_count_expression = recordings["prl:gateway_fast_successful_requests:sum5m"]
+        ratio_expression = recordings["prl:gateway_fast_success:ratio5m"]
+        alert_expression = alerts["GatewayFastSuccessBelowSLO"]["expr"]
+        initial = {
+            "successful_requests": query_observation(success_expression),
+            "fast_successful_requests": query_observation(fast_count_expression),
+            "fast_success_ratio": query_observation(ratio_expression),
+            "exact_alert_predicate": query_observation(alert_expression),
+        }
+        success_count = initial["successful_requests"]["value"]
+        fast_count = initial["fast_successful_requests"]["value"]
+        initial_ratio = initial["fast_success_ratio"]["value"]
+        exact_predicate = initial["exact_alert_predicate"]["value"]
+        if (
+            success_count is None
+            or success_count < 20
+            or fast_count is None
+            or initial_ratio is None
+            or initial_ratio >= 0.95
+            or exact_predicate is None
+        ):
+            raise AcceptanceFailure("The initial failing gateway SLI fixture was not query-visible")
+        evidence["initial_query_vector"] = initial
+        evidence["initial_boundary"] = boundary_snapshot()
+        evidence["firing_delivery"] = wait_receiver_status("firing", timeout=180, interval=10)
+        evidence["firing_boundary"] = boundary_snapshot()
+
+        healthy_needed = math.floor(max(0.0, 0.95 * success_count - fast_count) / 0.05) + 101
+        if not 1 <= healthy_needed <= 5000:
+            raise AcceptanceFailure("The calculated bounded recovery fixture exceeded its cap")
+        recovery_events = [
+            {
+                "event": "gateway.request",
+                "classification": "success",
+                "route": "/__task7_resolution_recovery",
+                "duration_seconds": 0.2,
+            }
+            for _ in range(healthy_needed)
+        ]
+        runtime.push_gateway_json_logs(recovery_events)
+        post_push = {
+            "successful_requests": query_observation(success_expression),
+            "fast_successful_requests": query_observation(fast_count_expression),
+            "fast_success_ratio": query_observation(ratio_expression),
+            "corrected_alert_predicate": query_observation(alert_expression),
+        }
+        recovered_success = post_push["successful_requests"]["value"]
+        recovered_fast = post_push["fast_successful_requests"]["value"]
+        recovered_ratio = post_push["fast_success_ratio"]["value"]
+        if (
+            recovered_success is None
+            or recovered_fast is None
+            or recovered_ratio is None
+            or recovered_ratio <= 0.95
+            or post_push["corrected_alert_predicate"]["value"] is not None
+        ):
+            evidence["post_push_query_vector"] = post_push
+            raise AcceptanceFailure(
+                "The healthy recovery fixture did not clear the exact alert predicate"
+            )
+        old_predicate_expression = f"({ratio_expression}) < 0.95 * ({success_expression} >= 20)"
+        old_predicate = query_observation(old_predicate_expression)
+        evidence["post_push_query_vector"] = post_push
+        evidence["historical_multiplication_shape_diagnostic"] = {
+            "label": "regenerated diagnostic expression, not a recovered historical artifact",
+            "expression": old_predicate_expression,
+            "same_global_cohort_count": recovered_success,
+            "same_global_cohort_fast_count": recovered_fast,
+            "same_global_cohort_ratio": recovered_ratio,
+            "sample": old_predicate,
+        }
+        if old_predicate["value"] is None:
+            raise AcceptanceFailure(
+                "The old multiplication diagnostic did not reproduce the false-positive vector"
+            )
+        evidence["recovery_events_pushed"] = healthy_needed
+        evidence["resolved_delivery"] = wait_receiver_status("resolved", timeout=90, interval=5)
+        evidence["resolved_boundary"] = boundary_snapshot()
+        receiver_records = selected_receiver_alerts()
+        firing_records = [item for item in receiver_records if item.get("status") == "firing"]
+        resolved_records = [item for item in receiver_records if item.get("status") == "resolved"]
+        if not firing_records or not resolved_records:
+            raise AcceptanceFailure("The bounded receiver did not retain both transition summaries")
+        evidence["receiver_transition"] = {
+            "firing": firing_records[-1],
+            "resolved": resolved_records[-1],
+        }
+    finally:
+        try:
+            runtime.cleanup()
+            volumes_before_remove = runtime.volume_snapshot()
+            if any(
+                value["labels"].get("com.docker.compose.project") != runtime.stack.project
+                for value in volumes_before_remove.values()
+            ):
+                raise AcceptanceFailure("A diagnostic volume failed its exact UUID owner check")
+            acceptance_success(
+                runtime.compose(
+                    "down", "--volumes", "--remove-orphans", "--timeout", "30", timeout=60
+                ),
+                "The isolated UUID-owned Compose volumes could not be removed",
+            )
+            if runtime.volume_snapshot():
+                raise AcceptanceFailure("The diagnostic left a UUID-owned Compose volume behind")
+            runtime.stack.assert_demo_untouched()
+            evidence["cleanup"] = {
+                "project": runtime.stack.project,
+                "uuid_owned_volumes_removed": len(volumes_before_remove),
+                "prl_demo_untouched": True,
+            }
+            if image_built:
+                acceptance_success(
+                    acceptance_invoke(["docker", "image", "rm", image_name]),
+                    "The exact diagnostic receiver image tag could not be removed",
+                )
+            cleanup_succeeded = True
+        except Exception as cleanup_error:
+            evidence["cleanup_error_category"] = type(cleanup_error).__name__
+            raise
+        finally:
+            evidence["cleanup_succeeded"] = cleanup_succeeded
+            print(
+                "TASK7_GATEWAY_ALERT_TRANSITION="
+                + json.dumps(evidence, sort_keys=True, separators=(",", ":"))
+            )

@@ -42,9 +42,13 @@ compactor:
   delete_request_store: filesystem
 
 ruler:
+  alertmanager_url: http://alertmanager:9093
+  enable_alertmanager_v2: true
+  evaluation_interval: 15s
+  poll_interval: 15s
   storage:
     type: local
     local:
-      directory: /loki/rules
+      directory: /etc/loki/rules
   rule_path: /loki/rules-temp
   enable_api: false

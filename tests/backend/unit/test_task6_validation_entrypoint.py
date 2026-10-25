@@ -36,8 +36,13 @@ def test_pinned_validator_process_arguments_are_flat_strings(monkeypatch):
         lambda _run_id, _label, command, **_kwargs: commands.append(command),
     )
     check_telemetry._run_pinned_validators("contract", lock["images"])
-    assert len(commands) == 6
+    assert len(commands) == 7
     assert all(isinstance(argument, str) for command in commands for argument in command)
+    assert any(
+        command[1:4] == ["run", "--pull=never", "--rm"]
+        and command[-3:] == ["test", "rules", "/etc/prometheus/rules/prometheus-rule-tests.yml"]
+        for command in commands
+    )
 
 
 def test_temporary_compose_project_name_is_normalized_for_docker():

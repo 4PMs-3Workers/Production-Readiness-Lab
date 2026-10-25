@@ -13,6 +13,14 @@ datasources:
     access: proxy
     url: http://loki:3100
     editable: false
+    jsonData:
+      derivedFields:
+        - name: TraceID
+          matcherType: label
+          matcherRegex: '^trace_id$'
+          datasourceUid: prl-tempo
+          url: '$${__value.raw}'
+          urlDisplayLabel: View trace
   - name: Tempo
     uid: prl-tempo
     type: tempo

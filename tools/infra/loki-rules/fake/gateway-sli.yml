@@ -1,0 +1,196 @@
+groups:
+  - name: gateway-sli-recordings
+    interval: 15s
+    rules:
+      - record: prl:gateway_eligible_requests:sum5m
+        expr: |
+          sum(count_over_time(
+            {service_name="gateway",deployment_environment_name="demo"}
+            | json event="event", classification="classification", route="route"
+            | __error__ = ""
+            | event="gateway.request"
+            | classification=~"success|service_failure"
+            | keep event, classification, route
+            [5m]
+          ))
+      - record: prl:gateway_successful_requests:sum5m
+        expr: |
+          sum(count_over_time(
+            {service_name="gateway",deployment_environment_name="demo"}
+            | json event="event", classification="classification", route="route"
+            | __error__ = ""
+            | event="gateway.request"
+            | classification="success"
+            | keep event, classification, route
+            [5m]
+          ))
+      - record: prl:gateway_fast_successful_requests:sum5m
+        expr: |
+          sum(count_over_time(
+            {service_name="gateway",deployment_environment_name="demo"}
+            | json event="event", classification="classification", route="route", duration_seconds="duration_seconds"
+            | __error__ = ""
+            | event="gateway.request"
+            | classification="success"
+            | duration_seconds <= 0.500
+            | keep event, classification, route
+            [5m]
+          ))
+      - record: prl:gateway_availability:ratio5m
+        expr: |
+          (
+            (
+              sum(count_over_time(
+                {service_name="gateway",deployment_environment_name="demo"}
+                | json event="event", classification="classification", route="route"
+                | __error__ = ""
+                | event="gateway.request"
+                | classification="success"
+                | keep event, classification, route
+                [5m]
+              ))
+              or on() (0 * sum(count_over_time(
+                {service_name="gateway",deployment_environment_name="demo"}
+                | json event="event", classification="classification", route="route"
+                | __error__ = ""
+                | event="gateway.request"
+                | classification=~"success|service_failure"
+                | keep event, classification, route
+                [5m]
+              )))
+            )
+            /
+            (
+              sum(count_over_time(
+                {service_name="gateway",deployment_environment_name="demo"}
+                | json event="event", classification="classification", route="route"
+                | __error__ = ""
+                | event="gateway.request"
+                | classification=~"success|service_failure"
+                | keep event, classification, route
+                [5m]
+              )) > 0
+            )
+          )
+      - record: prl:gateway_fast_success:ratio5m
+        expr: |
+          (
+            (
+              sum(count_over_time(
+                {service_name="gateway",deployment_environment_name="demo"}
+                | json event="event", classification="classification", route="route", duration_seconds="duration_seconds"
+                | __error__ = ""
+                | event="gateway.request"
+                | classification="success"
+                | duration_seconds <= 0.500
+                | keep event, classification, route
+                [5m]
+              ))
+              or on() (0 * sum(count_over_time(
+                {service_name="gateway",deployment_environment_name="demo"}
+                | json event="event", classification="classification", route="route"
+                | __error__ = ""
+                | event="gateway.request"
+                | classification="success"
+                | keep event, classification, route
+                [5m]
+              )))
+            )
+            /
+            (
+              sum(count_over_time(
+                {service_name="gateway",deployment_environment_name="demo"}
+                | json event="event", classification="classification", route="route"
+                | __error__ = ""
+                | event="gateway.request"
+                | classification="success"
+                | keep event, classification, route
+                [5m]
+              )) > 0
+            )
+          )
+      - record: prl:gateway_healthcheck:count1m
+        expr: |
+          sum(count_over_time(
+            {service_name="gateway",deployment_environment_name="demo"}
+            | json event="event"
+            | __error__ = ""
+            | event="gateway.healthcheck"
+            | keep event
+            [1m]
+          ))
+
+  - name: gateway-sli-alerts
+    interval: 15s
+    rules:
+      - alert: GatewayFastSuccessBelowSLO
+        expr: |
+          (
+            (
+              sum(count_over_time(
+                {service_name="gateway",deployment_environment_name="demo"}
+                | json event="event", classification="classification", route="route", duration_seconds="duration_seconds"
+                | __error__ = ""
+                | event="gateway.request"
+                | classification="success"
+                | duration_seconds <= 0.500
+                | keep event, classification, route
+                [5m]
+              ))
+              or on() (0 * sum(count_over_time(
+                {service_name="gateway",deployment_environment_name="demo"}
+                | json event="event", classification="classification", route="route"
+                | __error__ = ""
+                | event="gateway.request"
+                | classification="success"
+                | keep event, classification, route
+                [5m]
+              )))
+            )
+            /
+            (
+              sum(count_over_time(
+                {service_name="gateway",deployment_environment_name="demo"}
+                | json event="event", classification="classification", route="route"
+                | __error__ = ""
+                | event="gateway.request"
+                | classification="success"
+                | keep event, classification, route
+                [5m]
+              )) > 0
+            )
+          ) < 0.95
+          and on()
+          (
+            sum(count_over_time(
+              {service_name="gateway",deployment_environment_name="demo"}
+              | json event="event", classification="classification", route="route"
+              | __error__ = ""
+              | event="gateway.request"
+              | classification="success"
+              | keep event, classification, route
+              [5m]
+            )) >= 20
+          )
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Fewer than 95% of at least 20 successful gateway requests completed within 500 ms in five minutes.
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#gateway-fast-success-below-slo
+      - alert: GatewayPipelineHeartbeatMissing
+        expr: |
+          absent_over_time(
+            {service_name="gateway",deployment_environment_name="demo"}
+            | json event="event"
+            | __error__ = ""
+            | event="gateway.healthcheck"
+            | keep event
+            [60s]
+          )
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: The real gateway healthcheck event has been absent from Loki for at least 60 seconds.
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#gateway-pipeline-heartbeat-missing

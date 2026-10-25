@@ -132,6 +132,7 @@ services:
     security_opt: [no-new-privileges:true]
     volumes:
       - ../infra/loki.yaml:/etc/loki/loki.yaml:ro
+      - ../infra/loki-rules:/etc/loki/rules:ro
       - loki_data:/loki
     networks: [telemetry]
     restart: on-failure:3
@@ -191,6 +192,8 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ../infra/grafana-datasources.yml:/etc/grafana/provisioning/datasources/prl.yml:ro
+      - ../infra/grafana-dashboard-providers.yml:/etc/grafana/provisioning/dashboards/prl.yml:ro
+      - ../infra/grafana/dashboards:/etc/grafana/dashboards:ro
       - type: bind
         source: ${PRL_GRAFANA_ADMIN_USER_FILE:?Set an external Grafana administrator username file}
         target: /run/secrets/grafana-admin-user

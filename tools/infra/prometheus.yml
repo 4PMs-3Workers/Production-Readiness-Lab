@@ -28,6 +28,19 @@ scrape_configs:
     static_configs:
       - targets:
           - local_alert_receiver:8088
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: prl_expected_worker_slot
+        target_label: service_name
+        replacement: worker
+      - source_labels: [__name__]
+        regex: prl_expected_worker_slot
+        target_label: deployment_environment_name
+        replacement: demo
+      - source_labels: [slot]
+        regex: ([1-8])
+        target_label: worker_slot
+        replacement: $1
   - job_name: prometheus-self
     static_configs:
       - targets:

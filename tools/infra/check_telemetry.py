@@ -291,6 +291,29 @@ def _run_pinned_validators(run_id: str, lock: dict[str, str]) -> None:
     )
     _record(run_id, "Prometheus 3.15.1 rules validation", rules)
 
+    rule_tests = _docker_run(
+        lock["prometheus"],
+        entrypoint="/bin/promtool",
+        args=["test", "rules", "/etc/prometheus/rules/prometheus-rule-tests.yml"],
+        memory="512m",
+        cpus="1.0",
+        pids="128",
+        extra=[
+            "--workdir",
+            "/etc/prometheus/rules",
+            *mount(
+                INFRA / "prometheus-rules.yml",
+                "/etc/prometheus/rules/prometheus-rules.yml",
+            ),
+            *mount(
+                INFRA / "prometheus-rule-tests.yml",
+                "/etc/prometheus/rules/prometheus-rule-tests.yml",
+            ),
+        ],
+        timeout=120,
+    )
+    _record(run_id, "Prometheus 3.15.1 rule tests", rule_tests, timeout=120)
+
     loki = _docker_run(
         lock["loki"],
         entrypoint="/usr/bin/loki",
