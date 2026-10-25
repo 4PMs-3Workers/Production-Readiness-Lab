@@ -267,7 +267,7 @@ def test_nonsecret_configuration_identity_changes_for_cidr_but_not_secret_conten
     assert "different-private-credential" not in str(changed_acl.configuration_sha256)
 
 
-def test_status_local_digest_lookup_rejects_wrong_cached_vendor_artifact(
+def test_status_exact_digest_lookup_rejects_wrong_cached_vendor_artifact(
     observability_environment, monkeypatch
 ):
     demo, _ = observability_environment
@@ -284,8 +284,9 @@ def test_status_local_digest_lookup_rejects_wrong_cached_vendor_artifact(
     def local_image(args, timeout=180):
         calls.append(args)
         if args[:4] == ["docker", "image", "ls", "--quiet"]:
-            return "sha256:" + "c" * 64
+            return ""
         if args[:3] == ["docker", "image", "inspect"]:
+            assert args[-1] == expected
             return json.dumps(
                 {
                     "Id": "sha256:" + "c" * 64,
@@ -300,4 +301,5 @@ def test_status_local_digest_lookup_rejects_wrong_cached_vendor_artifact(
     with pytest.raises(demo.ProvenanceMismatch):
         instance.images(omit_missing=True)
 
-    assert calls[0][-1] == expected.split("@", 1)[0]
+    assert [call[-1] for call in calls if call[:3] == ["docker", "image", "inspect"]] == [expected]
+    assert not [call for call in calls if call[:4] == ["docker", "image", "ls", "--quiet"]]

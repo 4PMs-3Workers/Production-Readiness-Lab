@@ -80,6 +80,10 @@ class OperationFailed(Exception):
     pass
 
 
+class ImageNotFound(OperationFailed):
+    pass
+
+
 class ProvenanceMismatch(OperationFailed):
     pass
 
@@ -91,6 +95,13 @@ class ConfigurationIdentityMismatch(OperationFailed):
 def run(args, timeout=180):
     result = subprocess.run(args, cwd=ROOT, capture_output=True, text=True, timeout=timeout)
     if result.returncode:
+        missing_local_image = (
+            args[:3] == ["docker", "image", "inspect"]
+            and isinstance(result.stderr, str)
+            and "No such image:" in result.stderr
+        )
+        if missing_local_image:
+            raise ImageNotFound()
         raise OperationFailed()
     return result.stdout.strip()
 
@@ -543,7 +554,13 @@ class Demo:
             if identifier and not re.fullmatch(r"(?:sha256:)?[0-9a-f]{12,64}", identifier):
                 raise OperationFailed()
             local_lookup = not identifier and omit_missing
-            if local_lookup:
+            image = None
+            if local_lookup and "@sha256:" in reference:
+                try:
+                    image = self.inspect_image(reference, service)
+                except ImageNotFound:
+                    continue
+            elif local_lookup:
                 lookup_reference = reference.split("@", 1)[0]
                 identifiers = run(
                     ["docker", "image", "ls", "--quiet", "--no-trunc", lookup_reference]
@@ -555,7 +572,8 @@ class Demo:
                 ):
                     raise OperationFailed()
                 identifier = identifiers[0]
-            image = self.inspect_image(identifier or reference, service)
+            if image is None:
+                image = self.inspect_image(identifier or reference, service)
             if local_lookup and self.observability and service in VENDOR_SERVICE_KEYS:
                 expected_digest = self.locked_images[VENDOR_SERVICE_KEYS[service]].rsplit("@", 1)[
                     -1
