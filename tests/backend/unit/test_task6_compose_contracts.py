@@ -518,6 +518,211 @@ def test_signal_diagnostic_summaries_preserve_sink_status_without_exposing_ids()
     assert tempo_malformed["failure_category"] == "trace_id_field_missing"
 
 
+def test_receiver_health_summary_keeps_only_finite_failure_metadata():
+    summary = telemetry_stack.safe_receiver_health_summary(
+        {
+            "http_status": 503,
+            "body": {
+                "status": "failed",
+                "unhealthy": ["grafana", "outside", "loki", "grafana"],
+                "detail": "synthetic-secret",
+            },
+            "json_valid": True,
+            "truncated": False,
+            "error_category": None,
+            "elapsed_ms": 123,
+            "total_elapsed_ms": 123,
+            "budget_exceeded": False,
+        }
+    )
+
+    assert summary == {
+        "error_category": None,
+        "http_status": 503,
+        "json_kind": "dict",
+        "json_valid": True,
+        "elapsed_ms": 123,
+        "total_elapsed_ms": 123,
+        "budget_exceeded": False,
+        "status": "failed",
+        "truncated": False,
+        "unhealthy": ["grafana", "loki"],
+        "unhealthy_shape_ok": True,
+        "unknown_unhealthy_count": 1,
+    }
+    assert "synthetic-secret" not in json.dumps(summary)
+
+
+def test_receiver_health_summary_preserves_transport_failure_category_only():
+    summary = telemetry_stack.safe_receiver_health_summary(
+        {
+            "http_status": None,
+            "body": None,
+            "json_valid": False,
+            "truncated": False,
+            "error_category": "TransportError",
+            "elapsed_ms": 40000,
+        }
+    )
+
+    assert summary == {
+        "error_category": "TransportError",
+        "http_status": None,
+        "json_kind": "unavailable",
+        "json_valid": False,
+        "elapsed_ms": 30000,
+        "total_elapsed_ms": None,
+        "budget_exceeded": None,
+        "status": None,
+        "truncated": False,
+        "unhealthy": [],
+        "unhealthy_shape_ok": False,
+        "unknown_unhealthy_count": 0,
+    }
+
+
+def test_receiver_health_summary_bounds_malformed_fields_and_unknown_categories():
+    summary = telemetry_stack.safe_receiver_health_summary(
+        {
+            "http_status": True,
+            "body": {"status": "unexpected", "unhealthy": "grafana"},
+            "json_valid": True,
+            "truncated": 1,
+            "error_category": "synthetic-secret",
+            "elapsed_ms": -1,
+            "total_elapsed_ms": -1,
+            "budget_exceeded": "synthetic-secret",
+        }
+    )
+
+    assert summary == {
+        "error_category": "Other",
+        "http_status": None,
+        "json_kind": "unavailable",
+        "json_valid": True,
+        "elapsed_ms": None,
+        "total_elapsed_ms": None,
+        "budget_exceeded": None,
+        "status": None,
+        "truncated": False,
+        "unhealthy": [],
+        "unhealthy_shape_ok": False,
+        "unknown_unhealthy_count": 0,
+    }
+    assert "synthetic-secret" not in json.dumps(summary)
+
+
+def test_receiver_health_pass_predicate_requires_valid_pass_and_empty_targets():
+    healthy = {
+        "error_category": None,
+        "http_status": 200,
+        "json_kind": "dict",
+        "json_valid": True,
+        "elapsed_ms": 10,
+        "total_elapsed_ms": 10,
+        "budget_exceeded": False,
+        "status": "passed",
+        "truncated": False,
+        "unhealthy": [],
+        "unhealthy_shape_ok": True,
+        "unknown_unhealthy_count": 0,
+    }
+    assert telemetry_stack.receiver_health_is_passed(healthy) is True
+
+    for changed in (
+        {"http_status": 503},
+        {"json_valid": False},
+        {"status": "failed"},
+        {"truncated": True},
+        {"unhealthy": ["loki"]},
+        {"unhealthy_shape_ok": False},
+        {"unknown_unhealthy_count": 1},
+        {"error_category": "TransportError"},
+        {"total_elapsed_ms": 60001},
+        {"budget_exceeded": True},
+        {"budget_exceeded": None},
+    ):
+        assert telemetry_stack.receiver_health_is_passed(healthy | changed) is False
+    without_budget = healthy.copy()
+    without_budget.pop("budget_exceeded")
+    assert telemetry_stack.receiver_health_is_passed(without_budget) is False
+
+
+def test_receiver_component_summary_keeps_only_finite_backend_statuses():
+    summary = telemetry_stack.safe_receiver_component_summary(
+        {
+            "poll_attempts": 3,
+            "poll_elapsed_ms": 1000,
+            "poll_budget_exceeded": False,
+            "poll_unhealthy": ["grafana", "outside"],
+            "receiver_health": {
+                "http_status": 503,
+                "body": {
+                    "status": "failed",
+                    "unhealthy": ["grafana", "outside"],
+                    "detail": "private-payload",
+                },
+                "json_valid": True,
+                "truncated": False,
+                "error_category": None,
+                "elapsed_ms": 24,
+                "total_elapsed_ms": 24,
+                "budget_exceeded": False,
+            },
+            "targets": {
+                "grafana": {
+                    "initial_status": 302,
+                    "redirect": True,
+                    "redirect_to_ops_host": True,
+                    "final_status": None,
+                    "final_host_is_ops": False,
+                    "follow_error_category": "dns",
+                    "elapsed_ms": 500,
+                },
+                "outside": {"url": "secret"},
+            },
+        }
+    )
+
+    assert summary == {
+        "poll_attempts": 3,
+        "poll_elapsed_ms": 1000,
+        "poll_budget_exceeded": False,
+        "poll_healthy": False,
+        "poll_unhealthy": ["grafana"],
+        "unknown_poll_failure_count": 1,
+        "receiver_health": {
+            "error_category": None,
+            "http_status": 503,
+            "json_kind": "dict",
+            "json_valid": True,
+            "elapsed_ms": 24,
+            "total_elapsed_ms": 24,
+            "budget_exceeded": False,
+            "status": "failed",
+            "truncated": False,
+            "unhealthy": ["grafana"],
+            "unhealthy_shape_ok": True,
+            "unknown_unhealthy_count": 1,
+        },
+        "targets": {
+            "grafana": {
+                "initial_status": 302,
+                "redirect": True,
+                "redirect_to_ops_host": True,
+                "final_status": None,
+                "final_host_is_ops": False,
+                "follow_error_category": "dns",
+                "elapsed_ms": 500,
+            }
+        },
+        "target_count": 1,
+        "unknown_target_count": 1,
+    }
+    assert "private-payload" not in json.dumps(summary)
+    assert "outside" not in json.dumps(summary)
+
+
 def test_loki_index_summary_uses_series_endpoint_and_keeps_ids_private():
     request_id = "d" * 32
     indexed_labels = {
@@ -610,12 +815,29 @@ def test_pre_cleanup_snapshot_keeps_loki_query_index_and_tempo_independent():
         request_id="",
         trace_id="",
         sink_observations=sinks,
+        receiver_health_summary=telemetry_stack.safe_receiver_health_summary(
+            {
+                "http_status": 503,
+                "body": {
+                    "status": "failed",
+                    "unhealthy": ["grafana"],
+                    "detail": "private",
+                },
+                "json_valid": True,
+                "truncated": False,
+                "error_category": None,
+                "elapsed_ms": 50,
+            }
+        ),
     )
 
     assert diagnostic["route"]["http_status"] is None
     assert diagnostic["loki_query"] == sinks["loki_query"]
     assert diagnostic["loki_index_series"] == sinks["loki_index_series"]
     assert diagnostic["tempo"] == sinks["tempo"]
+    assert diagnostic["receiver_health"]["http_status"] == 503
+    assert diagnostic["receiver_health"]["unhealthy"] == ["grafana"]
+    assert "private" not in json.dumps(diagnostic)
     assert all(
         service["inspection_available"] is False for service in diagnostic["services"].values()
     )

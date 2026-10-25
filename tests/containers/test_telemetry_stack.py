@@ -70,6 +70,410 @@ OPS_PROBE_FAILURE_CATEGORIES = {
     "unclassified_failure",
 }
 OPS_PROBE_DATASOURCE_UIDS = {"prl-loki", "prl-prometheus", "prl-tempo"}
+RECEIVER_HEALTH_TARGETS = frozenset(
+    {"alertmanager", "collector", "grafana", "loki", "prometheus", "tempo"}
+)
+RECEIVER_HEALTH_ERROR_CATEGORIES = {
+    "InvalidEnvelope",
+    "SubprocessError",
+    "TransportError",
+}
+RECEIVER_COMPONENT_ERROR_CATEGORIES = {
+    "connection_refused",
+    "dns",
+    "timeout",
+    "transport",
+}
+RECEIVER_COMPONENT_PROBE_SCRIPT = r"""import json
+import socket
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+from app.observability.alert_receiver import TELEMETRY_TARGETS
+
+expected_ops_host = sys.argv[1]
+target_names = {name for name, _url in TELEMETRY_TARGETS}
+
+def error_category(error):
+    candidates = (error, getattr(error, "reason", None))
+    if any(isinstance(candidate, TimeoutError) for candidate in candidates):
+        return "timeout"
+    if any(isinstance(candidate, socket.gaierror) for candidate in candidates):
+        return "dns"
+    if any(isinstance(candidate, ConnectionRefusedError) for candidate in candidates):
+        return "connection_refused"
+    return "transport"
+
+def observe_receiver_health():
+    started = time.monotonic()
+    status = None
+    raw = b""
+    error = None
+    try:
+        response = urllib.request.urlopen("http://127.0.0.1:8088/health/telemetry", timeout=5)
+        status = response.status
+        raw = response.read(4097)
+        response.close()
+    except urllib.error.HTTPError as failure:
+        status = failure.code
+        raw = failure.read(4097)
+        failure.close()
+    except (OSError, urllib.error.URLError, TimeoutError) as failure:
+        error = error_category(failure)
+
+    truncated = len(raw) > 4096
+    valid = False
+    decoded = None
+    try:
+        decoded = json.loads(raw[:4096])
+        valid = True
+    except (ValueError, UnicodeDecodeError):
+        pass
+    body = None
+    unhealthy = []
+    unknown_count = 0
+    shape_ok = False
+    if isinstance(decoded, dict):
+        raw_status = decoded.get("status")
+        raw_unhealthy = decoded.get("unhealthy")
+        shape_ok = isinstance(raw_unhealthy, list)
+        if shape_ok:
+            for name in raw_unhealthy:
+                if isinstance(name, str) and name in target_names:
+                    unhealthy.append(name)
+                else:
+                    unknown_count += 1
+        body = {
+            "status": (
+                raw_status
+                if isinstance(raw_status, str) and raw_status in {"passed", "failed"}
+                else None
+            ),
+            "unhealthy": sorted(set(unhealthy)) if shape_ok else None,
+        }
+    observation = {
+        "http_status": status,
+        "body": body,
+        "json_valid": valid,
+        "truncated": truncated,
+        "error_category": error,
+        "elapsed_ms": min(30000, max(0, int((time.monotonic() - started) * 1000))),
+        "unhealthy_shape_ok": shape_ok,
+        "unknown_unhealthy_count": unknown_count,
+    }
+    passed = (
+        status == 200
+        and valid
+        and not truncated
+        and error is None
+        and isinstance(body, dict)
+        and body.get("status") == "passed"
+        and shape_ok
+        and unhealthy == []
+        and unknown_count == 0
+    )
+    return observation, passed, sorted(set(unhealthy)), unknown_count
+
+poll_attempts = 0
+poll_healthy = False
+poll_unhealthy = []
+unknown_poll_failure_count = 0
+poll_started = time.monotonic()
+deadline = poll_started + 60
+receiver_health = None
+while poll_attempts < 120 and time.monotonic() < deadline:
+    poll_attempts += 1
+    receiver_health, poll_healthy, poll_unhealthy, unknown_poll_failure_count = (
+        observe_receiver_health()
+    )
+    if poll_healthy:
+        if time.monotonic() >= deadline:
+            poll_healthy = False
+        else:
+            break
+    time.sleep(0.5)
+poll_elapsed_ms = min(120000, max(0, int((time.monotonic() - poll_started) * 1000)))
+poll_budget_exceeded = time.monotonic() >= deadline
+if poll_budget_exceeded:
+    poll_healthy = False
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, file_pointer, code, message, headers, new_url):
+        return None
+
+no_redirect = urllib.request.build_opener(NoRedirect())
+target_results = {}
+for name, url in TELEMETRY_TARGETS:
+    started = time.monotonic()
+    initial_status = None
+    redirect = False
+    redirect_to_ops_host = False
+    try:
+        with no_redirect.open(url, timeout=0.5) as response:
+            initial_status = response.status
+    except urllib.error.HTTPError as error:
+        initial_status = error.code
+        redirect = 300 <= error.code < 400
+        location = error.headers.get("Location", "")
+        redirect_to_ops_host = urllib.parse.urlparse(location).hostname == expected_ops_host
+        error.close()
+    except (OSError, urllib.error.URLError, TimeoutError):
+        pass
+
+    final_status = None
+    final_host_is_ops = False
+    follow_error_category = None
+    try:
+        with urllib.request.urlopen(url, timeout=0.5) as response:
+            final_status = response.status
+            final_host_is_ops = (
+                urllib.parse.urlparse(response.geturl()).hostname == expected_ops_host
+            )
+    except urllib.error.HTTPError as error:
+        final_status = error.code
+        final_host_is_ops = urllib.parse.urlparse(error.geturl()).hostname == expected_ops_host
+        error.close()
+    except (OSError, urllib.error.URLError, TimeoutError) as error:
+        follow_error_category = error_category(error)
+
+    target_results[name] = {
+        "initial_status": initial_status,
+        "redirect": redirect,
+        "redirect_to_ops_host": redirect_to_ops_host,
+        "final_status": final_status,
+        "final_host_is_ops": final_host_is_ops,
+        "follow_error_category": follow_error_category,
+        "elapsed_ms": min(30000, max(0, int((time.monotonic() - started) * 1000))),
+    }
+
+receiver_health, _final_healthy, _final_unhealthy, _final_unknown_count = (
+    observe_receiver_health()
+)
+if receiver_health is None:
+    receiver_health = {
+        "http_status": None,
+        "body": None,
+        "json_valid": False,
+        "truncated": False,
+        "error_category": "TransportError",
+        "elapsed_ms": 0,
+        "unhealthy_shape_ok": False,
+        "unknown_unhealthy_count": 0,
+    }
+receiver_health["total_elapsed_ms"] = poll_elapsed_ms
+receiver_health["budget_exceeded"] = poll_budget_exceeded
+
+result = {
+    "poll_attempts": poll_attempts,
+    "poll_elapsed_ms": poll_elapsed_ms,
+    "poll_budget_exceeded": poll_budget_exceeded,
+    "poll_unhealthy": poll_unhealthy,
+    "poll_healthy": poll_healthy,
+    "unknown_poll_failure_count": unknown_poll_failure_count,
+    "receiver_health": receiver_health,
+    "targets": target_results,
+}
+print(json.dumps(result, separators=(",", ":")))
+"""
+
+
+def safe_receiver_health_summary(observation: dict[str, object]) -> dict[str, object]:
+    """Keep receiver health failure evidence finite and free of arbitrary body data."""
+    if not isinstance(observation, dict):
+        observation = {}
+    raw_status = observation.get("http_status")
+    http_status = raw_status if type(raw_status) is int and 100 <= raw_status <= 599 else None
+    json_valid = observation.get("json_valid") is True
+    body = observation.get("body")
+    raw_error_category = observation.get("error_category")
+    if raw_error_category is None:
+        error_category = None
+    elif (
+        isinstance(raw_error_category, str)
+        and raw_error_category in RECEIVER_HEALTH_ERROR_CATEGORIES
+    ):
+        error_category = raw_error_category
+    else:
+        error_category = "Other"
+    if not json_valid:
+        kind = "invalid"
+    elif isinstance(body, dict):
+        kind = "dict"
+    elif isinstance(body, list):
+        kind = "list"
+    elif body is None:
+        kind = "null"
+    else:
+        kind = "scalar"
+    if http_status is None and error_category is not None:
+        kind = "unavailable"
+
+    body_status = None
+    unhealthy: list[str] = []
+    unknown_unhealthy_count = 0
+    unhealthy_shape_ok = False
+    if isinstance(body, dict):
+        raw_body_status = body.get("status")
+        if isinstance(raw_body_status, str) and raw_body_status in {"passed", "failed"}:
+            body_status = raw_body_status
+        raw_unhealthy = body.get("unhealthy")
+        if isinstance(raw_unhealthy, list):
+            unhealthy_shape_ok = True
+            seen: set[str] = set()
+            for item in raw_unhealthy:
+                if isinstance(item, str) and item in RECEIVER_HEALTH_TARGETS:
+                    seen.add(item)
+                else:
+                    unknown_unhealthy_count += 1
+            unhealthy = sorted(seen)
+
+    raw_elapsed = observation.get("elapsed_ms")
+    elapsed_ms = min(30_000, raw_elapsed) if type(raw_elapsed) is int and raw_elapsed >= 0 else None
+    raw_total_elapsed = observation.get("total_elapsed_ms")
+    total_elapsed_ms = (
+        min(120_000, raw_total_elapsed)
+        if type(raw_total_elapsed) is int and raw_total_elapsed >= 0
+        else None
+    )
+    raw_budget_exceeded = observation.get("budget_exceeded")
+    budget_exceeded = raw_budget_exceeded if isinstance(raw_budget_exceeded, bool) else None
+    return {
+        "error_category": error_category,
+        "http_status": http_status,
+        "json_kind": kind,
+        "json_valid": json_valid,
+        "elapsed_ms": elapsed_ms,
+        "total_elapsed_ms": total_elapsed_ms,
+        "budget_exceeded": budget_exceeded,
+        "status": body_status,
+        "truncated": observation.get("truncated") is True,
+        "unhealthy": unhealthy,
+        "unhealthy_shape_ok": unhealthy_shape_ok,
+        "unknown_unhealthy_count": unknown_unhealthy_count,
+    }
+
+
+def receiver_health_is_passed(summary: dict[str, object]) -> bool:
+    return (
+        isinstance(summary, dict)
+        and summary.get("error_category") is None
+        and summary.get("http_status") == 200
+        and summary.get("json_kind") == "dict"
+        and summary.get("json_valid") is True
+        and type(summary.get("total_elapsed_ms")) is int
+        and 0 <= summary.get("total_elapsed_ms") <= 60_000
+        and summary.get("budget_exceeded") is False
+        and summary.get("status") == "passed"
+        and summary.get("truncated") is False
+        and summary.get("unhealthy") == []
+        and summary.get("unhealthy_shape_ok") is True
+        and type(summary.get("unknown_unhealthy_count")) is int
+        and summary.get("unknown_unhealthy_count") == 0
+    )
+
+
+def safe_receiver_component_summary(observation: dict[str, object]) -> dict[str, object]:
+    """Retain only fixed backend names and bounded HTTP outcomes from the local probe."""
+    if not isinstance(observation, dict):
+        observation = {}
+    raw_health = observation.get("receiver_health")
+    health = (
+        safe_receiver_health_summary(raw_health)
+        if isinstance(raw_health, dict)
+        else {"available": False}
+    )
+    if isinstance(raw_health, dict):
+        raw_shape_ok = raw_health.get("unhealthy_shape_ok")
+        raw_unknown_count = raw_health.get("unknown_unhealthy_count")
+        if isinstance(raw_shape_ok, bool):
+            health["unhealthy_shape_ok"] = raw_shape_ok
+        if type(raw_unknown_count) is int and raw_unknown_count >= 0:
+            health["unknown_unhealthy_count"] = min(1000, raw_unknown_count)
+    raw_attempts = observation.get("poll_attempts")
+    poll_attempts = (
+        min(120, raw_attempts) if type(raw_attempts) is int and raw_attempts >= 0 else None
+    )
+    raw_poll_elapsed = observation.get("poll_elapsed_ms")
+    poll_elapsed_ms = (
+        min(120_000, raw_poll_elapsed)
+        if type(raw_poll_elapsed) is int and raw_poll_elapsed >= 0
+        else None
+    )
+    raw_poll_budget_exceeded = observation.get("poll_budget_exceeded")
+    poll_budget_exceeded = (
+        raw_poll_budget_exceeded if isinstance(raw_poll_budget_exceeded, bool) else None
+    )
+
+    poll_unhealthy: set[str] = set()
+    unknown_poll_failure_count = 0
+    raw_poll_unhealthy = observation.get("poll_unhealthy")
+    if isinstance(raw_poll_unhealthy, list):
+        for name in raw_poll_unhealthy:
+            if isinstance(name, str) and name in RECEIVER_HEALTH_TARGETS:
+                poll_unhealthy.add(name)
+            else:
+                unknown_poll_failure_count += 1
+    raw_unknown_poll_count = observation.get("unknown_poll_failure_count")
+    if type(raw_unknown_poll_count) is int and raw_unknown_poll_count >= 0:
+        unknown_poll_failure_count = max(
+            unknown_poll_failure_count, min(1000, raw_unknown_poll_count)
+        )
+
+    raw_targets = observation.get("targets")
+    targets: dict[str, dict[str, object]] = {}
+    unknown_target_count = 0
+    if isinstance(raw_targets, dict):
+        for name, raw_target in raw_targets.items():
+            if not isinstance(name, str) or name not in RECEIVER_HEALTH_TARGETS:
+                unknown_target_count += 1
+                continue
+            if not isinstance(raw_target, dict):
+                raw_target = {}
+            raw_error = raw_target.get("follow_error_category")
+            if raw_error is None:
+                error_category = None
+            elif isinstance(raw_error, str) and raw_error in RECEIVER_COMPONENT_ERROR_CATEGORIES:
+                error_category = raw_error
+            else:
+                error_category = "Other"
+            raw_elapsed = raw_target.get("elapsed_ms")
+            elapsed_ms = (
+                min(30_000, raw_elapsed) if type(raw_elapsed) is int and raw_elapsed >= 0 else None
+            )
+            targets[name] = {
+                "initial_status": bounded_http_status(raw_target.get("initial_status")),
+                "redirect": raw_target.get("redirect") is True,
+                "redirect_to_ops_host": raw_target.get("redirect_to_ops_host") is True,
+                "final_status": bounded_http_status(raw_target.get("final_status")),
+                "final_host_is_ops": raw_target.get("final_host_is_ops") is True,
+                "follow_error_category": error_category,
+                "elapsed_ms": elapsed_ms,
+            }
+
+    return {
+        "poll_attempts": poll_attempts,
+        "poll_elapsed_ms": poll_elapsed_ms,
+        "poll_budget_exceeded": poll_budget_exceeded,
+        "poll_healthy": (
+            observation.get("poll_healthy") is True
+            and poll_budget_exceeded is False
+            and type(poll_elapsed_ms) is int
+            and poll_elapsed_ms <= 60_000
+        ),
+        "poll_unhealthy": sorted(poll_unhealthy),
+        "unknown_poll_failure_count": unknown_poll_failure_count,
+        "receiver_health": health,
+        "targets": targets,
+        "target_count": len(targets),
+        "unknown_target_count": unknown_target_count,
+    }
+
+
+def bounded_http_status(value: object) -> int | None:
+    return value if type(value) is int and 100 <= value <= 599 else None
 
 
 def safe_ops_probe_failure_summary(
@@ -870,10 +1274,10 @@ def _https_request(
 class FullStackRuntime:
     """One bounded UUID-owned Compose run covering the Task 6 wire-up."""
 
-    def __init__(self, scratch: Path) -> None:
+    def __init__(self, scratch: Path, *, use_acceptance_token: bool = True) -> None:
         self.app_host = "app.example.invalid"
         self.stack = ComposeAcceptance(scratch, origin_scheme="https", origin_host=self.app_host)
-        token = os.environ.get("PRL_TASK6_ACCEPTANCE_TOKEN", "")
+        token = os.environ.get("PRL_TASK6_ACCEPTANCE_TOKEN", "") if use_acceptance_token else ""
         if token:
             if not re.fullmatch(r"[0-9a-f]{32}", token):
                 raise AcceptanceFailure("The runtime acceptance token is invalid")
@@ -934,6 +1338,7 @@ class FullStackRuntime:
         self.observed_worker_id: str | None = None
         self.worker_stream_diagnostic: dict[str, object] | None = None
         self.last_operations_probe: dict[str, object] = {"available": False}
+        self.last_receiver_health_summary: dict[str, object] = {"available": False}
 
     def wait_app_gateway(self) -> None:
         deadline = time.monotonic() + 90
@@ -1064,6 +1469,38 @@ class FullStackRuntime:
                 "error_category": "InvalidEnvelope",
             }
         return envelope
+
+    def wait_receiver_health(self) -> dict[str, object]:
+        started = time.monotonic()
+        deadline = started + 60
+        attempts = 0
+        while True:
+            attempts += 1
+            request_started = time.monotonic()
+            observation = self.api_json_observation(
+                "http://local_alert_receiver:8088/health/telemetry"
+            )
+            observation["elapsed_ms"] = min(
+                30_000, max(0, int((time.monotonic() - request_started) * 1000))
+            )
+            completed = time.monotonic()
+            observation["total_elapsed_ms"] = min(
+                120_000, max(0, int((completed - started) * 1000))
+            )
+            observation["budget_exceeded"] = completed >= deadline
+            summary = safe_receiver_health_summary(observation)
+            summary["poll_attempts"] = min(120, attempts)
+            summary["total_elapsed_ms"] = min(
+                60_000, max(0, int((time.monotonic() - started) * 1000))
+            )
+            self.last_receiver_health_summary = summary
+            if (
+                receiver_health_is_passed(summary)
+                or summary["budget_exceeded"] is True
+                or time.monotonic() >= deadline
+            ):
+                return summary
+            time.sleep(min(0.5, max(0, deadline - time.monotonic())))
 
     def observe_loki_request(self, request_id: str, trace_id: str) -> dict[str, object]:
         query = (
@@ -1213,6 +1650,7 @@ class FullStackRuntime:
         request_id: str,
         trace_id: str,
         sink_observations: dict[str, dict[str, object]],
+        receiver_health_summary: dict[str, object] | None = None,
     ) -> dict[str, object]:
         try:
             api_record = self.inspect_service("api")
@@ -1281,6 +1719,11 @@ class FullStackRuntime:
                 "loki_index_series", {"failure_category": "not_observed"}
             ),
             "tempo": sink_observations.get("tempo", {"failure_category": "not_observed"}),
+            "receiver_health": (
+                receiver_health_summary
+                if isinstance(receiver_health_summary, dict)
+                else {"available": False}
+            ),
             "collector_counters": self._safe_collector_counter_snapshot(),
             "operations_probe": getattr(self, "last_operations_probe", {"available": False}),
             "services": services,
@@ -2125,6 +2568,226 @@ print("TASK6_PROBE:" + json.dumps({"spoofed_forwarded_status": status}))
     not _full_stack_enabled(),
     reason="requires all five opt-in Compose runtime gates",
 )
+def test_receiver_backend_health_component(tmp_path: Path) -> None:
+    runtime = FullStackRuntime(tmp_path, use_acceptance_token=False)
+    evidence: dict[str, object] = {"stage": "compose_preflight"}
+    services = (
+        "collector",
+        "prometheus",
+        "loki",
+        "tempo",
+        "grafana",
+        "alertmanager",
+        "local_alert_receiver",
+    )
+    passed = False
+
+    def safe_service_snapshot() -> (
+        tuple[dict[str, dict[str, object]], dict[str, dict[str, object]]]
+    ):
+        states: dict[str, dict[str, object]] = {}
+        records_by_service: dict[str, dict[str, object]] = {}
+        for name in services:
+            listed = runtime.compose("ps", "-a", "-q", name)
+            if listed.returncode:
+                raise AcceptanceFailure("The UUID-owned component state could not be listed")
+            identifiers = [item for item in listed.stdout.splitlines() if item]
+            if not identifiers:
+                states[name] = {"status": "missing"}
+                continue
+            if len(identifiers) != 1 or not re.fullmatch(r"[0-9a-f]{64}", identifiers[0]):
+                raise AcceptanceFailure("A component container identity failed its UUID guard")
+            records = acceptance_json(
+                acceptance_invoke(["docker", "inspect", identifiers[0]]),
+                "The UUID-owned component state could not be inspected",
+            )
+            if len(records) != 1:
+                raise AcceptanceFailure("A component container inspection was incomplete")
+            record = records[0]
+            labels = (record.get("Config") or {}).get("Labels") or {}
+            if labels.get("com.docker.compose.project") != runtime.stack.project:
+                raise AcceptanceFailure("A component container failed its project owner check")
+            records_by_service[name] = record
+            state = record.get("State") or {}
+            states[name] = {
+                "status": state.get("Status"),
+                "exit_code": state.get("ExitCode"),
+                "restart_count": record.get("RestartCount"),
+                "oom_killed": bool(state.get("OOMKilled")),
+                "error_present": bool(state.get("Error")),
+                "health": (state.get("Health") or {}).get("Status"),
+            }
+        return states, records_by_service
+
+    try:
+        acceptance_success(
+            runtime.compose("config", "--quiet"),
+            "The receiver health component Compose config is invalid",
+        )
+        config = acceptance_json(
+            runtime.compose(
+                "--profile",
+                "operations",
+                "--profile",
+                "seed",
+                "config",
+                "--no-env-resolution",
+                "--format",
+                "json",
+            ),
+            "The receiver health component configuration could not be inspected",
+        )
+        service_config = config.get("services", {})
+        runtime.stack.require_service_image_config(service_config)
+        if {
+            name
+            for name, service in service_config.items()
+            if isinstance(service, dict) and service.get("ports")
+        } != {"gateway"}:
+            raise AcceptanceFailure("A telemetry component unexpectedly publishes a host port")
+
+        evidence["stage"] = "build_exact_source_images"
+        acceptance_success(
+            runtime.compose(
+                "build",
+                "--build-arg",
+                f"PRL_SOURCE_SHA={runtime.stack.expected_sha}",
+                "api",
+                "collector",
+                timeout=900,
+            ),
+            "The receiver health component images could not be built",
+        )
+        expected_images = {
+            "backend": f"prl-backend:{runtime.stack.image_tag}",
+            "collector": f"prl-collector:{runtime.stack.image_tag}",
+        }
+        for role, image in expected_images.items():
+            records = acceptance_json(
+                acceptance_invoke(["docker", "image", "inspect", image]),
+                f"The {role} component image provenance could not be inspected",
+            )
+            labels = (records[0].get("Config") or {}).get("Labels") or {}
+            if labels.get("org.opencontainers.image.revision") != runtime.stack.expected_sha:
+                raise AcceptanceFailure(
+                    f"The {role} component image is not labeled with this source"
+                )
+
+        evidence["stage"] = "start_backend_receiver_only"
+        acceptance_success(
+            runtime.compose(
+                "up",
+                "-d",
+                "--wait",
+                "--wait-timeout",
+                "180",
+                *services,
+                timeout=240,
+            ),
+            "The backend and receiver component services did not start",
+        )
+        service_states, service_records = safe_service_snapshot()
+        receiver_record = service_records.get("local_alert_receiver")
+        if any(
+            item["status"] != "running" or item["restart_count"] != 0 or item["oom_killed"]
+            for item in service_states.values()
+        ):
+            evidence["service_states"] = service_states
+            raise AcceptanceFailure("A backend component was not stably running")
+        if receiver_record is None:
+            raise AcceptanceFailure("The UUID-owned receiver container is missing")
+        receiver_id = receiver_record.get("Id")
+        if not isinstance(receiver_id, str) or not re.fullmatch(r"[0-9a-f]{64}", receiver_id):
+            raise AcceptanceFailure("The UUID-owned receiver identity is invalid")
+        if (receiver_record.get("Config") or {}).get("Tty") is not False:
+            raise AcceptanceFailure("The receiver diagnostic requires a non-TTY container")
+
+        evidence["stage"] = "probe_receiver_network_namespace"
+        try:
+            probe = acceptance_invoke(
+                [
+                    "docker",
+                    "exec",
+                    receiver_id,
+                    "python",
+                    "-c",
+                    RECEIVER_COMPONENT_PROBE_SCRIPT,
+                    runtime.ops_host,
+                ],
+                timeout=90,
+            )
+        except (OSError, subprocess.SubprocessError):
+            probe = None
+        if probe is None or probe.returncode:
+            evidence["probe_error_category"] = "subprocess_error"
+            evidence["service_states"] = service_states
+            print(
+                "TASK6_RECEIVER_COMPONENT_EVIDENCE="
+                + json.dumps(evidence, sort_keys=True, separators=(",", ":"))
+            )
+            raise AcceptanceFailure("The bounded receiver backend probe could not run")
+        try:
+            raw_probe = json.loads(probe.stdout)
+        except json.JSONDecodeError:
+            evidence["probe_error_category"] = "invalid_envelope"
+            evidence["service_states"] = service_states
+            print(
+                "TASK6_RECEIVER_COMPONENT_EVIDENCE="
+                + json.dumps(evidence, sort_keys=True, separators=(",", ":"))
+            )
+            raise AcceptanceFailure(
+                "The receiver backend probe returned an invalid summary"
+            ) from None
+        summary = safe_receiver_component_summary(raw_probe)
+        evidence["probe"] = summary
+        evidence["service_states"] = service_states
+        print(
+            "TASK6_RECEIVER_COMPONENT_EVIDENCE="
+            + json.dumps(evidence, sort_keys=True, separators=(",", ":"))
+        )
+
+        targets = summary["targets"]
+        if (
+            summary["poll_healthy"] is not True
+            or summary["poll_unhealthy"] != []
+            or summary["unknown_poll_failure_count"] != 0
+            or summary["target_count"] != len(RECEIVER_HEALTH_TARGETS)
+            or summary["unknown_target_count"] != 0
+            or set(targets) != RECEIVER_HEALTH_TARGETS
+        ):
+            raise AcceptanceFailure(
+                "The receiver did not report all finite telemetry targets healthy"
+            )
+        health = summary["receiver_health"]
+        if not receiver_health_is_passed(health):
+            raise AcceptanceFailure("The receiver self-health endpoint did not pass")
+        if any(
+            target.get("initial_status") != 200
+            or target.get("redirect")
+            or target.get("final_status") != 200
+            or target.get("follow_error_category") is not None
+            for target in targets.values()
+        ):
+            raise AcceptanceFailure("A telemetry backend readiness target did not return HTTP 200")
+        passed = True
+    finally:
+        if not passed:
+            try:
+                states, _records = safe_service_snapshot()
+                evidence["pre_cleanup_service_states"] = states
+            except Exception:
+                evidence["pre_cleanup_snapshot_available"] = False
+            print(
+                "TASK6_RECEIVER_COMPONENT_FAILURE_SNAPSHOT:"
+                + json.dumps(evidence, sort_keys=True, separators=(",", ":"))
+            )
+        runtime.cleanup()
+
+
+@pytest.mark.skipif(
+    not _full_stack_enabled(),
+    reason="requires all five opt-in Compose runtime gates",
+)
 def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
     token = os.environ.get("PRL_TASK6_ACCEPTANCE_TOKEN", "")
     if token:
@@ -2420,8 +3083,10 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             "spoofed_forwarded_peer_status": 403,
         }
 
-        health = runtime.api_json("http://local_alert_receiver:8088/health/telemetry")
-        if health.get("status") != "passed" or health.get("unhealthy") != []:
+        failure_context["stage"] = "receiver_self_health"
+        health = runtime.wait_receiver_health()
+        failure_context["receiver_health"] = health
+        if not receiver_health_is_passed(health):
             raise AcceptanceFailure("The receiver did not observe the telemetry backends healthy")
         evidence["receiver_self_health"] = health
         evidence["alert_summaries"] = runtime.synthetic_alert_summaries()
@@ -2560,6 +3225,7 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                     request_id=str(failure_context["request_id"]),
                     trace_id=str(failure_context["trace_id"]),
                     sink_observations=sink_observations,
+                    receiver_health_summary=failure_context.get("receiver_health"),
                 )
                 diagnostic["failure_stage"] = failure_context["stage"]
                 print(
@@ -2574,6 +3240,9 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                             "failure_stage": failure_context["stage"],
                             "snapshot_available": False,
                             "diagnostic_error_category": type(exc).__name__,
+                            "receiver_health": failure_context.get(
+                                "receiver_health", {"available": False}
+                            ),
                         },
                         sort_keys=True,
                         separators=(",", ":"),
