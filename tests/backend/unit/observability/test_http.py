@@ -414,3 +414,31 @@ async def test_registered_route_slash_redirect_uses_the_canonical_marker():
     assert response.status_code == 307
     assert response.headers["location"].endswith("/health/live")
     assert response.headers["X-PRL-Route"] == "/health/live"
+
+
+async def test_notification_routes_are_registered_and_emit_only_finite_templates():
+    app, sink, runtimes = instrumented_app()
+    notification_id = "00000000-0000-0000-0000-000000000001"
+    query_value = "notification-query-secret"
+    async with app_client(app) as client:
+        inbox = await client.get(f"/api/v1/notifications?page=2&private={query_value}")
+        mark_read = await client.post(
+            f"/api/v1/notifications/{notification_id}/read?private={query_value}", json={}
+        )
+        metric_lines = runtimes[0].metrics.render().splitlines()
+
+    inbox_route = "/api/v1/notifications"
+    read_route = "/api/v1/notifications/{notification_id}/read"
+    assert inbox.headers["X-PRL-Route"] == inbox_route
+    assert mark_read.headers["X-PRL-Route"] == read_route
+    assert (
+        inbox.headers["Cache-Control"] == mark_read.headers["Cache-Control"] == "private, no-store"
+    )
+
+    records = sink.records
+    assert {record["route"] for record in records} == {inbox_route, read_route}
+    assert any(f'route="{inbox_route}"' in line for line in metric_lines)
+    assert any(f'route="{read_route}"' in line for line in metric_lines)
+    encoded = json.dumps(records) + "\n".join(metric_lines)
+    assert notification_id not in encoded
+    assert query_value not in encoded

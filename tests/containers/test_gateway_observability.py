@@ -1161,3 +1161,47 @@ def test_generated_gateway_route_map_matches_business_openapi():
         timeout=20,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_notification_gateway_operations_use_finite_routes_and_redact_raw_values(
+    real_backend_gateway,
+):
+    client, _, _, base, env, _ = real_backend_gateway
+    notification_id = "00000000-0000-0000-0000-000000000001"
+    query_value = "notification-query-canary"
+    inbox_route = "/api/v1/notifications"
+    read_route = "/api/v1/notifications/{notification_id}/read"
+    read_path = f"/api/v1/notifications/{notification_id}/read"
+    cases = (
+        ("GET", inbox_route, None, inbox_route, False),
+        ("POST", read_path, {}, read_route, False),
+        ("GET", inbox_route + "/", None, inbox_route, True),
+        ("POST", read_path + "/", {}, read_route, True),
+    )
+
+    for method, path, payload, expected_route, is_redirect in cases:
+        request_path = f"{path}?private={query_value}"
+        kwargs = {"json": payload} if payload is not None else {}
+        response = client.request(method, request_path, follow_redirects=False, **kwargs)
+        request_id = response.headers["x-request-id"]
+        assert "x-prl-route" not in response.headers
+
+        if is_redirect:
+            canonical_path = path.rstrip("/")
+            assert response.status_code == 307
+            assert response.headers["location"].endswith(f"{canonical_path}?private={query_value}")
+        else:
+            assert 400 <= response.status_code < 500
+            assert response.headers["cache-control"] == "private, no-store"
+            assert response.json()["error"]["request_id"] == request_id
+
+        record, raw_logs = wait_record(base, env, request_id)
+        assert record["route"] == expected_route
+        assert record["upstream_identity"] == "api"
+        assert query_value not in raw_logs
+        assert notification_id not in raw_logs
+        if is_redirect:
+            assert record["upstream_outcome"] == "canonical_redirect"
+            assert record["classification"] == "excluded"
+        else:
+            assert record["classification"] == "excluded"
