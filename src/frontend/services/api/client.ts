@@ -27,12 +27,30 @@ import type {
   StaffUnavailability,
   StaffUnavailabilityQuery,
 } from '@/services/staff-contracts';
+import type {
+  NotificationItem,
+  NotificationPage,
+  NotificationQuery,
+} from '@/services/notification-contracts';
 import { isBusinessDate } from '@/lib/business-time';
 import { ApiError, BookingRejection } from './errors';
 import { parseBookingContext } from './booking-context';
 
 interface StaffWriteOptions extends ServiceRequestOptions {
   readonly expectedUserId: string;
+}
+
+interface NotificationAccessOptions extends ServiceRequestOptions {
+  readonly expectedUserId?: string;
+  readonly expectedRole?: 'STUDENT' | 'STAFF';
+}
+
+function notificationOwnerHeaders(options?: NotificationAccessOptions): Record<string, string> {
+  if (!options?.expectedUserId || !options.expectedRole) return {};
+  return {
+    'X-Expected-User-ID': options.expectedUserId,
+    'X-Expected-Role': options.expectedRole,
+  };
 }
 
 interface WirePage<T> {
@@ -110,6 +128,16 @@ interface WireStaffUnavailability {
   starts_at: string;
   ends_at: string;
   created_at: string;
+}
+interface WireNotification {
+  id: string;
+  event_type: string;
+  summary: string;
+  created_at: string;
+  read_at: string | null;
+  appointment_id: string | null;
+  appointment_starts_at: string | null;
+  appointment_status: AppointmentStatus | null;
 }
 
 const STAFF_APPOINTMENT_STATUSES = [
@@ -248,6 +276,32 @@ function staffUnavailability(data: WireStaffUnavailability): StaffUnavailability
     createdAt: data.created_at,
   };
 }
+function notification(data: WireNotification): NotificationItem {
+  requireContract(
+    data &&
+      typeof data.id === 'string' &&
+      data.id.length > 0 &&
+      typeof data.event_type === 'string' &&
+      data.event_type.length > 0 &&
+      typeof data.summary === 'string' &&
+      typeof data.created_at === 'string' &&
+      (data.read_at === null || typeof data.read_at === 'string') &&
+      (data.appointment_id === null || typeof data.appointment_id === 'string') &&
+      (data.appointment_starts_at === null || typeof data.appointment_starts_at === 'string') &&
+      (data.appointment_status === null ||
+        STAFF_APPOINTMENT_STATUSES.includes(data.appointment_status)),
+  );
+  return {
+    id: data.id,
+    eventType: data.event_type,
+    summary: data.summary,
+    createdAt: data.created_at,
+    readAt: data.read_at,
+    appointmentId: data.appointment_id,
+    appointmentStartsAt: data.appointment_starts_at,
+    appointmentStatus: data.appointment_status,
+  };
+}
 
 export class ApiServices {
   private scope = new AbortController();
@@ -301,7 +355,7 @@ export class ApiServices {
         const code =
           typeof body?.error?.code === 'string' ? body.error.code : 'SERVICE_UNAVAILABLE';
         const requestId = response.headers.get('X-Request-ID') ?? undefined;
-        if (code === 'INVALID_SESSION') this.onInvalidSession?.();
+        if (code === 'INVALID_SESSION' || code === 'ACCOUNT_CHANGED') this.onInvalidSession?.();
         throw new ApiError(
           code,
           response.status,
@@ -523,6 +577,57 @@ export class ApiServices {
       cancelledAt: data.cancelled_at,
       cancelReason: data.cancel_reason,
     };
+  }
+  async notificationPage(
+    query: NotificationQuery,
+    options?: NotificationAccessOptions,
+  ): Promise<NotificationPage> {
+    await this.verifyNotificationOwner(options);
+    const params = new URLSearchParams({
+      page: String(query.page),
+      page_size: String(query.pageSize),
+      unread_only: String(query.unreadOnly),
+    });
+    const page = mapPage(
+      await this.request<WirePage<WireNotification>>(`/notifications?${params}`, options, {
+        headers: notificationOwnerHeaders(options),
+      }),
+      notification,
+    );
+    await this.verifyNotificationOwner(options);
+    return page;
+  }
+  private async verifyNotificationOwner(options?: NotificationAccessOptions) {
+    if (!options?.expectedUserId || !options.expectedRole) return;
+    const currentUser = await this.me(options);
+    if (currentUser.id !== options.expectedUserId || currentUser.role !== options.expectedRole) {
+      this.invalidateSession();
+      throw new ApiError('ACCOUNT_CHANGED', 401);
+    }
+  }
+  async markNotificationRead(id: string, options?: NotificationAccessOptions) {
+    const currentUser = await this.me(options);
+    if (
+      options?.expectedUserId &&
+      (currentUser.id !== options.expectedUserId || currentUser.role !== options.expectedRole)
+    ) {
+      this.invalidateSession();
+      throw new ApiError('ACCOUNT_CHANGED', 401);
+    }
+    if (currentUser.role !== 'STUDENT' && currentUser.role !== 'STAFF')
+      throw new ApiError('FORBIDDEN_ROLE', 403);
+    const result = await this.write<{ id: string; read_at: string }>(
+      `/notifications/${encodeURIComponent(id)}/read`,
+      {},
+      options,
+      notificationOwnerHeaders(options),
+      currentUser.id,
+      undefined,
+      'POST',
+      currentUser.role,
+    );
+    requireContract(result && result.id === id && typeof result.read_at === 'string');
+    return { id: result.id, readAt: result.read_at };
   }
   cancel(id: string, reason: string | undefined, options?: ServiceRequestOptions) {
     return this.write<{ id: string; status: 'CANCELLED'; cancelled_at: string }>(

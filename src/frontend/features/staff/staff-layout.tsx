@@ -6,7 +6,8 @@ import { PortalShell } from '@/components/portal-shell';
 import { isMockMode } from '@/lib/application-mode';
 import { StaffSessionGate } from './staff-session-gate';
 
-export type StaffPortalSection = 'appointments' | 'preferences' | 'unavailability';
+export type StaffPortalSection =
+  'appointments' | 'preferences' | 'unavailability' | 'notifications';
 
 export function StaffPortalLayout({
   children,
@@ -29,7 +30,9 @@ export function StaffPortalLayout({
       ? 'preferences'
       : pathname === '/staff/unavailability'
         ? 'unavailability'
-        : 'appointments');
+        : pathname === '/staff/notifications'
+          ? 'notifications'
+          : 'appointments');
   return (
     <StaffSessionGate>
       <PortalShell audience="staff" section={activeSection}>

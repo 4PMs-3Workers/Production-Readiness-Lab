@@ -42,6 +42,10 @@ Quyền vận hành hạ tầng được quản lý riêng với vai trò quản
 - Lịch hẹn, đề nghị, audit và thông báo liên quan được ghi trong cùng transaction.
 - Thời điểm được lưu theo UTC và hiển thị theo múi giờ nghiệp vụ `Asia/Ho_Chi_Minh`.
 
+Sinh viên và nhân viên xem hộp thư riêng tại `/notifications` và `/staff/notifications`.
+Inbox phân trang, lọc thông báo chưa đọc và lưu trạng thái đọc qua API; quyền đọc/link lịch
+được xác minh theo session ở backend. Xem [hợp đồng hộp thư thông báo](docs/tasks/notification-inbox.md).
+
 Chi tiết trạng thái, ràng buộc và giao dịch nằm trong [thiết kế cơ sở dữ liệu](docs/architecture/database-design.md).
 
 ## Công nghệ

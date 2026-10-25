@@ -347,6 +347,86 @@ components:
       - password
       title: LoginRequest
       type: object
+    NotificationListItem:
+      additionalProperties: false
+      description: A safe event summary and appointment snapshot authorized for this
+        recipient.
+      properties:
+        appointment_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Appointment Id
+        appointment_starts_at:
+          anyOf:
+          - $ref: '#/components/schemas/UtcTimestamp'
+          - type: 'null'
+        appointment_status:
+          anyOf:
+          - enum:
+            - UPCOMING
+            - CHANGE_PENDING
+            - CANCELLED
+            - COMPLETED
+            - NO_SHOW
+            type: string
+          - type: 'null'
+          title: Appointment Status
+        created_at:
+          $ref: '#/components/schemas/UtcTimestamp'
+        event_type:
+          maxLength: 50
+          minLength: 1
+          title: Event Type
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        read_at:
+          anyOf:
+          - $ref: '#/components/schemas/UtcTimestamp'
+          - type: 'null'
+        summary:
+          maxLength: 200
+          minLength: 1
+          title: Summary
+          type: string
+      required:
+      - id
+      - event_type
+      - summary
+      - created_at
+      - read_at
+      - appointment_id
+      - appointment_starts_at
+      - appointment_status
+      title: NotificationListItem
+      type: object
+    NotificationReadRequest:
+      additionalProperties: false
+      description: The mutation has no client-controlled fields; callers send an empty
+        object.
+      properties: {}
+      title: NotificationReadRequest
+      type: object
+    NotificationReadResponse:
+      additionalProperties: false
+      properties:
+        id:
+          format: uuid
+          title: Id
+          type: string
+        read_at:
+          format: date-time
+          title: Read At
+          type: string
+      required:
+      - id
+      - read_at
+      title: NotificationReadResponse
+      type: object
     PageResponse_AppointmentListItem_:
       properties:
         items:
@@ -373,6 +453,33 @@ components:
       - page_size
       - total
       title: PageResponse[AppointmentListItem]
+      type: object
+    PageResponse_NotificationListItem_:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/NotificationListItem'
+          title: Items
+          type: array
+        page:
+          minimum: 1.0
+          title: Page
+          type: integer
+        page_size:
+          maximum: 100.0
+          minimum: 1.0
+          title: Page Size
+          type: integer
+        total:
+          minimum: 0.0
+          title: Total
+          type: integer
+      required:
+      - items
+      - page
+      - page_size
+      - total
+      title: PageResponse[NotificationListItem]
       type: object
     PageResponse_PurposeItem_:
       properties:
@@ -3183,6 +3290,472 @@ paths:
       summary: Booking Context
       tags:
       - booking-context
+  /api/v1/notifications:
+    get:
+      description: 'Returns only the current STUDENT or STAFF recipient''s notifications.
+        Pages are 1-based with `page_size` from 1 to 100 and optional `unread_only`
+        filtering. Rows use deterministic `created_at DESC, id DESC` ordering; `total`
+        counts all matching rows even when the requested page is empty. A known event
+        shows its safe summary and appointment link only while that appointment is
+        accessible to this recipient. An unknown event or inaccessible appointment
+        receives a generic summary and null appointment fields, with no actionable
+        link. Consultation text and internal replay data are never included.
+
+
+        Clients showing a known identity may send both `X-Expected-User-ID` and `X-Expected-Role`;
+        they are compared with this same request''s authenticated context before any
+        notification data is returned. A mismatch returns `ACCOUNT_CHANGED` (409);
+        a malformed or incomplete pair returns `VALIDATION_ERROR` (422). Clients omitting
+        both still receive their own session''s inbox.
+
+
+        Errors: `INVALID_SESSION` (401), `FORBIDDEN_ROLE` (403), `VALIDATION_ERROR`
+        (422), `INTERNAL_SERVER_ERROR` (500), `SERVICE_UNAVAILABLE` (503). Responses
+        are `private, no-store` with a request ID.'
+      operationId: list_notifications_api_v1_notifications_get
+      parameters:
+      - in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          title: Page
+          type: integer
+      - in: query
+        name: page_size
+        required: false
+        schema:
+          default: 20
+          maximum: 100
+          minimum: 1
+          title: Page Size
+          type: integer
+      - in: query
+        name: unread_only
+        required: false
+        schema:
+          default: false
+          title: Unread Only
+          type: boolean
+      - description: Optional with X-Expected-Role; checked against this request's
+          user.
+        in: header
+        name: X-Expected-User-ID
+        required: false
+        schema:
+          format: uuid
+          type: string
+      - description: Optional with X-Expected-User-ID; checked against this request's
+          role.
+        in: header
+        name: X-Expected-Role
+        required: false
+        schema:
+          enum:
+          - STUDENT
+          - STAFF
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageResponse_NotificationListItem_'
+          description: Successful Response
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized notification error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Error class
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized notification error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Error class
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized notification error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Error class
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized notification error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Error class
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized notification error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Error class
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized notification error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Error class
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+      security:
+      - prl_session: []
+      summary: List the authenticated user's notifications
+      tags:
+      - notifications
+  /api/v1/notifications/{notification_id}/read:
+    post:
+      description: 'Send an empty JSON object to mark one notification owned by the
+        current STUDENT or STAFF recipient as read. The response returns the persisted
+        `read_at`; repeated or concurrent calls preserve the first timestamp and create
+        no new business events. Missing and other recipients'' IDs both return `NOT_FOUND`
+        (404). The write requires the signed CSRF token plus a same-origin Origin
+        or Referer.
+
+
+        When supplied together, `X-Expected-User-ID` and `X-Expected-Role` must match
+        this request''s authenticated context; otherwise `ACCOUNT_CHANGED` (409) is
+        returned without marking a notification. An incomplete or malformed pair returns
+        `VALIDATION_ERROR` (422).
+
+
+        Other errors: `INVALID_SESSION` (401); `FORBIDDEN_ROLE`, `INVALID_CSRF`, or
+        `INVALID_ORIGIN` (403); `PAYLOAD_TOO_LARGE` (413); `UNSUPPORTED_MEDIA_TYPE`
+        (415); `VALIDATION_ERROR` (422); `INTERNAL_SERVER_ERROR` (500); `SERVICE_UNAVAILABLE`
+        (503). Responses are `private, no-store` with a request ID.'
+      operationId: mark_notification_read_api_v1_notifications__notification_id__read_post
+      parameters:
+      - in: path
+        name: notification_id
+        required: true
+        schema:
+          format: uuid
+          title: Notification Id
+          type: string
+      - description: Optional with X-Expected-Role; checked against this request's
+          user.
+        in: header
+        name: X-Expected-User-ID
+        required: false
+        schema:
+          format: uuid
+          type: string
+      - description: Optional with X-Expected-User-ID; checked against this request's
+          role.
+        in: header
+        name: X-Expected-Role
+        required: false
+        schema:
+          enum:
+          - STUDENT
+          - STAFF
+          type: string
+      - description: Signed token matching the prl_csrf cookie.
+        in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+      - description: Preferred same-origin header; Referer is the fallback.
+        in: header
+        name: Origin
+        required: false
+        schema:
+          format: uri
+          type: string
+      - description: Checked only when Origin is absent.
+        in: header
+        name: Referer
+        required: false
+        schema:
+          format: uri
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationReadRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationReadResponse'
+          description: Successful Response
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized notification error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Error class
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized notification error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Error class
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized notification error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Error class
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized notification error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Error class
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '413':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized notification error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Error class
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '415':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized notification error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Error class
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized notification error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Error class
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized notification error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Error class
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized notification error
+          headers:
+            Cache-Control:
+              description: Private responses are not stored
+              schema:
+                type: string
+            X-Error-Class:
+              description: Error class
+              schema:
+                type: string
+            X-Request-ID:
+              description: Identifier for this request
+              schema:
+                type: string
+      security:
+      - prl_session: []
+      summary: Persistently mark one owned notification as read
+      tags:
+      - notifications
   /api/v1/purposes:
     get:
       operationId: purposes_api_v1_purposes_get

@@ -16,8 +16,12 @@ export function safeStaffReturnPath(value: string | null): string {
   )
     return '/staff/appointments';
   const path = value.split(/[?#]/)[0];
-  return ['/staff/appointments', '/staff/preferences', '/staff/unavailability'].includes(path) ||
-    /^\/staff\/appointments\/[a-zA-Z0-9-]+$/.test(path)
+  return [
+    '/staff/appointments',
+    '/staff/preferences',
+    '/staff/unavailability',
+    '/staff/notifications',
+  ].includes(path) || /^\/staff\/appointments\/[a-zA-Z0-9-]+$/.test(path)
     ? value
     : '/staff/appointments';
 }

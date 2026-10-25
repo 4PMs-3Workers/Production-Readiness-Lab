@@ -31,6 +31,36 @@ def test_staff_appointment_routes_use_private_headers_and_request_deadlines():
         assert requires_request_deadline(scope)
 
 
+def test_notification_routes_use_private_headers_and_request_deadlines():
+    for method, path in (
+        ("GET", "/api/v1/notifications"),
+        ("POST", "/api/v1/notifications/00000000-0000-0000-0000-000000000001/read"),
+    ):
+        scope: Scope = {"type": "http", "method": method, "path": path, "root_path": ""}
+        assert uses_private_api_middleware(scope)
+        assert requires_private_response(scope)
+        assert requires_request_deadline(scope)
+
+
+async def test_notification_validation_error_is_private(auth_settings):
+    sent = []
+
+    async def receive():
+        return {"type": "http.request", "body": b"{}", "more_body": False}
+
+    async def send(message):
+        sent.append(message)
+
+    async def app(scope, receive, send):
+        await Response(status_code=422)(scope, receive, send)
+
+    path = "/api/v1/notifications/00000000-0000-0000-0000-000000000001/read"
+    await PrivateApiHttpMiddleware(app, settings=auth_settings)(body_scope(path), receive, send)
+
+    assert sent[0]["status"] == 422
+    assert dict(sent[0]["headers"])[b"cache-control"] == b"private, no-store"
+
+
 async def test_appointment_middleware_uses_the_configured_stress_deadline(auth_settings):
     settings = auth_settings.model_copy(update={"request_timeout_seconds": 20.0})
     captured = {}
@@ -109,7 +139,13 @@ async def test_unsupported_posts_do_not_wait_for_request_body(auth_settings, pat
 
 
 @pytest.mark.parametrize(
-    "path", ["/api/v1/appointments", "/api/v1/auth/logout", "/api/v1/auth/login"]
+    "path",
+    [
+        "/api/v1/appointments",
+        "/api/v1/notifications/00000000-0000-0000-0000-000000000001/read",
+        "/api/v1/auth/logout",
+        "/api/v1/auth/login",
+    ],
 )
 async def test_body_disconnect_stops_before_routing(auth_settings, path):
     messages = iter(
@@ -139,7 +175,13 @@ async def test_body_disconnect_stops_before_routing(auth_settings, path):
 
 
 @pytest.mark.parametrize(
-    "path", ["/api/v1/appointments", "/api/v1/auth/logout", "/api/v1/auth/login"]
+    "path",
+    [
+        "/api/v1/appointments",
+        "/api/v1/notifications/00000000-0000-0000-0000-000000000001/read",
+        "/api/v1/auth/logout",
+        "/api/v1/auth/login",
+    ],
 )
 async def test_buffered_body_replays_once_then_preserves_disconnect(auth_settings, path):
     messages = iter(
@@ -167,7 +209,13 @@ async def test_buffered_body_replays_once_then_preserves_disconnect(auth_setting
 
 
 @pytest.mark.parametrize(
-    "path", ["/api/v1/appointments", "/api/v1/auth/logout", "/api/v1/auth/login"]
+    "path",
+    [
+        "/api/v1/appointments",
+        "/api/v1/notifications/00000000-0000-0000-0000-000000000001/read",
+        "/api/v1/auth/logout",
+        "/api/v1/auth/login",
+    ],
 )
 async def test_body_read_is_inside_existing_request_deadline(auth_settings, path):
     settings = auth_settings.model_copy(update={"request_timeout_seconds": 0.01})

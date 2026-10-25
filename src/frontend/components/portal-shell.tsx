@@ -13,16 +13,27 @@ export function PortalShell({
 }: {
   children: ReactNode;
   section?:
-    'home' | 'booking' | 'history' | 'profile' | 'appointments' | 'preferences' | 'unavailability';
+    | 'home'
+    | 'booking'
+    | 'history'
+    | 'profile'
+    | 'appointments'
+    | 'preferences'
+    | 'unavailability'
+    | 'notifications';
   audience?: 'student' | 'staff';
 }) {
   const staffSections = {
     appointments: 'Lịch được giao',
     preferences: 'Nhu cầu tiếp nhận',
     unavailability: 'Thời gian không nhận',
+    notifications: 'Thông báo',
   } as const;
   const staffActive =
-    section === 'appointments' || section === 'preferences' || section === 'unavailability';
+    section === 'appointments' ||
+    section === 'preferences' ||
+    section === 'unavailability' ||
+    section === 'notifications';
   const sectionTitle =
     audience === 'staff' && staffActive
       ? staffSections[section]
@@ -32,7 +43,9 @@ export function PortalShell({
           ? 'Lịch đã đặt'
           : section === 'profile'
             ? 'Thông tin sinh viên'
-            : 'Đặt lịch tư vấn';
+            : section === 'notifications'
+              ? 'Thông báo'
+              : 'Đặt lịch tư vấn';
   return (
     <div className={styles.portal}>
       <a className="skip-link" href="#main-content">
@@ -78,6 +91,19 @@ export function PortalShell({
                 ☷
               </span>
               Lịch được giao
+              <span className={styles.chevron} aria-hidden="true">
+                ›
+              </span>
+            </Link>
+            <Link
+              className={`${styles.navLink} ${section === 'notifications' ? styles.activeLink : ''}`}
+              href="/staff/notifications"
+              aria-current={section === 'notifications' ? 'page' : undefined}
+            >
+              <span className={styles.calendarIcon} aria-hidden="true">
+                ♧
+              </span>
+              Thông báo
               <span className={styles.chevron} aria-hidden="true">
                 ›
               </span>
@@ -156,6 +182,19 @@ export function PortalShell({
                 ☷
               </span>
               Lịch đã đặt
+              <span className={styles.chevron} aria-hidden="true">
+                ›
+              </span>
+            </Link>
+            <Link
+              className={`${styles.navLink} ${section === 'notifications' ? styles.activeLink : ''}`}
+              href="/notifications"
+              aria-current={section === 'notifications' ? 'page' : undefined}
+            >
+              <span className={styles.calendarIcon} aria-hidden="true">
+                ♧
+              </span>
+              Thông báo
               <span className={styles.chevron} aria-hidden="true">
                 ›
               </span>

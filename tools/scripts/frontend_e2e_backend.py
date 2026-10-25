@@ -42,6 +42,8 @@ from app.models import (
     StaffUnavailability,
     User,
 )
+from app.worker.models import Outcome
+from app.worker.processing import process_candidate
 
 RUNTIME = Path("build/frontend-api")
 FIXTURE = RUNTIME / "fixture.json"
@@ -68,6 +70,24 @@ def read_fixture():
 
 def engine_for(fixture):
     return create_database_engine(admin_url().set(database=fixture["schema"]), poolclass=NullPool)
+
+
+def settings_for(fixture):
+    return Settings.model_validate(
+        {
+            "DATABASE_URL": admin_url()
+            .set(database=fixture["schema"])
+            .render_as_string(hide_password=False),
+            "APPLICATION_ORIGIN": "http://127.0.0.1:3101",
+            "COOKIE_SECRET": "frontend-e2e-only-cookie-secret",
+            "CSRF_SECRET": "frontend-e2e-only-csrf-secret",
+            "ACCEPTED_SCHEMA_REVISIONS": "20261019_1200_proposal_replay",
+            "COOKIE_SECURE": False,
+            "ENVIRONMENT": "test",
+            "LOGIN_IP_ATTEMPTS": 200,
+            "LOGIN_EMAIL_ATTEMPTS": 200,
+        }
+    )
 
 
 def migrate(connection):
@@ -206,7 +226,10 @@ class ProbeCommittedResponse:
         if (
             scope["type"] != "http"
             or scope["method"] != "POST"
-            or scope["path"] not in {"/api/v1/appointments", "/api/v1/staff/me/unavailability"}
+            or not (
+                scope["path"] in {"/api/v1/appointments", "/api/v1/staff/me/unavailability"}
+                or re.fullmatch(r"/api/v1/notifications/[a-f0-9-]{36}/read", scope["path"])
+            )
             or not (LOSS.exists() or HOLD.exists())
         ):
             await self.app(scope, receive, send)
@@ -239,7 +262,7 @@ class ProbeCommittedResponse:
             await send(
                 {
                     "type": "http.response.start",
-                    "status": 201,
+                    "status": messages[0]["status"],
                     "headers": headers + [(b"content-length", b"0")],
                 }
             )
@@ -267,6 +290,7 @@ async def operate(args):
         return
     engine = engine_for(fixture)
     clear_settings_snapshot = False
+    proposal_for_expiry = None
     try:
         async with async_sessionmaker(engine, expire_on_commit=False).begin() as db:
             if args.action == "reset":
@@ -510,6 +534,45 @@ async def operate(args):
                             creation_request_hash=hashlib.sha256(str(index).encode()).digest(),
                         )
                     )
+            elif args.action == "seed-notification-history":
+                appointment = await db.get(Appointment, UUID(args.id))
+                if appointment is None or appointment.student_id != UUID(fixture["student"]):
+                    raise RuntimeError(
+                        "Notification history requires the fixture student's appointment"
+                    )
+                now = (
+                    (await db.execute(text("SELECT UTC_TIMESTAMP(6)")))
+                    .scalar_one()
+                    .replace(tzinfo=UTC)
+                )
+                for index in range(21):
+                    db.add(
+                        Notification(
+                            recipient_id=UUID(fixture["student"]),
+                            appointment_id=appointment.id,
+                            event_type="APPOINTMENT_CREATED",
+                            created_at=now - timedelta(minutes=index + 1),
+                        )
+                    )
+            elif args.action == "expire-proposal":
+                proposal_for_expiry = UUID(args.id)
+                proposal = await db.get(ChangeProposal, proposal_for_expiry)
+                if proposal is None or proposal.created_by != UUID(fixture["staff"]):
+                    raise RuntimeError("Expiry requires a proposal created by the fixture staff")
+                now = (
+                    (await db.execute(text("SELECT UTC_TIMESTAMP(6)")))
+                    .scalar_one()
+                    .replace(tzinfo=UTC)
+                )
+                proposal.created_at = now - timedelta(days=1)
+                proposal.expires_at = now - timedelta(minutes=1)
+        if proposal_for_expiry is not None:
+            sessions = async_sessionmaker(engine, expire_on_commit=False)
+            result = await process_candidate(
+                sessions, proposal_for_expiry, settings_for(fixture), "expiry.frontend-e2e"
+            )
+            if result.outcome != Outcome.EXPIRED:
+                raise RuntimeError(f"Worker did not expire the proposal: {result.outcome}")
     finally:
         await engine.dispose()
     if clear_settings_snapshot:
@@ -551,6 +614,8 @@ def main():
             "expire",
             "inspect",
             "history",
+            "seed-notification-history",
+            "expire-proposal",
             "arm-loss",
             "arm-hold",
             "release-response",
@@ -572,21 +637,7 @@ def main():
         asyncio.run(operate(args))
         return
     fixture = asyncio.run(prepare())
-    settings = Settings.model_validate(
-        {
-            "DATABASE_URL": admin_url()
-            .set(database=fixture["schema"])
-            .render_as_string(hide_password=False),
-            "APPLICATION_ORIGIN": "http://127.0.0.1:3101",
-            "COOKIE_SECRET": "frontend-e2e-only-cookie-secret",
-            "CSRF_SECRET": "frontend-e2e-only-csrf-secret",
-            "ACCEPTED_SCHEMA_REVISIONS": "20261019_1200_proposal_replay",
-            "COOKIE_SECURE": False,
-            "ENVIRONMENT": "test",
-            "LOGIN_IP_ATTEMPTS": 200,
-            "LOGIN_EMAIL_ATTEMPTS": 200,
-        }
-    )
+    settings = settings_for(fixture)
     try:
         uvicorn.run(
             ProbeCommittedResponse(create_app(settings)),

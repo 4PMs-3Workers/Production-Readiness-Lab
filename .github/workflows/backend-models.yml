@@ -93,3 +93,6 @@ jobs:
         run: |
           .venv/bin/python tools/scripts/export_openapi.py
           git diff --exit-code -- docs/api/openapi.yaml
+
+      - name: Notification query-plan and concurrent-read evidence
+        run: .venv/bin/python -m pytest tests/backend/integration/test_notifications.py::test_recipient_query_plans_and_concurrent_read_with_large_history -q -s --require-mysql
