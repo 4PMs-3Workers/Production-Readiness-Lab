@@ -21,8 +21,11 @@ jobs:
     env:
       CI: 'true'
       NEXT_TELEMETRY_DISABLED: '1'
-      RUN_COMPOSE_ACCEPTANCE: '1'
+      RUN_CONTAINER_TESTS: '1'
+      RUN_COMPOSE_TESTS: '1'
       RUN_GATEWAY_TESTS: '1'
+      RUN_COMPOSE_ACCEPTANCE: '1'
+      RUN_OBSERVABILITY_TESTS: '1'
     steps:
       - uses: actions/checkout@v7
 
