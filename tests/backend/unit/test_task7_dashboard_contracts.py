@@ -349,13 +349,19 @@ def test_same_slot_restart_fixture_keeps_cached_backlog_unknown_until_new_scan()
         assert expr_tests[(expression, "30s")] == []
     assert expr_tests[("prl:worker:backlog_max_fresh", "45s")] == [
         {
-            "labels": '{__name__="prl:worker:backlog_max_fresh",service_name="worker",deployment_environment_name="demo"}',
+            "labels": (
+                '{__name__="prl:worker:backlog_max_fresh",'
+                'service_name="worker",deployment_environment_name="demo"}'
+            ),
             "value": 4,
         }
     ]
     assert expr_tests[("prl:worker:backlog_oldest_overdue_max_fresh", "45s")] == [
         {
-            "labels": '{__name__="prl:worker:backlog_oldest_overdue_max_fresh",service_name="worker",deployment_environment_name="demo"}',
+            "labels": (
+                '{__name__="prl:worker:backlog_oldest_overdue_max_fresh",'
+                'service_name="worker",deployment_environment_name="demo"}'
+            ),
             "value": 15,
         }
     ]

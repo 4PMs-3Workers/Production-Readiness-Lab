@@ -2678,9 +2678,7 @@ class FullStackRuntime:
                 try:
                     timestamp_ns = int(entry[0])
                 except (TypeError, ValueError, IndexError):
-                    raise AcceptanceFailure(
-                        "A Loki healthcheck had an invalid timestamp"
-                    ) from None
+                    raise AcceptanceFailure("A Loki healthcheck had an invalid timestamp") from None
                 if timestamp_ns < query_start_ns:
                     continue
                 try:
@@ -3706,15 +3704,12 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         pre_outage_healthchecks = runtime.query_loki_healthchecks()
         if (
             type(pre_outage_healthchecks.get("latest_event_unix_ns")) is not int
-            or time.time_ns() - pre_outage_healthchecks["latest_event_unix_ns"]
-            > 15_000_000_000
+            or time.time_ns() - pre_outage_healthchecks["latest_event_unix_ns"] > 15_000_000_000
         ):
             raise AcceptanceFailure(
                 "The genuine gateway healthcheck was not fresh before Collector pause"
             )
-        evidence["genuine_gateway_healthchecks_before_collector_outage"] = (
-            pre_outage_healthchecks
-        )
+        evidence["genuine_gateway_healthchecks_before_collector_outage"] = pre_outage_healthchecks
         collector_before = runtime.inspect_service("collector")
         collector_id_before = collector_before.get("Id")
         if not isinstance(collector_id_before, str) or not re.fullmatch(
@@ -3795,9 +3790,7 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         )
         evidence["collector_pipeline_missing_firing"] = {
             "alertname": "GatewayPipelineHeartbeatMissing",
-            "receiver_statuses": runtime.alert_receiver_statuses(
-                "GatewayPipelineHeartbeatMissing"
-            ),
+            "receiver_statuses": runtime.alert_receiver_statuses("GatewayPipelineHeartbeatMissing"),
             "receiver_first_observed_unix_ns": pipeline_firing_observed_ns,
             "exact_predicate_value": runtime.loki_scalar(pipeline_missing_expression),
         }
@@ -3836,12 +3829,16 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             recovered_healthchecks.get("query_start_unix_ns") != collector_recovered_ns
             or recovered_healthchecks.get("latest_event_unix_ns", 0) < collector_recovered_ns
         ):
-            raise AcceptanceFailure("The returned gateway healthchecks were not fresh after Collector restart")
+            raise AcceptanceFailure(
+                "The returned gateway healthchecks were not fresh after Collector restart"
+            )
         collector_outage_elapsed_seconds = (
             collector_recovered_ns - collector_outage_started_ns
         ) / 1_000_000_000
         if collector_outage_elapsed_seconds < 90:
-            raise AcceptanceFailure("The Collector outage did not span the 60-second absence and 30-second hold")
+            raise AcceptanceFailure(
+                "The Collector outage did not span the 60-second absence and 30-second hold"
+            )
         pipeline_predicate_after_recovery = runtime.loki_scalar(pipeline_missing_expression)
         if pipeline_predicate_after_recovery is not None:
             raise AcceptanceFailure(
@@ -3866,14 +3863,10 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             seconds=45,
             failure="The local receiver did not receive the resolved gateway pipeline alert",
         )
-        evidence["genuine_gateway_healthchecks_after_collector_recovery"] = (
-            recovered_healthchecks
-        )
+        evidence["genuine_gateway_healthchecks_after_collector_recovery"] = recovered_healthchecks
         evidence["collector_pipeline_missing_resolved"] = {
             "alertname": "GatewayPipelineHeartbeatMissing",
-            "receiver_statuses": runtime.alert_receiver_statuses(
-                "GatewayPipelineHeartbeatMissing"
-            ),
+            "receiver_statuses": runtime.alert_receiver_statuses("GatewayPipelineHeartbeatMissing"),
             "receiver_first_observed_unix_ns": pipeline_resolved_observed_ns,
             "exact_predicate_value": pipeline_predicate_after_recovery,
         }
