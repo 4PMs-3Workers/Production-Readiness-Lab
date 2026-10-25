@@ -44,6 +44,8 @@ def collector_test_image():
     )
     yield image
     run("docker", "image", "rm", image, env=dict(os.environ))
+
+
 COLLECTOR_CONFIG = """\
 extensions:
   file_storage:
@@ -179,17 +181,13 @@ def wait_for_upstream_file(base, env, path, timeout=5):
     pytest.fail("controlled API fixture did not confirm the delayed request")
 
 
-def reconfigure_nginx(
-    gateway, tmp_path, *, routes=None, proxy=None, sink=None, nginx=None
-):
+def reconfigure_nginx(gateway, tmp_path, *, routes=None, proxy=None, sink=None, nginx=None):
     _, _, base, env = gateway
     compose_file = Path(base[-1])
     merged = json.loads(compose_file.read_text())
     gateway_config = merged["services"]["gateway"]
     directory_mount = next(
-        volume
-        for volume in gateway_config["volumes"]
-        if volume.get("target") == "/etc/nginx/prl"
+        volume for volume in gateway_config["volumes"] if volume.get("target") == "/etc/nginx/prl"
     )
     copied = tmp_path / "nginx"
     shutil.copytree(directory_mount["source"], copied)
@@ -239,15 +237,11 @@ def configure_file_pipeline(
     merged = json.loads(compose_file.read_text())
     gateway_config = merged["services"]["gateway"]
     directory_mount = next(
-        volume
-        for volume in gateway_config["volumes"]
-        if volume.get("target") == "/etc/nginx/prl"
+        volume for volume in gateway_config["volumes"] if volume.get("target") == "/etc/nginx/prl"
     )
     copied = tmp_path / "nginx-file-pipeline"
     shutil.copytree(directory_mount["source"], copied)
-    (copied / "file-sink.conf").write_text(
-        "access_log /var/log/prl/access.jsonl prl_gateway;\n"
-    )
+    (copied / "file-sink.conf").write_text("access_log /var/log/prl/access.jsonl prl_gateway;\n")
     directory_mount["source"] = str(copied)
     gateway_config["volumes"].append(
         {"type": "volume", "source": "gateway_logs", "target": "/var/log/prl"}
@@ -687,9 +681,7 @@ def test_upstream_read_timeout_is_a_safe_service_failure(gateway, tmp_path):
     proxy = proxy.replace("proxy_read_timeout 10s;", "proxy_read_timeout 250ms;", 1)
     reconfigure_nginx(gateway, tmp_path, proxy=proxy)
 
-    response = client.get(
-        "/api/v1/purposes?prl_test=upstream_timeout&private=timeout-canary"
-    )
+    response = client.get("/api/v1/purposes?prl_test=upstream_timeout&private=timeout-canary")
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "SERVICE_UNAVAILABLE"
     record, raw_logs = wait_record(base, env, response.headers["x-request-id"])
@@ -760,8 +752,7 @@ def test_malformed_published_request_is_local_input_400(gateway):
         base,
         env,
         previous_ids,
-        lambda value: value.get("status") == 400
-        and value.get("route") == "/api/v1/auth/login",
+        lambda value: value.get("status") == 400 and value.get("route") == "/api/v1/auth/login",
     )
     assert record["upstream_identity"] == "none"
     assert record["upstream_outcome"] == "gateway_input"
@@ -800,8 +791,7 @@ def test_incomplete_login_body_is_local_input_408(gateway, tmp_path):
         base,
         env,
         previous_ids,
-        lambda value: value.get("status") == 408
-        and value.get("route") == "/api/v1/auth/login",
+        lambda value: value.get("status") == 408 and value.get("route") == "/api/v1/auth/login",
     )
     assert record["upstream_identity"] == "none"
     assert record["upstream_outcome"] == "gateway_input"
@@ -824,12 +814,8 @@ def test_nonlogin_local_429_is_not_a_login_throttle(gateway, tmp_path):
     routes = routes.replace("location = /api/v1 {", local_limiter, 1)
     reconfigure_nginx(gateway, tmp_path, routes=routes)
 
-    responses = [
-        client.get("/api/v1/purposes?private=local-capacity") for _ in range(5)
-    ]
-    response = next(
-        (candidate for candidate in responses if candidate.status_code == 429), None
-    )
+    responses = [client.get("/api/v1/purposes?private=local-capacity") for _ in range(5)]
+    response = next((candidate for candidate in responses if candidate.status_code == 429), None)
     assert response is not None, [candidate.status_code for candidate in responses]
     assert response.json()["error"]["code"] == "RATE_LIMITED"
     assert response.headers["x-error-class"] == "service"
@@ -867,9 +853,7 @@ def test_frontend_with_and_without_a_copied_route_marker_is_a_misroute(gateway, 
     merged = json.loads(compose_file.read_text())
     gateway_config = merged["services"]["gateway"]
     directory_mount = next(
-        volume
-        for volume in gateway_config["volumes"]
-        if volume.get("target") == "/etc/nginx/prl"
+        volume for volume in gateway_config["volumes"] if volume.get("target") == "/etc/nginx/prl"
     )
     copied = tmp_path / "nginx"
     shutil.copytree(directory_mount["source"], copied)
@@ -914,8 +898,7 @@ def test_wrong_host_same_port_with_matching_marker_is_a_misroute(gateway, tmp_pa
 
     gateway_config = merged["services"]["gateway"]
     directory_mount = next(
-        volume for volume in gateway_config["volumes"]
-        if volume.get("target") == "/etc/nginx/prl"
+        volume for volume in gateway_config["volumes"] if volume.get("target") == "/etc/nginx/prl"
     )
     copied = tmp_path / "nginx"
     shutil.copytree(directory_mount["source"], copied)
@@ -944,6 +927,7 @@ def test_wrong_host_same_port_with_matching_marker_is_a_misroute(gateway, tmp_pa
     assert record["classification"] == "service_failure"
     assert record["trace_id"] == ""
 
+
 def test_real_gateway_healthcheck_emits_only_out_of_sli_heartbeat(gateway):
     client, _, base, env = gateway
     health = client.get("/health/gateway")
@@ -961,17 +945,13 @@ def test_real_gateway_healthcheck_emits_only_out_of_sli_heartbeat(gateway):
     assert health_record["request_id"] != business_record["request_id"]
 
 
-def test_healthcheck_heartbeat_uses_file_pipeline_without_business_sample(
-    gateway, tmp_path
-):
+def test_healthcheck_heartbeat_uses_file_pipeline_without_business_sample(gateway, tmp_path):
     client, _, base, env = gateway
     configure_file_pipeline(gateway, tmp_path)
 
     response = client.get("/health/gateway")
     assert response.status_code == 200
-    health_record, _ = wait_file_record(
-        base, env, response.headers["x-request-id"]
-    )
+    health_record, _ = wait_file_record(base, env, response.headers["x-request-id"])
     records, _ = gateway_file_records(base, env)
     assert health_record["event"] == "gateway.healthcheck"
     assert health_record["route"] == "/health/gateway"
@@ -1045,8 +1025,7 @@ def test_collector_late_start_checkpoint_restart_and_rotation(
     ).splitlines()
     assert spool_metadata[0] == "1770 101:101 /var/log/prl", spool_metadata
     assert all(
-        line.startswith("640 101:101 /var/log/prl/access.jsonl")
-        for line in spool_metadata[1:]
+        line.startswith("640 101:101 /var/log/prl/access.jsonl") for line in spool_metadata[1:]
     ), spool_metadata
 
     all_ids = early_ids + rotated_ids
@@ -1059,9 +1038,7 @@ def test_collector_late_start_checkpoint_restart_and_rotation(
     post_restart_id = post_restart.headers["x-request-id"]
     wait_file_record(base, env, post_restart_id)
     restarted_output = wait_collector_requests(base, env, [post_restart_id])
-    assert all(
-        collector_record_count(restarted_output, request_id) == 1 for request_id in all_ids
-    )
+    assert all(collector_record_count(restarted_output, request_id) == 1 for request_id in all_ids)
     assert collector_record_count(restarted_output, post_restart_id) == 1
 
 
@@ -1088,19 +1065,13 @@ def test_spool_pressure_is_bounded_keeps_responses_and_recovers(gateway, tmp_pat
     )
     assert fill.returncode != 0
     assert "No space left on device" in fill.stdout + fill.stderr
-    filesystem = run(
-        *base, "exec", "-T", "gateway", "df", "-Pk", "/var/log/prl", env=env
-    )
+    filesystem = run(*base, "exec", "-T", "gateway", "df", "-Pk", "/var/log/prl", env=env)
     total_kib = int(filesystem.splitlines()[-1].split()[1])
     assert 64000 <= total_kib <= 65536, filesystem
 
-    pressured = client.get(
-        "/health/gateway?private=spool-pressure-query-canary"
-    )
+    pressured = client.get("/health/gateway?private=spool-pressure-query-canary")
     assert pressured.status_code == 200
-    pressure_record, stdout = wait_record(
-        base, env, pressured.headers["x-request-id"]
-    )
+    pressure_record, stdout = wait_record(base, env, pressured.headers["x-request-id"])
     assert pressure_record["event"] == "gateway.healthcheck"
     assert pressure_record["classification"] == "out_of_scope"
     assert "spool-pressure-query-canary" not in stdout
@@ -1127,9 +1098,7 @@ def test_spool_pressure_is_bounded_keeps_responses_and_recovers(gateway, tmp_pat
     run(*base, "unpause", "rotate_helper", env=env)
     recovered = client.get("/health/gateway")
     assert recovered.status_code == 200
-    record, file_output = wait_file_record(
-        base, env, recovered.headers["x-request-id"]
-    )
+    record, file_output = wait_file_record(base, env, recovered.headers["x-request-id"])
     assert record["event"] == "gateway.healthcheck"
     assert record["classification"] == "out_of_scope"
     assert "spool-pressure-query-canary" not in file_output

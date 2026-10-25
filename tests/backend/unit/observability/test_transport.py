@@ -106,12 +106,15 @@ def _capture_exporter_diagnostics(exporter):
     handlers = tuple(logger.handlers)
     level = logger.level
     propagate = logger.propagate
+    disabled = logger.disabled
     collector = MessageCollector()
     logger.addHandler(collector)
+    logger.disabled = False
     try:
         yield collector.messages
     finally:
         logger.removeHandler(collector)
+        logger.disabled = disabled
         assert tuple(logger.handlers) == handlers
         assert logger.level == level
         assert logger.propagate == propagate

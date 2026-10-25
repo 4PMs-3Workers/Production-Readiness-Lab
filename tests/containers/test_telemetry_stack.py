@@ -14,8 +14,9 @@ import subprocess
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import cast
 from urllib.parse import urlencode, urlparse
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 import yaml
@@ -2676,10 +2677,10 @@ class FullStackRuntime:
             labels = stream.get("stream", {})
             for entry in stream.get("values", []):
                 try:
-                    timestamp_ns = int(entry[0])
+                    entry_timestamp_ns = int(entry[0])
                 except (TypeError, ValueError, IndexError):
                     raise AcceptanceFailure("A Loki healthcheck had an invalid timestamp") from None
-                if timestamp_ns < query_start_ns:
+                if entry_timestamp_ns < query_start_ns:
                     continue
                 try:
                     body = json.loads(entry[1])
@@ -2694,7 +2695,21 @@ class FullStackRuntime:
                     or fields.get("classification") != "out_of_scope"
                 ):
                     raise AcceptanceFailure("A Loki healthcheck lost its finite event contract")
-                events.append((timestamp_ns, fields))
+                timestamp_value = fields.get("timestamp")
+                try:
+                    if not isinstance(timestamp_value, str):
+                        raise ValueError
+                    event_time = datetime.fromisoformat(timestamp_value.replace("Z", "+00:00"))
+                    if event_time.tzinfo is None or event_time.utcoffset() is None:
+                        raise ValueError
+                    event_timestamp_ns = int(event_time.astimezone(UTC).timestamp() * 1_000_000_000)
+                except (ValueError, OverflowError):
+                    raise AcceptanceFailure(
+                        "A Loki healthcheck had no valid producer UTC timestamp"
+                    ) from None
+                if event_timestamp_ns < query_start_ns:
+                    continue
+                events.append((event_timestamp_ns, entry_timestamp_ns, fields))
         events.sort(key=lambda event: event[0])
         if len(events) < 2:
             raise AcceptanceFailure("Loki did not receive recurring genuine gateway healthchecks")
@@ -2709,6 +2724,7 @@ class FullStackRuntime:
             "interval_seconds": round(interval, 2),
             "query_start_unix_ns": query_start_ns,
             "latest_event_unix_ns": events[-1][0],
+            "latest_entry_timestamp_unix_ns": events[-1][1],
         }
 
     def write_probe_compose(self) -> None:
@@ -3679,6 +3695,22 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         gateway_event = runtime.query_loki_request(request_id, trace_id)
         evidence["gateway_loki_event"] = gateway_event
         evidence["tempo_trace"] = "stored"
+        from tests.containers.test_observability_e2e import (
+            LiveBusinessProbe,
+            api_telemetry_loss_totals,
+            append_stale_gateway_event,
+            capture_dashboard_screenshots,
+            run_backend_outage,
+            verify_stale_gateway_event,
+        )
+
+        business_probe = LiveBusinessProbe(runtime)
+        healthy_business, healthy_trace = business_probe.run_case("healthy")
+        business_matrix: dict[str, object] = {"healthy": healthy_business}
+        evidence["business_outage_matrix"] = business_matrix
+        evidence["business_trace_correlation"] = business_probe.verify_trace_correlation(
+            healthy_trace
+        )
         evidence["native_otlp_logs"] = {
             "api": sink_observations["api_native_log"],
             "worker": sink_observations["worker_native_log"],
@@ -3716,6 +3748,7 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             r"[0-9a-f]{64}", collector_id_before
         ):
             raise AcceptanceFailure("The UUID-owned Collector identity is invalid before outage")
+        collector_loss_before = api_telemetry_loss_totals(runtime)
         collector_outage_started_ns = time.time_ns()
         acceptance_success(
             runtime.compose("stop", "--timeout", "10", "collector", timeout=30),
@@ -3795,6 +3828,36 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             "exact_predicate_value": runtime.loki_scalar(pipeline_missing_expression),
         }
 
+        collector_warning_firing_ns: int | None = None
+
+        def collector_warning_firing_received() -> bool:
+            nonlocal collector_warning_firing_ns
+            received = any(
+                item["status"] == "firing" and item["severity"] == "warning"
+                for item in runtime.alert_receiver_statuses("TelemetryTargetDown")
+            )
+            if received and collector_warning_firing_ns is None:
+                collector_warning_firing_ns = time.time_ns()
+            return received
+
+        runtime.stack.wait_for(
+            collector_warning_firing_received,
+            seconds=45,
+            failure="The consolidated Collector target-down warning did not reach the receiver",
+        )
+        if runtime.alert_receiver_statuses("TelemetryCollectorUnavailable"):
+            raise AcceptanceFailure(
+                "A duplicate Collector-specific warning alert was still delivered"
+            )
+        evidence["collector_target_warning_firing"] = {
+            "alertname": "TelemetryTargetDown",
+            "severity": "warning",
+            "receiver_first_observed_unix_ns": collector_warning_firing_ns,
+            "duplicate_collector_specific_rule_absent": True,
+        }
+        collector_business, _collector_trace = business_probe.run_case("collector_stopped")
+        business_matrix["collector_stopped"] = collector_business
+        old_source_event = append_stale_gateway_event(runtime)
         failure_context["stage"] = "collector_recovery_after_pipeline_gap"
         collector_recovery_started_ns = time.time_ns()
         acceptance_success(
@@ -3808,6 +3871,22 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             raise AcceptanceFailure("Collector recovery replaced its UUID-owned container")
         runtime.wait_app_gateway()
 
+        stale_event_result: dict[str, object] = {}
+
+        def old_source_event_queryable() -> bool:
+            nonlocal stale_event_result
+            try:
+                stale_event_result = verify_stale_gateway_event(runtime, old_source_event)
+                return True
+            except AcceptanceFailure:
+                return False
+
+        runtime.stack.wait_for(
+            old_source_event_queryable,
+            seconds=45,
+            failure="The replayed old-source gateway record was not queryable at producer time",
+        )
+        evidence["old_source_event_time_window"] = stale_event_result
         recovered_healthchecks: dict[str, object] = {}
 
         def genuine_gateway_healthchecks_after_collector_recovery() -> bool:
@@ -3869,6 +3948,49 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             "receiver_statuses": runtime.alert_receiver_statuses("GatewayPipelineHeartbeatMissing"),
             "receiver_first_observed_unix_ns": pipeline_resolved_observed_ns,
             "exact_predicate_value": pipeline_predicate_after_recovery,
+        }
+        collector_warning_resolved_ns: int | None = None
+
+        def collector_warning_resolved_received() -> bool:
+            nonlocal collector_warning_resolved_ns
+            received = any(
+                item["status"] == "resolved" and item["severity"] == "warning"
+                for item in runtime.alert_receiver_statuses("TelemetryTargetDown")
+            )
+            if received and collector_warning_resolved_ns is None:
+                collector_warning_resolved_ns = time.time_ns()
+            return received
+
+        runtime.stack.wait_for(
+            collector_warning_resolved_received,
+            seconds=60,
+            failure="The consolidated Collector target-down warning did not resolve after recovery",
+        )
+        evidence["collector_target_warning_resolved"] = {
+            "alertname": "TelemetryTargetDown",
+            "severity": "warning",
+            "receiver_first_observed_unix_ns": collector_warning_resolved_ns,
+            "legacy_duplicate_rule_statuses": runtime.alert_receiver_statuses(
+                "TelemetryCollectorUnavailable"
+            ),
+        }
+        collector_loss_after = api_telemetry_loss_totals(runtime)
+        before_totals = cast(dict[str, float], collector_loss_before["totals"])
+        after_totals = cast(dict[str, float], collector_loss_after["totals"])
+        collector_loss_delta = {
+            name: after_totals[name] - before_totals[name] for name in ("failed", "dropped")
+        }
+        if any(value < 0 for value in collector_loss_delta.values()) or not any(
+            value > 0 for value in collector_loss_delta.values()
+        ):
+            raise AcceptanceFailure(
+                "The API cumulative telemetry loss counters did not expose Collector outage loss"
+            )
+        evidence["collector_outage_cumulative_loss"] = {
+            "before": collector_loss_before,
+            "after_recovery": collector_loss_after,
+            "delta": collector_loss_delta,
+            "counter_values_are_cumulative": True,
         }
         evidence["collector_outage_isolation"] = {
             "collector_stopped_status": "exited",
@@ -4064,6 +4186,8 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             "anonymous_auth_disabled": True,
             "signup_disabled": True,
         }
+        evidence["dashboard_screenshots"] = capture_dashboard_screenshots(runtime)
+
         negative = runtime.run_probe("task6-ops-denied-probe", "task6_ops_denied_probe")
         if negative.get("spoofed_forwarded_status") != 403:
             raise AcceptanceFailure("The OPS CIDR guard trusted a spoofed forwarded address")
@@ -4211,6 +4335,10 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             "loki": runtime.query_loki_healthchecks(),
         }
 
+        failure_context["stage"] = "business_backend_outage_matrix"
+        for backend in ("prometheus", "loki", "tempo"):
+            business_matrix[f"{backend}_stopped"] = run_backend_outage(business_probe, backend)
+        evidence["business_outage_matrix"] = business_matrix
         failure_context["stage"] = "grafana_outage_isolation"
         acceptance_success(
             runtime.compose("stop", "--timeout", "10", "grafana", timeout=30),
@@ -4247,15 +4375,27 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                 "The current worker omitted finite same-slot baseline timestamps"
             )
         old_started = pre_restart_state["started"]["value"]
+        recovery_fixture = business_probe.prepare_due_expiry_fixture()
+        failure_context["worker_restart_observations"]["due_expiry_fixture_ready"] = True
         acceptance_success(
             runtime.compose("stop", "--timeout", "10", "mysql", timeout=30),
             "The UUID-owned database could not stop for the same-slot observation",
         )
         failure_context["stage"] = "worker_and_database_restart"
         acceptance_success(
-            runtime.compose("restart", "--timeout", "20", "worker", timeout=45),
-            "The worker could not restart for the same-slot observation",
+            runtime.compose("start", "worker", timeout=45),
+            "The stopped worker could not start while MySQL was unavailable",
         )
+        new_owner_container = runtime.inspect_service("worker")
+        new_owner_labels = (new_owner_container.get("Config") or {}).get("Labels") or {}
+        if (
+            new_owner_container.get("Id") != recovery_fixture["worker_container_id"]
+            or (new_owner_container.get("State") or {}).get("Status") != "running"
+            or new_owner_labels.get("com.docker.compose.project") != runtime.stack.project
+        ):
+            raise AcceptanceFailure(
+                "The new worker owner changed container identity or UUID ownership"
+            )
         new_state: dict[str, dict[str, object]] = {}
 
         def observed_restart() -> bool:
@@ -4265,6 +4405,7 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                 new_state.get("started", {}).get("value", 0) > old_started
                 and "last_successful_scan" in new_state
                 and "last_progress" in new_state
+                and "successful_scans" in new_state
             )
 
         runtime.stack.wait_for(
@@ -4278,21 +4419,89 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             raise AcceptanceFailure(
                 "Collector did not retain finite prior same-slot worker timestamps across restart"
             )
+        new_owner_started = float(new_state["started"]["value"])
+        new_owner_scan_counter = float(new_state["successful_scans"]["value"])
         evidence["same_slot_restart"] = {
             "slot": "1",
             **restart_summary,
             "counter_name": selected_names.get("successful_scans"),
+            "new_owner_successful_scan_counter_before_database_recovery": (new_owner_scan_counter),
         }
         acceptance_success(
             runtime.compose("up", "-d", "--wait", "--wait-timeout", "120", "mysql", timeout=150),
             "The UUID-owned database did not recover after the observation",
         )
+        recovered_owner_state: dict[str, dict[str, object]] = {}
+
+        def new_owner_scan_and_progress_after_database_recovery() -> bool:
+            nonlocal recovered_owner_state
+            _names, recovered_owner_state = runtime.worker_metric_state()
+            started_at = recovered_owner_state.get("started", {}).get("value", 0)
+            successful_scan_at = recovered_owner_state.get("last_successful_scan", {}).get(
+                "value", 0
+            )
+            progress_at = recovered_owner_state.get("last_progress", {}).get("value", 0)
+            scan_count = recovered_owner_state.get("successful_scans", {}).get("value", 0)
+            return (
+                started_at >= new_owner_started
+                and successful_scan_at > new_owner_started
+                and progress_at > new_owner_started
+                and scan_count > new_owner_scan_counter
+            )
+
         runtime.stack.wait_for(
-            lambda: runtime.worker_metric_state()[1].get("heartbeat", {}).get("value", 0)
-            > baseline["heartbeat"]["value"],
-            seconds=45,
-            failure="The restarted worker heartbeat did not advance after database recovery",
+            new_owner_scan_and_progress_after_database_recovery,
+            seconds=60,
+            failure=(
+                "The new worker owner did not complete a successful database scan and real "
+                "progress after MySQL recovery"
+            ),
         )
+        recovery_appointment_id = recovery_fixture["appointment_id"]
+        recovery_proposal_id = recovery_fixture["proposal_id"]
+        runtime.stack.wait_for(
+            lambda: runtime.stack.sql(
+                "SELECT CONCAT(cp.status, ':', a.status, ':', COALESCE(a.cancel_reason, '-')) "
+                "FROM change_proposals cp JOIN appointments a ON a.id = cp.appointment_id "
+                f"WHERE cp.id = UNHEX(REPLACE('{str(UUID(recovery_proposal_id))}', '-', ''));"
+            ).strip()
+            == "EXPIRED:CANCELLED:CHANGE_PROPOSAL_EXPIRED",
+            seconds=30,
+            failure="The new owner did not expire the persisted proposal after MySQL recovery",
+        )
+        recovery_effects = business_probe._business_side_effects(
+            recovery_appointment_id, recovery_proposal_id, expired=True
+        )
+        time.sleep(1.5)
+        if (
+            business_probe._business_side_effects(
+                recovery_appointment_id, recovery_proposal_id, expired=True
+            )
+            != recovery_effects
+        ):
+            raise AcceptanceFailure(
+                "Post-recovery expiry repeated its audit or notification effects"
+            )
+        evidence["new_owner_database_recovery"] = {
+            "started_timestamp_seconds": new_owner_started,
+            "last_successful_scan_timestamp_seconds": float(
+                recovered_owner_state["last_successful_scan"]["value"]
+            ),
+            "last_progress_timestamp_seconds": float(
+                recovered_owner_state["last_progress"]["value"]
+            ),
+            "successful_scan_counter_before_recovery": new_owner_scan_counter,
+            "successful_scan_counter_after_recovery": float(
+                recovered_owner_state["successful_scans"]["value"]
+            ),
+            "scan_and_progress_both_after_new_owner_start": True,
+            "counter_advanced_after_new_owner_start": True,
+            "persisted_due_proposal_expired_by_new_owner": True,
+            "new_owner_container_identity_preserved": True,
+            "audit_event_count": recovery_effects["audit_event_count"],
+            "notification_count": recovery_effects["notification_count"],
+            "duplicate_effects_after_followup_scan": False,
+        }
         if old_volumes != runtime.volume_snapshot():
             raise AcceptanceFailure(
                 "A persistent volume identity changed across worker/database restart"

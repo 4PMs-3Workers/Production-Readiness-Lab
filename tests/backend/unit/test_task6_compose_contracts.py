@@ -5,6 +5,7 @@ import json
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -176,7 +177,16 @@ def test_prometheus_scrapes_backend_and_collector_self_health_endpoints():
         "service.instance.id": None,
     }
     rules = yaml.safe_load((INFRA / "prometheus-rules.yml").read_text())
-    assert 'up{job="collector"} == 0' == rules["groups"][0]["rules"][0]["expr"]
+    alerts = {
+        rule["alert"]: rule
+        for group in rules["groups"]
+        for rule in group["rules"]
+        if "alert" in rule
+    }
+    assert "TelemetryCollectorUnavailable" not in alerts
+    target_down = alerts["TelemetryTargetDown"]["expr"]
+    assert "collector" in target_down
+    assert "prometheus-self" in target_down
 
 
 def test_filelog_promotes_validated_gateway_metadata_to_loki_resource_labels():
@@ -299,7 +309,7 @@ def test_run_probe_records_only_allowlisted_stage_details(capsys):
         "failure_categories": [],
         "admin_password": "synthetic-secret",
     }
-    runtime = SimpleNamespace(
+    runtime: Any = SimpleNamespace(
         compose=lambda *_args: SimpleNamespace(
             returncode=0,
             stdout="TASK6_PROBE:" + json.dumps(payload),
@@ -484,7 +494,7 @@ def test_signal_diagnostic_summaries_preserve_sink_status_without_exposing_ids()
     assert loki["release_match"] is True
     assert loki["failure_category"] is None
     assert "request_id_indexed" not in loki
-    assert "request_id" in loki["structured_field_keys"]
+    assert "request_id" in cast(list[str], loki["structured_field_keys"])
     assert tempo["http_status"] == 200
     assert tempo["trace_id_hex_match"] is True
     assert tempo["trace_id_field_count"] == 1
@@ -1043,7 +1053,7 @@ def test_loki_index_observation_calls_series_api_with_finite_gateway_selector():
     [("api", "http.server.request"), ("worker", "worker.heartbeat")],
 )
 def test_native_loki_log_observation_uses_finite_source_and_event(service, event):
-    runtime = object.__new__(telemetry_stack.FullStackRuntime)
+    runtime: Any = object.__new__(telemetry_stack.FullStackRuntime)
     runtime.stack = SimpleNamespace(expected_sha="a" * 40)
     seen = {}
 
@@ -1086,7 +1096,7 @@ def test_native_loki_log_observation_uses_finite_source_and_event(service, event
 
 
 def test_pre_cleanup_snapshot_keeps_loki_query_index_and_tempo_independent():
-    runtime = object.__new__(telemetry_stack.FullStackRuntime)
+    runtime: Any = object.__new__(telemetry_stack.FullStackRuntime)
     runtime.stack = SimpleNamespace(expected_sha="a" * 40)
 
     def unavailable(_service):
@@ -1100,24 +1110,27 @@ def test_pre_cleanup_snapshot_keeps_loki_query_index_and_tempo_independent():
         "tempo": {"failure_category": "not_found"},
     }
 
-    diagnostic = runtime.signal_boundary_diagnostic(
-        route_status=None,
-        request_id="",
-        trace_id="",
-        sink_observations=sinks,
-        receiver_health_summary=telemetry_stack.safe_receiver_health_summary(
-            {
-                "http_status": 503,
-                "body": {
-                    "status": "failed",
-                    "unhealthy": ["grafana"],
-                    "detail": "private",
-                },
-                "json_valid": True,
-                "truncated": False,
-                "error_category": None,
-                "elapsed_ms": 50,
-            }
+    diagnostic = cast(
+        dict[str, Any],
+        runtime.signal_boundary_diagnostic(
+            route_status=None,
+            request_id="",
+            trace_id="",
+            sink_observations=sinks,
+            receiver_health_summary=telemetry_stack.safe_receiver_health_summary(
+                {
+                    "http_status": 503,
+                    "body": {
+                        "status": "failed",
+                        "unhealthy": ["grafana"],
+                        "detail": "private",
+                    },
+                    "json_valid": True,
+                    "truncated": False,
+                    "error_category": None,
+                    "elapsed_ms": 50,
+                }
+            ),
         ),
     )
 

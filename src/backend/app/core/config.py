@@ -100,7 +100,7 @@ class Settings(BaseSettings):
         default=16, gt=0, le=16, alias="TELEMETRY_MAX_SPAN_ATTRIBUTES"
     )
     telemetry_max_attribute_chars: int = Field(
-        default=128, ge=12, le=128, alias="TELEMETRY_MAX_ATTRIBUTE_CHARS"
+        default=128, ge=13, le=128, alias="TELEMETRY_MAX_ATTRIBUTE_CHARS"
     )
     telemetry_max_spans_per_request: int = Field(
         default=64, gt=0, le=64, alias="TELEMETRY_MAX_SPANS_PER_REQUEST"

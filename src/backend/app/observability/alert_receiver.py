@@ -64,7 +64,7 @@ class Handler(BaseHTTPRequestHandler):
     sys_version = ""
     protocol_version = "HTTP/1.1"
 
-    def log_message(self, _format, *_args):
+    def log_message(self, format, *_args):
         # Request bodies, credential headers and arbitrary paths never go to logs.
         return
 

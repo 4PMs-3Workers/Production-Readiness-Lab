@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   compose-acceptance:
-    name: Container, gateway, and lifecycle acceptance
+    name: Container, business, telemetry, and lifecycle acceptance
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
@@ -61,9 +61,9 @@ jobs:
       - name: Install Playwright Chromium and Linux dependencies
         run: npx --no-install playwright install --with-deps chromium
 
-      - name: Run Compose, operator, and gateway acceptance
+      - name: Run required zero-skip container acceptance
         run: |
-          python -m pytest tests/containers/test_compose_acceptance.py tests/containers/test_demo_operator_docker.py tests/containers/test_gateway.py -q --tb=short --junitxml=build/containerized-demo-tests.xml
+          python -m pytest tests/containers -q --tb=short --junitxml=build/containerized-demo-tests.xml
           python - <<'PY'
           from xml.etree import ElementTree
 

@@ -52,7 +52,7 @@ def test_temporary_compose_project_name_is_normalized_for_docker():
 
 def test_compose_inventory_resolves_collector_and_gateway_base_locks():
     lock = json.loads((ROOT / "tools/infra/images.lock.json").read_text(encoding="utf-8-sig"))
-    services = {
+    services: dict[str, object] = {
         name: {"image": reference}
         for name, reference in lock["images"].items()
         if name not in {"collector", "gateway"}

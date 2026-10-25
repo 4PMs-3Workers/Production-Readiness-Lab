@@ -2,14 +2,6 @@ groups:
   - name: telemetry-foundation
     interval: 15s
     rules:
-      - alert: TelemetryCollectorUnavailable
-        expr: up{job="collector"} == 0
-        for: 30s
-        labels:
-          severity: warning
-        annotations:
-          summary: The telemetry Collector scrape target is unavailable.
-          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-target-or-loss
       - alert: TelemetryTargetDown
         expr: up{job=~"api|collector|application-otel|local-alert-receiver|prometheus-self|loki-self|tempo-self|grafana-self|alertmanager-self"} == 0
         for: 30s
