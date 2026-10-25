@@ -3230,8 +3230,19 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             runtime.compose("stop", "--timeout", "10", "collector", timeout=30),
             "The UUID-owned Collector could not stop for API readiness isolation",
         )
-        collector_stopped = runtime.inspect_service("collector")
-        if (collector_stopped.get("State") or {}).get("Status") != "exited":
+        stopped_records = acceptance_json(
+            acceptance_invoke(["docker", "inspect", collector_id_before]),
+            "The UUID-owned stopped Collector could not be inspected",
+        )
+        if (
+            len(stopped_records) != 1
+            or stopped_records[0].get("Id") != collector_id_before
+            or (stopped_records[0].get("Config", {}).get("Labels") or {}).get(
+                "com.docker.compose.project"
+            )
+            != runtime.stack.project
+            or (stopped_records[0].get("State") or {}).get("Status") != "exited"
+        ):
             raise AcceptanceFailure("The UUID-owned Collector did not reach stopped state")
         readiness = summarize_api_readiness_observation(
             runtime.api_json_observation("http://127.0.0.1:8000/health/ready")
