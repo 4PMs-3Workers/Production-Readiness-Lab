@@ -723,6 +723,103 @@ def test_receiver_component_summary_keeps_only_finite_backend_statuses():
     assert "outside" not in json.dumps(summary)
 
 
+def test_worker_restart_retention_requires_finite_monotonic_prior_runtime_timestamps():
+    labels = {
+        "service_name": "worker",
+        "deployment_environment_name": "demo",
+        "worker_slot": "1",
+    }
+    previous_state = {
+        "started": {"value": 90.0, "labels": labels},
+        "last_successful_scan": {"value": 70.0, "labels": labels},
+        "last_progress": {"value": 71.0, "labels": labels},
+    }
+    current_state = {
+        "started": {"value": 100.0, "labels": labels},
+        "last_successful_scan": {"value": 80.0, "labels": labels},
+        "last_progress": {"value": 81.0, "labels": labels},
+    }
+    summary = telemetry_stack.FullStackRuntime.worker_restart_observation_summary(
+        previous_state, current_state
+    )
+
+    assert summary == {
+        "previous_started_timestamp_seconds": 90.0,
+        "started_timestamp_seconds": 100.0,
+        "started_advanced": True,
+        "previous_last_successful_scan_timestamp_seconds": 70.0,
+        "last_successful_scan_timestamp_seconds": 80.0,
+        "last_successful_scan_not_older": True,
+        "last_successful_scan_precedes_start": True,
+        "previous_last_progress_timestamp_seconds": 71.0,
+        "last_progress_timestamp_seconds": 81.0,
+        "last_progress_not_older": True,
+        "last_progress_precedes_start": True,
+    }
+    assert telemetry_stack.FullStackRuntime.worker_restart_retained_prior_points(summary) is True
+
+    for changed in (
+        {"started": {"value": 90.0, "labels": labels}},
+        {"started": {"value": float("nan"), "labels": labels}},
+        {"started": {"value": float("inf"), "labels": labels}},
+        {"started": {"value": True, "labels": labels}},
+        {"last_successful_scan": {"value": None, "labels": labels}},
+        {"last_successful_scan": {"value": float("nan"), "labels": labels}},
+        {"last_successful_scan": {"value": float("inf"), "labels": labels}},
+        {"last_successful_scan": {"value": 100.0, "labels": labels}},
+        {"last_successful_scan": {"value": 101.0, "labels": labels}},
+        {"last_successful_scan": {"value": 69.0, "labels": labels}},
+        {"last_progress": {"value": None, "labels": labels}},
+        {"last_progress": {"value": float("nan"), "labels": labels}},
+        {"last_progress": {"value": float("inf"), "labels": labels}},
+        {"last_progress": {"value": 100.0, "labels": labels}},
+        {"last_progress": {"value": 101.0, "labels": labels}},
+        {"last_progress": {"value": 81.0, "labels": {**labels, "worker_slot": "2"}}},
+    ):
+        assert (
+            telemetry_stack.FullStackRuntime.worker_restart_retained_prior_points(
+                telemetry_stack.FullStackRuntime.worker_restart_observation_summary(
+                    previous_state, current_state | changed
+                )
+            )
+            is False
+        )
+
+    missing = current_state.copy()
+    missing.pop("last_progress")
+    assert (
+        telemetry_stack.FullStackRuntime.worker_restart_retained_prior_points(
+            telemetry_stack.FullStackRuntime.worker_restart_observation_summary(
+                previous_state, missing
+            )
+        )
+        is False
+    )
+    older_than_observed = current_state | {"last_progress": {"value": 70.0, "labels": labels}}
+    assert (
+        telemetry_stack.FullStackRuntime.worker_restart_retained_prior_points(
+            telemetry_stack.FullStackRuntime.worker_restart_observation_summary(
+                previous_state, older_than_observed
+            )
+        )
+        is False
+    )
+    for changed_previous in (
+        {"started": {"value": float("nan"), "labels": labels}},
+        {"started": {"value": True, "labels": labels}},
+        {"last_successful_scan": {"value": None, "labels": labels}},
+        {"last_progress": {"value": float("inf"), "labels": labels}},
+    ):
+        assert (
+            telemetry_stack.FullStackRuntime.worker_restart_retained_prior_points(
+                telemetry_stack.FullStackRuntime.worker_restart_observation_summary(
+                    previous_state | changed_previous, current_state
+                )
+            )
+            is False
+        )
+
+
 def test_loki_index_summary_uses_series_endpoint_and_keeps_ids_private():
     request_id = "d" * 32
     indexed_labels = {

@@ -5,6 +5,7 @@ from __future__ import annotations
 import http.client
 import ipaddress
 import json
+import math
 import os
 import re
 import socket
@@ -1867,6 +1868,99 @@ class FullStackRuntime:
                 }
         return selected, state
 
+    @staticmethod
+    def worker_restart_observation_summary(
+        previous_state: dict[str, dict[str, object]],
+        current_state: dict[str, dict[str, object]],
+    ) -> dict[str, object]:
+        identity = {
+            "service_name": "worker",
+            "deployment_environment_name": "demo",
+            "worker_slot": "1",
+        }
+
+        def timestamp(state: dict[str, dict[str, object]], role: str) -> float | None:
+            sample = state.get(role)
+            if not isinstance(sample, dict):
+                return None
+            value = sample.get("value")
+            labels = sample.get("labels")
+            if (
+                type(value) not in (int, float)
+                or not math.isfinite(value)
+                or not 0 < value < 10_000_000_000
+                or not isinstance(labels, dict)
+                or any(labels.get(name) != expected for name, expected in identity.items())
+            ):
+                return None
+            return float(value)
+
+        previous_started = timestamp(previous_state, "started")
+        started = timestamp(current_state, "started")
+        previous_scan = timestamp(previous_state, "last_successful_scan")
+        scan = timestamp(current_state, "last_successful_scan")
+        previous_progress = timestamp(previous_state, "last_progress")
+        progress = timestamp(current_state, "last_progress")
+        return {
+            "previous_started_timestamp_seconds": (
+                round(previous_started, 3) if previous_started is not None else None
+            ),
+            "started_timestamp_seconds": round(started, 3) if started is not None else None,
+            "started_advanced": (
+                previous_started is not None and started is not None and started > previous_started
+            ),
+            "previous_last_successful_scan_timestamp_seconds": (
+                round(previous_scan, 3) if previous_scan is not None else None
+            ),
+            "last_successful_scan_timestamp_seconds": (
+                round(scan, 3) if scan is not None else None
+            ),
+            "last_successful_scan_not_older": (
+                previous_scan is not None and scan is not None and scan >= previous_scan
+            ),
+            "last_successful_scan_precedes_start": (
+                started is not None and scan is not None and scan < started
+            ),
+            "previous_last_progress_timestamp_seconds": (
+                round(previous_progress, 3) if previous_progress is not None else None
+            ),
+            "last_progress_timestamp_seconds": (
+                round(progress, 3) if progress is not None else None
+            ),
+            "last_progress_not_older": (
+                previous_progress is not None
+                and progress is not None
+                and progress >= previous_progress
+            ),
+            "last_progress_precedes_start": (
+                started is not None and progress is not None and progress < started
+            ),
+        }
+
+    @staticmethod
+    def worker_restart_retained_prior_points(summary: dict[str, object]) -> bool:
+        return (
+            isinstance(summary, dict)
+            and summary.get("started_advanced") is True
+            and summary.get("last_successful_scan_not_older") is True
+            and summary.get("last_successful_scan_precedes_start") is True
+            and summary.get("last_progress_not_older") is True
+            and summary.get("last_progress_precedes_start") is True
+            and all(
+                type(summary.get(name)) in (int, float)
+                and math.isfinite(summary[name])
+                and 0 < summary[name] < 10_000_000_000
+                for name in (
+                    "previous_started_timestamp_seconds",
+                    "started_timestamp_seconds",
+                    "previous_last_successful_scan_timestamp_seconds",
+                    "last_successful_scan_timestamp_seconds",
+                    "previous_last_progress_timestamp_seconds",
+                    "last_progress_timestamp_seconds",
+                )
+            )
+        )
+
     def worker_series_schema(self) -> list[dict[str, object]]:
         response = self.api_json(
             "http://prometheus:9090/api/v1/series?"
@@ -2800,6 +2894,7 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         "route_status": None,
         "request_id": "",
         "trace_id": "",
+        "worker_restart_observations": {"available": False},
     }
     accepted = False
     try:
@@ -3133,9 +3228,24 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         evidence["grafana_outage_isolation"] = "application HTTPS remained ready"
 
         old_volumes = runtime.volume_snapshot()
-        old_started = baseline["started"]["value"]
-        old_scan = baseline["last_successful_scan"]["value"]
-        old_progress = baseline["last_progress"]["value"]
+        failure_context["stage"] = "worker_pre_restart_snapshot"
+        _pre_restart_names, pre_restart_state = runtime.worker_metric_state()
+        pre_restart_summary = runtime.worker_restart_observation_summary(
+            pre_restart_state, pre_restart_state
+        )
+        previous_fields = (
+            "previous_started_timestamp_seconds",
+            "previous_last_successful_scan_timestamp_seconds",
+            "previous_last_progress_timestamp_seconds",
+        )
+        failure_context["worker_restart_observations"] = {
+            "pre_restart": {name: pre_restart_summary.get(name) for name in previous_fields}
+        }
+        if any(pre_restart_summary.get(name) is None for name in previous_fields):
+            raise AcceptanceFailure(
+                "The current worker omitted finite same-slot baseline timestamps"
+            )
+        old_started = pre_restart_state["started"]["value"]
         acceptance_success(
             runtime.compose("stop", "--timeout", "10", "mysql", timeout=30),
             "The UUID-owned database could not stop for the same-slot observation",
@@ -3161,19 +3271,15 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             seconds=45,
             failure="The new worker start and cached same-slot points were not observed",
         )
-        if (
-            new_state["last_successful_scan"]["value"] != old_scan
-            or new_state["last_progress"]["value"] != old_progress
-        ):
+        restart_summary = runtime.worker_restart_observation_summary(pre_restart_state, new_state)
+        failure_context["worker_restart_observations"] = restart_summary
+        if not runtime.worker_restart_retained_prior_points(restart_summary):
             raise AcceptanceFailure(
-                "Collector cache did not retain omitted same-slot worker points"
+                "Collector did not retain finite prior same-slot worker timestamps across restart"
             )
         evidence["same_slot_restart"] = {
             "slot": "1",
-            "started_timestamp_advanced": True,
-            "last_successful_scan_retained_while_unknown": True,
-            "last_progress_retained_while_unknown": True,
-            "new_started_timestamp": new_state["started"]["value"],
+            **restart_summary,
             "counter_name": selected_names.get("successful_scans"),
         }
         acceptance_success(
@@ -3228,6 +3334,9 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                     receiver_health_summary=failure_context.get("receiver_health"),
                 )
                 diagnostic["failure_stage"] = failure_context["stage"]
+                diagnostic["worker_restart_observations"] = failure_context.get(
+                    "worker_restart_observations", {"available": False}
+                )
                 print(
                     "TASK6_PRE_CLEANUP_FAILURE_SNAPSHOT:"
                     + json.dumps(diagnostic, sort_keys=True, separators=(",", ":"))
@@ -3242,6 +3351,9 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                             "diagnostic_error_category": type(exc).__name__,
                             "receiver_health": failure_context.get(
                                 "receiver_health", {"available": False}
+                            ),
+                            "worker_restart_observations": failure_context.get(
+                                "worker_restart_observations", {"available": False}
                             ),
                         },
                         sort_keys=True,
