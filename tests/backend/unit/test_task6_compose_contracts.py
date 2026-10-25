@@ -518,6 +518,152 @@ def test_signal_diagnostic_summaries_preserve_sink_status_without_exposing_ids()
     assert tempo_malformed["failure_category"] == "trace_id_field_missing"
 
 
+@pytest.mark.parametrize(
+    ("service", "event"),
+    [("api", "http.server.request"), ("worker", "worker.heartbeat")],
+)
+def test_native_loki_log_summary_accepts_plain_body_and_structured_release_without_values(
+    service, event
+):
+    release = "e" * 40
+    trace_id = "f" * 32
+    body = {
+        "status": "success",
+        "data": {
+            "result": [
+                {
+                    "stream": {
+                        "service_name": service,
+                        "deployment_environment_name": "demo",
+                    },
+                    "values": [
+                        [
+                            "1792906956309689000",
+                            event,
+                            {
+                                "event_name": event,
+                                "service_version": release,
+                                "trace_id": trace_id,
+                            },
+                        ]
+                    ],
+                }
+            ]
+        },
+    }
+
+    summary = telemetry_stack.summarize_loki_native_application_log(
+        200,
+        body,
+        expected_service=service,
+        expected_event=event,
+        expected_release=release,
+    )
+
+    serialized = json.dumps(summary, sort_keys=True)
+    assert summary["failure_category"] is None
+    assert summary["service_name"] == service
+    assert summary["deployment_environment_name"] == "demo"
+    assert summary["event_match"] is True
+    assert summary["release_match"] is True
+    assert summary["entry_count"] == 1
+    assert release not in serialized
+    assert trace_id not in serialized
+
+
+def test_native_loki_log_summary_rejects_wrong_identity_event_and_release():
+    release = "1" * 40
+
+    def summarize(service, environment, event, version):
+        return telemetry_stack.summarize_loki_native_application_log(
+            200,
+            {
+                "status": "success",
+                "data": {
+                    "result": [
+                        {
+                            "stream": {
+                                "service_name": service,
+                                "deployment_environment_name": environment,
+                            },
+                            "values": [["1", event, {"service_version": version}]],
+                        }
+                    ]
+                },
+            },
+            expected_service="api",
+            expected_event="http.server.request",
+            expected_release=release,
+        )
+
+    assert (
+        summarize("worker", "demo", "http.server.request", release)["failure_category"]
+        == "resource_identity"
+    )
+    assert (
+        summarize("api", "demo", "worker.heartbeat", release)["failure_category"] == "event_missing"
+    )
+    assert (
+        summarize("api", "demo", "http.server.request", "2" * 40)["failure_category"]
+        == "release_missing"
+    )
+    body_only_release = telemetry_stack.summarize_loki_native_application_log(
+        200,
+        {
+            "status": "success",
+            "data": {
+                "result": [
+                    {
+                        "stream": {
+                            "service_name": "api",
+                            "deployment_environment_name": "demo",
+                        },
+                        "values": [
+                            [
+                                "1",
+                                json.dumps({"event": "http.server.request", "release": release}),
+                            ]
+                        ],
+                    }
+                ]
+            },
+        },
+        expected_service="api",
+        expected_event="http.server.request",
+        expected_release=release,
+    )
+    assert body_only_release["failure_category"] == "release_missing"
+
+
+def test_api_readiness_summary_is_strict_and_does_not_copy_response_body():
+    ready = telemetry_stack.summarize_api_readiness_observation(
+        {
+            "http_status": 200,
+            "body": {"status": "ready"},
+            "json_valid": True,
+            "truncated": False,
+            "error_category": None,
+        }
+    )
+    failed = telemetry_stack.summarize_api_readiness_observation(
+        {
+            "http_status": 503,
+            "body": {"status": "unavailable", "detail": "private diagnostic"},
+            "json_valid": True,
+            "truncated": False,
+            "error_category": None,
+        }
+    )
+
+    assert ready["passed"] is True
+    assert ready["http_status"] == 200
+    assert ready["body_status"] == "ready"
+    assert failed["passed"] is False
+    assert failed["http_status"] == 503
+    assert failed["body_status"] == "other"
+    assert "private diagnostic" not in json.dumps(failed)
+
+
 def test_receiver_health_summary_keeps_only_finite_failure_metadata():
     summary = telemetry_stack.safe_receiver_health_summary(
         {
@@ -889,6 +1035,53 @@ def test_loki_index_observation_calls_series_api_with_finite_gateway_selector():
     assert int(query["start"][0]) < int(query["end"][0])
     assert summary["http_status"] == 200
     assert summary["index_schema_ok"] is True
+    assert summary["failure_category"] is None
+
+
+@pytest.mark.parametrize(
+    ("service", "event"),
+    [("api", "http.server.request"), ("worker", "worker.heartbeat")],
+)
+def test_native_loki_log_observation_uses_finite_source_and_event(service, event):
+    runtime = object.__new__(telemetry_stack.FullStackRuntime)
+    runtime.stack = SimpleNamespace(expected_sha="a" * 40)
+    seen = {}
+
+    def observe(url):
+        seen["url"] = url
+        return {
+            "http_status": 200,
+            "body": {
+                "status": "success",
+                "data": {
+                    "result": [
+                        {
+                            "stream": {
+                                "service_name": service,
+                                "deployment_environment_name": "demo",
+                            },
+                            "values": [["1", event, {"service_version": "a" * 40}]],
+                        }
+                    ]
+                },
+            },
+            "json_valid": True,
+            "truncated": False,
+            "error_category": None,
+        }
+
+    runtime.api_json_observation = observe
+    summary = runtime.observe_loki_native_application_log(service, event)
+
+    parsed = urlsplit(seen["url"])
+    query = parse_qs(parsed.query)
+    assert parsed.netloc == "loki:3100"
+    assert parsed.path == "/loki/api/v1/query_range"
+    assert query["query"] == [
+        f'{{service_name="{service}",deployment_environment_name="demo"}} |= "{event}"'
+    ]
+    assert set(query) == {"query", "start", "end", "limit"}
+    assert int(query["start"][0]) < int(query["end"][0])
     assert summary["failure_category"] is None
 
 

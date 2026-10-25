@@ -369,6 +369,106 @@ def test_status_is_read_only_and_never_starts_dependencies(operator):
     assert not any(step[0] in {"run", "up", "exec"} for step in steps)
 
 
+@pytest.mark.parametrize("observability", [False, True], ids=["legacy", "observability"])
+def test_empty_status_omits_unbuilt_images_without_inspecting_or_starting_services(
+    operator, monkeypatch, observability
+):
+    demo, calls = operator
+    args = ["status", "--overlay", "https" if observability else "local"]
+    if observability:
+        args.append("--observability")
+        files = {
+            "PRL_TLS_CERT_FILE": "app-cert",
+            "PRL_TLS_KEY_FILE": "app-key",
+            "PRL_OPS_TLS_CERT_FILE": "ops-cert",
+            "PRL_OPS_TLS_KEY_FILE": "ops-key",
+            "PRL_GRAFANA_ADMIN_USER_FILE": "grafana-user",
+            "PRL_GRAFANA_ADMIN_PASSWORD_FILE": "grafana-password",
+        }
+        for name, filename in files.items():
+            path = demo.ROOT / filename
+            path.write_bytes(b"synthetic-credential")
+            monkeypatch.setenv(name, str(path))
+        monkeypatch.setenv("PRL_HTTPS_ORIGIN", "https://app.example.invalid:8443")
+        monkeypatch.setenv("PRL_OPS_ORIGIN", "https://ops.example.invalid:8443")
+        monkeypatch.setenv("PRL_OPS_CIDRS", "203.0.113.10/32")
+
+    original = demo.run
+
+    def empty_stack(args, timeout=180):
+        if args[:2] == ["docker", "compose"]:
+            command = next(item for item in ("images", "config", "ps") if item in args)
+            tail = args[args.index(command) :]
+            if tail[:2] == ["images", "-q"]:
+                calls.append(args)
+                return ""
+            if tail[:1] == ["config"] and tail[1:2] == ["--no-env-resolution"]:
+                if observability:
+                    lock = demo._image_lock()
+                    services = demo.evidence.V2_SERVICES
+                    images = {
+                        service: {
+                            "image": (
+                                lock[demo.VENDOR_SERVICE_KEYS[service]]
+                                if service in demo.VENDOR_SERVICE_KEYS
+                                else "fake-image"
+                            )
+                        }
+                        for service in services
+                    }
+                    return json.dumps({"services": images})
+                return original(args, timeout)
+            if observability and tail[:1] == ["config"]:
+                return ""
+        if args[:4] == ["docker", "image", "ls", "--quiet"]:
+            calls.append(args)
+            return ""
+        if args[:3] == ["docker", "image", "inspect"]:
+            calls.append(args)
+            raise demo.OperationFailed()
+        return original(args, timeout)
+
+    monkeypatch.setattr(demo, "run", empty_stack)
+
+    result = demo.main(args)
+    assert result == 0, calls[-12:]
+    manifest = json.loads((demo.ROOT / "build/deploy" / ("a" * 40) / "manifest.json").read_text())
+    assert manifest["images"] == {}
+    assert not any(call[:3] == ["docker", "image", "inspect"] for call in calls)
+    assert any(
+        call[:2] == ["docker", "compose"] and call[-4:] == ["ps", "--all", "--format", "json"]
+        for call in calls
+    )
+    assert not any(
+        call[:2] == ["docker", "compose"] and any(step in call for step in ("run", "up", "exec"))
+        for call in calls
+    )
+
+
+def test_failed_down_does_not_unlock_changed_configuration_identity(operator, monkeypatch):
+    demo, calls = operator
+    original = demo.run
+    assert demo.main(["up", "--overlay", "local"]) == 0
+
+    def fail_down(args, timeout=180):
+        if args[:2] == ["docker", "compose"] and args[-1:] == ["down"]:
+            calls.append(args)
+            raise demo.OperationFailed()
+        return original(args, timeout)
+
+    monkeypatch.setattr(demo, "run", fail_down)
+    assert demo.main(["down", "--overlay", "local"]) == 1
+    manifest_path = demo.ROOT / "build/deploy" / ("a" * 40) / "manifest.json"
+    failed = json.loads(manifest_path.read_text())
+    assert failed["verification"] == {"command": "down", "status": "failed"}
+    assert failed["deployment_state"] != "down"
+
+    monkeypatch.setenv("PRL_HTTP_PORT", "8081")
+    assert demo.main(["config", "--overlay", "local"]) == 1
+    unchanged = json.loads(manifest_path.read_text())
+    assert unchanged["configuration_sha256"] == failed["configuration_sha256"]
+
+
 def test_build_records_images_without_existing_containers(operator, monkeypatch):
     demo, calls = operator
     original = demo.run

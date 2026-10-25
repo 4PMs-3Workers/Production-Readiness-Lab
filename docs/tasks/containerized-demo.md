@@ -204,6 +204,89 @@ không sửa các file này; khoảng trắng ở đầu và cuối là một ph
 
 Grafana chỉ dùng các file để tạo tài khoản quản trị ban đầu khi data store còn
 trống. Thay file không đổi mật khẩu của tài khoản đã có trong volume hiện hữu.
+Manifest chỉ ghi fingerprint của cấu hình và lựa chọn công khai được allowlist;
+nó cố ý không fingerprint nội dung credential, private key hay chứng thư. Vì vậy,
+thay nội dung các file này không tự gây mismatch hoặc xoay account/certificate;
+dùng quy trình bên dưới và xác minh TLS/authentication thực tế sau khi áp dụng.
+
+### Thay chứng thư TLS
+
+Chứng thư và private key là các file bind-mount chỉ đọc vào Nginx; thay nội dung
+file không làm tiến trình Nginx đang chạy nạp lại chứng thư. Dùng `stop` nếu chỉ
+cần dừng tiến trình trong lúc thay file, hoặc dùng `down` rồi `up` để tạo lại
+container và nạp chứng thư mới. `down` giữ nguyên các named volume; không dùng
+`down -v`. Kiểm tra cấu hình trước khi `up`, giữ nguyên overlay/mode đã ghi trong
+manifest, và không đổi đường dẫn file trong lúc triển khai đang hoạt động.
+
+```sh
+tools/deploy/demo.sh down --overlay https --observability
+tools/deploy/demo.sh config --overlay https --observability
+tools/deploy/demo.sh up --overlay https --observability
+```
+
+Bỏ `--observability` nếu manifest ghi deployment HTTPS không bật observability.
+Các lệnh cleanup chọn overlay/mode đã ghi; `stop`/`down` không xóa database hoặc
+Grafana volume. Sau khi áp dụng, từ client tin cậy kiểm tra SAN, chuỗi CA và hạn
+chứng thư của cả hostname ứng dụng lẫn hostname operations; kiểm tra lại
+`/health/gateway`, `/health/ready`, Grafana `/api/health` và đăng nhập OPS bằng
+tài khoản quản trị. Docker bind mount giữ liên kết với file host, còn Nginx cần
+reload hoặc restart để nạp thay đổi ([Docker bind mounts](https://docs.docker.com/engine/storage/bind-mounts/),
+[Nginx reload/restart](https://nginx.org/en/docs/beginners_guide.html)).
+
+### Xoay credential MySQL đã lưu
+
+Biến trong `db.env` khởi tạo các account khi `mysql_data` còn trống; sửa file
+không đổi mật khẩu account trong volume hiện hữu. Dùng quy trình MySQL 8.4
+`ALTER USER` cho từng account. Khi cần cutover không gián đoạn, tạo password mới
+trong khi vẫn giữ password cũ làm secondary; cập nhật consumer và xác minh bằng
+password mới, rồi bỏ secondary cũ. Không đặt giá trị password hoặc URL kết nối
+đầy đủ trong command line, shell history, log hay tài liệu; dùng kênh SQL được
+bảo vệ theo chính sách vận hành. MySQL mô tả [ALTER USER và dual-password
+rotation](https://dev.mysql.com/doc/refman/8.4/en/alter-user.html) cùng các
+[rủi ro password trong logging](https://dev.mysql.com/doc/refman/8.4/en/password-logging.html).
+
+Đồng bộ đúng các file consumer trước khi tạo lại ứng dụng:
+
+- `prl_runtime`: `PRL_RUNTIME_PASSWORD` trong `db.env` và `DATABASE_URL` trong
+  `runtime.env`; URL này được API và worker dùng chung.
+- `prl_migration`: `PRL_MIGRATION_PASSWORD` trong `db.env` và `DATABASE_URL`
+  trong `migration.env`.
+- `prl_seed`: `PRL_SEED_PASSWORD` trong `db.env` và `DATABASE_URL` trong
+  `seed.env` nếu cần chạy seed sau này.
+- `root`: `MYSQL_ROOT_PASSWORD` trong `db.env`; account này cũng được
+  healthcheck MySQL và script vận hành root-only dùng.
+
+Sau khi đổi account trong MySQL và cập nhật file được bảo vệ, dùng `down` rồi
+`up` với cùng overlay/mode để container MySQL và consumer đọc cấu hình mới. Lệnh
+`up` không tự chạy migration hoặc seed. Kiểm tra `/health/ready` và worker có
+scan mới để chứng minh account runtime; chỉ chạy migration/seed khi các tác động
+schema/dữ liệu đó được chủ ý. Nếu không, dùng phép thử xác thực trực tiếp qua
+kênh được bảo vệ. Với từng account, xác minh password mới hoạt động và password
+cũ thất bại sau khi bỏ secondary. MySQL xác nhận rằng biến môi trường Docker
+không cập nhật account khi data directory đã có dữ liệu ([MySQL 8.4 Docker
+persistence](https://dev.mysql.com/doc/refman/8.4/en/docker-mysql-more-topics.html)).
+
+### Xoay mật khẩu Grafana đã lưu
+
+Khi biết mật khẩu hiện có, đổi mật khẩu account đã lưu qua menu người dùng
+Grafana → **Change Password**; quy trình này xác nhận mật khẩu hiện tại và mật
+khẩu mới. Nếu mất mật khẩu, dùng thủ tục khôi phục `grafana cli admin
+reset-admin-password --password-from-stdin --user-id 1` của phiên bản Grafana đang
+pin; cấp password qua stdin được bảo vệ, không đặt password thành argument. Tham
+khảo [user preferences Grafana 13.2](https://grafana.com/docs/grafana/v13.2/administration/user-management/user-preferences/),
+[CLI reset của Grafana 13.2](https://grafana.com/docs/grafana/v13.2/administration/cli/)
+và [các cờ CLI của Grafana 13.2.4](https://raw.githubusercontent.com/grafana/grafana/v13.2.4/pkg/cmd/grafana-cli/commands/commands.go).
+
+Sau khi đổi password trong Grafana, cập nhật file được trỏ bởi
+`PRL_GRAFANA_ADMIN_PASSWORD_FILE` theo định dạng UTF-8 đã nêu ở trên để giữ dữ
+liệu bootstrap nhất quán. File này chỉ được dùng khi Grafana khởi tạo datastore
+trống; nó không xoay account đang nằm trong `grafana_data`. Nếu cần áp dụng thay
+đổi file mount, chạy `down` rồi `up` với cùng overlay/mode, nhưng không xóa
+volume. Xác minh trong browser session mới rằng password mới đăng nhập được,
+password cũ bị từ chối, anonymous `/api/org` vẫn trả `401`, admin `/api/org` trả
+`200`, và `/api/health` báo healthy. Grafana xác nhận file `__FILE` dùng cho
+Docker bootstrap; account hiện hữu được quản lý bởi store của Grafana ([Grafana
+Docker configuration 13.2](https://grafana.com/docs/grafana/v13.2/setup-grafana/configure-docker/)).
 
 ## Chẩn đoán và dữ liệu bền vững
 

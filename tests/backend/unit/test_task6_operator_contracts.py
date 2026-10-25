@@ -1,6 +1,7 @@
 """Task 6 operator and manifest contracts."""
 
 import importlib.util
+import json
 import os
 from datetime import UTC, datetime
 from pathlib import Path
@@ -234,7 +235,7 @@ def test_recorded_cleanup_skips_grafana_credential_content_validation(
     monkeypatch.setattr(
         demo.Demo,
         "images",
-        lambda self, configured_only=False: images,
+        lambda self, configured_only=False, **kwargs: images,
     )
 
     assert demo.main([command, "--overlay", "local"]) == 0
@@ -264,3 +265,39 @@ def test_nonsecret_configuration_identity_changes_for_cidr_but_not_secret_conten
     changed_acl = demo.Demo("https", "a" * 40, observability=True)
     assert changed_acl.configuration_sha256 != same_public_config.configuration_sha256
     assert "different-private-credential" not in str(changed_acl.configuration_sha256)
+
+
+def test_status_local_digest_lookup_rejects_wrong_cached_vendor_artifact(
+    observability_environment, monkeypatch
+):
+    demo, _ = observability_environment
+    instance = demo.Demo("https", "a" * 40, observability=True)
+    expected = instance.locked_images["mysql"]
+    monkeypatch.setattr(
+        instance,
+        "_configuration",
+        lambda services=(): {"services": {"mysql": {"image": expected}}},
+    )
+    monkeypatch.setattr(instance, "compose", lambda *args, **kwargs: "")
+    calls = []
+
+    def local_image(args, timeout=180):
+        calls.append(args)
+        if args[:4] == ["docker", "image", "ls", "--quiet"]:
+            return "sha256:" + "c" * 64
+        if args[:3] == ["docker", "image", "inspect"]:
+            return json.dumps(
+                {
+                    "Id": "sha256:" + "c" * 64,
+                    "RepoDigests": ["mysql@sha256:" + "d" * 64],
+                    "Labels": {},
+                }
+            )
+        raise AssertionError("unexpected Docker command")
+
+    monkeypatch.setattr(demo, "run", local_image)
+
+    with pytest.raises(demo.ProvenanceMismatch):
+        instance.images(omit_missing=True)
+
+    assert calls[0][-1] == expected.split("@", 1)[0]

@@ -681,6 +681,165 @@ def summarize_loki_signal(
     }
 
 
+def summarize_loki_native_application_log(
+    http_status: int | None,
+    body: object,
+    *,
+    expected_service: str,
+    expected_event: str,
+    expected_release: str,
+) -> dict[str, object]:
+    allowed_events = {
+        "api": {"http.server.request"},
+        "worker": {"worker.heartbeat", "worker.scan", "worker.candidate"},
+    }
+    if (
+        expected_service not in allowed_events
+        or expected_event not in allowed_events.get(expected_service, set())
+        or not re.fullmatch(r"[a-f0-9]{40}", expected_release)
+    ):
+        return {
+            "http_status": http_status,
+            "body_status_ok": False,
+            "stream_count": 0,
+            "entry_count": 0,
+            "service_name": None,
+            "deployment_environment_name": None,
+            "event_match": False,
+            "release_match": False,
+            "failure_category": "invalid_expectation",
+        }
+
+    response = body if isinstance(body, dict) else {}
+    data = response.get("data") if isinstance(response.get("data"), dict) else {}
+    results = data.get("result") if isinstance(data.get("result"), list) else []
+    stream_keys: set[str] = set()
+    field_keys: set[str] = set()
+    entries: list[tuple[dict[str, object], str, dict[str, object], dict[str, object]]] = []
+    for stream in results[:100]:
+        if not isinstance(stream, dict):
+            continue
+        labels = stream.get("stream") if isinstance(stream.get("stream"), dict) else {}
+        stream_keys.update(str(key) for key in labels)
+        values = stream.get("values") if isinstance(stream.get("values"), list) else []
+        for entry in values[:100]:
+            if not isinstance(entry, (list, tuple)) or len(entry) < 2:
+                continue
+            line = entry[1] if isinstance(entry[1], str) else ""
+            try:
+                parsed = json.loads(line) if line else {}
+            except json.JSONDecodeError:
+                parsed = {}
+            body_fields = parsed if isinstance(parsed, dict) else {}
+            raw_metadata = entry[2] if len(entry) > 2 else {}
+            if isinstance(raw_metadata, dict):
+                metadata = raw_metadata
+            elif isinstance(raw_metadata, list):
+                metadata = {
+                    item.get("key"): item.get("value")
+                    for item in raw_metadata[:100]
+                    if isinstance(item, dict) and isinstance(item.get("key"), str)
+                }
+            else:
+                metadata = {}
+            field_keys.update(str(key) for key in body_fields)
+            field_keys.update(str(key) for key in metadata)
+            entries.append((labels, line, body_fields, metadata))
+
+    def event_matches(line: str, body_fields: dict[str, object], metadata: dict[str, object]):
+        if line == expected_event:
+            return True
+        return any(
+            source.get(key) == expected_event
+            for source in (body_fields, metadata)
+            for key in ("event", "event_name", "event.name")
+        )
+
+    def release_matches(labels: dict[str, object], metadata: dict[str, object]) -> bool:
+        release_keys = ("service_version", "service.version", "release")
+        return any(
+            source.get(key) == expected_release
+            for source in (labels, metadata)
+            for key in release_keys
+        )
+
+    identity_rows = [
+        row
+        for row in entries
+        if row[0].get("service_name") == expected_service
+        and row[0].get("deployment_environment_name") == "demo"
+    ]
+    event_rows = [row for row in identity_rows if event_matches(row[1], row[2], row[3])]
+    release_rows = [row for row in identity_rows if release_matches(row[0], row[3])]
+    matching_rows = [row for row in event_rows if release_matches(row[0], row[3])]
+
+    if http_status != 200:
+        failure = "http_status"
+    elif response.get("status") != "success":
+        failure = "api_status"
+    elif not results:
+        failure = "empty_results"
+    elif not entries:
+        failure = "empty_entries"
+    elif not identity_rows:
+        failure = "resource_identity"
+    elif not event_rows:
+        failure = "event_missing"
+    elif not release_rows:
+        failure = "release_missing"
+    elif not matching_rows:
+        failure = "event_release_mismatch"
+    else:
+        failure = None
+
+    return {
+        "http_status": http_status,
+        "body_status_ok": response.get("status") == "success",
+        "stream_count": min(100, len(results)),
+        "entry_count": len(entries),
+        "query_result_stream_keys": sorted(stream_keys)[:40],
+        "structured_field_keys": sorted(field_keys)[:40],
+        "service_name": expected_service if identity_rows else None,
+        "deployment_environment_name": "demo" if identity_rows else None,
+        "event_match": bool(event_rows),
+        "release_match": bool(release_rows),
+        "matching_record": bool(matching_rows),
+        "failure_category": failure,
+    }
+
+
+def summarize_api_readiness_observation(observation: object) -> dict[str, object]:
+    value = observation if isinstance(observation, dict) else {}
+    raw_status = value.get("http_status")
+    status = raw_status if type(raw_status) is int and 100 <= raw_status <= 599 else None
+    body = value.get("body") if isinstance(value.get("body"), dict) else None
+    body_status = "ready" if body is not None and body.get("status") == "ready" else "other"
+    error = value.get("error_category")
+    error_category = (
+        error
+        if isinstance(error, str)
+        and error in {"TransportError", "SubprocessError", "InvalidEnvelope"}
+        else None
+    )
+    json_valid = value.get("json_valid") is True
+    truncated = value.get("truncated") is True
+    passed = (
+        status == 200
+        and body_status == "ready"
+        and json_valid
+        and value.get("truncated") is False
+        and value.get("error_category") is None
+    )
+    return {
+        "http_status": status,
+        "json_valid": json_valid,
+        "body_status": body_status,
+        "truncated": truncated,
+        "error_category": error_category,
+        "passed": passed,
+    }
+
+
 def summarize_loki_index_series(
     http_status: int | None,
     body: object,
@@ -1532,6 +1691,41 @@ class FullStackRuntime:
         summary["body_truncated"] = observation.get("truncated")
         return summary
 
+    def observe_loki_native_application_log(self, service: str, event: str) -> dict[str, object]:
+        expected_events = {
+            "api": {"http.server.request"},
+            "worker": {"worker.heartbeat", "worker.scan", "worker.candidate"},
+        }
+        if service not in expected_events or event not in expected_events[service]:
+            raise AcceptanceFailure("A native Loki log probe used an unsupported source event")
+        query = (
+            f'{{service_name="{service}",deployment_environment_name="demo"}} '
+            f"|= {json.dumps(event)}"
+        )
+        now_ns = time.time_ns()
+        params = urlencode(
+            {
+                "query": query,
+                "start": str(now_ns - 600_000_000_000),
+                "end": str(now_ns),
+                "limit": "100",
+            }
+        )
+        observation = self.api_json_observation(
+            "http://loki:3100/loki/api/v1/query_range?" + params
+        )
+        summary = summarize_loki_native_application_log(
+            observation.get("http_status"),
+            observation.get("body"),
+            expected_service=service,
+            expected_event=event,
+            expected_release=self.stack.expected_sha,
+        )
+        summary["transport_error_category"] = observation.get("error_category")
+        summary["json_valid"] = observation.get("json_valid")
+        summary["body_truncated"] = observation.get("truncated")
+        return summary
+
     def observe_loki_index_series(self, *, expected_request_id: str) -> dict[str, object]:
         now_ns = time.time_ns()
         params = urlencode(
@@ -1718,6 +1912,12 @@ class FullStackRuntime:
             "loki_query": sink_observations.get("loki_query", {"failure_category": "not_observed"}),
             "loki_index_series": sink_observations.get(
                 "loki_index_series", {"failure_category": "not_observed"}
+            ),
+            "api_native_log": sink_observations.get(
+                "api_native_log", {"failure_category": "not_observed"}
+            ),
+            "worker_native_log": sink_observations.get(
+                "worker_native_log", {"failure_category": "not_observed"}
             ),
             "tempo": sink_observations.get("tempo", {"failure_category": "not_observed"}),
             "receiver_health": (
@@ -2980,23 +3180,84 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                 lambda: runtime.observe_loki_index_series(expected_request_id=request_id),
             )
             observe_boundary(
+                "api_native_log",
+                lambda: runtime.observe_loki_native_application_log("api", "http.server.request"),
+            )
+            observe_boundary(
+                "worker_native_log",
+                lambda: runtime.observe_loki_native_application_log("worker", "worker.heartbeat"),
+            )
+            observe_boundary(
                 "tempo",
                 lambda: runtime.observe_tempo_trace(trace_id),
             )
             return all(
                 sink_observations[name].get("failure_category") is None
-                for name in ("loki_query", "loki_index_series", "tempo")
+                for name in (
+                    "loki_query",
+                    "loki_index_series",
+                    "api_native_log",
+                    "worker_native_log",
+                    "tempo",
+                )
             )
 
-        failure_context["stage"] = "loki_query_index_and_tempo_delivery"
+        failure_context["stage"] = "native_logs_loki_query_index_and_tempo_delivery"
         runtime.stack.wait_for(
             signals_stored,
             seconds=45,
-            failure="The verified application request did not reach Loki and Tempo",
+            failure=(
+                "The verified application/API and worker logs plus API trace "
+                "did not reach Loki and Tempo"
+            ),
         )
         gateway_event = runtime.query_loki_request(request_id, trace_id)
         evidence["gateway_loki_event"] = gateway_event
         evidence["tempo_trace"] = "stored"
+        evidence["native_otlp_logs"] = {
+            "api": sink_observations["api_native_log"],
+            "worker": sink_observations["worker_native_log"],
+        }
+
+        failure_context["stage"] = "collector_stop_api_readiness"
+        collector_before = runtime.inspect_service("collector")
+        collector_id_before = collector_before.get("Id")
+        if not isinstance(collector_id_before, str) or not re.fullmatch(
+            r"[0-9a-f]{64}", collector_id_before
+        ):
+            raise AcceptanceFailure("The UUID-owned Collector identity is invalid before outage")
+        acceptance_success(
+            runtime.compose("stop", "--timeout", "10", "collector", timeout=30),
+            "The UUID-owned Collector could not stop for API readiness isolation",
+        )
+        collector_stopped = runtime.inspect_service("collector")
+        if (collector_stopped.get("State") or {}).get("Status") != "exited":
+            raise AcceptanceFailure("The UUID-owned Collector did not reach stopped state")
+        readiness = summarize_api_readiness_observation(
+            runtime.api_json_observation("http://127.0.0.1:8000/health/ready")
+        )
+        failure_context["collector_outage_readiness"] = readiness
+        if not readiness["passed"]:
+            raise AcceptanceFailure(
+                "Application/API readiness depended on Collector availability: "
+                + json.dumps(readiness, sort_keys=True, separators=(",", ":"))
+            )
+        failure_context["stage"] = "collector_recovery_after_api_readiness"
+        acceptance_success(
+            runtime.compose("start", "collector", timeout=30),
+            "The UUID-owned Collector did not restart after the API readiness probe",
+        )
+        recovered_targets = runtime.wait_targets()
+        collector_after = runtime.inspect_service("collector")
+        if collector_after.get("Id") != collector_id_before:
+            raise AcceptanceFailure("Collector recovery replaced its UUID-owned container")
+        evidence["collector_outage_isolation"] = {
+            "collector_stopped_status": "exited",
+            "collector_container_preserved": True,
+            "api_readiness": readiness,
+            "collector_recovered": True,
+            "targets_after_recovery": recovered_targets,
+        }
 
         failure_context["stage"] = "worker_signal_contract"
         selected_names: dict[str, str] = {}
@@ -3334,6 +3595,9 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                     receiver_health_summary=failure_context.get("receiver_health"),
                 )
                 diagnostic["failure_stage"] = failure_context["stage"]
+                diagnostic["collector_outage_readiness"] = failure_context.get(
+                    "collector_outage_readiness", {"available": False}
+                )
                 diagnostic["worker_restart_observations"] = failure_context.get(
                     "worker_restart_observations", {"available": False}
                 )

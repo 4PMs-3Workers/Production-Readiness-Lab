@@ -527,7 +527,7 @@ class Demo:
             self._check_locked_reference(service, reference)
             self.inspect_image(reference, service)
 
-    def images(self, configured_only=False):
+    def images(self, configured_only=False, *, omit_missing=False):
         configuration = self._configuration()
         configured = configuration["services"]
         names = set(configured) & evidence.V2_SERVICES if self.observability else evidence.SERVICES
@@ -542,7 +542,30 @@ class Demo:
             identifier = "" if configured_only else self.compose("images", "-q", service)
             if identifier and not re.fullmatch(r"(?:sha256:)?[0-9a-f]{12,64}", identifier):
                 raise OperationFailed()
+            local_lookup = not identifier and omit_missing
+            if local_lookup:
+                lookup_reference = reference.split("@", 1)[0]
+                identifiers = run(
+                    ["docker", "image", "ls", "--quiet", "--no-trunc", lookup_reference]
+                ).splitlines()
+                if not identifiers:
+                    continue
+                if len(identifiers) != 1 or not re.fullmatch(
+                    r"(?:sha256:)?[0-9a-f]{12,64}", identifiers[0]
+                ):
+                    raise OperationFailed()
+                identifier = identifiers[0]
             image = self.inspect_image(identifier or reference, service)
+            if local_lookup and self.observability and service in VENDOR_SERVICE_KEYS:
+                expected_digest = self.locked_images[VENDOR_SERVICE_KEYS[service]].rsplit("@", 1)[
+                    -1
+                ]
+                digests = image.get("RepoDigests") or []
+                if not any(
+                    isinstance(digest, str) and digest.rsplit("@", 1)[-1] == expected_digest
+                    for digest in digests
+                ):
+                    raise ProvenanceMismatch()
             images[service] = {
                 "id": image["Id"],
                 "digests": image.get("RepoDigests") or [],
@@ -697,7 +720,11 @@ def _mode_matches(previous, overlay, observability, configuration_sha256):
     )
 
 
-def _record_state(command, previous):
+def _record_state(command, previous, *, succeeded=True):
+    if not succeeded:
+        if previous is not None and previous["manifest_version"] == 2:
+            return previous["deployment_state"]
+        return "unknown"
     if command == "up":
         return "active"
     if command == "stop":
@@ -772,7 +799,10 @@ def main(argv=None):
                 elif cleanup and command in {"stop", "down"} and previous is not None:
                     images = previous["images"]
                 else:
-                    images = demo.images(configured_only=command == "build")
+                    images = demo.images(
+                        configured_only=command == "build",
+                        omit_missing=command == "status",
+                    )
                 require_clean_source(sha)
             except ConfigurationIdentityMismatch:
                 raise
@@ -785,7 +815,7 @@ def main(argv=None):
                         else demo.configuration_sha256
                     )
                     failed_images = previous["images"]
-                    failed_state = _record_state(command, previous)
+                    failed_state = _record_state(command, previous, succeeded=False)
                     failed_telemetry = (
                         previous.get("observability_verification")
                         if previous["manifest_version"] == 2
@@ -796,7 +826,7 @@ def main(argv=None):
                     failed_observability = demo.observability
                     failed_hash = demo.configuration_sha256
                     failed_images = {}
-                    failed_state = _record_state(command, previous)
+                    failed_state = _record_state(command, previous, succeeded=False)
                     failed_telemetry = (
                         previous.get("observability_verification")
                         if previous is not None and previous["manifest_version"] == 2
