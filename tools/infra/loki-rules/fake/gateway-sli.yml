@@ -177,7 +177,7 @@ groups:
           severity: warning
         annotations:
           summary: Fewer than 95% of at least 20 successful gateway requests completed within 500 ms in five minutes.
-          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#gateway-fast-success-below-slo
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#gateway-fast-success-or-pipeline-heartbeat
       - alert: GatewayPipelineHeartbeatMissing
         expr: |
           absent_over_time(
@@ -193,4 +193,4 @@ groups:
           severity: critical
         annotations:
           summary: The real gateway healthcheck event has been absent from Loki for at least 60 seconds.
-          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#gateway-pipeline-heartbeat-missing
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#gateway-fast-success-or-pipeline-heartbeat

@@ -17,7 +17,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: More than 0.5% of at least 20 API requests failed in five minutes.
-              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#api-http-error-rate-warning
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#api-http-error-rate
 
   # >5% with >=20 requests must become critical after one minute.
   - interval: 15s
@@ -34,7 +34,7 @@ tests:
               severity: critical
             exp_annotations:
               summary: More than 5% of at least 20 API requests failed in five minutes.
-              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#api-http-error-rate-critical
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#api-http-error-rate
 
   # The 0.5% boundary is strict, so it does not fire the warning.
   - interval: 15s
@@ -63,7 +63,7 @@ tests:
               severity: critical
             exp_annotations:
               summary: The API target is up but its telemetry registry is missing the required stdout queue family.
-              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#api-telemetry-family-missing
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-target-or-loss
 
   # A pinned telemetry target down for 30 seconds is nonhealthy.
   - interval: 15s
@@ -80,7 +80,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: A required application or observability scrape target is unavailable.
-              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-target-down
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-target-or-loss
 
   # Same-slot restart: retained event timestamps before the newer start are unknown.
   - interval: 15s
@@ -94,7 +94,11 @@ tests:
       - series: 'prl_worker_last_progress_timestamp_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
         values: "20+0x4"
       - series: 'prl_worker_last_successful_scan_timestamp_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
-        values: "20+0x4"
+        values: "20 20 20 35 35"
+      - series: 'prl_worker_backlog_count_ratio{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
+        values: "3 3 3 4 4"
+      - series: 'prl_worker_oldest_overdue_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
+        values: "180 180 180 15 15"
     alert_rule_test:
       - eval_time: 15s
         alertname: WorkerHeartbeatMissing
@@ -113,6 +117,23 @@ tests:
             exp_annotations:
               summary: An expected worker slot has no valid current-process heartbeat timestamp for 30 seconds.
               runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#worker-heartbeat-missing
+    promql_expr_test:
+      - expr: prl:worker:backlog_max_fresh
+        eval_time: 30s
+        exp_samples: []
+      - expr: prl:worker:backlog_oldest_overdue_max_fresh
+        eval_time: 30s
+        exp_samples: []
+      - expr: prl:worker:backlog_max_fresh
+        eval_time: 45s
+        exp_samples:
+          - labels: '{__name__="prl:worker:backlog_max_fresh",service_name="worker",deployment_environment_name="demo"}'
+            value: 4
+      - expr: prl:worker:backlog_oldest_overdue_max_fresh
+        eval_time: 45s
+        exp_samples:
+          - labels: '{__name__="prl:worker:backlog_oldest_overdue_max_fresh",service_name="worker",deployment_environment_name="demo"}'
+            value: 15
 
   # A current-owner heartbeat fires immediately after its age crosses 45 seconds.
   - interval: 15s
@@ -302,7 +323,7 @@ tests:
               severity: critical
             exp_annotations:
               summary: Telemetry items were dropped, refused, or failed export during the last five minutes.
-              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-loss-detected
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-target-or-loss
 
   # Collector refuses metric points with an immediate alert.
   - interval: 15s
@@ -318,7 +339,7 @@ tests:
               severity: critical
             exp_annotations:
               summary: Telemetry items were dropped, refused, or failed export during the last five minutes.
-              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-loss-detected
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-target-or-loss
 
   # Collector enqueue failure for metric points loses data immediately.
   - interval: 15s
@@ -334,7 +355,7 @@ tests:
               severity: critical
             exp_annotations:
               summary: Telemetry items were dropped, refused, or failed export during the last five minutes.
-              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-loss-detected
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-target-or-loss
 
   # Collector export failure for metric points is immediately actionable.
   - interval: 15s
@@ -350,4 +371,4 @@ tests:
               severity: critical
             exp_annotations:
               summary: Telemetry items were dropped, refused, or failed export during the last five minutes.
-              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-loss-detected
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-target-or-loss

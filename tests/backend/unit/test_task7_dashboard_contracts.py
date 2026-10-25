@@ -4,6 +4,7 @@ import ast
 import json
 import re
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -66,6 +67,35 @@ def test_gateway_alerts_have_required_windows_and_runbook_annotations():
         assert rule["labels"]["severity"] in {"warning", "critical"}
         assert rule["annotations"].get("summary")
         assert rule["annotations"].get("runbook_url", "").startswith("https://")
+
+
+def test_every_alert_runbook_url_resolves_to_a_real_heading():
+    runbook = ROOT / "docs/tasks/observability-runbook.md"
+    headings = {
+        re.sub(r"-+", "-", re.sub(r"[^a-z0-9 _-]", "", match.group(1).lower()))
+        .strip()
+        .replace(" ", "-")
+        for match in re.finditer(
+            r"^#{1,6}\s+(.+?)\s*#*\s*$", runbook.read_text(encoding="utf-8"), re.M
+        )
+    }
+    documents = (
+        yaml.safe_load((INFRA / "prometheus-rules.yml").read_text(encoding="utf-8")),
+        _loki_rules(),
+    )
+    alerts = [
+        rule
+        for document in documents
+        for group in document["groups"]
+        for rule in group["rules"]
+        if "alert" in rule
+    ]
+    assert alerts
+    for rule in alerts:
+        url = rule["annotations"].get("runbook_url", "")
+        parsed = urlsplit(url)
+        assert parsed.path.endswith("/docs/tasks/observability-runbook.md"), rule["alert"]
+        assert parsed.fragment in headings, (rule["alert"], parsed.fragment, headings)
 
 
 def test_five_grafana_dashboards_are_provisioned_with_nonhealthy_empty_state():
@@ -292,6 +322,63 @@ def test_prometheus_rule_tests_cover_thresholds_restart_and_backlog_freshness():
     assert "prl_worker_last_successful_scan_timestamp_seconds" in text
     assert "prl_worker_started_timestamp_seconds" in text
     assert "A fresh empty scan excludes a retained oldest-overdue value before max" in text
+
+
+def test_same_slot_restart_fixture_keeps_cached_backlog_unknown_until_new_scan():
+    document = yaml.safe_load((INFRA / "prometheus-rule-tests.yml").read_text(encoding="utf-8"))
+    restart = next(
+        test
+        for test in document["tests"]
+        if any(
+            "prl_worker_started_timestamp_seconds" in series["series"]
+            and series["values"] == "25+0x4"
+            for series in test.get("input_series", [])
+        )
+    )
+    metric_names = {series["series"].split("{", 1)[0] for series in restart["input_series"]}
+    assert "prl_worker_backlog_count_ratio" in metric_names
+    assert "prl_worker_oldest_overdue_seconds" in metric_names
+    expr_tests = {
+        (test["expr"], test["eval_time"]): test["exp_samples"]
+        for test in restart.get("promql_expr_test", [])
+    }
+    for expression in (
+        "prl:worker:backlog_max_fresh",
+        "prl:worker:backlog_oldest_overdue_max_fresh",
+    ):
+        assert expr_tests[(expression, "30s")] == []
+    assert expr_tests[("prl:worker:backlog_max_fresh", "45s")] == [
+        {
+            "labels": '{__name__="prl:worker:backlog_max_fresh",service_name="worker",deployment_environment_name="demo"}',
+            "value": 4,
+        }
+    ]
+    assert expr_tests[("prl:worker:backlog_oldest_overdue_max_fresh", "45s")] == [
+        {
+            "labels": '{__name__="prl:worker:backlog_oldest_overdue_max_fresh",service_name="worker",deployment_environment_name="demo"}',
+            "value": 15,
+        }
+    ]
+
+
+def test_fullstack_collector_outage_covers_pipeline_missing_and_genuine_recovery():
+    source = (ROOT / "tests/containers/test_telemetry_stack.py").read_text(encoding="utf-8")
+    start = source.index('failure_context["stage"] = "collector_stop_api_readiness"')
+    end = source.index('failure_context["stage"] = "worker_signal_contract"', start)
+    outage = source[start:end]
+    for required in (
+        "GatewayPipelineHeartbeatMissing",
+        "absent_over_time",
+        "api_readiness",
+        "genuine_gateway_healthchecks_after_collector_recovery",
+        "start_ns=collector_recovered_ns",
+        "latest_event_unix_ns",
+        "collector_outage_elapsed_seconds",
+        "collector_pipeline_missing_firing",
+        "collector_pipeline_missing_resolved",
+    ):
+        assert required in outage
+    assert "push_gateway_json_logs" not in outage
 
 
 def test_alertmanager_timing_and_resolved_delivery_are_explicit():

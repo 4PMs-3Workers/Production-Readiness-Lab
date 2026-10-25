@@ -9,7 +9,7 @@ groups:
           severity: warning
         annotations:
           summary: The telemetry Collector scrape target is unavailable.
-          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-target-down
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-target-or-loss
       - alert: TelemetryTargetDown
         expr: up{job=~"api|collector|application-otel|local-alert-receiver|prometheus-self|loki-self|tempo-self|grafana-self|alertmanager-self"} == 0
         for: 30s
@@ -17,7 +17,7 @@ groups:
           severity: warning
         annotations:
           summary: A required application or observability scrape target is unavailable.
-          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-target-down
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-target-or-loss
       - alert: ApiTelemetryFamilyMissing
         expr: |
           (up{job="api"} == 1)
@@ -28,7 +28,7 @@ groups:
           severity: critical
         annotations:
           summary: The API target is up but its telemetry registry is missing the required stdout queue family.
-          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#api-telemetry-family-missing
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-target-or-loss
       - alert: TelemetryLossDetected
         expr: |
           increase(prl_telemetry_dropped_total[5m]) > 0
@@ -49,7 +49,7 @@ groups:
           severity: critical
         annotations:
           summary: Telemetry items were dropped, refused, or failed export during the last five minutes.
-          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-loss-detected
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-target-or-loss
 
   - name: api-errors
     interval: 15s
@@ -79,7 +79,7 @@ groups:
           severity: warning
         annotations:
           summary: More than 0.5% of at least 20 API requests failed in five minutes.
-          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#api-http-error-rate-warning
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#api-http-error-rate
       - alert: ApiHttpErrorRateCritical
         expr: |
           (
@@ -93,7 +93,7 @@ groups:
           severity: critical
         annotations:
           summary: More than 5% of at least 20 API requests failed in five minutes.
-          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#api-http-error-rate-critical
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#api-http-error-rate
 
   - name: database-health
     interval: 15s

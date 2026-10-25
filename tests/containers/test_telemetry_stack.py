@@ -2655,16 +2655,17 @@ class FullStackRuntime:
             "request_id_indexed": index.get("request_id_indexed") is True,
         }
 
-    def query_loki_healthchecks(self) -> dict[str, object]:
+    def query_loki_healthchecks(self, *, start_ns: int | None = None) -> dict[str, object]:
         query = (
             '{service_name="gateway",deployment_environment_name="demo"} '
             '| event="gateway.healthcheck"'
         )
         now_ns = time.time_ns()
+        query_start_ns = start_ns if start_ns is not None else now_ns - 600_000_000_000
         params = urlencode(
             {
                 "query": query,
-                "start": str(now_ns - 600_000_000_000),
+                "start": str(query_start_ns),
                 "end": str(now_ns + 60_000_000_000),
                 "limit": "100",
             }
@@ -2674,6 +2675,14 @@ class FullStackRuntime:
         for stream in response.get("data", {}).get("result", []):
             labels = stream.get("stream", {})
             for entry in stream.get("values", []):
+                try:
+                    timestamp_ns = int(entry[0])
+                except (TypeError, ValueError, IndexError):
+                    raise AcceptanceFailure(
+                        "A Loki healthcheck had an invalid timestamp"
+                    ) from None
+                if timestamp_ns < query_start_ns:
+                    continue
                 try:
                     body = json.loads(entry[1])
                 except (TypeError, json.JSONDecodeError, IndexError):
@@ -2687,7 +2696,7 @@ class FullStackRuntime:
                     or fields.get("classification") != "out_of_scope"
                 ):
                     raise AcceptanceFailure("A Loki healthcheck lost its finite event contract")
-                events.append((int(entry[0]), fields))
+                events.append((timestamp_ns, fields))
         events.sort(key=lambda event: event[0])
         if len(events) < 2:
             raise AcceptanceFailure("Loki did not receive recurring genuine gateway healthchecks")
@@ -2700,6 +2709,8 @@ class FullStackRuntime:
             "labels": {"service_name": "gateway", "deployment_environment_name": "demo"},
             "observed_events": len(events),
             "interval_seconds": round(interval, 2),
+            "query_start_unix_ns": query_start_ns,
+            "latest_event_unix_ns": events[-1][0],
         }
 
     def write_probe_compose(self) -> None:
@@ -3676,12 +3687,41 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         }
 
         failure_context["stage"] = "collector_stop_api_readiness"
+        pipeline_rules = yaml.safe_load(
+            (ROOT / "tools/infra/loki-rules/fake/gateway-sli.yml").read_text(encoding="utf-8")
+        )
+        pipeline_rule = next(
+            rule
+            for group in pipeline_rules["groups"]
+            for rule in group["rules"]
+            if rule.get("alert") == "GatewayPipelineHeartbeatMissing"
+        )
+        pipeline_missing_expression = pipeline_rule["expr"]
+        if (
+            "absent_over_time" not in pipeline_missing_expression
+            or "[60s]" not in pipeline_missing_expression
+            or pipeline_rule.get("for") != "30s"
+        ):
+            raise AcceptanceFailure("The gateway pipeline absence rule changed its approved timing")
+        pre_outage_healthchecks = runtime.query_loki_healthchecks()
+        if (
+            type(pre_outage_healthchecks.get("latest_event_unix_ns")) is not int
+            or time.time_ns() - pre_outage_healthchecks["latest_event_unix_ns"]
+            > 15_000_000_000
+        ):
+            raise AcceptanceFailure(
+                "The genuine gateway healthcheck was not fresh before Collector pause"
+            )
+        evidence["genuine_gateway_healthchecks_before_collector_outage"] = (
+            pre_outage_healthchecks
+        )
         collector_before = runtime.inspect_service("collector")
         collector_id_before = collector_before.get("Id")
         if not isinstance(collector_id_before, str) or not re.fullmatch(
             r"[0-9a-f]{64}", collector_id_before
         ):
             raise AcceptanceFailure("The UUID-owned Collector identity is invalid before outage")
+        collector_outage_started_ns = time.time_ns()
         acceptance_success(
             runtime.compose("stop", "--timeout", "10", "collector", timeout=30),
             "The UUID-owned Collector could not stop for API readiness isolation",
@@ -3709,19 +3749,143 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                 "Application/API readiness depended on Collector availability: "
                 + json.dumps(readiness, sort_keys=True, separators=(",", ":"))
             )
-        failure_context["stage"] = "collector_recovery_after_api_readiness"
+        runtime.wait_app_gateway()
+        evidence["collector_outage_readiness"] = readiness
+        evidence["gateway_ready_while_collector_stopped"] = True
+
+        failure_context["stage"] = "collector_pipeline_missing_predicate"
+        pipeline_predicate: float | None = None
+
+        def pipeline_missing_predicate_visible() -> bool:
+            nonlocal pipeline_predicate
+            pipeline_predicate = runtime.loki_scalar(pipeline_missing_expression)
+            return pipeline_predicate is not None and pipeline_predicate > 0
+
+        # Compose allows a 10-second graceful stop. A genuine event may arrive during that
+        # interval, so allow 10 + the 60-second absence window + 10 seconds for polling.
+        runtime.stack.wait_for(
+            pipeline_missing_predicate_visible,
+            seconds=80,
+            failure="The pinned Loki absence predicate did not become visible after 60 seconds",
+        )
+        evidence["collector_pipeline_missing_predicate"] = {
+            "expression": pipeline_missing_expression,
+            "value": pipeline_predicate,
+            "collector_outage_started_unix_ns": collector_outage_started_ns,
+        }
+
+        failure_context["stage"] = "collector_pipeline_missing_firing"
+        pipeline_firing_observed_ns: int | None = None
+
+        def pipeline_missing_firing_received() -> bool:
+            nonlocal pipeline_firing_observed_ns
+            received = any(
+                item["status"] == "firing" and item["severity"] == "critical"
+                for item in runtime.alert_receiver_statuses("GatewayPipelineHeartbeatMissing")
+            )
+            if received and pipeline_firing_observed_ns is None:
+                pipeline_firing_observed_ns = time.time_ns()
+            return received
+
+        # Bound: the configured 30-second hold, two 15-second evaluations and 5-second wait.
+        runtime.stack.wait_for(
+            pipeline_missing_firing_received,
+            seconds=70,
+            failure="The local receiver did not receive GatewayPipelineHeartbeatMissing",
+        )
+        evidence["collector_pipeline_missing_firing"] = {
+            "alertname": "GatewayPipelineHeartbeatMissing",
+            "receiver_statuses": runtime.alert_receiver_statuses(
+                "GatewayPipelineHeartbeatMissing"
+            ),
+            "receiver_first_observed_unix_ns": pipeline_firing_observed_ns,
+            "exact_predicate_value": runtime.loki_scalar(pipeline_missing_expression),
+        }
+
+        failure_context["stage"] = "collector_recovery_after_pipeline_gap"
+        collector_recovery_started_ns = time.time_ns()
         acceptance_success(
             runtime.compose("start", "collector", timeout=30),
             "The UUID-owned Collector did not restart after the API readiness probe",
         )
+        collector_recovered_ns = time.time_ns()
         recovered_targets = runtime.wait_targets()
         collector_after = runtime.inspect_service("collector")
         if collector_after.get("Id") != collector_id_before:
             raise AcceptanceFailure("Collector recovery replaced its UUID-owned container")
+        runtime.wait_app_gateway()
+
+        recovered_healthchecks: dict[str, object] = {}
+
+        def genuine_gateway_healthchecks_after_collector_recovery() -> bool:
+            nonlocal recovered_healthchecks
+            recovered_healthchecks = runtime.query_loki_healthchecks(
+                start_ns=collector_recovered_ns
+            )
+            return recovered_healthchecks["observed_events"] >= 2
+
+        runtime.stack.wait_for(
+            genuine_gateway_healthchecks_after_collector_recovery,
+            seconds=45,
+            failure=(
+                "Genuine post-recovery /health/gateway events did not return to Loki "
+                "within two gateway healthcheck intervals plus evaluation margin"
+            ),
+        )
+        if (
+            recovered_healthchecks.get("query_start_unix_ns") != collector_recovered_ns
+            or recovered_healthchecks.get("latest_event_unix_ns", 0) < collector_recovered_ns
+        ):
+            raise AcceptanceFailure("The returned gateway healthchecks were not fresh after Collector restart")
+        collector_outage_elapsed_seconds = (
+            collector_recovered_ns - collector_outage_started_ns
+        ) / 1_000_000_000
+        if collector_outage_elapsed_seconds < 90:
+            raise AcceptanceFailure("The Collector outage did not span the 60-second absence and 30-second hold")
+        pipeline_predicate_after_recovery = runtime.loki_scalar(pipeline_missing_expression)
+        if pipeline_predicate_after_recovery is not None:
+            raise AcceptanceFailure(
+                "Genuine gateway healthchecks did not clear the absence predicate"
+            )
+
+        failure_context["stage"] = "collector_pipeline_missing_resolved"
+        pipeline_resolved_observed_ns: int | None = None
+
+        def pipeline_missing_resolved_received() -> bool:
+            nonlocal pipeline_resolved_observed_ns
+            received = any(
+                item["status"] == "resolved" and item["severity"] == "critical"
+                for item in runtime.alert_receiver_statuses("GatewayPipelineHeartbeatMissing")
+            )
+            if received and pipeline_resolved_observed_ns is None:
+                pipeline_resolved_observed_ns = time.time_ns()
+            return received
+
+        runtime.stack.wait_for(
+            pipeline_missing_resolved_received,
+            seconds=45,
+            failure="The local receiver did not receive the resolved gateway pipeline alert",
+        )
+        evidence["genuine_gateway_healthchecks_after_collector_recovery"] = (
+            recovered_healthchecks
+        )
+        evidence["collector_pipeline_missing_resolved"] = {
+            "alertname": "GatewayPipelineHeartbeatMissing",
+            "receiver_statuses": runtime.alert_receiver_statuses(
+                "GatewayPipelineHeartbeatMissing"
+            ),
+            "receiver_first_observed_unix_ns": pipeline_resolved_observed_ns,
+            "exact_predicate_value": pipeline_predicate_after_recovery,
+        }
         evidence["collector_outage_isolation"] = {
             "collector_stopped_status": "exited",
             "collector_container_preserved": True,
             "api_readiness": readiness,
+            "gateway_ready_while_collector_stopped": True,
+            "collector_outage_started_unix_ns": collector_outage_started_ns,
+            "collector_recovery_started_unix_ns": collector_recovery_started_ns,
+            "collector_recovered_unix_ns": collector_recovered_ns,
+            "collector_outage_elapsed_seconds": round(collector_outage_elapsed_seconds, 2),
             "collector_recovered": True,
             "targets_after_recovery": recovered_targets,
         }
