@@ -1762,3 +1762,61 @@ def test_dashboard_screenshots_use_browser_resolver_for_metadata_and_pages(tmp_p
     assert all(
         str(item["dashboard_path"]).startswith(f"/d/{item['uid']}/") for item in screenshot_rows
     )
+
+
+def test_fullstack_ops_peer_fixture_uses_only_loopback_and_exact_edge_gateway() -> None:
+    import ipaddress
+
+    from tests.containers.test_compose_acceptance import GATEWAY_SUBNET
+    from tests.containers.test_telemetry_stack import (
+        OPS_EDGE_TEST_GATEWAY,
+        OPS_EDGE_TEST_SUBNET,
+        fullstack_ops_edge_network_overlay,
+        fullstack_ops_peer_cidrs,
+    )
+
+    networks = [
+        ipaddress.ip_network(item, strict=True) for item in fullstack_ops_peer_cidrs().split(",")
+    ]
+    assert [str(item) for item in networks] == [
+        "127.0.0.1/32",
+        f"{OPS_EDGE_TEST_GATEWAY}/32",
+    ]
+    assert all(item.prefixlen == item.max_prefixlen for item in networks)
+    assert not GATEWAY_SUBNET.overlaps(OPS_EDGE_TEST_SUBNET)
+    overlay = yaml.safe_load(fullstack_ops_edge_network_overlay())
+    assert overlay == {
+        "services": {},
+        "networks": {
+            "edge": {
+                "ipam": {
+                    "config": [
+                        {
+                            "subnet": str(OPS_EDGE_TEST_SUBNET),
+                            "gateway": str(OPS_EDGE_TEST_GATEWAY),
+                        }
+                    ]
+                }
+            }
+        },
+    }
+
+
+def test_worker_restart_sequence_stops_the_worker_before_database() -> None:
+    from tests.containers.test_telemetry_stack import (
+        restart_worker_while_database_is_unavailable,
+    )
+
+    calls: list[tuple[tuple[str, ...], float]] = []
+
+    def compose(*args: str, timeout: float = 180) -> subprocess.CompletedProcess[str]:
+        calls.append((args, timeout))
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    restart_worker_while_database_is_unavailable(compose)
+
+    assert calls == [
+        (("stop", "--timeout", "10", "worker"), 30),
+        (("stop", "--timeout", "10", "mysql"), 30),
+        (("start", "worker"), 45),
+    ]

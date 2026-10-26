@@ -12,6 +12,7 @@ import socket
 import ssl
 import subprocess
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
@@ -25,6 +26,8 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from tests.containers.test_compose_acceptance import (
+    OPS_EDGE_TEST_GATEWAY,
+    OPS_EDGE_TEST_SUBNET,
     AcceptanceFailure,
     ComposeAcceptance,
     latest_worker_progress,
@@ -81,6 +84,53 @@ OPS_PROBE_DASHBOARD_UIDS = {
     "prl-worker-progress",
     "prl-telemetry-loss",
 }
+
+
+def fullstack_ops_peer_cidrs() -> str:
+    """Return the exact test-only peers for loopback probes and the published edge."""
+    return f"127.0.0.1/32,{OPS_EDGE_TEST_GATEWAY}/32"
+
+
+def fullstack_ops_edge_network_overlay() -> str:
+    """Pin only the test acceptance edge network so its host peer is deterministic."""
+    return yaml.safe_dump(
+        {
+            "services": {},
+            "networks": {
+                "edge": {
+                    "ipam": {
+                        "config": [
+                            {
+                                "subnet": str(OPS_EDGE_TEST_SUBNET),
+                                "gateway": str(OPS_EDGE_TEST_GATEWAY),
+                            }
+                        ]
+                    }
+                }
+            },
+        },
+        sort_keys=True,
+    )
+
+
+def restart_worker_while_database_is_unavailable(
+    compose: Callable[..., subprocess.CompletedProcess[str]],
+) -> None:
+    """Restart the existing worker container while MySQL is stopped."""
+    acceptance_success(
+        compose("stop", "--timeout", "10", "worker", timeout=30),
+        "The UUID-owned worker could not stop for the same-slot observation",
+    )
+    acceptance_success(
+        compose("stop", "--timeout", "10", "mysql", timeout=30),
+        "The UUID-owned database could not stop for the same-slot observation",
+    )
+    acceptance_success(
+        compose("start", "worker", timeout=45),
+        "The stopped worker could not start while MySQL was unavailable",
+    )
+
+
 RECEIVER_HEALTH_TARGETS = frozenset(
     {"alertmanager", "collector", "grafana", "loki", "prometheus", "tempo"}
 )
@@ -1457,9 +1507,16 @@ def _https_request(
 class FullStackRuntime:
     """One bounded UUID-owned Compose run covering the Task 6 wire-up."""
 
-    def __init__(self, scratch: Path, *, use_acceptance_token: bool = True) -> None:
+    def __init__(
+        self,
+        scratch: Path,
+        *,
+        use_acceptance_token: bool = True,
+        pin_ops_edge_network: bool = False,
+    ) -> None:
         self.app_host = "app.example.invalid"
         self.stack = ComposeAcceptance(scratch, origin_scheme="https", origin_host=self.app_host)
+        additional_subnets = (OPS_EDGE_TEST_SUBNET,) if pin_ops_edge_network else ()
         token = os.environ.get("PRL_TASK6_ACCEPTANCE_TOKEN", "") if use_acceptance_token else ""
         if token:
             if not re.fullmatch(r"[0-9a-f]{32}", token):
@@ -1469,7 +1526,8 @@ class FullStackRuntime:
             self.stack.env["PRL_IMAGE_TAG"] = self.stack.image_tag
             self.stack.volume_name = f"{self.stack.project}_mysql_data"
             self.stack._ensure_unique_ownership()
-            self.stack._ensure_gateway_subnet_available()
+        if token or pin_ops_edge_network:
+            self.stack._ensure_gateway_subnet_available(additional_subnets=additional_subnets)
 
         self.port = self.stack.port
         self.ops_host = "ops.example.invalid"
@@ -1497,6 +1555,10 @@ class FullStackRuntime:
             "-f",
             str(deploy / "compose.observability.yaml"),
         ]
+        if pin_ops_edge_network:
+            edge_overlay = scratch / "task8-ops-edge-network.compose.yaml"
+            edge_overlay.write_text(fullstack_ops_edge_network_overlay(), encoding="utf-8")
+            self.stack.base.extend(["-f", str(edge_overlay.resolve())])
         self.stack.env.update(
             PRL_HTTPS_BIND="127.0.0.1",
             PRL_HTTPS_PORT=str(self.port),
@@ -1506,7 +1568,7 @@ class FullStackRuntime:
             SERVICE_RELEASE=self.stack.expected_sha,
             PRL_OPS_HOST=self.ops_host,
             PRL_OPS_ORIGIN=self.ops_origin,
-            PRL_OPS_CIDRS="127.0.0.1/32",
+            PRL_OPS_CIDRS=(fullstack_ops_peer_cidrs() if pin_ops_edge_network else "127.0.0.1/32"),
             PRL_OPS_TLS_CERT_FILE=str(self.ops_cert.resolve()),
             PRL_OPS_TLS_KEY_FILE=str(self.ops_key.resolve()),
             PRL_GRAFANA_ADMIN_USER_FILE=str(self.admin_user_file.resolve()),
@@ -3587,7 +3649,7 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
     token = os.environ.get("PRL_TASK6_ACCEPTANCE_TOKEN", "")
     if token:
         print(f"Task 6 runtime owner: prl-task6-{token}")
-    runtime = FullStackRuntime(tmp_path)
+    runtime = FullStackRuntime(tmp_path, pin_ops_edge_network=True)
     evidence: dict[str, object] = {}
     sink_observations: dict[str, dict[str, object]] = {}
     failure_context: dict[str, object] = {
@@ -3603,6 +3665,19 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         runtime.start()
         evidence["project"] = runtime.stack.project
         evidence["source_sha"] = runtime.stack.expected_sha
+        gateway = runtime.inspect_service("gateway")
+        raw_port_bindings = _object_mapping(gateway.get("HostConfig")).get("PortBindings")
+        port_bindings = _object_mapping(raw_port_bindings)
+        raw_ops_binding = port_bindings.get("8443/tcp")
+        ops_bindings = raw_ops_binding if isinstance(raw_ops_binding, list) else []
+        if len(ops_bindings) != 1 or not isinstance(ops_bindings[0], dict):
+            raise AcceptanceFailure("The ops listener is not published on one loopback port")
+        ops_binding = _object_mapping(ops_bindings[0])
+        if ops_binding.get("HostIp") != "127.0.0.1" or ops_binding.get("HostPort") != str(
+            runtime.port
+        ):
+            raise AcceptanceFailure("The ops listener is not bound to its UUID-owned loopback port")
+        evidence["ops_host_binding"] = {"host_ip": "127.0.0.1", "host_port": runtime.port}
         evidence["target_matrix"] = runtime.wait_targets()
         failure_context["stage"] = "gateway_sli_queries_against_pinned_loki"
         evidence["gateway_sli_truth_table"] = runtime.gateway_sli_truth_table()
@@ -4231,6 +4306,8 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             raise AcceptanceFailure("The OPS CIDR guard trusted a spoofed forwarded address")
         evidence["ops_cidr"] = {
             "allowed_loopback_admin": True,
+            "allowed_published_host_peer": str(OPS_EDGE_TEST_GATEWAY),
+            "published_host_binding": "127.0.0.1",
             "spoofed_forwarded_peer_status": 403,
         }
 
@@ -4419,15 +4496,8 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         old_owner_progress = runtime.stack.wait_heartbeat()
         recovery_fixture = business_probe.prepare_due_expiry_fixture()
         worker_restart_context["due_expiry_fixture_ready"] = True
-        acceptance_success(
-            runtime.compose("stop", "--timeout", "10", "mysql", timeout=30),
-            "The UUID-owned database could not stop for the same-slot observation",
-        )
         failure_context["stage"] = "worker_and_database_restart"
-        acceptance_success(
-            runtime.compose("start", "worker", timeout=45),
-            "The stopped worker could not start while MySQL was unavailable",
-        )
+        restart_worker_while_database_is_unavailable(runtime.compose)
         new_owner_container = runtime.inspect_service("worker")
         new_owner_config = _object_mapping(new_owner_container.get("Config"))
         new_owner_labels = _object_mapping(new_owner_config.get("Labels"))

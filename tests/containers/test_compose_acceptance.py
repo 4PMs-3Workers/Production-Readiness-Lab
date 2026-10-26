@@ -34,6 +34,8 @@ COMPOSE_FILES = (DEPLOY / "compose.yaml", DEPLOY / "compose.local.yaml")
 SCHEMA_REVISION = "20261019_1200_proposal_replay"
 REVISION_LABEL = "org.opencontainers.image.revision"
 GATEWAY_SUBNET = ipaddress.ip_network("172.30.34.0/29")
+OPS_EDGE_TEST_SUBNET = ipaddress.IPv4Network("172.30.35.0/29")
+OPS_EDGE_TEST_GATEWAY = ipaddress.ip_address(int(OPS_EDGE_TEST_SUBNET.network_address) + 1)
 PROJECT_PREFIX = "prl-task6-"
 RUN = os.environ.get("RUN_COMPOSE_ACCEPTANCE") == "1"
 
@@ -271,7 +273,10 @@ class ComposeAcceptance:
             identities.append((name, json.dumps(identity, sort_keys=True)))
         return containers, tuple(sorted(identities))
 
-    def _ensure_gateway_subnet_available(self) -> None:
+    def _ensure_gateway_subnet_available(
+        self, *, additional_subnets: tuple[ipaddress.IPv4Network, ...] = ()
+    ) -> None:
+        reserved_subnets = (GATEWAY_SUBNET, *additional_subnets)
         listed = invoke(["docker", "network", "ls", "-q"])
         identifiers = require_success(listed, "Docker networks could not be inspected").splitlines()
         for identifier in filter(None, identifiers):
@@ -290,8 +295,9 @@ class ComposeAcceptance:
                 if not subnet:
                     continue
                 try:
-                    if ipaddress.ip_network(subnet, strict=False).overlaps(GATEWAY_SUBNET):
-                        raise AcceptanceFailure("The dedicated gateway subnet is already in use")
+                    configured = ipaddress.ip_network(subnet, strict=False)
+                    if any(configured.overlaps(reserved) for reserved in reserved_subnets):
+                        raise AcceptanceFailure("A dedicated acceptance subnet is already in use")
                 except ValueError:
                     raise AcceptanceFailure(
                         "A Docker network has an invalid subnet declaration"
