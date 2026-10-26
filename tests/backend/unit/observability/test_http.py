@@ -15,6 +15,7 @@ from opentelemetry import trace
 from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags, TraceState
 
 from app.core.config import Settings
+from app.core.errors import AppError
 from app.factory import ResponseInterruptedError, create_app
 from app.observability.runtime import Service, TelemetryRuntime
 from app.services import auth as auth_service
@@ -108,6 +109,14 @@ def instrumented_app(*, config: Settings | None = None):
             headers={"X-PRL-Outcome": "login_throttled"},
         )
 
+    @app.get("/__test/input-error", include_in_schema=False)
+    async def input_error(value: int):
+        return {"value": value}
+
+    @app.get("/__test/business-error", include_in_schema=False)
+    async def business_error():
+        raise AppError(403, "FORBIDDEN_ROLE", "This operation is not allowed", "business")
+
     @app.get("/__test/current-trace", include_in_schema=False)
     async def current_trace(request: Request):
         span = trace.get_current_span()
@@ -133,6 +142,16 @@ def _records_for(sink: JsonSink, request_id: str) -> list[dict[str, object]]:
         sink.changed.wait(deadline - monotonic())
         sink.changed.clear()
     return [record for record in sink.records if record.get("request_id") == request_id]
+
+
+def _api_http_5xx_error_values(lines: list[str]) -> list[float]:
+    return [
+        float(line.rsplit(" ", 1)[1])
+        for line in lines
+        if line.startswith("prl_service_errors_total{")
+        and 'service="api"' in line
+        and 'reason="http_5xx"' in line
+    ]
 
 
 async def test_completed_request_correlates_headers_json_and_safe_route():
@@ -168,7 +187,7 @@ async def test_completed_request_correlates_headers_json_and_safe_route():
 
 
 async def test_fallback_500_is_observed_once_without_exception_payload():
-    app, sink, _ = instrumented_app()
+    app, sink, runtimes = instrumented_app()
     async with app_client(app, raise_app_exceptions=False) as client:
         response = await client.get("/__test/crash")
 
@@ -180,6 +199,7 @@ async def test_fallback_500_is_observed_once_without_exception_payload():
     assert matching[0]["status"] == 500
     assert matching[0]["error_code"] == "http_5xx"
     assert matching[0]["response_complete"] is True
+    assert _api_http_5xx_error_values(runtimes[0].metrics.render().splitlines()) == [1.0]
     encoded = json.dumps(sink.records)
     assert "secret_error_payload" not in encoded
     assert "SQL SELECT" not in encoded
@@ -330,6 +350,21 @@ async def test_interrupted_response_is_recorded_once_as_aborted():
     assert "stream_secret_payload" not in json.dumps(records)
     assert any(
         'status="aborted"' in line for line in lines if line.startswith("prl_http_requests_total{")
+    )
+    assert _api_http_5xx_error_values(lines) == [1.0]
+
+
+async def test_input_and_business_4xx_responses_do_not_record_service_errors():
+    app, _, runtimes = instrumented_app()
+    async with app_client(app) as client:
+        input_error = await client.get("/__test/input-error")
+        business_error = await client.get("/__test/business-error")
+
+    assert input_error.status_code == 422
+    assert business_error.status_code == 403
+    assert not any(
+        line.startswith("prl_service_errors_total{")
+        for line in runtimes[0].metrics.render().splitlines()
     )
 
 

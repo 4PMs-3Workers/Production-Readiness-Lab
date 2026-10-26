@@ -153,6 +153,11 @@ class SanitizedFastAPI(FastAPI):
                         )
                     except Exception:
                         pass
+                    if status >= 500 or state.get("error_code") == "http_5xx":
+                        try:
+                            telemetry.metrics.record_service_error("api", "http_5xx")
+                        except Exception:
+                            pass
                     try:
                         telemetry.emit(record)
                     except Exception:

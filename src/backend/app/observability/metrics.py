@@ -24,6 +24,7 @@ FAILURE_REASONS = frozenset(
         "unknown",
     }
 )
+SERVICE_ERROR_REASONS = frozenset({"http_5xx", "unknown"})
 HISTOGRAM_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 3, 5)
 
 
@@ -147,7 +148,9 @@ class TelemetryMetrics:
 
     def record_service_error(self, service: str, reason: str) -> None:
         safe_service = service if isinstance(service, str) and service in SERVICES else "api"
-        safe_reason = reason if isinstance(reason, str) and reason in FAILURE_REASONS else "unknown"
+        safe_reason = (
+            reason if isinstance(reason, str) and reason in SERVICE_ERROR_REASONS else "unknown"
+        )
         self.service_errors.labels(safe_service, safe_reason).inc()
 
     def record_db_statement(self, operation: str, duration_seconds: float) -> None:
