@@ -955,6 +955,23 @@ def test_worker_restart_retention_requires_same_series_and_unchanged_db_points()
         "deployment_environment_name": "demo",
         "worker_slot": "1",
     }
+    metric_names = {
+        "started": "prl_worker_started_timestamp_seconds",
+        "last_successful_scan": "prl_worker_last_successful_scan_timestamp_seconds",
+        "last_progress": "prl_worker_last_progress_timestamp_seconds",
+    }
+
+    def metric_point(
+        role: str,
+        value: object,
+        metric_labels: dict[str, str] | None = None,
+    ) -> dict[str, object]:
+        return {
+            "name": metric_names[role],
+            "value": value,
+            "labels": labels if metric_labels is None else metric_labels,
+        }
+
     previous_state = {
         "started": {
             "name": "prl_worker_started_timestamp_seconds",
@@ -1012,31 +1029,32 @@ def test_worker_restart_retention_requires_same_series_and_unchanged_db_points()
     assert telemetry_stack.FullStackRuntime.worker_restart_retained_prior_points(summary) is True
 
     for changed in (
-        {"started": {"value": 90.0, "labels": labels}},
-        {"started": {"value": float("nan"), "labels": labels}},
-        {"started": {"value": float("inf"), "labels": labels}},
-        {"started": {"value": True, "labels": labels}},
-        {"last_successful_scan": {"value": None, "labels": labels}},
-        {"last_successful_scan": {"value": float("nan"), "labels": labels}},
-        {"last_successful_scan": {"value": float("inf"), "labels": labels}},
-        {"last_successful_scan": {"value": 109.0, "labels": labels}},
-        {"last_successful_scan": {"value": 111.0, "labels": labels}},
+        {"started": metric_point("started", 90.0)},
+        {"started": metric_point("started", float("nan"))},
+        {"started": metric_point("started", float("inf"))},
+        {"started": metric_point("started", True)},
+        {"last_successful_scan": metric_point("last_successful_scan", None)},
+        {"last_successful_scan": metric_point("last_successful_scan", float("nan"))},
+        {"last_successful_scan": metric_point("last_successful_scan", float("inf"))},
+        {"last_successful_scan": metric_point("last_successful_scan", 109.0)},
+        {"last_successful_scan": metric_point("last_successful_scan", 111.0)},
         {
             "last_successful_scan": {
-                "name": "prl_worker_last_successful_scan_timestamp_seconds",
-                "value": 110.0,
-                "labels": {**labels, "instance": "replacement:9464"},
+                **metric_point(
+                    "last_successful_scan",
+                    110.0,
+                    {**labels, "instance": "replacement:9464"},
+                ),
             }
         },
-        {"last_progress": {"value": None, "labels": labels}},
-        {"last_progress": {"value": float("nan"), "labels": labels}},
-        {"last_progress": {"value": float("inf"), "labels": labels}},
-        {"last_progress": {"value": 110.0, "labels": labels}},
-        {"last_progress": {"value": 112.0, "labels": labels}},
+        {"last_progress": metric_point("last_progress", None)},
+        {"last_progress": metric_point("last_progress", float("nan"))},
+        {"last_progress": metric_point("last_progress", float("inf"))},
+        {"last_progress": metric_point("last_progress", 110.0)},
+        {"last_progress": metric_point("last_progress", 112.0)},
         {
             "last_progress": {
-                "value": 111.0,
-                "labels": {**labels, "worker_slot": "2"},
+                **metric_point("last_progress", 111.0, {**labels, "worker_slot": "2"}),
             }
         },
     ):
@@ -1059,7 +1077,7 @@ def test_worker_restart_retention_requires_same_series_and_unchanged_db_points()
         )
         is False
     )
-    older_than_observed = current_state | {"last_progress": {"value": 70.0, "labels": labels}}
+    older_than_observed = current_state | {"last_progress": metric_point("last_progress", 70.0)}
     assert (
         telemetry_stack.FullStackRuntime.worker_restart_retained_prior_points(
             telemetry_stack.FullStackRuntime.worker_restart_observation_summary(
@@ -1069,10 +1087,10 @@ def test_worker_restart_retention_requires_same_series_and_unchanged_db_points()
         is False
     )
     for changed_previous in (
-        {"started": {"value": float("nan"), "labels": labels}},
-        {"started": {"value": True, "labels": labels}},
-        {"last_successful_scan": {"value": None, "labels": labels}},
-        {"last_progress": {"value": float("inf"), "labels": labels}},
+        {"started": metric_point("started", float("nan"))},
+        {"started": metric_point("started", True)},
+        {"last_successful_scan": metric_point("last_successful_scan", None)},
+        {"last_progress": metric_point("last_progress", float("inf"))},
     ):
         assert (
             telemetry_stack.FullStackRuntime.worker_restart_retained_prior_points(
