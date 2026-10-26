@@ -2396,9 +2396,13 @@ class FullStackRuntime:
         return result
 
     def inspect_service(self, service: str) -> dict[str, object]:
-        identifier = acceptance_success(
-            self.compose("ps", "-q", service), f"The UUID-owned {service} container is missing"
-        )
+        identifiers = acceptance_success(
+            self.compose("ps", "-a", "-q", service),
+            f"The UUID-owned {service} container is missing",
+        ).splitlines()
+        if len(identifiers) != 1 or not re.fullmatch(r"[0-9a-f]{64}", identifiers[0]):
+            raise AcceptanceFailure(f"The UUID-owned {service} container identity is invalid")
+        identifier = identifiers[0]
         records = acceptance_json(
             acceptance_invoke(["docker", "inspect", identifier]),
             f"The UUID-owned {service} container could not be inspected",

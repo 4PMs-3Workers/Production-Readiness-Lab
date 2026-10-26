@@ -15,7 +15,6 @@ from uuid import uuid4
 
 import pytest
 
-pytest_plugins = ["tests.containers.test_gateway"]
 ROOT = Path(__file__).resolve().parents[2]
 pytestmark = pytest.mark.skipif(
     os.environ.get("RUN_GATEWAY_TESTS") != "1",

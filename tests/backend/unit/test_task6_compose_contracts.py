@@ -879,6 +879,76 @@ def test_receiver_component_summary_keeps_only_finite_backend_statuses():
     assert "outside" not in json.dumps(summary)
 
 
+def test_inspect_service_includes_stopped_compose_container(monkeypatch: pytest.MonkeyPatch):
+    project = "prl-task6-" + "b" * 32
+    container_id = "a" * 64
+    record = {
+        "Config": {"Labels": {"com.docker.compose.project": project}},
+        "State": {"Status": "exited"},
+    }
+    compose_calls: list[tuple[str, ...]] = []
+    inspect_calls: list[list[str]] = []
+
+    def compose(*args: str, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        compose_calls.append(args)
+        return subprocess.CompletedProcess(list(args), 0, container_id + "\n", "")
+
+    def inspect(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        inspect_calls.append(args)
+        return subprocess.CompletedProcess(args, 0, json.dumps([record]), "")
+
+    runtime = object.__new__(telemetry_stack.FullStackRuntime)
+    runtime.stack = cast(Any, SimpleNamespace(project=project, compose=compose))
+    monkeypatch.setattr(telemetry_stack, "acceptance_invoke", inspect)
+
+    observed = runtime.inspect_service("worker")
+
+    assert compose_calls == [("ps", "-a", "-q", "worker")]
+    assert inspect_calls == [["docker", "inspect", container_id]]
+    assert observed == record
+
+
+def test_inspect_service_rejects_stopped_container_from_another_compose_project(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    project = "prl-task6-" + "b" * 32
+    container_id = "a" * 64
+    record = {"Config": {"Labels": {"com.docker.compose.project": "another-project"}}}
+
+    def compose(*args: str, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(list(args), 0, container_id + "\n", "")
+
+    runtime = object.__new__(telemetry_stack.FullStackRuntime)
+    runtime.stack = cast(Any, SimpleNamespace(project=project, compose=compose))
+    monkeypatch.setattr(
+        telemetry_stack,
+        "acceptance_invoke",
+        lambda args, **_kwargs: subprocess.CompletedProcess(args, 0, json.dumps([record]), ""),
+    )
+
+    with pytest.raises(telemetry_stack.AcceptanceFailure, match="exact owner check"):
+        runtime.inspect_service("worker")
+
+
+def test_inspect_service_rejects_multiple_stopped_container_ids(monkeypatch: pytest.MonkeyPatch):
+    project = "prl-task6-" + "b" * 32
+    identifiers = "a" * 64 + "\n" + "c" * 64 + "\n"
+
+    def compose(*args: str, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(list(args), 0, identifiers, "")
+
+    runtime = object.__new__(telemetry_stack.FullStackRuntime)
+    runtime.stack = cast(Any, SimpleNamespace(project=project, compose=compose))
+    monkeypatch.setattr(
+        telemetry_stack,
+        "acceptance_invoke",
+        lambda *_args, **_kwargs: pytest.fail("inspect must not run for an ambiguous identity"),
+    )
+
+    with pytest.raises(telemetry_stack.AcceptanceFailure, match="identity is invalid"):
+        runtime.inspect_service("worker")
+
+
 def test_worker_restart_retention_requires_finite_monotonic_prior_runtime_timestamps():
     labels = {
         "service_name": "worker",

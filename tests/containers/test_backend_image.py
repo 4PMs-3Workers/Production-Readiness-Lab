@@ -53,6 +53,7 @@ def test_runtime_assets_and_unprivileged_commands(backend_image: str) -> None:
         "--app-dir",
         "src/backend",
         "--no-proxy-headers",
+        "--no-access-log",
         "--host",
         "0.0.0.0",
         "--port",

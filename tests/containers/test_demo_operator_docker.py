@@ -12,7 +12,6 @@ import pytest
 from tests.containers.test_compose_acceptance import ComposeAcceptance
 
 ROOT = Path(__file__).resolve().parents[2]
-DEPLOY = ROOT / "tools/deploy"
 
 
 def clean_environment():
@@ -23,7 +22,9 @@ def clean_environment():
 
 
 @pytest.mark.parametrize("overlay", ["local", "https"])
-def test_real_docker_configuration_never_resolves_external_env(tmp_path, overlay):
+def test_real_docker_configuration_never_resolves_external_env(
+    tmp_path, overlay, clean_source_checkout
+):
     env = clean_environment()
     tag = "task1-" + uuid.uuid4().hex
     env["PRL_IMAGE_TAG"] = tag
@@ -41,10 +42,11 @@ def test_real_docker_configuration_never_resolves_external_env(tmp_path, overlay
         path.write_text("placeholder for config validation only")
         env[name] = str(path)
     env["PRL_HTTPS_ORIGIN"] = "https://localhost:8443"
+    deploy = clean_source_checkout / "tools" / "deploy"
     result = subprocess.run(
-        [sys.executable, str(DEPLOY / "demo.py"), "config", "--overlay", overlay],
+        [sys.executable, str(deploy / "demo.py"), "config", "--overlay", overlay],
         env=env,
-        cwd=ROOT,
+        cwd=clean_source_checkout,
         capture_output=True,
         text=True,
         timeout=30,
@@ -158,8 +160,20 @@ def test_real_cli_migrate_and_seed_use_profiles_and_are_idempotent(
         original_demo = cli.Demo
 
         class IsolatedProjectDemo(original_demo):
-            def __init__(self, overlay, source_sha):
-                super().__init__(overlay, source_sha)
+            def __init__(
+                self,
+                overlay,
+                source_sha,
+                observability=False,
+                *,
+                validate_grafana_credential_format=True,
+            ):
+                super().__init__(
+                    overlay,
+                    source_sha,
+                    observability,
+                    validate_grafana_credential_format=validate_grafana_credential_format,
+                )
                 assert self.base[3] == "prl-demo"
                 self.base[3] = stack.project
 
