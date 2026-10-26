@@ -40,7 +40,7 @@ if [ -n "$ops_host" ] || [ -n "$ops_cidrs" ]; then
         [ "${#label}" -le 63 ] || { printf '%s\n' 'gateway operations host rejected' >&2; exit 64; }
     done
     case "$ops_cidrs" in
-        ''|,*|*,|*,,*|*/*/*|*[!0-9A-Fa-f:./,]*)
+        ''|,*|*,|*,,*|*[!0-9A-Fa-f:./,]*)
             printf '%s\n' 'gateway operations allowlist rejected' >&2
             exit 64
             ;;

@@ -1226,6 +1226,7 @@ def _start_gateway(
     certificate: Path,
     key: Path,
     entrypoint: Path,
+    ops_cidrs: str = "192.0.2.5/32",
 ) -> subprocess.CompletedProcess[str]:
     deploy_nginx = ROOT / "tools/deploy/nginx"
     return invoke(
@@ -1270,7 +1271,7 @@ def _start_gateway(
             "-e",
             "PRL_OPS_HOST=ops.example.invalid",
             "-e",
-            "PRL_OPS_CIDRS=192.0.2.5/32",
+            f"PRL_OPS_CIDRS={ops_cidrs}",
             "-v",
             f"{deploy_nginx / 'nginx.conf'}:/etc/nginx/nginx.conf:ro",
             "-v",
@@ -1318,6 +1319,7 @@ def test_gateway_readiness_requires_real_https_response_without_grafana_dns(
     api_name = f"{prefix}-api"
     gateway_name = f"{prefix}-gateway"
     old_gateway_name = f"{prefix}-literal"
+    invalid_gateway_name = f"{prefix}-invalid-cidr"
     owner = f"{OWNER_LABEL}={token}"
     cert, key = make_certificate(tmp_path)
     entrypoint = ROOT / "tools/deploy/nginx/gateway-entrypoint.sh"
@@ -1421,6 +1423,7 @@ def test_gateway_readiness_requires_real_https_response_without_grafana_dns(
             certificate=cert,
             key=key,
             entrypoint=entrypoint,
+            ops_cidrs=fullstack_ops_peer_cidrs(),
         )
         assert good_started.returncode == 0, "the pinned gateway fixture did not launch"
         ready = _wait_https_ready(good_port, cert)
@@ -1439,6 +1442,25 @@ def test_gateway_readiness_requires_real_https_response_without_grafana_dns(
                 f"api_stderr_tail={api_logs.stderr[-2000:]!r}"
             )
         _remove_owned_container(gateway_name, token)
+
+        invalid_started = _start_gateway(
+            name=invalid_gateway_name,
+            token=token,
+            network=network,
+            port=_free_loopback_port(),
+            certificate=cert,
+            key=key,
+            entrypoint=entrypoint,
+            ops_cidrs="192.0.2.5/32,198.51.100.0/24/32",
+        )
+        assert invalid_started.returncode == 0, "the malformed CIDR control did not launch"
+        invalid_exit = _wait_container_exit(invalid_gateway_name, token)
+        assert invalid_exit not in (None, 0), "an individual CIDR with two slashes was accepted"
+        invalid_logs = invoke(["docker", "logs", invalid_gateway_name])
+        assert invalid_logs.returncode == 0 and "gateway operations allowlist rejected" in (
+            invalid_logs.stdout + invalid_logs.stderr
+        ), "the malformed individual CIDR did not fail the gateway allowlist check"
+        _remove_owned_container(invalid_gateway_name, token)
 
         old_port = _free_loopback_port()
         old_started = _start_gateway(
@@ -1461,7 +1483,7 @@ def test_gateway_readiness_requires_real_https_response_without_grafana_dns(
             old_logs.returncode == 0 and "grafana" in (old_logs.stdout + old_logs.stderr).lower()
         ), "the literal proxy control did not fail while resolving Grafana"
     finally:
-        for name in (old_gateway_name, gateway_name, api_name):
+        for name in (old_gateway_name, invalid_gateway_name, gateway_name, api_name):
             _remove_owned_container(name, token)
         if network_created:
             inspected = invoke(

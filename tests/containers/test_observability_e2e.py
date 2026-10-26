@@ -1820,3 +1820,12 @@ def test_worker_restart_sequence_stops_the_worker_before_database() -> None:
         (("stop", "--timeout", "10", "mysql"), 30),
         (("start", "worker"), 45),
     ]
+
+
+def test_gateway_ops_allowlist_slash_guard_is_per_cidr() -> None:
+    entrypoint = (ROOT / "tools/deploy/nginx/gateway-entrypoint.sh").read_text(encoding="utf-8")
+    aggregate_guard = entrypoint.split('case "$ops_cidrs" in', 1)[1].split("esac", 1)[0]
+    individual_guard = entrypoint.split('case "$cidr" in', 1)[1].split("esac", 1)[0]
+
+    assert "*/*/*" not in aggregate_guard
+    assert "*/*/*" in individual_guard
