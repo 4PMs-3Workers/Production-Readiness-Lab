@@ -501,33 +501,55 @@ class LiveBusinessProbe:
             raise AcceptanceFailure("The worker expiry fixture was outside its bounded due window")
         return due_seconds
 
-    def _wait_for_later_worker_scan(self) -> tuple[WorkerProgress, WorkerProgress]:
+    def _wait_for_later_worker_scan(
+        self,
+        *,
+        excluded_worker_id: str | None = None,
+        expected_worker_id: str | None = None,
+        minimum_scan_timestamp: float | None = None,
+    ) -> tuple[WorkerProgress, WorkerProgress]:
         deadline = time.monotonic() + 45
         baseline: WorkerProgress | None = None
-        tracker = WorkerProgressTracker()
+        tracker = WorkerProgressTracker(excluded_worker_id=excluded_worker_id)
         while time.monotonic() < deadline:
-            progress = latest_worker_progress(
-                self.runtime.stack.worker_log_output(), require_heartbeat=False
-            )
-            if progress is not None:
-                baseline = progress
-                tracker.observe(progress, running=True)
-                break
-            time.sleep(0.5)
+            observation = _latest_worker_scan_observation(self.runtime.stack.worker_log_output())
+            if observation is None:
+                time.sleep(0.5)
+                continue
+            progress, scan_timestamp = observation
+            if progress.worker_id == excluded_worker_id:
+                time.sleep(0.5)
+                continue
+            if expected_worker_id is not None and progress.worker_id != expected_worker_id:
+                raise AcceptanceFailure(
+                    "The worker process changed during the expiry follow-up scan"
+                )
+            if minimum_scan_timestamp is not None and scan_timestamp <= minimum_scan_timestamp:
+                time.sleep(0.5)
+                continue
+            baseline = progress
+            tracker.observe(progress, running=True)
+            break
         if baseline is None:
             raise AcceptanceFailure("The running worker did not report a healthy scan baseline")
 
         while time.monotonic() < deadline:
-            progress = latest_worker_progress(
-                self.runtime.stack.worker_log_output(), require_heartbeat=False
-            )
-            if progress is None:
+            observation = _latest_worker_scan_observation(self.runtime.stack.worker_log_output())
+            if observation is None:
                 time.sleep(0.5)
                 continue
-            if progress.worker_id != baseline.worker_id:
+            progress, scan_timestamp = observation
+            if (
+                progress.worker_id == excluded_worker_id
+                or progress.worker_id != baseline.worker_id
+                or (expected_worker_id is not None and progress.worker_id != expected_worker_id)
+            ):
                 raise AcceptanceFailure(
                     "The worker process changed during the expiry follow-up scan"
                 )
+            if minimum_scan_timestamp is not None and scan_timestamp <= minimum_scan_timestamp:
+                time.sleep(0.5)
+                continue
             if tracker.observe(progress, running=True):
                 return baseline, progress
             time.sleep(0.5)
@@ -615,11 +637,8 @@ class LiveBusinessProbe:
         if gateway.get("failure_category") is not None:
             raise AcceptanceFailure("Gateway Loki evidence did not match the business request")
         now_ns = time.time_ns()
-        query = (
-            '{service_name="api",deployment_environment_name="demo"} '
-            f'|= {json.dumps("http.server.request")} |= {json.dumps(request_id)}'
-        )
-        response = self.runtime.api_json(
+        query = _business_request_loki_query(request_id)
+        observation = self.runtime.api_json_observation(
             "http://loki:3100/loki/api/v1/query_range?"
             + urlencode(
                 {
@@ -630,25 +649,18 @@ class LiveBusinessProbe:
                 }
             )
         )
-        matching_logs = []
-        for stream in response.get("data", {}).get("result", []):
-            for entry in stream.get("values", []):
-                try:
-                    record = json.loads(entry[1])
-                except (IndexError, TypeError, json.JSONDecodeError):
-                    continue
-                if (
-                    isinstance(record, dict)
-                    and record.get("event") == "http.server.request"
-                    and record.get("request_id") == request_id
-                    and record.get("trace_id") == trace_id
-                    and record.get("route") == "/api/v1/appointments"
-                    and record.get("method") == "POST"
-                    and record.get("status") == 201
-                ):
-                    matching_logs.append(record)
-        if len(matching_logs) != 1:
-            raise AcceptanceFailure("The API log did not retain one matching business request")
+        matching_count = _matching_business_api_request_log_count(
+            observation.get("http_status"),
+            observation.get("body"),
+            request_id=request_id,
+            trace_id=trace_id,
+            expected_release=self.runtime.stack.expected_sha,
+        )
+        if matching_count != 1:
+            raise AcceptanceFailure(
+                f"The API log returned {matching_count} exact business request "
+                "matches; expected one"
+            )
         observation = self.runtime.api_json_observation(f"http://tempo:3200/api/traces/{trace_id}")
         trace = observation.get("body")
         summary = summarize_tempo_signal(
@@ -672,8 +684,7 @@ class LiveBusinessProbe:
         mysql_spans = [span for span in spans if _span_attribute(span, "db.system.name") == "mysql"]
         if not mysql_spans:
             raise AcceptanceFailure("The correlated business trace omitted its MySQL span")
-        forbidden_sql_keys = {"db.statement", "db.statement.parameters", "db.query.text"}
-        if any(forbidden_sql_keys & _nested_keys(span) for span in mysql_spans):
+        if any(_forbidden_sql_attribute_names(span) for span in mysql_spans):
             raise AcceptanceFailure("A correlated MySQL span exposed SQL text or parameters")
         return {
             "gateway_request_log_matches": True,
@@ -843,7 +854,11 @@ def test_expiry_fixture_anchors_to_current_utc_database_time():
     assert "created_at + INTERVAL 2 SECOND" not in statement
 
 
-def _worker_scan_record(worker_id: str, successful_scans: int) -> str:
+def _worker_scan_record(
+    worker_id: str,
+    successful_scans: int,
+    last_successful_scan: str = "2026-10-26T00:00:00Z",
+) -> str:
     return json.dumps(
         {
             "event": "scan",
@@ -851,7 +866,7 @@ def _worker_scan_record(worker_id: str, successful_scans: int) -> str:
             "phase": "running",
             "database_ok": True,
             "successful_scans": successful_scans,
-            "last_successful_scan": "2026-10-26T00:00:00Z",
+            "last_successful_scan": last_successful_scan,
         }
     )
 
@@ -914,6 +929,208 @@ def test_expiry_followup_scan_rejects_a_different_worker_process():
         probe._wait_for_later_worker_scan()
 
 
+def test_new_owner_scan_barrier_ignores_cached_old_owner_counter_reset():
+    old_worker_id = "a" * 32
+    new_worker_id = "b" * 32
+    new_owner_started = datetime(2026, 10, 26, 0, 0, 10, tzinfo=UTC).timestamp()
+
+    class FakeStack:
+        outputs = [
+            _worker_scan_record(old_worker_id, 100, "2026-10-26T00:00:09Z"),
+            _worker_scan_record(new_worker_id, 1, "2026-10-26T00:00:09Z"),
+            _worker_scan_record(new_worker_id, 2, "2026-10-26T00:00:11Z"),
+            _worker_scan_record(new_worker_id, 3, "2026-10-26T00:00:12Z"),
+        ]
+
+        def worker_log_output(self) -> str:
+            return self.outputs.pop(0)
+
+    probe = object.__new__(LiveBusinessProbe)
+    probe.runtime = SimpleNamespace(stack=FakeStack())
+
+    before, after = probe._wait_for_later_worker_scan(
+        excluded_worker_id=old_worker_id,
+        minimum_scan_timestamp=new_owner_started,
+    )
+
+    assert before.worker_id == after.worker_id == new_worker_id
+    assert before.successful_scans == 2
+    assert after.successful_scans == 3
+
+
+def test_new_owner_scan_barrier_rejects_a_later_process_generation():
+    new_worker_id = "b" * 32
+
+    class FakeStack:
+        outputs = [
+            _worker_scan_record(new_worker_id, 2),
+            _worker_scan_record("c" * 32, 3),
+        ]
+
+        def worker_log_output(self) -> str:
+            return self.outputs.pop(0)
+
+    probe = object.__new__(LiveBusinessProbe)
+    probe.runtime = SimpleNamespace(stack=FakeStack())
+
+    with pytest.raises(AcceptanceFailure, match="worker process changed"):
+        probe._wait_for_later_worker_scan(expected_worker_id=new_worker_id)
+
+
+def _latest_worker_scan_observation(output: str) -> tuple[WorkerProgress, float] | None:
+    progress = latest_worker_progress(output, require_heartbeat=False)
+    if progress is None:
+        return None
+    for line in reversed(output.splitlines()):
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if (
+            not isinstance(record, dict)
+            or record.get("worker_id") != progress.worker_id
+            or record.get("successful_scans") != progress.successful_scans
+        ):
+            continue
+        value = record.get("last_successful_scan")
+        if not isinstance(value, str):
+            return None
+        try:
+            scanned_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if scanned_at.tzinfo is None or scanned_at.utcoffset() is None:
+            return None
+        try:
+            return progress, scanned_at.timestamp()
+        except (OverflowError, OSError, ValueError):
+            return None
+    return None
+
+
+def _business_request_loki_query(request_id: str) -> str:
+    if not re.fullmatch(r"[a-f0-9]{32}", request_id):
+        raise AcceptanceFailure("The business request identifier is invalid for Loki correlation")
+    return (
+        '{service_name="api",deployment_environment_name="demo"} '
+        f'|= {json.dumps("http.server.request")} | request_id={json.dumps(request_id)}'
+    )
+
+
+def _native_loki_metadata(entry: object) -> dict[str, object]:
+    if not isinstance(entry, (list, tuple)) or len(entry) < 3:
+        return {}
+    raw_metadata = entry[2]
+    if isinstance(raw_metadata, dict):
+        return raw_metadata
+    if isinstance(raw_metadata, list):
+        return {
+            item["key"]: item.get("value")
+            for item in raw_metadata[:100]
+            if isinstance(item, dict) and isinstance(item.get("key"), str)
+        }
+    return {}
+
+
+def _string_keyed_mapping(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    return {key: item for key, item in value.items() if isinstance(key, str)}
+
+
+_BUSINESS_API_LOG_FIELDS = frozenset({"request_id", "trace_id", "route", "method", "status"})
+_RELEASE_ATTRIBUTE_NAMES = ("service_version", "service.version", "release")
+
+
+def _metadata_values_agree(name: str, left: object, right: object) -> bool:
+    if name == "status" and type(left) in (int, str) and type(right) in (int, str):
+        return str(left) == str(right)
+    return type(left) is type(right) and left == right
+
+
+def _merge_business_api_log_metadata(
+    stream: dict[str, object], entry_metadata: dict[str, object]
+) -> dict[str, object] | None:
+    merged: dict[str, object] = {}
+    sources = (stream, entry_metadata)
+    for name in _BUSINESS_API_LOG_FIELDS:
+        values = [source[name] for source in sources if name in source]
+        if values and any(
+            not _metadata_values_agree(name, values[0], value) for value in values[1:]
+        ):
+            return None
+        if values:
+            merged[name] = values[0]
+
+    releases = [
+        source[name] for source in sources for name in _RELEASE_ATTRIBUTE_NAMES if name in source
+    ]
+    if releases and any(value != releases[0] for value in releases[1:]):
+        return None
+    if releases:
+        merged["service_version"] = releases[0]
+    return merged
+
+
+def _matching_business_api_request_log_count(
+    http_status: object,
+    body: object,
+    *,
+    request_id: str,
+    trace_id: str,
+    expected_release: str,
+) -> int:
+    from tests.containers.test_telemetry_stack import summarize_loki_native_application_log
+
+    summary = summarize_loki_native_application_log(
+        http_status if type(http_status) is int else None,
+        body,
+        expected_service="api",
+        expected_event="http.server.request",
+        expected_release=expected_release,
+    )
+    if summary.get("failure_category") is not None:
+        return 0
+    response = _string_keyed_mapping(body)
+    data = _string_keyed_mapping(response.get("data"))
+    raw_results = data.get("result")
+    if not isinstance(raw_results, list):
+        return 0
+    matches = 0
+    for value in raw_results[:100]:
+        stream = _string_keyed_mapping(value)
+        labels = _string_keyed_mapping(stream.get("stream"))
+        if (
+            labels.get("service_name") != "api"
+            or labels.get("deployment_environment_name") != "demo"
+        ):
+            continue
+        raw_values = stream.get("values")
+        if not isinstance(raw_values, list):
+            continue
+        values = raw_values
+        for entry in values[:100]:
+            if (
+                not isinstance(entry, (list, tuple))
+                or len(entry) < 2
+                or entry[1] != "http.server.request"
+            ):
+                continue
+            metadata = _native_loki_metadata(entry)
+            fields = _merge_business_api_log_metadata(labels, metadata)
+            if (
+                fields is not None
+                and fields.get("service_version") == expected_release
+                and fields.get("request_id") == request_id
+                and fields.get("trace_id") == trace_id
+                and fields.get("route") == "/api/v1/appointments"
+                and fields.get("method") == "POST"
+                and fields.get("status") in (201, "201")
+            ):
+                matches += 1
+    return matches
+
+
 def _span_attribute(span: dict[str, Any], key: str) -> object | None:
     attributes = span.get("attributes")
     if isinstance(attributes, dict):
@@ -936,10 +1153,186 @@ def _nested_keys(value: object) -> set[str]:
         item = pending.pop()
         if isinstance(item, dict):
             keys.update(str(key) for key in item)
+            attribute_name = item.get("key")
+            if isinstance(attribute_name, str) and "value" in item:
+                keys.add(attribute_name)
             pending.extend(item.values())
         elif isinstance(item, list):
             pending.extend(item[:2000])
     return keys
+
+
+def _business_api_log_fixture(
+    metadata_as_list: bool = False,
+) -> tuple[dict[str, Any], str, str, str]:
+    request_id = "a" * 32
+    trace_id = "b" * 32
+    release = "c" * 40
+    values: dict[str, str] = {
+        "request_id": request_id,
+        "trace_id": trace_id,
+        "route": "/api/v1/appointments",
+        "method": "POST",
+        "status": "201",
+        "service_version": release,
+    }
+    metadata: object = (
+        [{"key": key, "value": value} for key, value in values.items()]
+        if metadata_as_list
+        else values
+    )
+    body: dict[str, Any] = {
+        "status": "success",
+        "data": {
+            "result": [
+                {
+                    "stream": {
+                        "service_name": "api",
+                        "deployment_environment_name": "demo",
+                    },
+                    "values": [["1792906956309689000", "http.server.request", metadata]],
+                }
+            ]
+        },
+    }
+    return body, request_id, trace_id, release
+
+
+@pytest.mark.parametrize("metadata_as_list", [False, True])
+def test_business_api_log_query_matches_plain_event_and_structured_metadata(metadata_as_list):
+    body, request_id, trace_id, release = _business_api_log_fixture(metadata_as_list)
+
+    query = _business_request_loki_query(request_id)
+
+    assert query == (
+        '{service_name="api",deployment_environment_name="demo"} '
+        '|= "http.server.request" '
+        f'| request_id="{request_id}"'
+    )
+    assert (
+        _matching_business_api_request_log_count(
+            200,
+            body,
+            request_id=request_id,
+            trace_id=trace_id,
+            expected_release=release,
+        )
+        == 1
+    )
+
+
+def test_business_api_log_counts_only_exact_metadata_match():
+    body, request_id, trace_id, release = _business_api_log_fixture(metadata_as_list=True)
+    streams = body["data"]["result"]
+    values = streams[0]["values"]
+    valid = values[0]
+    decoy_metadata = [
+        {"key": item["key"], "value": "d" * 32 if item["key"] == "trace_id" else item["value"]}
+        for item in valid[2]
+    ]
+    values.append([valid[0], valid[1], decoy_metadata])
+
+    assert (
+        _matching_business_api_request_log_count(
+            200,
+            body,
+            request_id=request_id,
+            trace_id=trace_id,
+            expected_release=release,
+        )
+        == 1
+    )
+
+
+def test_business_api_log_matches_query_stream_metadata_shape():
+    body, request_id, trace_id, release = _business_api_log_fixture()
+    result = body["data"]["result"][0]
+    entry = result["values"][0]
+    result["stream"].update(entry[2])
+    result["values"][0] = entry[:2]
+
+    assert (
+        _matching_business_api_request_log_count(
+            200,
+            body,
+            request_id=request_id,
+            trace_id=trace_id,
+            expected_release=release,
+        )
+        == 1
+    )
+
+
+def test_business_api_log_merges_stream_and_entry_metadata():
+    body, request_id, trace_id, release = _business_api_log_fixture()
+    result = body["data"]["result"][0]
+    entry = result["values"][0]
+    metadata = entry[2]
+    result["stream"].update({key: metadata[key] for key in ("request_id", "route")})
+    result["values"][0] = [
+        entry[0],
+        entry[1],
+        {key: value for key, value in metadata.items() if key not in {"request_id", "route"}},
+    ]
+
+    assert (
+        _matching_business_api_request_log_count(
+            200,
+            body,
+            request_id=request_id,
+            trace_id=trace_id,
+            expected_release=release,
+        )
+        == 1
+    )
+
+
+def test_business_api_log_rejects_conflicting_identity_metadata():
+    body, request_id, trace_id, release = _business_api_log_fixture()
+    result = body["data"]["result"][0]
+    entry = result["values"][0]
+    result["stream"].update(entry[2])
+    result["stream"]["trace_id"] = "d" * 32
+
+    assert (
+        _matching_business_api_request_log_count(
+            200,
+            body,
+            request_id=request_id,
+            trace_id=trace_id,
+            expected_release=release,
+        )
+        == 0
+    )
+
+
+@pytest.mark.parametrize(
+    "forbidden_name", ["db.statement", "db.statement.parameters", "db.query.text"]
+)
+@pytest.mark.parametrize("metadata_as_list", [False, True])
+def test_mysql_span_rejects_forbidden_query_attribute_names_even_when_empty(
+    forbidden_name, metadata_as_list
+):
+    if metadata_as_list:
+        attributes: object = [
+            {"key": "db.system.name", "value": {"stringValue": "mysql"}},
+            {"key": forbidden_name, "value": {"stringValue": ""}},
+        ]
+    else:
+        attributes = {"db.system.name": "mysql", forbidden_name: ""}
+    span = {"name": "db.query", "attributes": attributes}
+
+    assert _span_attribute(span, "db.system.name") == "mysql"
+    assert _forbidden_sql_attribute_names(span) == {forbidden_name}
+
+
+_FORBIDDEN_SQL_ATTRIBUTE_NAMES = frozenset(
+    {"db.statement", "db.statement.parameters", "db.query.text"}
+)
+
+
+def _forbidden_sql_attribute_names(span: dict[str, Any]) -> set[str]:
+    return set(_FORBIDDEN_SQL_ATTRIBUTE_NAMES & _nested_keys(span))
 
 
 def run_backend_outage(probe: LiveBusinessProbe, service: str) -> dict[str, object]:
@@ -1061,8 +1454,12 @@ def append_stale_gateway_event(runtime: Any) -> dict[str, object]:
 
 
 def verify_stale_gateway_event(runtime: Any, event: dict[str, object]) -> dict[str, object]:
-    request_id = str(event["request_id"])
-    source_ns = int(event["source_timestamp_unix_ns"])
+    request_id_value = event.get("request_id")
+    source_ns_value = event.get("source_timestamp_unix_ns")
+    if not isinstance(request_id_value, str) or type(source_ns_value) is not int:
+        raise AcceptanceFailure("The staged old-source gateway event is malformed")
+    request_id = request_id_value
+    source_ns = source_ns_value
     selector = (
         '{service_name="gateway",deployment_environment_name="demo"} '
         '| json event="event", classification="classification", request_id="request_id" '

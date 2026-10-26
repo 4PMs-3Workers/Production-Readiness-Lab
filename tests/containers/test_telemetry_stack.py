@@ -3561,6 +3561,24 @@ def test_receiver_backend_health_component(tmp_path: Path) -> None:
         runtime.cleanup()
 
 
+def _object_mapping(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    return {key: item for key, item in value.items() if isinstance(key, str)}
+
+
+def _worker_metric_value(state: dict[str, dict[str, object]], role: str) -> float | None:
+    sample = state.get(role)
+    if not isinstance(sample, dict):
+        return None
+    value = sample.get("value")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not math.isfinite(value):
+        return None
+    return float(value)
+
+
 @pytest.mark.skipif(
     not _full_stack_enabled(),
     reason="requires all five opt-in Compose runtime gates",
@@ -3590,12 +3608,13 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         evidence["gateway_sli_truth_table"] = runtime.gateway_sli_truth_table()
         expected_backend_image = "prl-backend:" + runtime.stack.image_tag
         expected_frontend_image = "prl-frontend:" + runtime.stack.image_tag
+        api_config = _object_mapping(runtime.inspect_service("api").get("Config"))
+        worker_config = _object_mapping(runtime.inspect_service("worker").get("Config"))
+        frontend_config = _object_mapping(runtime.inspect_service("frontend").get("Config"))
         if (
-            runtime.inspect_service("api").get("Config", {}).get("Image") != expected_backend_image
-            or runtime.inspect_service("worker").get("Config", {}).get("Image")
-            != expected_backend_image
-            or runtime.inspect_service("frontend").get("Config", {}).get("Image")
-            != expected_frontend_image
+            api_config.get("Image") != expected_backend_image
+            or worker_config.get("Image") != expected_backend_image
+            or frontend_config.get("Image") != expected_frontend_image
         ):
             raise AcceptanceFailure("Derived app images do not use the UUID-owned tag")
         evidence["derived_images"] = {
@@ -3619,7 +3638,7 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         }
         actual_caps = {}
         for service, (memory_mib, nano_cpus, pids_limit) in expected_caps.items():
-            host = runtime.inspect_service(service).get("HostConfig", {})
+            host = _object_mapping(runtime.inspect_service(service).get("HostConfig"))
             actual = (host.get("Memory"), host.get("NanoCpus"), host.get("PidsLimit"))
             expected = (memory_mib * 1024 * 1024, nano_cpus, pids_limit)
             if actual != expected:
@@ -3709,9 +3728,13 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         )
 
         business_probe = LiveBusinessProbe(runtime)
+        failure_context["stage"] = "healthy_business_acceptance"
         healthy_business, healthy_trace = business_probe.run_case("healthy")
         business_matrix: dict[str, object] = {"healthy": healthy_business}
         evidence["business_outage_matrix"] = business_matrix
+        failure_context["stage"] = "business_trace_correlation"
+        failure_context["request_id"] = healthy_trace["request_id"]
+        failure_context["trace_id"] = healthy_trace["trace_id"]
         evidence["business_trace_correlation"] = business_probe.verify_trace_correlation(
             healthy_trace
         )
@@ -3738,10 +3761,12 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         ):
             raise AcceptanceFailure("The gateway pipeline absence rule changed its approved timing")
         pre_outage_healthchecks = runtime.query_loki_healthchecks()
-        if (
-            type(pre_outage_healthchecks.get("latest_event_unix_ns")) is not int
-            or time.time_ns() - pre_outage_healthchecks["latest_event_unix_ns"] > 15_000_000_000
-        ):
+        latest_pre_outage_event = pre_outage_healthchecks.get("latest_event_unix_ns")
+        if type(latest_pre_outage_event) is not int:
+            raise AcceptanceFailure(
+                "The genuine gateway healthcheck was not fresh before Collector pause"
+            )
+        if time.time_ns() - latest_pre_outage_event > 15_000_000_000:
             raise AcceptanceFailure(
                 "The genuine gateway healthcheck was not fresh before Collector pause"
             )
@@ -3898,7 +3923,8 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             recovered_healthchecks = runtime.query_loki_healthchecks(
                 start_ns=collector_recovered_ns
             )
-            return recovered_healthchecks["observed_events"] >= 2
+            observed_events = recovered_healthchecks.get("observed_events")
+            return type(observed_events) is int and observed_events >= 2
 
         runtime.stack.wait_for(
             genuine_gateway_healthchecks_after_collector_recovery,
@@ -3908,9 +3934,11 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                 "within two gateway healthcheck intervals plus evaluation margin"
             ),
         )
+        latest_recovered_event = recovered_healthchecks.get("latest_event_unix_ns")
         if (
             recovered_healthchecks.get("query_start_unix_ns") != collector_recovered_ns
-            or recovered_healthchecks.get("latest_event_unix_ns", 0) < collector_recovered_ns
+            or type(latest_recovered_event) is not int
+            or latest_recovered_event < collector_recovered_ns
         ):
             raise AcceptanceFailure(
                 "The returned gateway healthchecks were not fresh after Collector restart"
@@ -4071,28 +4099,32 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         gateway_volume = next(
             volume for name, volume in volumes_before.items() if name.endswith("_gateway_logs")
         )
-        options = gateway_volume["options"]
+        options = _object_mapping(gateway_volume.get("options"))
+        tmpfs_options = options.get("o", "")
         if (
             gateway_volume["driver"] != "local"
             or options.get("type") != "tmpfs"
-            or "size=64m" not in options.get("o", "")
+            or not isinstance(tmpfs_options, str)
+            or "size=64m" not in tmpfs_options
         ):
             raise AcceptanceFailure("The gateway log spool is not bounded by its 64 MiB tmpfs")
         collector = runtime.inspect_service("collector")
-        collector_config = collector.get("Config") or {}
+        collector_config = _object_mapping(collector.get("Config"))
+        raw_collector_mounts = collector.get("Mounts", [])
+        collector_mounts = (
+            [_object_mapping(item) for item in raw_collector_mounts]
+            if isinstance(raw_collector_mounts, list)
+            else []
+        )
         collector_mount = next(
-            (
-                item
-                for item in collector.get("Mounts", [])
-                if item.get("Destination") == "/var/log/prl"
-            ),
+            (item for item in collector_mounts if item.get("Destination") == "/var/log/prl"),
             None,
         )
         if (
             collector_mount is None
             or collector_mount.get("RW") is not False
             or collector_config.get("User") != "10001:10001"
-            or (collector.get("HostConfig") or {}).get("GroupAdd") != ["101"]
+            or _object_mapping(collector.get("HostConfig")).get("GroupAdd") != ["101"]
         ):
             raise AcceptanceFailure(
                 "The Collector is not using its read-only group-101 spool mount"
@@ -4119,7 +4151,7 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         evidence["gateway_spool"] = {
             "mode_uid_gid": spool,
             "collector_user": collector_config.get("User"),
-            "collector_group_add": (collector.get("HostConfig") or {}).get("GroupAdd"),
+            "collector_group_add": _object_mapping(collector.get("HostConfig")).get("GroupAdd"),
             "read_only": True,
         }
 
@@ -4172,7 +4204,9 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             "log_fields": sorted(operations_records[-1]),
         }
         grafana = runtime.inspect_service("grafana")
-        grafana_env = set((grafana.get("Config") or {}).get("Env") or [])
+        grafana_config = _object_mapping(grafana.get("Config"))
+        raw_grafana_env = grafana_config.get("Env")
+        grafana_env = set(raw_grafana_env) if isinstance(raw_grafana_env, list) else set()
         if (
             "GF_AUTH_ANONYMOUS_ENABLED=false" not in grafana_env
             or "GF_USERS_ALLOW_SIGN_UP=false" not in grafana_env
@@ -4371,16 +4405,20 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             "previous_last_successful_scan_timestamp_seconds",
             "previous_last_progress_timestamp_seconds",
         )
-        failure_context["worker_restart_observations"] = {
+        worker_restart_context: dict[str, object] = {
             "pre_restart": {name: pre_restart_summary.get(name) for name in previous_fields}
         }
+        failure_context["worker_restart_observations"] = worker_restart_context
         if any(pre_restart_summary.get(name) is None for name in previous_fields):
             raise AcceptanceFailure(
                 "The current worker omitted finite same-slot baseline timestamps"
             )
-        old_started = pre_restart_state["started"]["value"]
+        old_started = _worker_metric_value(pre_restart_state, "started")
+        if old_started is None:
+            raise AcceptanceFailure("The current worker omitted its numeric start timestamp")
+        old_owner_progress = runtime.stack.wait_heartbeat()
         recovery_fixture = business_probe.prepare_due_expiry_fixture()
-        failure_context["worker_restart_observations"]["due_expiry_fixture_ready"] = True
+        worker_restart_context["due_expiry_fixture_ready"] = True
         acceptance_success(
             runtime.compose("stop", "--timeout", "10", "mysql", timeout=30),
             "The UUID-owned database could not stop for the same-slot observation",
@@ -4391,10 +4429,12 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             "The stopped worker could not start while MySQL was unavailable",
         )
         new_owner_container = runtime.inspect_service("worker")
-        new_owner_labels = (new_owner_container.get("Config") or {}).get("Labels") or {}
+        new_owner_config = _object_mapping(new_owner_container.get("Config"))
+        new_owner_labels = _object_mapping(new_owner_config.get("Labels"))
+        new_owner_state = _object_mapping(new_owner_container.get("State"))
         if (
             new_owner_container.get("Id") != recovery_fixture["worker_container_id"]
-            or (new_owner_container.get("State") or {}).get("Status") != "running"
+            or new_owner_state.get("Status") != "running"
             or new_owner_labels.get("com.docker.compose.project") != runtime.stack.project
         ):
             raise AcceptanceFailure(
@@ -4405,8 +4445,10 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         def observed_restart() -> bool:
             nonlocal new_state
             _names, new_state = runtime.worker_metric_state()
+            started_at = _worker_metric_value(new_state, "started")
             return (
-                new_state.get("started", {}).get("value", 0) > old_started
+                started_at is not None
+                and started_at > old_started
                 and "last_successful_scan" in new_state
                 and "last_progress" in new_state
                 and "successful_scans" in new_state
@@ -4423,34 +4465,38 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             raise AcceptanceFailure(
                 "Collector did not retain finite prior same-slot worker timestamps across restart"
             )
-        new_owner_started = float(new_state["started"]["value"])
-        new_owner_scan_counter = float(new_state["successful_scans"]["value"])
+        new_owner_started = _worker_metric_value(new_state, "started")
+        if new_owner_started is None:
+            raise AcceptanceFailure("The new worker start timestamp was not numeric")
         evidence["same_slot_restart"] = {
             "slot": "1",
             **restart_summary,
             "counter_name": selected_names.get("successful_scans"),
-            "new_owner_successful_scan_counter_before_database_recovery": (new_owner_scan_counter),
+            "new_owner_started_generation_pinned": True,
         }
         acceptance_success(
             runtime.compose("up", "-d", "--wait", "--wait-timeout", "120", "mysql", timeout=150),
             "The UUID-owned database did not recover after the observation",
         )
+        recovery_scan_before, recovery_scan_after = business_probe._wait_for_later_worker_scan(
+            excluded_worker_id=old_owner_progress.worker_id,
+            minimum_scan_timestamp=new_owner_started,
+        )
+        new_owner_worker_id = recovery_scan_before.worker_id
         recovered_owner_state: dict[str, dict[str, object]] = {}
 
         def new_owner_scan_and_progress_after_database_recovery() -> bool:
             nonlocal recovered_owner_state
             _names, recovered_owner_state = runtime.worker_metric_state()
-            started_at = recovered_owner_state.get("started", {}).get("value", 0)
-            successful_scan_at = recovered_owner_state.get("last_successful_scan", {}).get(
-                "value", 0
-            )
-            progress_at = recovered_owner_state.get("last_progress", {}).get("value", 0)
-            scan_count = recovered_owner_state.get("successful_scans", {}).get("value", 0)
+            started_at = _worker_metric_value(recovered_owner_state, "started")
+            successful_scan_at = _worker_metric_value(recovered_owner_state, "last_successful_scan")
+            progress_at = _worker_metric_value(recovered_owner_state, "last_progress")
             return (
-                started_at >= new_owner_started
+                started_at == new_owner_started
+                and successful_scan_at is not None
                 and successful_scan_at > new_owner_started
+                and progress_at is not None
                 and progress_at > new_owner_started
-                and scan_count > new_owner_scan_counter
             )
 
         runtime.stack.wait_for(
@@ -4461,8 +4507,18 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                 "progress after MySQL recovery"
             ),
         )
-        recovery_appointment_id = recovery_fixture["appointment_id"]
-        recovery_proposal_id = recovery_fixture["proposal_id"]
+        recovered_scan_timestamp = _worker_metric_value(
+            recovered_owner_state, "last_successful_scan"
+        )
+        recovered_progress_timestamp = _worker_metric_value(recovered_owner_state, "last_progress")
+        if recovered_scan_timestamp is None or recovered_progress_timestamp is None:
+            raise AcceptanceFailure("The new owner omitted its recovered scan/progress timestamps")
+        recovery_appointment_id = recovery_fixture.get("appointment_id")
+        recovery_proposal_id = recovery_fixture.get("proposal_id")
+        if not isinstance(recovery_appointment_id, str) or not isinstance(
+            recovery_proposal_id, str
+        ):
+            raise AcceptanceFailure("The worker recovery fixture omitted its business identifiers")
         runtime.stack.wait_for(
             lambda: runtime.stack.sql(
                 "SELECT CONCAT(cp.status, ':', a.status, ':', COALESCE(a.cancel_reason, '-')) "
@@ -4476,7 +4532,13 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         recovery_effects = business_probe._business_side_effects(
             recovery_appointment_id, recovery_proposal_id, expired=True
         )
-        time.sleep(1.5)
+        expiry_followup_scan_before, expiry_followup_scan_after = (
+            business_probe._wait_for_later_worker_scan(
+                excluded_worker_id=old_owner_progress.worker_id,
+                expected_worker_id=new_owner_worker_id,
+                minimum_scan_timestamp=new_owner_started,
+            )
+        )
         if (
             business_probe._business_side_effects(
                 recovery_appointment_id, recovery_proposal_id, expired=True
@@ -4488,18 +4550,26 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             )
         evidence["new_owner_database_recovery"] = {
             "started_timestamp_seconds": new_owner_started,
-            "last_successful_scan_timestamp_seconds": float(
-                recovered_owner_state["last_successful_scan"]["value"]
+            "last_successful_scan_timestamp_seconds": recovered_scan_timestamp,
+            "last_progress_timestamp_seconds": recovered_progress_timestamp,
+            "first_healthy_scan_counter_after_recovery": recovery_scan_before.successful_scans,
+            "later_healthy_scan_counter_after_recovery": recovery_scan_after.successful_scans,
+            "scan_counter_before_expiry_followup": expiry_followup_scan_before.successful_scans,
+            "later_scan_counter_after_expiry": expiry_followup_scan_after.successful_scans,
+            "worker_process_changed_from_pre_restart": (
+                recovery_scan_before.worker_id != old_owner_progress.worker_id
             ),
-            "last_progress_timestamp_seconds": float(
-                recovered_owner_state["last_progress"]["value"]
-            ),
-            "successful_scan_counter_before_recovery": new_owner_scan_counter,
-            "successful_scan_counter_after_recovery": float(
-                recovered_owner_state["successful_scans"]["value"]
+            "started_generation_unchanged_after_recovery": (
+                _worker_metric_value(recovered_owner_state, "started") == new_owner_started
             ),
             "scan_and_progress_both_after_new_owner_start": True,
-            "counter_advanced_after_new_owner_start": True,
+            "counter_advanced_in_same_new_owner_process": (
+                recovery_scan_after.successful_scans > recovery_scan_before.successful_scans
+                and expiry_followup_scan_after.successful_scans
+                > expiry_followup_scan_before.successful_scans
+                and expiry_followup_scan_before.worker_id == new_owner_worker_id
+                and expiry_followup_scan_after.worker_id == new_owner_worker_id
+            ),
             "persisted_due_proposal_expired_by_new_owner": True,
             "new_owner_container_identity_preserved": True,
             "audit_event_count": recovery_effects["audit_event_count"],
@@ -4540,12 +4610,20 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
     finally:
         if not accepted:
             try:
+                route_status_value = failure_context.get("route_status")
+                route_status = route_status_value if type(route_status_value) is int else None
+                receiver_health_value = failure_context.get("receiver_health")
+                receiver_health_summary = (
+                    _object_mapping(receiver_health_value)
+                    if isinstance(receiver_health_value, dict)
+                    else None
+                )
                 diagnostic = runtime.signal_boundary_diagnostic(
-                    route_status=failure_context["route_status"],
+                    route_status=route_status,
                     request_id=str(failure_context["request_id"]),
                     trace_id=str(failure_context["trace_id"]),
                     sink_observations=sink_observations,
-                    receiver_health_summary=failure_context.get("receiver_health"),
+                    receiver_health_summary=receiver_health_summary,
                 )
                 diagnostic["failure_stage"] = failure_context["stage"]
                 diagnostic["collector_outage_readiness"] = failure_context.get(
