@@ -1562,8 +1562,10 @@ def capture_dashboard_screenshots(
     script = r"""
 const { chromium } = require('@playwright/test');
 const origin = process.env.TASK8_GRAFANA_ORIGIN;
+const opsOrigin = new URL(origin).origin;
 const user = process.env.TASK8_GRAFANA_USER;
 const password = process.env.TASK8_GRAFANA_PASSWORD;
+const authorization = 'Basic ' + Buffer.from(user + ':' + password, 'utf8').toString('base64');
 const uids = process.env.TASK8_DASHBOARD_UIDS.split(',');
 const dir = process.env.TASK8_SCREENSHOT_DIR;
 (async () => {
@@ -1574,8 +1576,17 @@ const dir = process.env.TASK8_SCREENSHOT_DIR;
   try {
     const context = await browser.newContext({
       ignoreHTTPSErrors: true,
-      httpCredentials: { username: user, password },
       viewport: { width: 1600, height: 1000 }
+    });
+    await context.route('**/*', async route => {
+      const request = route.request();
+      if (new URL(request.url()).origin !== opsOrigin) {
+        await route.continue();
+        return;
+      }
+      await route.continue({
+        headers: { ...request.headers(), authorization }
+      });
     });
     const results = [];
     for (const uid of uids) {
@@ -1687,6 +1698,7 @@ const dir = process.env.TASK8_SCREENSHOT_DIR;
 
 
 def test_dashboard_screenshots_use_browser_resolver_for_metadata_and_pages(tmp_path: Path):
+    import base64
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     from threading import Thread
     from urllib.parse import urlsplit
@@ -1694,12 +1706,37 @@ def test_dashboard_screenshots_use_browser_resolver_for_metadata_and_pages(tmp_p
     from tests.containers.test_telemetry_stack import OPS_PROBE_DASHBOARD_UIDS
 
     requested_paths: list[str] = []
+    authorization_matches: list[bool] = []
+    foreign_authorization_present: list[bool] = []
+    expected_authorization = "Basic " + base64.b64encode(
+        b"screenshot-test-user:screenshot-test-password"
+    ).decode("ascii")
+
+    class ForeignHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            foreign_authorization_present.append("Authorization" in self.headers)
+            self.send_response(204)
+            self.end_headers()
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    foreign_server = ThreadingHTTPServer(("127.0.0.1", 0), ForeignHandler)
+    foreign_thread = Thread(target=foreign_server.serve_forever, daemon=True)
+    foreign_thread.start()
 
     class DashboardHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             path = urlsplit(self.path).path
             requested_paths.append(path)
             if path.startswith("/api/dashboards/uid/"):
+                authorized = self.headers.get("Authorization") == expected_authorization
+                authorization_matches.append(authorized)
+                if not authorized:
+                    # Model a bare Grafana API 401 without a Basic challenge.
+                    self.send_response(401)
+                    self.end_headers()
+                    return
                 uid = path.rsplit("/", 1)[-1]
                 if uid not in OPS_PROBE_DASHBOARD_UIDS:
                     self.send_error(404)
@@ -1711,6 +1748,12 @@ def test_dashboard_screenshots_use_browser_resolver_for_metadata_and_pages(tmp_p
                 self.wfile.write(body.encode("utf-8"))
                 return
             if path.startswith("/d/"):
+                authorized = self.headers.get("Authorization") == expected_authorization
+                authorization_matches.append(authorized)
+                if not authorized:
+                    self.send_response(401)
+                    self.end_headers()
+                    return
                 uid = path.split("/", 3)[2]
                 if uid not in OPS_PROBE_DASHBOARD_UIDS:
                     self.send_error(404)
@@ -1720,7 +1763,10 @@ def test_dashboard_screenshots_use_browser_resolver_for_metadata_and_pages(tmp_p
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.end_headers()
                 self.wfile.write(
-                    f"<!doctype html><title>{title}</title><main>{title}</main>".encode()
+                    (
+                        f"<!doctype html><title>{title}</title><main>{title}</main>"
+                        f'<img src="http://127.0.0.1:{foreign_server.server_port}/resource">'
+                    ).encode()
                 )
                 return
             self.send_error(404)
@@ -1744,6 +1790,9 @@ def test_dashboard_screenshots_use_browser_resolver_for_metadata_and_pages(tmp_p
         server.shutdown()
         thread.join(timeout=5)
         server.server_close()
+        foreign_server.shutdown()
+        foreign_thread.join(timeout=5)
+        foreign_server.server_close()
 
     assert result["fixture_host_mapping"] == (
         "ops.example.invalid to 127.0.0.1, process-local browser resolver"
@@ -1752,6 +1801,8 @@ def test_dashboard_screenshots_use_browser_resolver_for_metadata_and_pages(tmp_p
         OPS_PROBE_DASHBOARD_UIDS
     )
     assert sum(path.startswith("/d/") for path in requested_paths) == 5
+    assert len(authorization_matches) == 10 and all(authorization_matches)
+    assert foreign_authorization_present and not any(foreign_authorization_present)
     screenshots = result["screenshots"]
     assert isinstance(screenshots, list)
     screenshot_rows = [item for item in screenshots if isinstance(item, dict)]
