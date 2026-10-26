@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import tools.infra.check_telemetry as check_telemetry
@@ -16,7 +17,7 @@ def test_task6_validation_entrypoint_has_a_python_driver_and_help_contract():
     assert driver.is_file()
     assert "check_telemetry.py" in shell.read_text(encoding="utf-8")
     result = subprocess.run(
-        [str(ROOT / ".venv/Scripts/python.exe"), str(driver), "--help"],
+        [sys.executable, str(driver), "--help"],
         cwd=ROOT,
         text=True,
         capture_output=True,
