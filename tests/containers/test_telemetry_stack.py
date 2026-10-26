@@ -20,6 +20,7 @@ from typing import cast
 from urllib.parse import urlencode, urlparse
 from uuid import UUID, uuid4
 
+import httpx
 import pytest
 import yaml
 from cryptography import x509
@@ -4968,15 +4969,103 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         stopped_baseline: dict[str, dict[str, object]] = {}
         previous_stopped_signature: tuple[object, ...] | None = None
         stopped_signature_stable_since: float | None = None
+        stopped_metric_polls = 0
 
         def capture_stopped_baseline() -> dict[str, dict[str, object]]:
             nonlocal previous_stopped_signature, stopped_baseline, stopped_signature_stable_since
 
+            def record_stopped_metric_poll(
+                poll_started: float,
+                *,
+                candidate: dict[str, dict[str, object]] | None = None,
+                summary: dict[str, object] | None = None,
+                error: Exception | None = None,
+            ) -> None:
+                diagnostic = runtime.last_worker_metric_query_diagnostic
+                diagnostic = diagnostic if isinstance(diagnostic, dict) else {}
+                poll_observation: dict[str, object] = {
+                    "poll_count": stopped_metric_polls,
+                    "last_poll_duration_seconds": round(time.monotonic() - poll_started, 3),
+                    "query_stage": diagnostic.get("query_stage"),
+                    "api_status": diagnostic.get("api_status"),
+                    "selected_roles": diagnostic.get("selected_roles", []),
+                    "candidate_counts": diagnostic.get("candidate_counts", {}),
+                    "sample_timestamps": diagnostic.get("sample_timestamps", {}),
+                    "available_roles": sorted(candidate) if candidate is not None else [],
+                    "started_unchanged": (
+                        summary.get("started_unchanged")
+                        if isinstance(summary, dict)
+                        and type(summary.get("started_unchanged")) is bool
+                        else None
+                    ),
+                    "series_identity_matches": (
+                        summary.get("series_identity_matches")
+                        if isinstance(summary, dict)
+                        and type(summary.get("series_identity_matches")) is bool
+                        else None
+                    ),
+                    "timestamp_values": {
+                        name: summary.get(name) if summary else None
+                        for name in (
+                            "started_timestamp_seconds",
+                            "last_successful_scan_timestamp_seconds",
+                            "last_progress_timestamp_seconds",
+                        )
+                    },
+                    "signature_unchanged_from_previous_poll": None,
+                }
+                if error is not None:
+                    poll_observation["poll_failure_type"] = type(error).__name__
+                    poll_observation["poll_failure_category"] = (
+                        "timeout"
+                        if isinstance(error, (TimeoutError, httpx.TimeoutException))
+                        else "acceptance_failure"
+                        if isinstance(error, AcceptanceFailure)
+                        else "http_error"
+                        if isinstance(error, httpx.HTTPError)
+                        else "os_error"
+                        if isinstance(error, OSError)
+                        else "invalid_value"
+                    )
+                worker_restart_context["stopped_metric_settle"] = poll_observation
+
+            def stopped_service_state_summary(service: str) -> dict[str, object]:
+                try:
+                    record = runtime.inspect_service(service, timeout=10)
+                except Exception as error:
+                    return {"inspection_error_type": type(error).__name__}
+                state = _object_mapping(record.get("State"))
+                status = state.get("Status")
+                return {
+                    "status": status if isinstance(status, str) else None,
+                    "exit_code": (
+                        state.get("ExitCode") if type(state.get("ExitCode")) is int else None
+                    ),
+                    "restart_count": (
+                        record.get("RestartCount")
+                        if type(record.get("RestartCount")) is int
+                        else None
+                    ),
+                    "oom_killed": (
+                        state.get("OOMKilled") if type(state.get("OOMKilled")) is bool else None
+                    ),
+                }
+
             def stable_stopped_metrics() -> bool:
                 nonlocal previous_stopped_signature, stopped_baseline
                 nonlocal stopped_signature_stable_since
-                _names, candidate = runtime.worker_metric_state()
-                summary = runtime.worker_restart_observation_summary(pre_restart_state, candidate)
+                nonlocal stopped_metric_polls
+                stopped_metric_polls += 1
+                poll_started = time.monotonic()
+                try:
+                    _names, candidate = runtime.worker_metric_state()
+                    summary = runtime.worker_restart_observation_summary(
+                        pre_restart_state, candidate
+                    )
+                except (AcceptanceFailure, httpx.HTTPError, OSError, ValueError) as error:
+                    record_stopped_metric_poll(poll_started, error=error)
+                    return False
+                record_stopped_metric_poll(poll_started, candidate=candidate, summary=summary)
                 if (
                     summary.get("started_unchanged") is not True
                     or summary.get("series_identity_matches") is not True
@@ -5001,7 +5090,13 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                     )
                 signature = tuple(signature_items)
                 now = time.monotonic()
-                if signature == previous_stopped_signature:
+                signature_unchanged = signature == previous_stopped_signature
+                stopped_observation = worker_restart_context.get("stopped_metric_settle")
+                if isinstance(stopped_observation, dict):
+                    stopped_observation["signature_unchanged_from_previous_poll"] = (
+                        signature_unchanged
+                    )
+                if signature_unchanged:
                     if stopped_signature_stable_since is None:
                         stopped_signature_stable_since = now
                     if now - stopped_signature_stable_since >= WORKER_METRIC_SETTLE_SECONDS:
@@ -5012,11 +5107,25 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                 previous_stopped_signature = signature
                 return False
 
-            runtime.stack.wait_for(
-                stable_stopped_metrics,
-                seconds=45,
-                failure="Worker points did not settle after the old worker stopped",
-            )
+            try:
+                runtime.stack.wait_for(
+                    stable_stopped_metrics,
+                    seconds=45,
+                    failure="Worker points did not settle after the old worker stopped",
+                )
+            except AcceptanceFailure:
+                stopped_observation = worker_restart_context.get("stopped_metric_settle")
+                if not isinstance(stopped_observation, dict):
+                    stopped_observation = {
+                        "poll_count": stopped_metric_polls,
+                        "last_poll_duration_seconds": None,
+                    }
+                    worker_restart_context["stopped_metric_settle"] = stopped_observation
+                stopped_observation["service_states_at_timeout"] = {
+                    "worker": stopped_service_state_summary("worker"),
+                    "mysql": stopped_service_state_summary("mysql"),
+                }
+                raise
             return stopped_baseline
 
         failure_context["stage"] = "worker_and_database_restart"
