@@ -1607,7 +1607,7 @@ const dir = process.env.TASK8_SCREENSHOT_DIR;
       }
       await page.waitForTimeout(4000);
       const filename = `${dir}/${uid}.png`;
-      await page.screenshot({ path: filename, fullPage: true });
+      await page.screenshot({ path: filename, clip: { x: 0, y: 0, width: 1600, height: 760 } });
       results.push({ uid, title: expectedTitle.slice(0, 80), dashboardPath, filename });
       await page.close();
     }
@@ -1682,6 +1682,10 @@ const dir = process.env.TASK8_SCREENSHOT_DIR;
             "fixture CA and hostname"
         ),
         "viewport": "1600x1000",
+        "capture_region": (
+            "top dashboard overview at 1600x760; lower log panels omitted to exclude "
+            "generated correlation and run identifiers"
+        ),
         "screenshots": screenshots,
     }
 
@@ -1799,6 +1803,11 @@ def test_dashboard_screenshots_use_browser_resolver_for_metadata_and_pages(tmp_p
     assert all(
         (tmp_path / "private-screenshots" / str(item["path"])).is_file() for item in screenshot_rows
     )
+    for item in screenshot_rows:
+        image = (tmp_path / "private-screenshots" / str(item["path"])).read_bytes()
+        assert image[:8] == b"\x89PNG\r\n\x1a\n"
+        assert int.from_bytes(image[16:20], "big") == 1600
+        assert int.from_bytes(image[20:24], "big") == 760
     assert all(
         str(item["dashboard_path"]).startswith(f"/d/{item['uid']}/") for item in screenshot_rows
     )
