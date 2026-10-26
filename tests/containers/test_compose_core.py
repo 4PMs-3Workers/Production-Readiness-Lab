@@ -136,6 +136,7 @@ def test_compose_configuration_keeps_secrets_ports_and_ddl_out_of_runtime(stack)
     config = json.loads(result.stdout)
     services = config["services"]
     source_services = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))["services"]
+    accepted_schema_revision = "20261019_1200_proposal_replay"
     assert set(services) == {"mysql", "frontend", "api", "worker", "schema", "migrate", "seed"}
     assert all(not service.get("ports") for service in services.values())
     assert all(network["internal"] for network in config["networks"].values())
@@ -161,9 +162,10 @@ def test_compose_configuration_keeps_secrets_ports_and_ddl_out_of_runtime(stack)
                 "format": "raw",
             }
         ]
-        assert service["environment"] == {
-            "ACCEPTED_SCHEMA_REVISIONS": "20261019_1200_proposal_replay"
+        assert source_services[name]["environment"] == {
+            "ACCEPTED_SCHEMA_REVISIONS": accepted_schema_revision
         }
+        assert service["environment"]["ACCEPTED_SCHEMA_REVISIONS"] == accepted_schema_revision
     for name in ("api", "worker"):
         assert (
             services[name]["depends_on"]["schema"]["condition"] == "service_completed_successfully"
