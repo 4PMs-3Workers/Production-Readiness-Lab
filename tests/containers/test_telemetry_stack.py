@@ -1847,30 +1847,65 @@ class FullStackRuntime:
     def compose(self, *args: str, timeout: float = 180):
         return self.stack.compose(*args, timeout=timeout)
 
-    def api_json(self, url: str, *, method: str = "GET", body: object | None = None):
+    def api_json(
+        self,
+        url: str,
+        *,
+        method: str = "GET",
+        body: object | None = None,
+        deadline: float | None = None,
+    ):
+        request_timeout = 5.0
+        if deadline is not None:
+            if type(deadline) not in (int, float):
+                raise AcceptanceFailure("The telemetry API request deadline is invalid")
+            try:
+                numeric_deadline = float(deadline)
+            except (OverflowError, ValueError):
+                raise AcceptanceFailure("The telemetry API request deadline is invalid") from None
+            if not math.isfinite(numeric_deadline):
+                raise AcceptanceFailure("The telemetry API request deadline is invalid")
+            remaining = numeric_deadline - time.monotonic()
+            if not math.isfinite(remaining) or remaining <= 0:
+                raise AcceptanceFailure("The telemetry API request deadline expired")
+            request_timeout = min(request_timeout, remaining)
+        urlopen_timeout = repr(request_timeout) if deadline is not None else "5"
         script = (
             "import json,sys,urllib.request; "
             "url,method,raw=sys.argv[1:4]; "
             "data=raw.encode() if raw else None; "
             "req=urllib.request.Request(url,data=data,method=method,"
             "headers={'Content-Type':'application/json'} if data else {}); "
-            "res=urllib.request.urlopen(req,timeout=5); "
+            f"res=urllib.request.urlopen(req,timeout={urlopen_timeout}); "
             "print(json.dumps(json.loads(res.read()),separators=(',',':')))"
         )
-        result = acceptance_invoke(
-            [
-                "docker",
-                "exec",
-                self.api_id,
-                "python",
-                "-c",
-                script,
-                url,
-                method,
-                json.dumps(body, separators=(",", ":")) if body is not None else "",
-            ],
-            timeout=15,
-        )
+        command = [
+            "docker",
+            "exec",
+            self.api_id,
+            "python",
+            "-c",
+            script,
+            url,
+            method,
+            json.dumps(body, separators=(",", ":")) if body is not None else "",
+        ]
+        subprocess_timeout = 15.0
+        if deadline is not None:
+            remaining = numeric_deadline - time.monotonic()
+            if not math.isfinite(remaining) or remaining <= 0:
+                raise AcceptanceFailure("The telemetry API request deadline expired")
+            subprocess_timeout = min(subprocess_timeout, remaining)
+        try:
+            result = acceptance_invoke(command, timeout=subprocess_timeout)
+        except subprocess.TimeoutExpired:
+            if deadline is None:
+                raise
+            raise AcceptanceFailure(
+                "The telemetry API request exceeded its shared deadline"
+            ) from None
+        if deadline is not None and time.monotonic() >= numeric_deadline:
+            raise AcceptanceFailure("The telemetry API request completed after its shared deadline")
         if result.returncode:
             raise AcceptanceFailure("A bounded in-stack telemetry API request failed")
         try:
@@ -2708,16 +2743,32 @@ class FullStackRuntime:
             }
         return result
 
-    def inspect_service(self, service: str, *, timeout: float = 180) -> dict[str, object]:
+    def inspect_service(
+        self,
+        service: str,
+        *,
+        timeout: float = 180,
+        deadline: float | None = None,
+    ) -> dict[str, object]:
+        def bounded_timeout() -> float:
+            if deadline is None:
+                return timeout
+            if type(deadline) not in (int, float) or not math.isfinite(float(deadline)):
+                raise AcceptanceFailure("The container inspection deadline is invalid")
+            remaining = float(deadline) - time.monotonic()
+            if not math.isfinite(remaining) or remaining <= 0:
+                raise AcceptanceFailure("The container inspection deadline expired")
+            return min(timeout, remaining)
+
         identifiers = acceptance_success(
-            self.compose("ps", "-a", "-q", service, timeout=timeout),
+            self.compose("ps", "-a", "-q", service, timeout=bounded_timeout()),
             f"The UUID-owned {service} container is missing",
         ).splitlines()
         if len(identifiers) != 1 or not re.fullmatch(r"[0-9a-f]{64}", identifiers[0]):
             raise AcceptanceFailure(f"The UUID-owned {service} container identity is invalid")
         identifier = identifiers[0]
         records = acceptance_json(
-            acceptance_invoke(["docker", "inspect", identifier], timeout=timeout),
+            acceptance_invoke(["docker", "inspect", identifier], timeout=bounded_timeout()),
             f"The UUID-owned {service} container could not be inspected",
         )
         if len(records) != 1 or (
@@ -2764,9 +2815,27 @@ class FullStackRuntime:
             for target in sorted(observed, key=lambda item: item["labels"]["job"])
         ]
 
-    def worker_metric_state(self):
+    def worker_metric_state(self, *, deadline: float | None = None):
+        numeric_deadline = None
+        if deadline is not None:
+            if type(deadline) not in (int, float):
+                raise AcceptanceFailure("The worker metric query deadline is invalid")
+            try:
+                numeric_deadline = float(deadline)
+            except (OverflowError, ValueError):
+                raise AcceptanceFailure("The worker metric query deadline is invalid") from None
+            if not math.isfinite(numeric_deadline):
+                raise AcceptanceFailure("The worker metric query deadline is invalid")
+
+        def request_json(url: str) -> dict[str, object]:
+            if numeric_deadline is None:
+                return self.api_json(url)
+            if time.monotonic() >= numeric_deadline:
+                raise AcceptanceFailure("The worker metric query deadline expired")
+            return self.api_json(url, deadline=numeric_deadline)
+
         self.last_worker_metric_query_diagnostic = {"query_stage": "metric_names"}
-        response = self.api_json("http://prometheus:9090/api/v1/label/__name__/values")
+        response = request_json("http://prometheus:9090/api/v1/label/__name__/values")
         api_status = response.get("status") if isinstance(response, dict) else None
         self.last_worker_metric_query_diagnostic["api_status"] = (
             api_status
@@ -2813,7 +2882,7 @@ class FullStackRuntime:
         state = {}
         for role, metric_name in selected.items():
             self.last_worker_metric_query_diagnostic["query_role"] = role
-            response = self.api_json(
+            response = request_json(
                 "http://prometheus:9090/api/v1/query?" + urlencode({"query": metric_name})
             )
             api_status = response.get("status") if isinstance(response, dict) else None
@@ -2901,6 +2970,8 @@ class FullStackRuntime:
                     numeric_roles.append(role)
         self.last_worker_metric_query_diagnostic["available_roles"] = sorted(state)
         self.last_worker_metric_query_diagnostic["query_stage"] = "complete"
+        if numeric_deadline is not None and time.monotonic() >= numeric_deadline:
+            raise AcceptanceFailure("The worker metric query completed after its deadline")
         return selected, state
 
     @staticmethod
@@ -3030,6 +3101,27 @@ class FullStackRuntime:
                 )
             )
         )
+
+    @staticmethod
+    def worker_started_value_matches_container_generation(
+        value: object,
+        container_started_at: object,
+    ) -> bool:
+        if type(value) not in (int, float) or type(container_started_at) not in (int, float):
+            return False
+        try:
+            metric_value = float(value)
+            started_at = float(container_started_at)
+        except (OverflowError, ValueError):
+            return False
+        if (
+            not math.isfinite(metric_value)
+            or not math.isfinite(started_at)
+            or not 0 < metric_value < 10_000_000_000
+            or not 0 < started_at < 10_000_000_000
+        ):
+            return False
+        return started_at - 1.0 <= metric_value <= started_at + 10.0
 
     def worker_series_schema(self) -> list[dict[str, object]]:
         response = self.api_json(
@@ -4933,26 +5025,13 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
 
         old_volumes = runtime.volume_snapshot()
         failure_context["stage"] = "worker_pre_restart_snapshot"
-        _pre_restart_names, pre_restart_state = runtime.worker_metric_state()
-        pre_restart_summary = runtime.worker_restart_observation_summary(
-            pre_restart_state, pre_restart_state
-        )
         previous_fields = (
             "previous_started_timestamp_seconds",
             "previous_last_successful_scan_timestamp_seconds",
             "previous_last_progress_timestamp_seconds",
         )
-        worker_restart_context: dict[str, object] = {
-            "pre_restart": {name: pre_restart_summary.get(name) for name in previous_fields}
-        }
+        worker_restart_context: dict[str, object] = {}
         failure_context["worker_restart_observations"] = worker_restart_context
-        if any(pre_restart_summary.get(name) is None for name in previous_fields):
-            raise AcceptanceFailure(
-                "The current worker omitted finite same-slot baseline timestamps"
-            )
-        old_started = _worker_metric_value(pre_restart_state, "started")
-        if old_started is None:
-            raise AcceptanceFailure("The current worker omitted its numeric start timestamp")
         old_owner_progress = runtime.stack.wait_heartbeat()
 
         def validated_epoch_seconds(value: object) -> float | None:
@@ -4973,7 +5052,9 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                 return None
             return round(delta, 3)
 
-        def capture_worker_generation() -> tuple[str | None, dict[str, object]]:
+        def capture_worker_generation(
+            *, deadline: float | None = None
+        ) -> tuple[str | None, dict[str, object]]:
             container_id = None
             started_at = None
             restart_count = None
@@ -4990,7 +5071,12 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                 "container_state": service_state,
             }
             try:
-                record = runtime.inspect_service("worker", timeout=5)
+                if deadline is None:
+                    record = runtime.inspect_service("worker", timeout=5)
+                else:
+                    record = runtime.inspect_service(
+                        "worker", timeout=5, deadline=deadline
+                    )
             except Exception as error:
                 generation["inspection_error_type"] = type(error).__name__
                 return None, generation
@@ -5104,6 +5190,189 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             }
 
         pre_fixture_container_id, pre_fixture_generation = capture_worker_generation()
+        pinned_started_at = validated_epoch_seconds(
+            pre_fixture_generation.get("container_started_at_unix_seconds")
+        )
+        pinned_status = _object_mapping(pre_fixture_generation.get("container_state")).get(
+            "status"
+        )
+        freshness_diagnostic: dict[str, object] = {
+            "poll_count": 0,
+            "last_poll_duration_seconds": None,
+            "pinned_container_started_at_unix_seconds": pinned_started_at,
+            "pinned_container_status": pinned_status,
+            "last_metric_started_value_seconds": None,
+            "last_metric_sample_timestamp_seconds": None,
+            "last_metric_started_delta_seconds": None,
+            "last_query_stage": None,
+            "last_api_status": None,
+            "last_poll_status": None,
+            "verified_container_id_matches_pin": None,
+            "verified_container_started_at_matches_pin": None,
+            "verified_container_started_at_unix_seconds": None,
+            "verified_container_status": None,
+            "failure_category": None,
+        }
+
+        def fail_started_metric_freshness(message: str, category: str) -> None:
+            freshness_diagnostic["failure_category"] = category
+            worker_restart_context["started_metric_freshness"] = dict(freshness_diagnostic)
+            raise AcceptanceFailure(message)
+
+        if (
+            pre_fixture_container_id is None
+            or pinned_started_at is None
+            or pinned_status != "running"
+        ):
+            fail_started_metric_freshness(
+                "The running worker container generation could not be pinned",
+                "container_pin_unavailable",
+            )
+
+        freshness_deadline = time.monotonic() + 45
+        pre_restart_state: dict[str, dict[str, object]] | None = None
+        while time.monotonic() < freshness_deadline:
+            poll_started = time.monotonic()
+            freshness_diagnostic["poll_count"] = int(freshness_diagnostic["poll_count"]) + 1
+            try:
+                _candidate_names, candidate_state = runtime.worker_metric_state(
+                    deadline=freshness_deadline
+                )
+            except (AcceptanceFailure, httpx.HTTPError, OSError, ValueError):
+                query_diagnostic = runtime.last_worker_metric_query_diagnostic
+                freshness_diagnostic["last_metric_started_value_seconds"] = None
+                freshness_diagnostic["last_metric_sample_timestamp_seconds"] = None
+                freshness_diagnostic["last_metric_started_delta_seconds"] = None
+                freshness_diagnostic["last_query_stage"] = (
+                    query_diagnostic.get("query_stage")
+                    if isinstance(query_diagnostic, dict)
+                    and isinstance(query_diagnostic.get("query_stage"), str)
+                    and query_diagnostic.get("query_stage")
+                    in {"metric_names", "metric_series", "complete"}
+                    else None
+                )
+                freshness_diagnostic["last_api_status"] = (
+                    query_diagnostic.get("api_status")
+                    if isinstance(query_diagnostic, dict)
+                    and isinstance(query_diagnostic.get("api_status"), str)
+                    and query_diagnostic.get("api_status") in {"success", "error", "invalid"}
+                    else None
+                )
+                freshness_diagnostic["last_poll_status"] = "query_unavailable"
+                freshness_diagnostic["last_poll_duration_seconds"] = round(
+                    time.monotonic() - poll_started, 3
+                )
+            else:
+                freshness_diagnostic["last_query_stage"] = "complete"
+                freshness_diagnostic["last_api_status"] = "success"
+                metric_started_value = _worker_metric_value(candidate_state, "started")
+                started_sample = _object_mapping(candidate_state.get("started")).get(
+                    "sample_timestamp"
+                )
+                freshness_diagnostic["last_metric_started_value_seconds"] = (
+                    validated_epoch_seconds(metric_started_value)
+                )
+                freshness_diagnostic["last_metric_sample_timestamp_seconds"] = (
+                    validated_epoch_seconds(started_sample)
+                )
+                freshness_diagnostic["last_metric_started_delta_seconds"] = (
+                    timestamp_delta_seconds(metric_started_value, pinned_started_at)
+                )
+                freshness_diagnostic["last_poll_duration_seconds"] = round(
+                    time.monotonic() - poll_started, 3
+                )
+                if time.monotonic() >= freshness_deadline:
+                    freshness_diagnostic["last_poll_status"] = "deadline_expired_after_query"
+                    break
+                if runtime.worker_started_value_matches_container_generation(
+                    metric_started_value, pinned_started_at
+                ):
+                    if time.monotonic() >= freshness_deadline:
+                        freshness_diagnostic["last_poll_status"] = (
+                            "deadline_expired_before_verification"
+                        )
+                        fail_started_metric_freshness(
+                            "The worker freshness deadline expired before generation verification",
+                            "freshness_deadline",
+                        )
+                    verified_container_id, verified_generation = capture_worker_generation(
+                        deadline=freshness_deadline
+                    )
+                    verified_started_at = validated_epoch_seconds(
+                        verified_generation.get("container_started_at_unix_seconds")
+                    )
+                    verified_status = _object_mapping(
+                        verified_generation.get("container_state")
+                    ).get("status")
+                    id_matches_pin = (
+                        verified_container_id == pre_fixture_container_id
+                        if verified_container_id is not None
+                        else False
+                    )
+                    started_at_matches_pin = (
+                        verified_started_at == pinned_started_at
+                        if verified_started_at is not None
+                        else False
+                    )
+                    freshness_diagnostic.update(
+                        {
+                            "verified_container_id_matches_pin": id_matches_pin,
+                            "verified_container_started_at_matches_pin": started_at_matches_pin,
+                            "verified_container_started_at_unix_seconds": verified_started_at,
+                            "verified_container_status": verified_status,
+                            "last_poll_duration_seconds": round(
+                                time.monotonic() - poll_started, 3
+                            ),
+                        }
+                    )
+                    if time.monotonic() >= freshness_deadline:
+                        freshness_diagnostic["last_poll_status"] = (
+                            "deadline_expired_during_verification"
+                        )
+                        fail_started_metric_freshness(
+                            "The worker freshness deadline expired during generation verification",
+                            "freshness_deadline",
+                        )
+                    if (
+                        not id_matches_pin
+                        or not started_at_matches_pin
+                        or verified_status != "running"
+                    ):
+                        freshness_diagnostic["last_poll_status"] = "container_generation_changed"
+                        fail_started_metric_freshness(
+                            "The worker container generation changed before its metric baseline "
+                            "was captured",
+                            "container_generation_changed",
+                        )
+                    pre_fixture_container_id = verified_container_id
+                    pre_fixture_generation = verified_generation
+                    pre_restart_state = candidate_state
+                    freshness_diagnostic["last_poll_status"] = "matched_generation"
+                    break
+                freshness_diagnostic["last_poll_status"] = "stale_metric_value"
+
+            time.sleep(min(0.5, max(0.0, freshness_deadline - time.monotonic())))
+
+        if pre_restart_state is None:
+            fail_started_metric_freshness(
+                "The worker started metric did not match the inspected container generation",
+                "freshness_deadline",
+            )
+        worker_restart_context["started_metric_freshness"] = dict(freshness_diagnostic)
+        pre_restart_summary = runtime.worker_restart_observation_summary(
+            pre_restart_state, pre_restart_state
+        )
+        worker_restart_context["pre_restart"] = {
+            name: pre_restart_summary.get(name) for name in previous_fields
+        }
+        if any(pre_restart_summary.get(name) is None for name in previous_fields):
+            raise AcceptanceFailure(
+                "The current worker omitted finite same-slot baseline timestamps"
+            )
+        old_started = _worker_metric_value(pre_restart_state, "started")
+        if old_started is None:
+            raise AcceptanceFailure("The current worker omitted its numeric start timestamp")
+
         recovery_fixture = business_probe.prepare_due_expiry_fixture()
         fixture_container_id, fixture_generation = capture_worker_generation()
 

@@ -1102,6 +1102,28 @@ def test_worker_restart_retention_requires_same_series_and_unchanged_db_points()
         )
 
 
+def test_worker_started_value_matches_container_generation():
+    predicate = getattr(
+        telemetry_stack.FullStackRuntime,
+        "worker_started_value_matches_container_generation",
+        None,
+    )
+    assert callable(predicate), "the worker start-generation predicate is missing"
+
+    container_started_at = 1_800_000_000.000
+    assert predicate(1_799_999_964.808, container_started_at) is False
+    assert predicate(1_800_000_001.684, container_started_at) is True
+    assert predicate(1_799_999_999.000, container_started_at) is True
+    assert predicate(1_800_000_010.000, container_started_at) is True
+    assert predicate(1_799_999_998.999, container_started_at) is False
+    assert predicate(1_800_000_010.001, container_started_at) is False
+
+    for invalid_metric_value in (None, True, float("nan"), float("inf"), "1800000001.684"):
+        assert predicate(invalid_metric_value, container_started_at) is False
+    for invalid_container_started_at in (None, True, float("nan"), float("inf"), "1800000000"):
+        assert predicate(1_800_000_001.684, invalid_container_started_at) is False
+
+
 def test_worker_metric_state_records_ambiguous_role_counts_without_labels():
     runtime = object.__new__(telemetry_stack.FullStackRuntime)
     identity = {
@@ -1155,6 +1177,65 @@ def test_worker_metric_state_records_prometheus_error_status_without_error_text(
         "api_status": "error",
     }
     assert "private query details" not in str(runtime.last_worker_metric_query_diagnostic)
+
+
+def test_worker_metric_state_caps_serial_requests_to_shared_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    runtime = object.__new__(telemetry_stack.FullStackRuntime)
+    runtime.api_id = "api-id"
+    clock = {"now": 100.0}
+    request_timeouts = []
+    metric_names = [
+        "prl_worker_started_timestamp_seconds",
+        "prl_worker_heartbeat_timestamp_seconds",
+        "prl_worker_last_successful_scan_timestamp_seconds",
+        "prl_worker_last_progress_timestamp_seconds",
+        "prl_worker_backlog_count",
+        "prl_worker_successful_scans_total",
+    ]
+    identity = {
+        "service_name": "worker",
+        "deployment_environment_name": "demo",
+        "worker_slot": "1",
+        "instance": "worker:9464",
+    }
+
+    def monotonic():
+        return clock["now"]
+
+    def invoke(args, *, timeout=15):
+        request_timeouts.append(timeout)
+        clock["now"] += 1.0
+        url = args[-3]
+        if "/label/__name__/values" in url:
+            response = {"status": "success", "data": metric_names}
+        else:
+            metric_name = parse_qs(urlsplit(url).query)["query"][0]
+            response = {
+                "status": "success",
+                "data": {
+                    "result": [
+                        {
+                            "metric": identity,
+                            "value": ["1800000001.0", "1.0"],
+                        }
+                    ]
+                },
+            }
+            assert metric_name in metric_names
+        return subprocess.CompletedProcess(args, 0, json.dumps(response), "")
+
+    monkeypatch.setattr(telemetry_stack, "time", SimpleNamespace(monotonic=monotonic))
+    monkeypatch.setattr(telemetry_stack, "acceptance_invoke", invoke)
+
+    try:
+        _selected, state = runtime.worker_metric_state(deadline=108.0)
+    except TypeError as error:
+        pytest.fail(f"worker metric state must accept a shared request deadline: {error}")
+
+    assert len(state) == 6
+    assert request_timeouts == [8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0]
 
 
 def test_loki_index_summary_uses_series_endpoint_and_keeps_ids_private():
