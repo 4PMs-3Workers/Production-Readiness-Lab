@@ -1,5 +1,6 @@
 """Real pinned-Nginx observability and file-pipeline acceptance."""
 
+import asyncio
 import json
 import os
 import re
@@ -13,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
+import httpx
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -913,10 +915,40 @@ def test_wrong_host_same_port_with_matching_marker_is_a_misroute(gateway, tmp_pa
     run(*base, "up", "-d", "--no-deps", "--force-recreate", "gateway", env=env)
     run(*base, "exec", "-T", "gateway", "nginx", "-t", env=env)
 
-    response = client.get(
-        "/api/v1/purposes?prl_test=copy_marker",
-        headers={"X-PRL-Route": "/api/v1/purposes"},
-    )
+    async def request_after_gateway_recreation():
+        deadline = time.monotonic() + 15
+        response = None
+        last_error = None
+        context = ssl.create_default_context(cafile=env["PRL_TLS_CERT_FILE"])
+        async with httpx.AsyncClient(
+            base_url=str(client.base_url), verify=context, trust_env=False, timeout=None
+        ) as probe_client:
+            while time.monotonic() < deadline:
+                remaining = deadline - time.monotonic()
+                try:
+                    response = await asyncio.wait_for(
+                        probe_client.get(
+                            "/api/v1/purposes?prl_test=copy_marker",
+                            headers={"X-PRL-Route": "/api/v1/purposes"},
+                        ),
+                        timeout=remaining,
+                    )
+                except (httpx.NetworkError, httpx.TimeoutException, TimeoutError) as error:
+                    last_error = error
+                else:
+                    last_error = None
+                    if response.status_code not in {502, 503, 504}:
+                        break
+                remaining = deadline - time.monotonic()
+                if remaining > 0:
+                    await asyncio.sleep(min(0.2, remaining))
+        if response is None:
+            if last_error is not None:
+                raise last_error
+            pytest.fail("Gateway did not become ready within 15 seconds")
+        return response
+
+    response = asyncio.run(request_after_gateway_recreation())
     assert response.status_code == 200 and response.json()["role"] == "frontend"
     assert "x-prl-route" not in response.headers
     record, _ = wait_record(base, env, response.headers["x-request-id"])

@@ -8,6 +8,7 @@ import re
 import subprocess
 import time
 import uuid
+from http.client import RemoteDisconnected
 from pathlib import Path
 from urllib.error import URLError
 from urllib.request import urlopen
@@ -79,7 +80,7 @@ def test_container_serves_api_mode_pages_and_standalone_assets(frontend_image: s
                     assert response.status == 200
                     assert response.headers.get("X-Powered-By") is None
                 break
-            except URLError:
+            except (URLError, ConnectionResetError, RemoteDisconnected):
                 if time.monotonic() >= deadline:
                     pytest.fail("Frontend did not start: " + docker("logs", name))
                 time.sleep(0.2)
