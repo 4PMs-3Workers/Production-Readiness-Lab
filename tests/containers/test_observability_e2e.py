@@ -507,7 +507,6 @@ class LiveBusinessProbe:
         *,
         excluded_worker_id: str | None = None,
         expected_worker_id: str | None = None,
-        minimum_scan_timestamp: float | None = None,
     ) -> tuple[WorkerProgress, WorkerProgress]:
         deadline = time.monotonic() + 45
         baseline: WorkerProgress | None = None
@@ -517,7 +516,7 @@ class LiveBusinessProbe:
             if observation is None:
                 time.sleep(0.5)
                 continue
-            progress, scan_timestamp = observation
+            progress, _scan_timestamp = observation
             if progress.worker_id == excluded_worker_id:
                 time.sleep(0.5)
                 continue
@@ -525,9 +524,6 @@ class LiveBusinessProbe:
                 raise AcceptanceFailure(
                     "The worker process changed during the expiry follow-up scan"
                 )
-            if minimum_scan_timestamp is not None and scan_timestamp <= minimum_scan_timestamp:
-                time.sleep(0.5)
-                continue
             baseline = progress
             tracker.observe(progress, running=True)
             break
@@ -539,7 +535,7 @@ class LiveBusinessProbe:
             if observation is None:
                 time.sleep(0.5)
                 continue
-            progress, scan_timestamp = observation
+            progress, _scan_timestamp = observation
             if (
                 progress.worker_id == excluded_worker_id
                 or progress.worker_id != baseline.worker_id
@@ -548,9 +544,6 @@ class LiveBusinessProbe:
                 raise AcceptanceFailure(
                     "The worker process changed during the expiry follow-up scan"
                 )
-            if minimum_scan_timestamp is not None and scan_timestamp <= minimum_scan_timestamp:
-                time.sleep(0.5)
-                continue
             if tracker.observe(progress, running=True):
                 return baseline, progress
             time.sleep(0.5)
@@ -930,10 +923,9 @@ def test_expiry_followup_scan_rejects_a_different_worker_process():
         probe._wait_for_later_worker_scan()
 
 
-def test_new_owner_scan_barrier_ignores_cached_old_owner_counter_reset():
+def test_new_owner_scan_barrier_uses_generation_and_counter_not_host_clock():
     old_worker_id = "a" * 32
     new_worker_id = "b" * 32
-    new_owner_started = datetime(2026, 10, 26, 0, 0, 10, tzinfo=UTC).timestamp()
 
     class FakeStack:
         outputs = [
@@ -949,14 +941,11 @@ def test_new_owner_scan_barrier_ignores_cached_old_owner_counter_reset():
     probe = object.__new__(LiveBusinessProbe)
     probe.runtime = SimpleNamespace(stack=FakeStack())
 
-    before, after = probe._wait_for_later_worker_scan(
-        excluded_worker_id=old_worker_id,
-        minimum_scan_timestamp=new_owner_started,
-    )
+    before, after = probe._wait_for_later_worker_scan(excluded_worker_id=old_worker_id)
 
     assert before.worker_id == after.worker_id == new_worker_id
-    assert before.successful_scans == 2
-    assert after.successful_scans == 3
+    assert before.successful_scans == 1
+    assert after.successful_scans == 2
 
 
 def test_new_owner_scan_barrier_rejects_a_later_process_generation():
@@ -1858,19 +1847,139 @@ def test_worker_restart_sequence_stops_the_worker_before_database() -> None:
         restart_worker_while_database_is_unavailable,
     )
 
-    calls: list[tuple[tuple[str, ...], float]] = []
+    events: list[tuple[str, object]] = []
+    status = {"worker": "running", "mysql": "running"}
+    container_ids = {"worker": "worker-id", "mysql": "mysql-id"}
 
     def compose(*args: str, timeout: float = 180) -> subprocess.CompletedProcess[str]:
-        calls.append((args, timeout))
+        events.append(("compose", args))
+        if args[0] == "stop":
+            status[args[-1]] = "exited"
+        elif args[0] == "up":
+            status["worker"] = "running"
         return subprocess.CompletedProcess(args, 0, "", "")
 
-    restart_worker_while_database_is_unavailable(compose)
+    def inspect(service: str) -> dict[str, object]:
+        events.append(("inspect", service))
+        return {
+            "Id": container_ids[service],
+            "State": {"Status": status[service]},
+        }
 
-    assert calls == [
-        (("stop", "--timeout", "10", "worker"), 30),
-        (("stop", "--timeout", "10", "mysql"), 30),
-        (("start", "worker"), 45),
+    baseline = {"last_successful_scan": {"value": 1_800.0}}
+
+    def capture_baseline() -> dict[str, dict[str, object]]:
+        events.append(("capture_baseline", None))
+        return baseline
+
+    result = restart_worker_while_database_is_unavailable(
+        compose,
+        inspect,
+        worker_container_id="worker-id",
+        mysql_container_id="mysql-id",
+        capture_baseline=capture_baseline,
+    )
+
+    assert result is baseline
+    assert [event for event in events if event[0] == "compose"] == [
+        ("compose", ("stop", "--timeout", "10", "worker")),
+        ("compose", ("stop", "--timeout", "10", "mysql")),
+        ("compose", ("up", "-d", "--no-deps", "--no-recreate", "worker")),
     ]
+    assert events.index(("inspect", "worker")) < events.index(
+        ("compose", ("stop", "--timeout", "10", "mysql"))
+    )
+    assert events.index(("capture_baseline", None)) < events.index(
+        ("compose", ("up", "-d", "--no-deps", "--no-recreate", "worker"))
+    )
+    assert events[-2:] == [
+        ("inspect", "worker"),
+        ("inspect", "mysql"),
+    ]
+
+
+def test_worker_restart_retention_uses_same_series_and_db_values() -> None:
+    from tests.containers.test_telemetry_stack import FullStackRuntime
+
+    labels = {
+        "service_name": "worker",
+        "deployment_environment_name": "demo",
+        "worker_slot": "1",
+        "instance": "worker:9464",
+    }
+    stopped_state = {
+        "started": {
+            "name": "prl_worker_started_timestamp_seconds",
+            "labels": labels,
+            "value": 1_793_010_902.478,
+        },
+        "last_successful_scan": {
+            "name": "prl_worker_last_successful_scan_timestamp_seconds",
+            "labels": labels,
+            "value": 1_793_010_975.572,
+        },
+        "last_progress": {
+            "name": "prl_worker_last_progress_timestamp_seconds",
+            "labels": labels,
+            "value": 1_793_010_975.572,
+        },
+    }
+    restarted_state = {
+        **stopped_state,
+        "started": {**stopped_state["started"], "value": 1_793_010_965.706},
+    }
+
+    summary = FullStackRuntime.worker_restart_observation_summary(stopped_state, restarted_state)
+
+    assert FullStackRuntime.worker_restart_retained_prior_points(summary) is True
+
+    changed_series = {
+        **restarted_state,
+        "last_successful_scan": {
+            **restarted_state["last_successful_scan"],
+            "labels": {**labels, "instance": "replacement:9464"},
+        },
+    }
+    changed_summary = FullStackRuntime.worker_restart_observation_summary(
+        stopped_state, changed_series
+    )
+    assert FullStackRuntime.worker_restart_retained_prior_points(changed_summary) is False
+
+    changed_value = {
+        **restarted_state,
+        "last_progress": {**restarted_state["last_progress"], "value": 1_793_010_976.0},
+    }
+    changed_value_summary = FullStackRuntime.worker_restart_observation_summary(
+        stopped_state, changed_value
+    )
+    assert FullStackRuntime.worker_restart_retained_prior_points(changed_value_summary) is False
+
+
+def test_worker_restart_rejects_mysql_running_during_no_dependency_start() -> None:
+    from tests.containers.test_telemetry_stack import restart_worker_while_database_is_unavailable
+
+    status = {"worker": "running", "mysql": "running"}
+    container_ids = {"worker": "worker-id", "mysql": "mysql-id"}
+
+    def compose(*args: str, timeout: float = 180) -> subprocess.CompletedProcess[str]:
+        if args[0] == "stop":
+            status[args[-1]] = "exited"
+        elif args[0] == "up":
+            status["worker"] = "running"
+            status["mysql"] = "running"
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    def inspect(service: str) -> dict[str, object]:
+        return {"Id": container_ids[service], "State": {"Status": status[service]}}
+
+    with pytest.raises(AcceptanceFailure, match="mysql container did not remain exited"):
+        restart_worker_while_database_is_unavailable(
+            compose,
+            inspect,
+            worker_container_id="worker-id",
+            mysql_container_id="mysql-id",
+            capture_baseline=lambda: {"last_progress": {"value": 1_800.0}},
+        )
 
 
 def test_gateway_ops_allowlist_slash_guard_is_per_cidr() -> None:

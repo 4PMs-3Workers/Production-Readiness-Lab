@@ -85,6 +85,7 @@ OPS_PROBE_DASHBOARD_UIDS = {
     "prl-worker-progress",
     "prl-telemetry-loss",
 }
+WORKER_METRIC_SETTLE_SECONDS = 16.0  # One full 15-second Prometheus scrape interval plus margin.
 
 
 def fullstack_ops_peer_cidrs() -> str:
@@ -116,20 +117,41 @@ def fullstack_ops_edge_network_overlay() -> str:
 
 def restart_worker_while_database_is_unavailable(
     compose: Callable[..., subprocess.CompletedProcess[str]],
-) -> None:
+    inspect_service: Callable[[str], dict[str, object]],
+    *,
+    worker_container_id: str,
+    mysql_container_id: str,
+    capture_baseline: Callable[[], dict[str, dict[str, object]]],
+) -> dict[str, dict[str, object]]:
     """Restart the existing worker container while MySQL is stopped."""
+
+    def require_status(service: str, container_id: str, expected_status: str) -> None:
+        record = inspect_service(service)
+        state = _object_mapping(record.get("State"))
+        if record.get("Id") != container_id or state.get("Status") != expected_status:
+            raise AcceptanceFailure(
+                f"The UUID-owned {service} container did not remain {expected_status}"
+            )
+
     acceptance_success(
         compose("stop", "--timeout", "10", "worker", timeout=30),
         "The UUID-owned worker could not stop for the same-slot observation",
     )
+    require_status("worker", worker_container_id, "exited")
     acceptance_success(
         compose("stop", "--timeout", "10", "mysql", timeout=30),
         "The UUID-owned database could not stop for the same-slot observation",
     )
+    require_status("worker", worker_container_id, "exited")
+    require_status("mysql", mysql_container_id, "exited")
+    baseline = capture_baseline()
     acceptance_success(
-        compose("start", "worker", timeout=45),
+        compose("up", "-d", "--no-deps", "--no-recreate", "worker", timeout=45),
         "The stopped worker could not start while MySQL was unavailable",
     )
+    require_status("worker", worker_container_id, "running")
+    require_status("mysql", mysql_container_id, "exited")
+    return baseline
 
 
 RECEIVER_HEALTH_TARGETS = frozenset(
@@ -2734,11 +2756,24 @@ class FullStackRuntime:
                 and sample.get("metric", {}).get("deployment_environment_name") == "demo"
                 and sample.get("metric", {}).get("worker_slot") == "1"
             ]
+            if len(candidates) > 1:
+                raise AcceptanceFailure(
+                    f"Prometheus returned multiple worker series for the {role} metric"
+                )
             if candidates:
+                sample_value = candidates[0].get("value")
+                if not isinstance(sample_value, list) or len(sample_value) != 2:
+                    continue
+                try:
+                    sample_timestamp = float(sample_value[0])
+                    value = float(sample_value[1])
+                except (TypeError, ValueError):
+                    continue
                 state[role] = {
                     "name": metric_name,
                     "labels": candidates[0]["metric"],
-                    "value": float(candidates[0]["value"][1]),
+                    "sample_timestamp": sample_timestamp,
+                    "value": value,
                 }
         return selected, state
 
@@ -2753,35 +2788,67 @@ class FullStackRuntime:
             "worker_slot": "1",
         }
 
-        def timestamp(state: dict[str, dict[str, object]], role: str) -> float | None:
+        def sample(state: dict[str, dict[str, object]], role: str) -> dict[str, object] | None:
             sample = state.get(role)
             if not isinstance(sample, dict):
                 return None
             value = sample.get("value")
+            metric_name = sample.get("name")
             labels = sample.get("labels")
             if (
                 type(value) not in (int, float)
                 or not math.isfinite(value)
                 or not 0 < value < 10_000_000_000
+                or not isinstance(metric_name, str)
+                or not metric_name.startswith("prl_worker_")
                 or not isinstance(labels, dict)
                 or any(labels.get(name) != expected for name, expected in identity.items())
             ):
                 return None
-            return float(value)
+            return sample
 
-        previous_started = timestamp(previous_state, "started")
-        started = timestamp(current_state, "started")
-        previous_scan = timestamp(previous_state, "last_successful_scan")
-        scan = timestamp(current_state, "last_successful_scan")
-        previous_progress = timestamp(previous_state, "last_progress")
-        progress = timestamp(current_state, "last_progress")
+        def value(state: dict[str, dict[str, object]], role: str) -> float | None:
+            selected = sample(state, role)
+            if selected is None:
+                return None
+            metric_value = selected.get("value")
+            return float(metric_value) if type(metric_value) in (int, float) else None
+
+        def same_series(role: str) -> bool:
+            previous_sample = sample(previous_state, role)
+            current_sample = sample(current_state, role)
+            return (
+                previous_sample is not None
+                and current_sample is not None
+                and previous_sample.get("name") == current_sample.get("name")
+                and previous_sample.get("labels") == current_sample.get("labels")
+            )
+
+        previous_started = value(previous_state, "started")
+        started = value(current_state, "started")
+        previous_scan = value(previous_state, "last_successful_scan")
+        scan = value(current_state, "last_successful_scan")
+        previous_progress = value(previous_state, "last_progress")
+        progress = value(current_state, "last_progress")
+        started_series_matches = same_series("started")
+        scan_series_matches = same_series("last_successful_scan")
+        progress_series_matches = same_series("last_progress")
         return {
             "previous_started_timestamp_seconds": (
                 round(previous_started, 3) if previous_started is not None else None
             ),
             "started_timestamp_seconds": round(started, 3) if started is not None else None,
             "started_advanced": (
-                previous_started is not None and started is not None and started > previous_started
+                started_series_matches
+                and previous_started is not None
+                and started is not None
+                and started > previous_started
+            ),
+            "started_unchanged": (
+                started_series_matches
+                and previous_started is not None
+                and started is not None
+                and started == previous_started
             ),
             "previous_last_successful_scan_timestamp_seconds": (
                 round(previous_scan, 3) if previous_scan is not None else None
@@ -2789,11 +2856,12 @@ class FullStackRuntime:
             "last_successful_scan_timestamp_seconds": (
                 round(scan, 3) if scan is not None else None
             ),
-            "last_successful_scan_not_older": (
-                previous_scan is not None and scan is not None and scan >= previous_scan
-            ),
-            "last_successful_scan_precedes_start": (
-                started is not None and scan is not None and scan < started
+            "last_successful_scan_series_matches": scan_series_matches,
+            "last_successful_scan_retained": (
+                scan_series_matches
+                and previous_scan is not None
+                and scan is not None
+                and scan == previous_scan
             ),
             "previous_last_progress_timestamp_seconds": (
                 round(previous_progress, 3) if previous_progress is not None else None
@@ -2801,13 +2869,15 @@ class FullStackRuntime:
             "last_progress_timestamp_seconds": (
                 round(progress, 3) if progress is not None else None
             ),
-            "last_progress_not_older": (
-                previous_progress is not None
+            "last_progress_series_matches": progress_series_matches,
+            "last_progress_retained": (
+                progress_series_matches
+                and previous_progress is not None
                 and progress is not None
-                and progress >= previous_progress
+                and progress == previous_progress
             ),
-            "last_progress_precedes_start": (
-                started is not None and progress is not None and progress < started
+            "series_identity_matches": (
+                started_series_matches and scan_series_matches and progress_series_matches
             ),
         }
 
@@ -2816,10 +2886,9 @@ class FullStackRuntime:
         return (
             isinstance(summary, dict)
             and summary.get("started_advanced") is True
-            and summary.get("last_successful_scan_not_older") is True
-            and summary.get("last_successful_scan_precedes_start") is True
-            and summary.get("last_progress_not_older") is True
-            and summary.get("last_progress_precedes_start") is True
+            and summary.get("series_identity_matches") is True
+            and summary.get("last_successful_scan_retained") is True
+            and summary.get("last_progress_retained") is True
             and all(
                 type(summary.get(name)) in (int, float)
                 and math.isfinite(summary[name])
@@ -4753,14 +4822,92 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         old_owner_progress = runtime.stack.wait_heartbeat()
         recovery_fixture = business_probe.prepare_due_expiry_fixture()
         worker_restart_context["due_expiry_fixture_ready"] = True
+        worker_container_id = recovery_fixture.get("worker_container_id")
+        mysql_container_id = runtime.inspect_service("mysql").get("Id")
+        if (
+            not isinstance(worker_container_id, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", worker_container_id)
+            or not isinstance(mysql_container_id, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", mysql_container_id)
+        ):
+            raise AcceptanceFailure("The UUID-owned worker or MySQL identity was invalid")
+
+        stopped_baseline: dict[str, dict[str, object]] = {}
+        previous_stopped_signature: tuple[object, ...] | None = None
+        stopped_signature_stable_since: float | None = None
+
+        def capture_stopped_baseline() -> dict[str, dict[str, object]]:
+            nonlocal previous_stopped_signature, stopped_baseline, stopped_signature_stable_since
+
+            def stable_stopped_metrics() -> bool:
+                nonlocal previous_stopped_signature, stopped_baseline
+                nonlocal stopped_signature_stable_since
+                _names, candidate = runtime.worker_metric_state()
+                summary = runtime.worker_restart_observation_summary(pre_restart_state, candidate)
+                if (
+                    summary.get("started_unchanged") is not True
+                    or summary.get("series_identity_matches") is not True
+                ):
+                    return False
+                roles = ("started", "last_successful_scan", "last_progress")
+                signature_items: list[object] = []
+                for role in roles:
+                    metric = candidate.get(role)
+                    if not isinstance(metric, dict):
+                        return False
+                    labels = metric.get("labels")
+                    if not isinstance(labels, dict):
+                        return False
+                    signature_items.append(
+                        (
+                            role,
+                            metric.get("name"),
+                            tuple(sorted(labels.items())),
+                            metric.get("value"),
+                        )
+                    )
+                signature = tuple(signature_items)
+                now = time.monotonic()
+                if signature == previous_stopped_signature:
+                    if stopped_signature_stable_since is None:
+                        stopped_signature_stable_since = now
+                    if now - stopped_signature_stable_since >= WORKER_METRIC_SETTLE_SECONDS:
+                        stopped_baseline = candidate
+                        return True
+                else:
+                    stopped_signature_stable_since = now
+                previous_stopped_signature = signature
+                return False
+
+            runtime.stack.wait_for(
+                stable_stopped_metrics,
+                seconds=45,
+                failure="Worker points did not settle after the old worker stopped",
+            )
+            return stopped_baseline
+
         failure_context["stage"] = "worker_and_database_restart"
-        restart_worker_while_database_is_unavailable(runtime.compose)
+        stopped_baseline = restart_worker_while_database_is_unavailable(
+            runtime.compose,
+            runtime.inspect_service,
+            worker_container_id=worker_container_id,
+            mysql_container_id=mysql_container_id,
+            capture_baseline=capture_stopped_baseline,
+        )
+        worker_restart_context["stopped_baseline"] = {
+            name: _worker_metric_value(stopped_baseline, role)
+            for name, role in (
+                ("started_timestamp_seconds", "started"),
+                ("last_successful_scan_timestamp_seconds", "last_successful_scan"),
+                ("last_progress_timestamp_seconds", "last_progress"),
+            )
+        }
         new_owner_container = runtime.inspect_service("worker")
         new_owner_config = _object_mapping(new_owner_container.get("Config"))
         new_owner_labels = _object_mapping(new_owner_config.get("Labels"))
         new_owner_state = _object_mapping(new_owner_container.get("State"))
         if (
-            new_owner_container.get("Id") != recovery_fixture["worker_container_id"]
+            new_owner_container.get("Id") != worker_container_id
             or new_owner_state.get("Status") != "running"
             or new_owner_labels.get("com.docker.compose.project") != runtime.stack.project
         ):
@@ -4786,11 +4933,24 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             seconds=45,
             failure="The new worker start and cached same-slot points were not observed",
         )
-        restart_summary = runtime.worker_restart_observation_summary(pre_restart_state, new_state)
+        restart_summary = runtime.worker_restart_observation_summary(stopped_baseline, new_state)
         failure_context["worker_restart_observations"] = restart_summary
         if not runtime.worker_restart_retained_prior_points(restart_summary):
             raise AcceptanceFailure(
-                "Collector did not retain finite prior same-slot worker timestamps across restart"
+                "Collector did not retain the same worker metric series and values across restart"
+            )
+        worker_after_observation = runtime.inspect_service("worker")
+        mysql_after_observation = runtime.inspect_service("mysql")
+        worker_after_state = _object_mapping(worker_after_observation.get("State"))
+        mysql_after_state = _object_mapping(mysql_after_observation.get("State"))
+        if (
+            worker_after_observation.get("Id") != worker_container_id
+            or worker_after_state.get("Status") != "running"
+            or mysql_after_observation.get("Id") != mysql_container_id
+            or mysql_after_state.get("Status") != "exited"
+        ):
+            raise AcceptanceFailure(
+                "MySQL did not remain stopped through the same-slot worker observation"
             )
         new_owner_started = _worker_metric_value(new_state, "started")
         if new_owner_started is None:
@@ -4807,9 +4967,12 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         )
         recovery_scan_before, recovery_scan_after = business_probe._wait_for_later_worker_scan(
             excluded_worker_id=old_owner_progress.worker_id,
-            minimum_scan_timestamp=new_owner_started,
         )
         new_owner_worker_id = recovery_scan_before.worker_id
+        stopped_scan_timestamp = _worker_metric_value(stopped_baseline, "last_successful_scan")
+        stopped_progress_timestamp = _worker_metric_value(stopped_baseline, "last_progress")
+        if stopped_scan_timestamp is None or stopped_progress_timestamp is None:
+            raise AcceptanceFailure("The stopped worker omitted its DB-backed scan baseline")
         recovered_owner_state: dict[str, dict[str, object]] = {}
 
         def new_owner_scan_and_progress_after_database_recovery() -> bool:
@@ -4818,12 +4981,17 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             started_at = _worker_metric_value(recovered_owner_state, "started")
             successful_scan_at = _worker_metric_value(recovered_owner_state, "last_successful_scan")
             progress_at = _worker_metric_value(recovered_owner_state, "last_progress")
+            recovery_summary = runtime.worker_restart_observation_summary(
+                stopped_baseline, recovered_owner_state
+            )
             return (
                 started_at == new_owner_started
+                and recovery_summary.get("series_identity_matches") is True
                 and successful_scan_at is not None
-                and successful_scan_at > new_owner_started
+                and successful_scan_at > stopped_scan_timestamp
                 and progress_at is not None
-                and progress_at > new_owner_started
+                # This gauge may use DB scan time or worker event time; compare change only.
+                and progress_at != stopped_progress_timestamp
             )
 
         runtime.stack.wait_for(
@@ -4863,7 +5031,6 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             business_probe._wait_for_later_worker_scan(
                 excluded_worker_id=old_owner_progress.worker_id,
                 expected_worker_id=new_owner_worker_id,
-                minimum_scan_timestamp=new_owner_started,
             )
         )
         if (
@@ -4889,7 +5056,16 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             "started_generation_unchanged_after_recovery": (
                 _worker_metric_value(recovered_owner_state, "started") == new_owner_started
             ),
-            "scan_and_progress_both_after_new_owner_start": True,
+            "series_identity_matches_stopped_baseline": (
+                runtime.worker_restart_observation_summary(
+                    stopped_baseline, recovered_owner_state
+                ).get("series_identity_matches")
+                is True
+            ),
+            "scan_advanced_since_stopped_db_baseline": True,
+            "progress_metric_changed_since_stopped_baseline": (
+                recovered_progress_timestamp != stopped_progress_timestamp
+            ),
             "counter_advanced_in_same_new_owner_process": (
                 recovery_scan_after.successful_scans > recovery_scan_before.successful_scans
                 and expiry_followup_scan_after.successful_scans

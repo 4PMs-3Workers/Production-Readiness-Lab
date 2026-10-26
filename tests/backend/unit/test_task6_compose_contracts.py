@@ -949,21 +949,45 @@ def test_inspect_service_rejects_multiple_stopped_container_ids(monkeypatch: pyt
         runtime.inspect_service("worker")
 
 
-def test_worker_restart_retention_requires_finite_monotonic_prior_runtime_timestamps():
+def test_worker_restart_retention_requires_same_series_and_unchanged_db_points():
     labels = {
         "service_name": "worker",
         "deployment_environment_name": "demo",
         "worker_slot": "1",
     }
     previous_state = {
-        "started": {"value": 90.0, "labels": labels},
-        "last_successful_scan": {"value": 70.0, "labels": labels},
-        "last_progress": {"value": 71.0, "labels": labels},
+        "started": {
+            "name": "prl_worker_started_timestamp_seconds",
+            "value": 90.0,
+            "labels": labels,
+        },
+        "last_successful_scan": {
+            "name": "prl_worker_last_successful_scan_timestamp_seconds",
+            "value": 110.0,
+            "labels": labels,
+        },
+        "last_progress": {
+            "name": "prl_worker_last_progress_timestamp_seconds",
+            "value": 111.0,
+            "labels": labels,
+        },
     }
     current_state = {
-        "started": {"value": 100.0, "labels": labels},
-        "last_successful_scan": {"value": 80.0, "labels": labels},
-        "last_progress": {"value": 81.0, "labels": labels},
+        "started": {
+            "name": "prl_worker_started_timestamp_seconds",
+            "value": 100.0,
+            "labels": labels,
+        },
+        "last_successful_scan": {
+            "name": "prl_worker_last_successful_scan_timestamp_seconds",
+            "value": 110.0,
+            "labels": labels,
+        },
+        "last_progress": {
+            "name": "prl_worker_last_progress_timestamp_seconds",
+            "value": 111.0,
+            "labels": labels,
+        },
     }
     summary = telemetry_stack.FullStackRuntime.worker_restart_observation_summary(
         previous_state, current_state
@@ -973,14 +997,16 @@ def test_worker_restart_retention_requires_finite_monotonic_prior_runtime_timest
         "previous_started_timestamp_seconds": 90.0,
         "started_timestamp_seconds": 100.0,
         "started_advanced": True,
-        "previous_last_successful_scan_timestamp_seconds": 70.0,
-        "last_successful_scan_timestamp_seconds": 80.0,
-        "last_successful_scan_not_older": True,
-        "last_successful_scan_precedes_start": True,
-        "previous_last_progress_timestamp_seconds": 71.0,
-        "last_progress_timestamp_seconds": 81.0,
-        "last_progress_not_older": True,
-        "last_progress_precedes_start": True,
+        "started_unchanged": False,
+        "previous_last_successful_scan_timestamp_seconds": 110.0,
+        "last_successful_scan_timestamp_seconds": 110.0,
+        "last_successful_scan_series_matches": True,
+        "last_successful_scan_retained": True,
+        "previous_last_progress_timestamp_seconds": 111.0,
+        "last_progress_timestamp_seconds": 111.0,
+        "last_progress_series_matches": True,
+        "last_progress_retained": True,
+        "series_identity_matches": True,
     }
     assert telemetry_stack.FullStackRuntime.worker_restart_retained_prior_points(summary) is True
 
@@ -992,15 +1018,26 @@ def test_worker_restart_retention_requires_finite_monotonic_prior_runtime_timest
         {"last_successful_scan": {"value": None, "labels": labels}},
         {"last_successful_scan": {"value": float("nan"), "labels": labels}},
         {"last_successful_scan": {"value": float("inf"), "labels": labels}},
-        {"last_successful_scan": {"value": 100.0, "labels": labels}},
-        {"last_successful_scan": {"value": 101.0, "labels": labels}},
-        {"last_successful_scan": {"value": 69.0, "labels": labels}},
+        {"last_successful_scan": {"value": 109.0, "labels": labels}},
+        {"last_successful_scan": {"value": 111.0, "labels": labels}},
+        {
+            "last_successful_scan": {
+                "name": "prl_worker_last_successful_scan_timestamp_seconds",
+                "value": 110.0,
+                "labels": {**labels, "instance": "replacement:9464"},
+            }
+        },
         {"last_progress": {"value": None, "labels": labels}},
         {"last_progress": {"value": float("nan"), "labels": labels}},
         {"last_progress": {"value": float("inf"), "labels": labels}},
-        {"last_progress": {"value": 100.0, "labels": labels}},
-        {"last_progress": {"value": 101.0, "labels": labels}},
-        {"last_progress": {"value": 81.0, "labels": {**labels, "worker_slot": "2"}}},
+        {"last_progress": {"value": 110.0, "labels": labels}},
+        {"last_progress": {"value": 112.0, "labels": labels}},
+        {
+            "last_progress": {
+                "value": 111.0,
+                "labels": {**labels, "worker_slot": "2"},
+            }
+        },
     ):
         assert (
             telemetry_stack.FullStackRuntime.worker_restart_retained_prior_points(
