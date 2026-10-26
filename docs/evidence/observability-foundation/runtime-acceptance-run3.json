@@ -1,0 +1,655 @@
+{
+  "alerts": {
+    "collector_pipeline_firing": {
+      "alertname": "GatewayPipelineHeartbeatMissing",
+      "exact_predicate_value": 1.0,
+      "observed_at_utc": "2026-10-26T13:45:35.804Z",
+      "receiver_statuses": [
+        {
+          "received_at": "2026-10-26T13:45:34.974Z",
+          "severity": "critical",
+          "status": "firing"
+        }
+      ]
+    },
+    "collector_pipeline_resolved": {
+      "alertname": "GatewayPipelineHeartbeatMissing",
+      "exact_predicate_value": null,
+      "observed_at_utc": "2026-10-26T13:46:29.178Z",
+      "receiver_statuses": [
+        {
+          "received_at": "2026-10-26T13:45:34.974Z",
+          "severity": "critical",
+          "status": "firing"
+        },
+        {
+          "received_at": "2026-10-26T13:46:19.976Z",
+          "severity": "critical",
+          "status": "resolved"
+        }
+      ]
+    },
+    "collector_target_warning_firing": {
+      "alertname": "TelemetryTargetDown",
+      "duplicate_collector_specific_rule_absent": true,
+      "observed_at_utc": "2026-10-26T13:45:37.344Z",
+      "severity": "warning"
+    },
+    "collector_target_warning_resolved": {
+      "alertname": "TelemetryTargetDown",
+      "legacy_duplicate_rule_statuses": [],
+      "observed_at_utc": "2026-10-26T13:46:36.652Z",
+      "severity": "warning"
+    },
+    "gateway_firing": {
+      "alertname": "GatewayFastSuccessBelowSLO",
+      "fixture_started_at_utc": "2026-10-26T13:47:43.62Z",
+      "fresh_successful_events": 100,
+      "receiver_delivery": {
+        "received_at": "2026-10-26T13:50:04.946Z",
+        "severity": "warning",
+        "status": "firing"
+      },
+      "status": "firing"
+    },
+    "gateway_resolved": {
+      "alertname": "GatewayFastSuccessBelowSLO",
+      "fixture_started_at_utc": "2026-10-26T13:50:06.176Z",
+      "healthy_success_events": 1981,
+      "observed_recovery_ratio": 0.9523809523809523,
+      "receiver_delivery": {
+        "received_at": "2026-10-26T13:51:04.944Z",
+        "severity": "warning",
+        "status": "resolved"
+      },
+      "status": "resolved"
+    },
+    "summaries": [
+      {
+        "alertname": "Task6SyntheticDeliveryProbe",
+        "received_at": "2026-10-26T13:51:15.625Z",
+        "severity": "warning",
+        "status": "firing"
+      },
+      {
+        "alertname": "Task6SyntheticDeliveryProbe",
+        "received_at": "2026-10-26T13:51:16.147Z",
+        "severity": "warning",
+        "status": "resolved"
+      }
+    ]
+  },
+  "business_outcomes": {
+    "collector_stopped": {
+      "accepted_business_effects": {
+        "appointment_status": "CANCELLED",
+        "audit_event_count": 4,
+        "notification_count": 8,
+        "proposal_status": "ACCEPTED"
+      },
+      "actual_worker_expiry": {
+        "actual_worker_transition": "EXPIRED:CANCELLED:CHANGE_PROPOSAL_EXPIRED",
+        "due_row_unchanged_while_stopped": true,
+        "expiry_fixture_due_seconds": 1.9706,
+        "expiry_side_effects_stable_after_followup_scan": true,
+        "followup_scan_counter_after": 12,
+        "followup_scan_counter_before": 11,
+        "followup_scan_worker_process_continuity": true,
+        "stopped_worker_container_preserved": true,
+        "worker_container_preserved": true
+      },
+      "application_readiness_http": 200,
+      "authenticated_student_and_staff_sessions": true,
+      "booking_replay_receipt_stable": true,
+      "expired_business_effects": {
+        "appointment_status": "CANCELLED",
+        "audit_event_count": 3,
+        "notification_count": 6,
+        "proposal_status": "EXPIRED"
+      },
+      "gateway_readiness_http": 200,
+      "proposal_accept_replay_stable": true,
+      "proposal_replay_receipt_stable": true,
+      "service": "all-services",
+      "state": "collector_stopped",
+      "successful_cancellation_route": 200,
+      "write_latency_count": 11,
+      "write_latency_max_ms": 84.21
+    },
+    "healthy": {
+      "accepted_business_effects": {
+        "appointment_status": "CANCELLED",
+        "audit_event_count": 4,
+        "notification_count": 8,
+        "proposal_status": "ACCEPTED"
+      },
+      "actual_worker_expiry": {
+        "actual_worker_transition": "EXPIRED:CANCELLED:CHANGE_PROPOSAL_EXPIRED",
+        "due_row_unchanged_while_stopped": true,
+        "expiry_fixture_due_seconds": 1.9794,
+        "expiry_side_effects_stable_after_followup_scan": true,
+        "followup_scan_counter_after": 12,
+        "followup_scan_counter_before": 11,
+        "followup_scan_worker_process_continuity": true,
+        "stopped_worker_container_preserved": true,
+        "worker_container_preserved": true
+      },
+      "application_readiness_http": 200,
+      "authenticated_student_and_staff_sessions": true,
+      "booking_replay_receipt_stable": true,
+      "expired_business_effects": {
+        "appointment_status": "CANCELLED",
+        "audit_event_count": 3,
+        "notification_count": 6,
+        "proposal_status": "EXPIRED"
+      },
+      "gateway_readiness_http": 200,
+      "proposal_accept_replay_stable": true,
+      "proposal_replay_receipt_stable": true,
+      "service": "all-services",
+      "state": "healthy",
+      "successful_cancellation_route": 200,
+      "write_latency_count": 11,
+      "write_latency_max_ms": 146.37
+    },
+    "loki_stopped": {
+      "accepted_business_effects": {
+        "appointment_status": "CANCELLED",
+        "audit_event_count": 4,
+        "notification_count": 8,
+        "proposal_status": "ACCEPTED"
+      },
+      "actual_worker_expiry": {
+        "actual_worker_transition": "EXPIRED:CANCELLED:CHANGE_PROPOSAL_EXPIRED",
+        "due_row_unchanged_while_stopped": true,
+        "expiry_fixture_due_seconds": 1.9712,
+        "expiry_side_effects_stable_after_followup_scan": true,
+        "followup_scan_counter_after": 12,
+        "followup_scan_counter_before": 11,
+        "followup_scan_worker_process_continuity": true,
+        "stopped_worker_container_preserved": true,
+        "worker_container_preserved": true
+      },
+      "application_readiness_http": 200,
+      "authenticated_student_and_staff_sessions": true,
+      "booking_replay_receipt_stable": true,
+      "expired_business_effects": {
+        "appointment_status": "CANCELLED",
+        "audit_event_count": 3,
+        "notification_count": 6,
+        "proposal_status": "EXPIRED"
+      },
+      "gateway_readiness_http": 200,
+      "outage_elapsed_seconds": 31.92,
+      "outage_started_at_utc": "2026-10-26T13:52:12.521Z",
+      "proposal_accept_replay_stable": true,
+      "proposal_replay_receipt_stable": true,
+      "recovered_target_count": 9,
+      "recovery_started_at_utc": "2026-10-26T13:52:44.446Z",
+      "service": "loki",
+      "state": "loki_stopped",
+      "stopped_container_preserved": true,
+      "successful_cancellation_route": 200,
+      "write_latency_count": 11,
+      "write_latency_max_ms": 69.15
+    },
+    "prometheus_stopped": {
+      "accepted_business_effects": {
+        "appointment_status": "CANCELLED",
+        "audit_event_count": 4,
+        "notification_count": 8,
+        "proposal_status": "ACCEPTED"
+      },
+      "actual_worker_expiry": {
+        "actual_worker_transition": "EXPIRED:CANCELLED:CHANGE_PROPOSAL_EXPIRED",
+        "due_row_unchanged_while_stopped": true,
+        "expiry_fixture_due_seconds": 1.9808,
+        "expiry_side_effects_stable_after_followup_scan": true,
+        "followup_scan_counter_after": 12,
+        "followup_scan_counter_before": 11,
+        "followup_scan_worker_process_continuity": true,
+        "stopped_worker_container_preserved": true,
+        "worker_container_preserved": true
+      },
+      "application_readiness_http": 200,
+      "authenticated_student_and_staff_sessions": true,
+      "booking_replay_receipt_stable": true,
+      "expired_business_effects": {
+        "appointment_status": "CANCELLED",
+        "audit_event_count": 3,
+        "notification_count": 6,
+        "proposal_status": "EXPIRED"
+      },
+      "gateway_readiness_http": 200,
+      "outage_elapsed_seconds": 31.58,
+      "outage_started_at_utc": "2026-10-26T13:51:18.187Z",
+      "proposal_accept_replay_stable": true,
+      "proposal_replay_receipt_stable": true,
+      "recovered_target_count": 9,
+      "recovery_started_at_utc": "2026-10-26T13:51:49.766Z",
+      "service": "prometheus",
+      "state": "prometheus_stopped",
+      "stopped_container_preserved": true,
+      "successful_cancellation_route": 200,
+      "write_latency_count": 11,
+      "write_latency_max_ms": 76.53
+    },
+    "tempo_stopped": {
+      "accepted_business_effects": {
+        "appointment_status": "CANCELLED",
+        "audit_event_count": 4,
+        "notification_count": 8,
+        "proposal_status": "ACCEPTED"
+      },
+      "actual_worker_expiry": {
+        "actual_worker_transition": "EXPIRED:CANCELLED:CHANGE_PROPOSAL_EXPIRED",
+        "due_row_unchanged_while_stopped": true,
+        "expiry_fixture_due_seconds": 1.9815,
+        "expiry_side_effects_stable_after_followup_scan": true,
+        "followup_scan_counter_after": 12,
+        "followup_scan_counter_before": 11,
+        "followup_scan_worker_process_continuity": true,
+        "stopped_worker_container_preserved": true,
+        "worker_container_preserved": true
+      },
+      "application_readiness_http": 200,
+      "authenticated_student_and_staff_sessions": true,
+      "booking_replay_receipt_stable": true,
+      "expired_business_effects": {
+        "appointment_status": "CANCELLED",
+        "audit_event_count": 3,
+        "notification_count": 6,
+        "proposal_status": "EXPIRED"
+      },
+      "gateway_readiness_http": 200,
+      "outage_elapsed_seconds": 41.3,
+      "outage_started_at_utc": "2026-10-26T13:52:50.06Z",
+      "proposal_accept_replay_stable": true,
+      "proposal_replay_receipt_stable": true,
+      "recovered_target_count": 9,
+      "recovery_started_at_utc": "2026-10-26T13:53:31.361Z",
+      "service": "tempo",
+      "state": "tempo_stopped",
+      "stopped_container_preserved": true,
+      "successful_cancellation_route": 200,
+      "write_latency_count": 11,
+      "write_latency_max_ms": 88.29
+    }
+  },
+  "business_trace_correlation": {
+    "api_log_route": "/api/v1/appointments",
+    "api_request_log_matches": true,
+    "gateway_request_log_matches": true,
+    "mysql_db_query_span_present": true,
+    "mysql_span_count": 23,
+    "sql_statement_and_parameter_attributes_absent": true,
+    "tempo_trace_stored": true
+  },
+  "collector_outage": {
+    "cumulative_loss": {
+      "after_recovery": {
+        "families_seen": [
+          "dropped",
+          "failed"
+        ],
+        "totals": {
+          "dropped": 401.0,
+          "failed": 401.0
+        }
+      },
+      "before": {
+        "families_seen": [
+          "dropped",
+          "failed"
+        ],
+        "totals": {
+          "dropped": 12.0,
+          "failed": 12.0
+        }
+      },
+      "counter_values_are_cumulative": true,
+      "delta": {
+        "dropped": 389.0,
+        "failed": 389.0
+      }
+    },
+    "isolation": {
+      "collector_container_preserved": true,
+      "collector_recovered": true,
+      "collector_stopped_status": "exited",
+      "gateway_ready_while_collector_stopped": true,
+      "outage_elapsed_seconds": 136.81,
+      "outage_started_at_utc": "2026-10-26T13:43:52.538Z",
+      "recovered_at_utc": "2026-10-26T13:46:09.344Z",
+      "recovered_target_count": 9
+    },
+    "readiness": {
+      "body_status": "ready",
+      "http_status": 200,
+      "json_valid": true,
+      "passed": true
+    }
+  },
+  "collector_restart": "same file-storage volume; HTTPS and Loki event persisted",
+  "collector_restart_event_query": {
+    "historical_query": {},
+    "historical_query_failure": null,
+    "historical_query_matches_initial": true,
+    "initial_event_precedes_recent_query_start": true,
+    "initial_event_timestamp_utc": "2026-10-26T13:43:10Z",
+    "recent_query": {
+      "body_status_ok": true,
+      "entry_count": 0,
+      "event_match": false,
+      "failure_category": "event_cardinality",
+      "http_status": 200,
+      "query_end_unix_ns": 1793022987516604400,
+      "query_start_unix_ns": 1793022327516604400,
+      "release_match": false,
+      "request_id_match": false,
+      "stream_count": 0,
+      "trace_id_match": false
+    },
+    "recent_query_age_seconds": 738.014,
+    "recent_query_window_seconds": 600
+  },
+  "configured_resource_caps": {
+    "alertmanager": {
+      "memory_mib": 128,
+      "nano_cpus": 500000000,
+      "pids_limit": 64
+    },
+    "api": {
+      "memory_mib": 512,
+      "nano_cpus": 1000000000,
+      "pids_limit": 128
+    },
+    "collector": {
+      "memory_mib": 512,
+      "nano_cpus": 1000000000,
+      "pids_limit": 128
+    },
+    "frontend": {
+      "memory_mib": 512,
+      "nano_cpus": 1000000000,
+      "pids_limit": 128
+    },
+    "gateway": {
+      "memory_mib": 128,
+      "nano_cpus": 500000000,
+      "pids_limit": 64
+    },
+    "gateway_log_rotate": {
+      "memory_mib": 128,
+      "nano_cpus": 250000000,
+      "pids_limit": 32
+    },
+    "grafana": {
+      "memory_mib": 512,
+      "nano_cpus": 1000000000,
+      "pids_limit": 128
+    },
+    "local_alert_receiver": {
+      "memory_mib": 128,
+      "nano_cpus": 500000000,
+      "pids_limit": 64
+    },
+    "loki": {
+      "memory_mib": 768,
+      "nano_cpus": 1000000000,
+      "pids_limit": 128
+    },
+    "mysql": {
+      "memory_mib": 1024,
+      "nano_cpus": 1000000000,
+      "pids_limit": 256
+    },
+    "prometheus": {
+      "memory_mib": 512,
+      "nano_cpus": 1000000000,
+      "pids_limit": 128
+    },
+    "tempo": {
+      "memory_mib": 512,
+      "nano_cpus": 1000000000,
+      "pids_limit": 128
+    },
+    "worker": {
+      "memory_mib": 512,
+      "nano_cpus": 1000000000,
+      "pids_limit": 128
+    }
+  },
+  "dashboards": {
+    "capture_region": "top dashboard overview at 1600x760; lower log panels omitted to exclude generated correlation and run identifiers",
+    "empty_windows_note": "Empty API/DB panels in this capture indicate no request-window data, not zero utilization; dashboard text distinguishes missing telemetry families.",
+    "screenshots": [
+      {
+        "height": 760,
+        "path": "docs/evidence/observability-foundation/screenshots/run3/prl-api-errors.png",
+        "sha256": "18e0cf65e7e518514e4e9294b25a6b1c09bcd1fefc84271ef96e871265eaf146",
+        "title": "API errors",
+        "uid": "prl-api-errors",
+        "width": 1600
+      },
+      {
+        "height": 760,
+        "path": "docs/evidence/observability-foundation/screenshots/run3/prl-db-pool.png",
+        "sha256": "99499957423587da48909bce55e09a26f2c7fd3b0c90afac19c157724f7f886e",
+        "title": "DB / pool",
+        "uid": "prl-db-pool",
+        "width": 1600
+      },
+      {
+        "height": 760,
+        "path": "docs/evidence/observability-foundation/screenshots/run3/prl-gateway.png",
+        "sha256": "a731169a2a0b2fae208712cffee22ca667216469442ac62e94bb0720f44f2e7c",
+        "title": "Gateway SLI",
+        "uid": "prl-gateway",
+        "width": 1600
+      },
+      {
+        "height": 760,
+        "path": "docs/evidence/observability-foundation/screenshots/run3/prl-telemetry-loss.png",
+        "sha256": "53ab38447dc5013366b7adb72199f53bf722ede0070d54e4085413f6c2f8b68d",
+        "title": "Telemetry loss",
+        "uid": "prl-telemetry-loss",
+        "width": 1600
+      },
+      {
+        "height": 760,
+        "path": "docs/evidence/observability-foundation/screenshots/run3/prl-worker-progress.png",
+        "sha256": "dbe46f64635ac0e98060356019980a9212a4d4f40945df8d268906a0da1a03a9",
+        "title": "Worker progress / backlog",
+        "uid": "prl-worker-progress",
+        "width": 1600
+      }
+    ],
+    "viewport": "1600x1000"
+  },
+  "gateway_sli_truth_table": {
+    "all_errors_alert_predicate": null,
+    "all_errors_availability_zero": 0.0,
+    "all_errors_fast_success_has_data": false,
+    "all_slow_alert_predicate": 0.0,
+    "all_slow_alert_present": true,
+    "all_slow_success_ratio": 0.0,
+    "all_slow_successful_requests": 20,
+    "availability_success_over_eligible": 0.9,
+    "empty_eligible_window_has_data": false,
+    "excluded_only_has_data": false,
+    "fast_success_alert_predicate_value": 0.931355,
+    "fast_success_inclusive_500ms": 0.944444,
+    "genuine_gateway_healthchecks_in_1m": 12,
+    "pushed_gateway_json_events": 182,
+    "recovered_alert_predicate": null,
+    "recovered_alert_suppressed": true,
+    "sub20_alert_predicate": null,
+    "sub20_alert_suppressed": true
+  },
+  "limitations": [
+    "Resource values are configured caps, not measured utilization.",
+    "The run is a local synthetic acceptance, not production or off-host failure validation.",
+    "No seven-day SLO, production load, backup/restore, or zero-vulnerability claim is established."
+  ],
+  "migration_cli_smoke": {
+    "commands": {
+      "current": 0,
+      "heads": 0,
+      "initial_upgrade_head": 0,
+      "repeat_upgrade_head_idempotency": 0
+    },
+    "created_schema_dropped_and_absent": true,
+    "database_host_binding": "127.0.0.1 only",
+    "expected_revision": "20261019_1200_proposal_replay",
+    "head_verified": true,
+    "mysql_version": "8.4.11",
+    "owned_test_container_removed": true,
+    "schema_scope": "one dedicated UUID-owned schema",
+    "source_sha": "0576f21305eb4b76a6b9e2436011a4ab23087366"
+  },
+  "new_owner_database_recovery": {
+    "counter_advanced_in_same_new_owner_process": true,
+    "duplicate_effects_after_followup_scan": false,
+    "first_healthy_scan_counter_after_recovery": 1,
+    "last_progress_timestamp_at_utc": "2026-10-26T13:55:06.059Z",
+    "last_successful_scan_timestamp_at_utc": "2026-10-26T13:55:06.059Z",
+    "later_healthy_scan_counter_after_recovery": 2,
+    "later_scan_counter_after_expiry": 46,
+    "new_owner_container_identity_preserved": true,
+    "persisted_due_proposal_expired_by_new_owner": true,
+    "progress_metric_changed_since_stopped_baseline": true,
+    "scan_advanced_since_stopped_db_baseline": true,
+    "scan_counter_before_expiry_followup": 45,
+    "series_identity_matches_stopped_baseline": true,
+    "started_generation_unchanged_after_recovery": true,
+    "started_timestamp_at_utc": "2026-10-26T13:54:26.129Z",
+    "worker_process_changed_from_pre_restart": true
+  },
+  "old_source_event_time_window": {
+    "current_five_minute_sli_contribution": 0.0,
+    "entry_matches_producer_time_within_seconds": 0.0,
+    "historical_one_minute_sli_contribution": 1.0,
+    "queryable_in_historical_window": true
+  },
+  "provenance": {
+    "derived_image_ids": {
+      "backend": "sha256:74519639c59c41f7f18b520fbf99d8a3094155d993d7af4c64a196512c72a776",
+      "frontend": "sha256:e0cb434d77b9dab536a2d19e4b4d76cdb2772a4aceff4e3c356bed68b5a0f691"
+    },
+    "docker_compose_version": "5.1.4",
+    "docker_engine_version": "29.5.3",
+    "images_lock_sha256": "3497ccf9b6021ddae7bd97bec89b9ba648abc2a2c21197def11c9a2dd01e149c",
+    "source_sha": "0576f21305eb4b76a6b9e2436011a4ab23087366",
+    "whole_container_run": {
+      "all_opt_ins_enabled": true,
+      "duration_seconds": 2460.93,
+      "finished_at_utc": "2026-10-26T14:00:38.6611312Z",
+      "fullstack_acceptance_passed": true,
+      "junit": {
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 144
+      },
+      "started_at_utc": "2026-10-26T13:19:37.7335109Z",
+      "tracked_input_count": 541,
+      "tracked_inputs_changed": 0
+    },
+    "tracked_configuration_sha256": {
+      "tools/deploy/compose.yaml": "5ac065a43b7368f3a7ef1076a40fb76c7b20611271d1f4fe79f55de956bbfdff",
+      "tools/deploy/compose.https.yaml": "5e93b240f30686f0760232b80cffcaae90315394727310f03e58c3bb11b845bd",
+      "tools/deploy/compose.observability.yaml": "dd9c43fa898ed31cde068bf398803c87b877f9f4ae11ecc12c2b666a8e026cbf",
+      "tools/deploy/nginx/gateway-entrypoint.sh": "11125ca69169f7311235c5dec84efe7c998256a45a629f695462a22c2ff520ce",
+      "tools/deploy/nginx/file-sink-observability.conf": "f5b285b02ba46f61985aad76125084677aee08ff397dbaafdc89ffdc1b084229",
+      "tools/deploy/nginx/https.conf": "cd9ad0f811029e6415156aac13b864e06888f750e021980ea82211de74b943f1",
+      "tools/deploy/nginx/nginx.conf": "335e73fc5edb7b2772c2fe72c801cd6962c8dd55c194acdea99596b5b89536ec",
+      "tools/deploy/nginx/proxy.conf": "26132d02a0f992369b068b6772f5dfdd54d8ca551df1217449e3c7d78f7ec3cb",
+      "tools/deploy/nginx/route-map.conf": "5029ba822424822596f06fa33bfe365dabf3fcb4087e5f72efc784c21b093e8c",
+      "tools/deploy/nginx/routes.conf": "12df4391146736c868745bda0c8a71488a481901a610f585324a0f35567986ec",
+      "tools/infra/alertmanager.yml": "9d3f56f5ea61aedc9d2233176bcb45f77729ada6770b14eefff2f9eab18fafc6",
+      "tools/infra/collector.Dockerfile": "e64cd3648895929e38949d4db9b95fb445e645e94dd9937da172802308fade19",
+      "tools/infra/grafana-dashboard-providers.yml": "7f72328ae089ee904ca9bcbc79505895c86cd540bf572724faaafadf9193addd",
+      "tools/infra/grafana-datasources.yml": "af02060fb68a250afe8d8bec03adfb623b36fed44227085efa06d571521fdd98",
+      "tools/infra/grafana/dashboards/api-errors.json": "c09258113e1cc32847e6970043399b7710f953f92661a72e8ed665660e0108d6",
+      "tools/infra/grafana/dashboards/db-pool.json": "4aa4d9ccfaade599a84055051657f5b74c09fab87e36a2e6b769eff0654f3182",
+      "tools/infra/grafana/dashboards/gateway.json": "e32ec2754c23699ef88b0ac64cd0906f41f4aa7915ec58e0abd578268ea7e45c",
+      "tools/infra/grafana/dashboards/telemetry-loss.json": "e2ed4b78c2767a8c233880963d2046db4a7feda45ab2b19a45a775a9e91a045b",
+      "tools/infra/grafana/dashboards/worker-progress.json": "295b669e5450d8c3d8f796cda067bfb17d508be80c522fd22178dc785b541ed6",
+      "tools/infra/images.lock.json": "3497ccf9b6021ddae7bd97bec89b9ba648abc2a2c21197def11c9a2dd01e149c",
+      "tools/infra/loki-rules/fake/gateway-sli.yml": "404e9022f2eefbb15dbf86628047c76e4555df397d11127511180ceebcc7c879",
+      "tools/infra/loki.yaml": "7d19f094b7455adb8ea9aa773bd50f1e5b87eaee8ad0cb013ff312287c8d01e7",
+      "tools/infra/otel-collector.yaml": "58471869a96a34aa49de781c1dbab76ccd6aae44aae27acac338332f106f1366",
+      "tools/infra/prometheus-rule-tests.yml": "1a8f0d5dc6beafacb0903363aa6afc116bd9dcc273abe70498875c52623e0db7",
+      "tools/infra/prometheus-rules.yml": "7a80fc943d3050b5e8826c0488b145f6570e57a5d394a388dce76fc032fb44c2",
+      "tools/infra/prometheus.yml": "022d41e544488537c7bf5a22467095fb6b82a7132e59f17083084333016f90e7",
+      "tools/infra/tempo.yaml": "738d99616758dcdc422f985ec51f0a8cc9a4d0bda8be5e3571d6fb70d90e7246"
+    }
+  },
+  "same_slot_worker_restart": {
+    "last_progress_retained": true,
+    "last_progress_series_matches": true,
+    "last_progress_timestamp_at_utc": "2026-10-26T13:53:51.433Z",
+    "last_successful_scan_retained": true,
+    "last_successful_scan_series_matches": true,
+    "last_successful_scan_timestamp_at_utc": "2026-10-26T13:53:51.433Z",
+    "new_owner_started_generation_pinned": true,
+    "previous_last_progress_timestamp_at_utc": "2026-10-26T13:53:51.433Z",
+    "previous_last_successful_scan_timestamp_at_utc": "2026-10-26T13:53:51.433Z",
+    "slot": "1",
+    "started_advanced": true,
+    "started_series_matches": true,
+    "started_unchanged": false
+  },
+  "schema": "prl-observability-runtime-evidence-v1",
+  "targets": {
+    "all_targets_up": true,
+    "counts_by_job_and_health": [
+      {
+        "count": 1,
+        "health": "up",
+        "job": "alertmanager-self"
+      },
+      {
+        "count": 1,
+        "health": "up",
+        "job": "api"
+      },
+      {
+        "count": 1,
+        "health": "up",
+        "job": "application-otel"
+      },
+      {
+        "count": 1,
+        "health": "up",
+        "job": "collector"
+      },
+      {
+        "count": 1,
+        "health": "up",
+        "job": "grafana-self"
+      },
+      {
+        "count": 1,
+        "health": "up",
+        "job": "local-alert-receiver"
+      },
+      {
+        "count": 1,
+        "health": "up",
+        "job": "loki-self"
+      },
+      {
+        "count": 1,
+        "health": "up",
+        "job": "prometheus-self"
+      },
+      {
+        "count": 1,
+        "health": "up",
+        "job": "tempo-self"
+      }
+    ]
+  }
+}

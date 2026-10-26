@@ -542,6 +542,8 @@ Sơ đồ mô tả topology local/demo hiện có: ứng dụng và toàn bộ e
 
 ### 8.2. Thu thập telemetry
 
+Runbook và bằng chứng nghiệm thu Issue #35: [hướng dẫn vận hành](../tasks/observability-runbook.md), [handoff và giới hạn](../tasks/observability-foundation.md).
+
 - API và worker gửi logs/traces qua OTLP đến Collector; stdout giữ log JSON để kiểm tra tại container.
 - Prometheus scrape metrics API tại `/metrics`. Metrics worker đi qua OTLP đến endpoint của Collector; mỗi nguồn chỉ có một đường thu thập.
 - Nginx ghi access log JSON vào volume mà Collector có quyền đọc.
@@ -578,7 +580,7 @@ Retention được cấu hình là 168 giờ cho Loki/Tempo và 14 ngày cho Pro
 
 ### 8.4. Ngân sách tài nguyên
 
-Compose demo đặt giới hạn cho 13 dịch vụ thường chạy tổng cộng 5.888 MiB; probe phụ trợ trong một số tác vụ kiểm tra tạm thời dùng thêm tối đa 128 MiB, tổng ngân sách 6.016 MiB. Spool gateway 64 MiB là bộ đệm volatile và đã được tính trong giới hạn gateway, không cộng lần thứ hai. Các giới hạn cụ thể nằm trong `tools/deploy/compose.yaml`, `compose.https.yaml` và `compose.observability.yaml`; sizing cần tính thêm hệ điều hành, Docker và tải thực tế.
+Envelope acceptance run 3 ghi cap bộ nhớ cấu hình tổng 5.888 MiB cho 13 dịch vụ Compose; đây là giới hạn, không phải mức sử dụng đo được. Một số bài integration test chạy operations probe tạm thời, cap 128 MiB trong cấu hình test và nằm ngoài envelope run 3. Spool gateway 64 MiB là bộ đệm volatile đã tính trong cap gateway. Giả định sizing là host demo 8 vCPU/16 GiB RAM, ít nhất 50 GiB trống và đồng hồ đồng bộ; run local không đo xác nhận các điều kiện này. Retention 168 giờ/14 ngày không phải quota volume; Compose không đặt giới hạn dung lượng named volume. Hãy tính thêm hệ điều hành, Docker và tải thực tế, đồng thời theo dõi disk usage.
 
 - Deadline request có giá trị khởi điểm 3 giây. Timeout query, chờ khóa và chờ pool phải nằm trong ngân sách này.
 - Retry deadlock có số lần giới hạn và dùng thời gian còn lại. Lock timeout phải rollback toàn bộ transaction.

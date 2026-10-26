@@ -1,5 +1,7 @@
 # Observability alert runbook
 
+Acceptance provenance, five dashboard captures and tested operating limits are in [the Issue #35 handoff](observability-foundation.md) and [sanitized runtime evidence](../evidence/observability-foundation/runtime-acceptance-run3.json). Treat empty windows as unknown and use the firing/recovery timelines only within the local synthetic test scope.
+
 This runbook uses the five provisioned Grafana dashboards and the safe telemetry fields emitted by the application, worker, gateway, and Collector. Use normalized routes, finite error codes, database pool gauges, worker slot, and trace links to find the failing component. Do not copy SQL statements, request bodies, consultation text, credentials, cookies, or headers into dashboards or incident notes.
 
 ## API HTTP error rate
@@ -55,7 +57,7 @@ A certificate file change does not reload a running Nginx process. Recreate only
 
 The checked-in configuration sets Loki and Tempo retention to 168 hours and Prometheus TSDB retention to 14 days. These are configured local volume retention values; the acceptance tests do not prove a full retention period, backup, or restore. The 64 MiB gateway log spool is tmpfs and volatile. Collector filelog offsets use a named volume and survive the tested graceful checkpoint/restart path, but offset checkpoint and downstream delivery are not an atomic exactly-once transaction. Do not promise durable spool or exactly-once delivery.
 
-The 13 steady Compose services have configured memory caps totaling 5,888 MiB. A transient 128 MiB acceptance probe brings the checked budget to 6,016 MiB. The 64 MiB spool is already included in the gateway service budget and must not be counted twice. These caps leave host and Docker overhead to be budgeted separately. See the current evidence report for the measured engine capacity; the local smoke is not a production load test.
+The run 3 envelope records configured memory caps totaling 5,888 MiB across 13 Compose services; these are limits, not measured utilization. Some integration tests start a temporary operations probe capped at 128 MiB in the test-only Compose configuration; it is outside the run 3 envelope. The 64 MiB spool is already included in the gateway service budget and must not be counted twice. Plan for an 8 vCPU/16 GiB host with at least 50 GiB free disk and synchronized clocks; the acceptance run did not measure those host conditions. Retention of 168 hours/14 days is not a volume quota, and Compose does not cap named-volume size. Budget OS/Docker overhead and monitor actual disk usage; this local smoke is not a production load test.
 
 ## Alert rules and first checks
 

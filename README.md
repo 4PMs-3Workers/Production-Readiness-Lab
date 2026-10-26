@@ -488,6 +488,10 @@ Xem [manifest đầy đủ, phân quyền DML và hướng dẫn xử lý lỗi]
 
 Bằng chứng nghiệm thu gồm cấu hình môi trường, commit/image digest, kết quả kiểm thử và bài tải, trace mẫu, trạng thái cảnh báo và timeline phục hồi.
 
+## Nền tảng observability (Issue #35)
+
+Cấu hình stack local/demo, các dashboard, bằng chứng nghiệm thu và giới hạn đã biết nằm trong [handoff observability](docs/tasks/observability-foundation.md). Dùng [runbook cảnh báo](docs/tasks/observability-runbook.md) cho truy vấn, TLS, redaction và quy trình recovery.
+
 ## Đóng góp
 
 Nền tảng xác thực backend (Issue #5) cung cấp `POST /api/v1/auth/login`,
