@@ -1731,6 +1731,7 @@ class FullStackRuntime:
         self.ops_host = "ops.example.invalid"
         self.app_origin = self.stack.origin
         self.ops_origin = f"https://{self.ops_host}:{self.port}"
+        self.last_worker_metric_query_diagnostic: dict[str, object] = {}
         self.app_cert, self.app_key = make_certificate(scratch, self.app_host)
         self.ops_cert, self.ops_key = make_certificate(scratch, self.ops_host)
         self.admin_user = "task6-admin"
@@ -2568,6 +2569,7 @@ class FullStackRuntime:
         for name in (
             "api",
             "worker",
+            "mysql",
             "frontend",
             "gateway",
             "collector",
@@ -2667,16 +2669,16 @@ class FullStackRuntime:
             }
         return result
 
-    def inspect_service(self, service: str) -> dict[str, object]:
+    def inspect_service(self, service: str, *, timeout: float = 180) -> dict[str, object]:
         identifiers = acceptance_success(
-            self.compose("ps", "-a", "-q", service),
+            self.compose("ps", "-a", "-q", service, timeout=timeout),
             f"The UUID-owned {service} container is missing",
         ).splitlines()
         if len(identifiers) != 1 or not re.fullmatch(r"[0-9a-f]{64}", identifiers[0]):
             raise AcceptanceFailure(f"The UUID-owned {service} container identity is invalid")
         identifier = identifiers[0]
         records = acceptance_json(
-            acceptance_invoke(["docker", "inspect", identifier]),
+            acceptance_invoke(["docker", "inspect", identifier], timeout=timeout),
             f"The UUID-owned {service} container could not be inspected",
         )
         if len(records) != 1 or (
@@ -2724,10 +2726,23 @@ class FullStackRuntime:
         ]
 
     def worker_metric_state(self):
+        self.last_worker_metric_query_diagnostic = {"query_stage": "metric_names"}
         response = self.api_json("http://prometheus:9090/api/v1/label/__name__/values")
+        api_status = response.get("status") if isinstance(response, dict) else None
+        self.last_worker_metric_query_diagnostic["api_status"] = (
+            api_status
+            if isinstance(api_status, str) and api_status in {"success", "error"}
+            else "invalid"
+        )
+        if api_status != "success":
+            raise AcceptanceFailure("Prometheus returned an unsuccessful worker metric-name query")
+        metric_names = response.get("data")
+        if not isinstance(metric_names, list):
+            self.last_worker_metric_query_diagnostic["api_status"] = "invalid"
+            raise AcceptanceFailure("Prometheus returned an invalid worker metric-name response")
         names = sorted(
             name
-            for name in response.get("data", [])
+            for name in metric_names
             if isinstance(name, str) and name.startswith("prl_worker_")
         )
         roles = {
@@ -2743,31 +2758,75 @@ class FullStackRuntime:
             for role, fragment in roles.items()
         }
         selected = {role: name for role, name in selected.items() if name}
+        self.last_worker_metric_query_diagnostic = {
+            "query_stage": "metric_series",
+            "selected_roles": sorted(selected),
+            "candidate_counts": {},
+            "sample_roles": [],
+            "sample_timestamps": {},
+            "finite_sample_timestamp_roles": [],
+            "invalid_sample_timestamp_roles": [],
+            "finite_value_roles": [],
+            "nonfinite_value_roles": [],
+            "invalid_sample_roles": [],
+            "ambiguous_roles": [],
+        }
         state = {}
         for role, metric_name in selected.items():
+            self.last_worker_metric_query_diagnostic["query_role"] = role
             response = self.api_json(
                 "http://prometheus:9090/api/v1/query?" + urlencode({"query": metric_name})
             )
-            samples = response.get("data", {}).get("result", [])
-            candidates = [
-                sample
-                for sample in samples
-                if sample.get("metric", {}).get("service_name") == "worker"
-                and sample.get("metric", {}).get("deployment_environment_name") == "demo"
-                and sample.get("metric", {}).get("worker_slot") == "1"
-            ]
+            api_status = response.get("status") if isinstance(response, dict) else None
+            self.last_worker_metric_query_diagnostic["api_status"] = (
+                api_status
+                if isinstance(api_status, str) and api_status in {"success", "error"}
+                else "invalid"
+            )
+            if api_status != "success":
+                raise AcceptanceFailure("Prometheus returned an unsuccessful worker metric query")
+            metric_data = response.get("data")
+            samples = metric_data.get("result") if isinstance(metric_data, dict) else None
+            if not isinstance(samples, list):
+                self.last_worker_metric_query_diagnostic["api_status"] = "invalid"
+                raise AcceptanceFailure("Prometheus returned an invalid worker metric response")
+            candidates = []
+            for sample in samples:
+                if not isinstance(sample, dict):
+                    continue
+                labels = sample.get("metric")
+                if not isinstance(labels, dict):
+                    continue
+                if (
+                    labels.get("service_name") == "worker"
+                    and labels.get("deployment_environment_name") == "demo"
+                    and labels.get("worker_slot") == "1"
+                ):
+                    candidates.append(sample)
+            candidate_counts = self.last_worker_metric_query_diagnostic["candidate_counts"]
+            if isinstance(candidate_counts, dict):
+                candidate_counts[role] = len(candidates)
             if len(candidates) > 1:
+                ambiguous_roles = self.last_worker_metric_query_diagnostic["ambiguous_roles"]
+                if isinstance(ambiguous_roles, list):
+                    ambiguous_roles.append(role)
                 raise AcceptanceFailure(
                     f"Prometheus returned multiple worker series for the {role} metric"
                 )
             if candidates:
                 sample_value = candidates[0].get("value")
                 if not isinstance(sample_value, list) or len(sample_value) != 2:
+                    invalid_roles = self.last_worker_metric_query_diagnostic["invalid_sample_roles"]
+                    if isinstance(invalid_roles, list):
+                        invalid_roles.append(role)
                     continue
                 try:
                     sample_timestamp = float(sample_value[0])
                     value = float(sample_value[1])
                 except (TypeError, ValueError):
+                    invalid_roles = self.last_worker_metric_query_diagnostic["invalid_sample_roles"]
+                    if isinstance(invalid_roles, list):
+                        invalid_roles.append(role)
                     continue
                 state[role] = {
                     "name": metric_name,
@@ -2775,6 +2834,34 @@ class FullStackRuntime:
                     "sample_timestamp": sample_timestamp,
                     "value": value,
                 }
+                sample_roles = self.last_worker_metric_query_diagnostic["sample_roles"]
+                if isinstance(sample_roles, list):
+                    sample_roles.append(role)
+                sample_timestamps = self.last_worker_metric_query_diagnostic["sample_timestamps"]
+                if (
+                    math.isfinite(sample_timestamp)
+                    and 0 < sample_timestamp < 10_000_000_000
+                    and isinstance(sample_timestamps, dict)
+                ):
+                    sample_timestamps[role] = sample_timestamp
+                    finite_timestamp_roles = self.last_worker_metric_query_diagnostic[
+                        "finite_sample_timestamp_roles"
+                    ]
+                    if isinstance(finite_timestamp_roles, list):
+                        finite_timestamp_roles.append(role)
+                else:
+                    invalid_timestamp_roles = self.last_worker_metric_query_diagnostic[
+                        "invalid_sample_timestamp_roles"
+                    ]
+                    if isinstance(invalid_timestamp_roles, list):
+                        invalid_timestamp_roles.append(role)
+                numeric_roles = self.last_worker_metric_query_diagnostic[
+                    "finite_value_roles" if math.isfinite(value) else "nonfinite_value_roles"
+                ]
+                if isinstance(numeric_roles, list):
+                    numeric_roles.append(role)
+        self.last_worker_metric_query_diagnostic["available_roles"] = sorted(state)
+        self.last_worker_metric_query_diagnostic["query_stage"] = "complete"
         return selected, state
 
     @staticmethod
@@ -2844,6 +2931,7 @@ class FullStackRuntime:
                 and started is not None
                 and started > previous_started
             ),
+            "started_series_matches": started_series_matches,
             "started_unchanged": (
                 started_series_matches
                 and previous_started is not None
@@ -4915,11 +5003,74 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                 "The new worker owner changed container identity or UUID ownership"
             )
         new_state: dict[str, dict[str, object]] = {}
+        restart_metric_polls = 0
+        restart_metric_poll_failures: Counter[str] = Counter()
 
         def observed_restart() -> bool:
-            nonlocal new_state
-            _names, new_state = runtime.worker_metric_state()
+            nonlocal new_state, restart_metric_polls
+            restart_metric_polls += 1
+            try:
+                _names, new_state = runtime.worker_metric_state()
+            except AcceptanceFailure as exc:
+                restart_metric_poll_failures["acceptance_failure"] += 1
+                ambiguous_role = re.fullmatch(
+                    r"Prometheus returned multiple worker series for the ([a-z_]+) metric",
+                    str(exc),
+                )
+                if ambiguous_role:
+                    restart_metric_poll_failures["multiple_worker_series"] += 1
+                worker_restart_context["latest_metric_poll"] = {
+                    "poll_count": restart_metric_polls,
+                    "poll_failure_counts": dict(restart_metric_poll_failures),
+                    "query_available": False,
+                    "failure_category": (
+                        "multiple_worker_series" if ambiguous_role else "acceptance_failure"
+                    ),
+                    "ambiguous_metric_role": ambiguous_role.group(1) if ambiguous_role else None,
+                    "query_diagnostic": runtime.last_worker_metric_query_diagnostic,
+                }
+                return False
+            except (OSError, ValueError) as exc:
+                restart_metric_poll_failures[type(exc).__name__] += 1
+                worker_restart_context["latest_metric_poll"] = {
+                    "poll_count": restart_metric_polls,
+                    "poll_failure_counts": dict(restart_metric_poll_failures),
+                    "query_available": False,
+                    "failure_category": type(exc).__name__,
+                    "query_diagnostic": runtime.last_worker_metric_query_diagnostic,
+                }
+                return False
             started_at = _worker_metric_value(new_state, "started")
+            poll_summary = runtime.worker_restart_observation_summary(stopped_baseline, new_state)
+            worker_restart_context["latest_metric_poll"] = {
+                "poll_count": restart_metric_polls,
+                "poll_failure_counts": dict(restart_metric_poll_failures),
+                "query_available": True,
+                "query_diagnostic": runtime.last_worker_metric_query_diagnostic,
+                "available_roles": sorted(new_state),
+                "started_advanced": poll_summary.get("started_advanced") is True,
+                "series_identity_matches": (poll_summary.get("series_identity_matches") is True),
+                "started_series_matches": poll_summary.get("started_series_matches") is True,
+                "last_successful_scan_series_matches": (
+                    poll_summary.get("last_successful_scan_series_matches") is True
+                ),
+                "last_progress_series_matches": (
+                    poll_summary.get("last_progress_series_matches") is True
+                ),
+                "last_successful_scan_retained": (
+                    poll_summary.get("last_successful_scan_retained") is True
+                ),
+                "last_progress_retained": poll_summary.get("last_progress_retained") is True,
+                "successful_scans_available": "successful_scans" in new_state,
+                "latest_values": {
+                    name: poll_summary.get(name)
+                    for name in (
+                        "started_timestamp_seconds",
+                        "last_successful_scan_timestamp_seconds",
+                        "last_progress_timestamp_seconds",
+                    )
+                },
+            }
             return (
                 started_at is not None
                 and started_at > old_started
@@ -4928,11 +5079,105 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                 and "successful_scans" in new_state
             )
 
-        runtime.stack.wait_for(
-            observed_restart,
-            seconds=45,
-            failure="The new worker start and cached same-slot points were not observed",
-        )
+        try:
+            runtime.stack.wait_for(
+                observed_restart,
+                seconds=45,
+                failure="The new worker start and cached same-slot points were not observed",
+            )
+        except AcceptanceFailure:
+            try:
+                worker_at_timeout = runtime.inspect_service("worker", timeout=10)
+                mysql_at_timeout = runtime.inspect_service("mysql", timeout=10)
+                worker_timeout_state = _object_mapping(worker_at_timeout.get("State"))
+                mysql_timeout_state = _object_mapping(mysql_at_timeout.get("State"))
+                worker_restart_context["container_state_at_timeout"] = {
+                    "worker_same_container_running": (
+                        worker_at_timeout.get("Id") == worker_container_id
+                        and worker_timeout_state.get("Status") == "running"
+                    ),
+                    "mysql_same_container_exited": (
+                        mysql_at_timeout.get("Id") == mysql_container_id
+                        and mysql_timeout_state.get("Status") == "exited"
+                    ),
+                    "worker_status": worker_timeout_state.get("Status"),
+                    "mysql_status": mysql_timeout_state.get("Status"),
+                    "worker_restart_count": worker_at_timeout.get("RestartCount"),
+                    "mysql_restart_count": mysql_at_timeout.get("RestartCount"),
+                }
+            except Exception as exc:
+                worker_restart_context["container_state_at_timeout"] = {
+                    "available": False,
+                    "inspection_error_category": type(exc).__name__,
+                }
+            try:
+                worker_records = runtime.stack.worker_records()
+                latest_record = next(
+                    (record for record in reversed(worker_records) if isinstance(record, dict)),
+                    None,
+                )
+                if latest_record is None:
+                    worker_restart_context["worker_log_state_at_timeout"] = {
+                        "available": True,
+                        "record_present": False,
+                    }
+                else:
+                    worker_id_value = latest_record.get("worker_id")
+                    valid_worker_id = (
+                        worker_id_value
+                        if isinstance(worker_id_value, str)
+                        and re.fullmatch(r"[0-9a-f]{32}", worker_id_value)
+                        else None
+                    )
+                    event_value = latest_record.get("event")
+                    phase_value = latest_record.get("phase")
+                    scans_value = latest_record.get("successful_scans")
+                    worker_restart_context["worker_log_state_at_timeout"] = {
+                        "available": True,
+                        "record_present": True,
+                        "event_class": (
+                            event_value
+                            if isinstance(event_value, str)
+                            and event_value
+                            in {
+                                "starting",
+                                "heartbeat",
+                                "scan",
+                                "candidate",
+                                "ready",
+                                "stopped",
+                                "fatal",
+                            }
+                            else "other"
+                        ),
+                        "phase": (
+                            phase_value
+                            if isinstance(phase_value, str)
+                            and re.fullmatch(r"[a-z_]{1,24}", phase_value)
+                            else "other"
+                        ),
+                        "database_ok": (
+                            latest_record.get("database_ok")
+                            if type(latest_record.get("database_ok")) is bool
+                            else None
+                        ),
+                        "successful_scans": (
+                            scans_value
+                            if type(scans_value) is int and 0 <= scans_value <= 1_000_000_000
+                            else None
+                        ),
+                        "worker_identity_changed": (
+                            valid_worker_id != old_owner_progress.worker_id
+                            if valid_worker_id is not None
+                            else None
+                        ),
+                    }
+            except Exception as exc:
+                worker_restart_context["worker_log_state_at_timeout"] = {
+                    "available": False,
+                    "error_category": type(exc).__name__,
+                }
+            raise
         restart_summary = runtime.worker_restart_observation_summary(stopped_baseline, new_state)
         failure_context["worker_restart_observations"] = restart_summary
         if not runtime.worker_restart_retained_prior_points(restart_summary):

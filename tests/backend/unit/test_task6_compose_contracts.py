@@ -997,6 +997,7 @@ def test_worker_restart_retention_requires_same_series_and_unchanged_db_points()
         "previous_started_timestamp_seconds": 90.0,
         "started_timestamp_seconds": 100.0,
         "started_advanced": True,
+        "started_series_matches": True,
         "started_unchanged": False,
         "previous_last_successful_scan_timestamp_seconds": 110.0,
         "last_successful_scan_timestamp_seconds": 110.0,
@@ -1081,6 +1082,61 @@ def test_worker_restart_retention_requires_same_series_and_unchanged_db_points()
             )
             is False
         )
+
+
+def test_worker_metric_state_records_ambiguous_role_counts_without_labels():
+    runtime = object.__new__(telemetry_stack.FullStackRuntime)
+    identity = {
+        "service_name": "worker",
+        "deployment_environment_name": "demo",
+        "worker_slot": "1",
+    }
+    responses = iter(
+        (
+            {"status": "success", "data": ["prl_worker_started_timestamp_seconds"]},
+            {
+                "status": "success",
+                "data": {
+                    "result": [
+                        {
+                            "metric": {**identity, "instance": "worker-a"},
+                            "value": [1_793_010_965.0, "1.0"],
+                        },
+                        {
+                            "metric": {**identity, "instance": "worker-b"},
+                            "value": [1_793_010_965.0, "1.0"],
+                        },
+                    ]
+                },
+            },
+        )
+    )
+    runtime.api_json = cast(Any, lambda _url: next(responses))
+
+    with pytest.raises(telemetry_stack.AcceptanceFailure, match="multiple worker series"):
+        runtime.worker_metric_state()
+
+    assert runtime.last_worker_metric_query_diagnostic["candidate_counts"] == {"started": 2}
+    assert runtime.last_worker_metric_query_diagnostic["ambiguous_roles"] == ["started"]
+    assert "worker-a" not in str(runtime.last_worker_metric_query_diagnostic)
+    assert "worker-b" not in str(runtime.last_worker_metric_query_diagnostic)
+
+
+def test_worker_metric_state_records_prometheus_error_status_without_error_text():
+    runtime = object.__new__(telemetry_stack.FullStackRuntime)
+    runtime.api_json = cast(
+        Any,
+        lambda _url: {"status": "error", "error": "private query details"},
+    )
+
+    with pytest.raises(telemetry_stack.AcceptanceFailure, match="unsuccessful worker metric-name"):
+        runtime.worker_metric_state()
+
+    assert runtime.last_worker_metric_query_diagnostic == {
+        "query_stage": "metric_names",
+        "api_status": "error",
+    }
+    assert "private query details" not in str(runtime.last_worker_metric_query_diagnostic)
 
 
 def test_loki_index_summary_uses_series_endpoint_and_keeps_ids_private():
