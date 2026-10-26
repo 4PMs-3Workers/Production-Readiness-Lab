@@ -12,6 +12,7 @@ import socket
 import ssl
 import subprocess
 import time
+from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -434,6 +435,159 @@ def receiver_health_is_passed(summary: dict[str, object]) -> bool:
         and type(summary.get("unknown_unhealthy_count")) is int
         and summary.get("unknown_unhealthy_count") == 0
     )
+
+
+def _receiver_status_key(item: dict[str, str]) -> tuple[str, str, str] | None:
+    status = item.get("status")
+    severity = item.get("severity")
+    received_at = item.get("received_at")
+    if not all(isinstance(value, str) for value in (status, severity, received_at)):
+        return None
+    return status, severity, received_at
+
+
+def new_alert_statuses_since_snapshot(
+    baseline: list[dict[str, str]],
+    current: list[dict[str, str]],
+    *,
+    status: str,
+    severity: str,
+) -> list[dict[str, str]]:
+    """Return matching receiver summaries newly present after the saved snapshot."""
+    baseline_counts = Counter(
+        key for item in baseline if (key := _receiver_status_key(item)) is not None
+    )
+    new_records: list[dict[str, str]] = []
+    for item in current:
+        key = _receiver_status_key(item)
+        if key is None or key[:2] != (status, severity):
+            continue
+        if baseline_counts[key] > 0:
+            baseline_counts[key] -= 1
+        else:
+            new_records.append(item)
+    return new_records
+
+
+def gateway_sli_firing_truth_table_is_active(
+    successful_requests: float | None,
+    fast_successful_requests: float | None,
+    fast_success_ratio: float | None,
+    exact_alert_predicate: float | None,
+) -> bool:
+    return (
+        successful_requests is not None
+        and successful_requests >= 20
+        and fast_successful_requests is not None
+        and fast_success_ratio is not None
+        and fast_success_ratio < 0.95
+        and exact_alert_predicate is not None
+    )
+
+
+def test_alert_receiver_status_summary_preserves_safe_received_at(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = FullStackRuntime.__new__(FullStackRuntime)
+    received_at = "2026-10-26T10:00:00.000Z"
+    monkeypatch.setattr(
+        runtime,
+        "api_json",
+        lambda _url: {
+            "alerts": [
+                {
+                    "alertname": "GatewayFastSuccessBelowSLO",
+                    "severity": "warning",
+                    "status": "firing",
+                    "received_at": received_at,
+                }
+            ]
+        },
+    )
+
+    assert runtime.alert_receiver_statuses("GatewayFastSuccessBelowSLO") == [
+        {"status": "firing", "severity": "warning", "received_at": received_at}
+    ]
+
+
+def test_new_firing_delivery_requires_record_after_receiver_snapshot() -> None:
+    stale = {
+        "status": "firing",
+        "severity": "warning",
+        "received_at": "2026-10-26T10:00:00.000Z",
+    }
+    fresh = {
+        "status": "firing",
+        "severity": "warning",
+        "received_at": "2026-10-26T10:02:00.000Z",
+    }
+    baseline = [stale]
+
+    assert (
+        new_alert_statuses_since_snapshot(baseline, [stale], status="firing", severity="warning")
+        == []
+    )
+    assert new_alert_statuses_since_snapshot(
+        baseline, [stale, fresh], status="firing", severity="warning"
+    ) == [fresh]
+    assert (
+        new_alert_statuses_since_snapshot(
+            baseline,
+            [
+                stale,
+                {
+                    "status": "resolved",
+                    "severity": "warning",
+                    "received_at": "2026-10-26T10:02:00.000Z",
+                },
+            ],
+            status="firing",
+            severity="warning",
+        )
+        == []
+    )
+
+
+def test_new_resolved_delivery_requires_record_after_recovery_snapshot() -> None:
+    stale = {
+        "status": "resolved",
+        "severity": "warning",
+        "received_at": "2026-10-26T10:00:00.000Z",
+    }
+    fresh = {
+        "status": "resolved",
+        "severity": "warning",
+        "received_at": "2026-10-26T10:03:00.000Z",
+    }
+    baseline = [stale]
+
+    assert (
+        new_alert_statuses_since_snapshot(baseline, [stale], status="resolved", severity="warning")
+        == []
+    )
+    assert new_alert_statuses_since_snapshot(
+        baseline, [stale, fresh], status="resolved", severity="warning"
+    ) == [fresh]
+    assert (
+        new_alert_statuses_since_snapshot(
+            baseline,
+            [
+                {
+                    "status": "firing",
+                    "severity": "warning",
+                    "received_at": "2026-10-26T10:03:00.000Z",
+                }
+            ],
+            status="resolved",
+            severity="warning",
+        )
+        == []
+    )
+
+
+def test_gateway_sli_firing_snapshot_rejects_subthreshold_values() -> None:
+    assert gateway_sli_firing_truth_table_is_active(19.0, 19.0, 1.0, None) is False
+    assert gateway_sli_firing_truth_table_is_active(20.0, 18.0, 0.9, 0.9) is True
 
 
 def safe_receiver_component_summary(observation: dict[str, object]) -> dict[str, object]:
@@ -1932,17 +2086,29 @@ class FullStackRuntime:
 
     def alert_receiver_statuses(self, name: str) -> list[dict[str, str]]:
         records = self.api_json("http://local_alert_receiver:8088/alerts").get("alerts", [])
-        matching = [
-            {"status": item["status"], "severity": item["severity"]}
-            for item in records
-            if isinstance(item, dict) and item.get("alertname") == name
-        ]
+        matching: list[dict[str, str]] = []
+        for item in records:
+            if not isinstance(item, dict) or item.get("alertname") != name:
+                continue
+            status = item.get("status")
+            severity = item.get("severity")
+            received_at = item.get("received_at")
+            if not all(isinstance(value, str) for value in (status, severity, received_at)):
+                raise AcceptanceFailure("The local receiver returned an invalid rule alert summary")
+            matching.append({"status": status, "severity": severity, "received_at": received_at})
         if any(
             item["status"] not in {"firing", "resolved"}
             or item["severity"] not in {"critical", "warning", "info"}
             for item in matching
         ):
             raise AcceptanceFailure("The local receiver returned an invalid rule alert summary")
+        for item in matching:
+            try:
+                datetime.fromisoformat(item["received_at"].replace("Z", "+00:00"))
+            except ValueError:
+                raise AcceptanceFailure(
+                    "The local receiver returned an invalid alert receipt timestamp"
+                ) from None
         return matching
 
     def worker_dashboard_metric_inventory(self) -> dict[str, object]:
@@ -3702,7 +3868,6 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         evidence["ops_host_binding"] = {"host_ip": "127.0.0.1", "host_port": runtime.port}
         evidence["target_matrix"] = runtime.wait_targets()
         failure_context["stage"] = "gateway_sli_queries_against_pinned_loki"
-        evidence["gateway_sli_truth_table"] = runtime.gateway_sli_truth_table()
         expected_backend_image = "prl-backend:" + runtime.stack.image_tag
         expected_frontend_image = "prl-frontend:" + runtime.stack.image_tag
         api_config = _object_mapping(runtime.inspect_service("api").get("Config"))
@@ -4341,23 +4506,6 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         evidence["receiver_self_health"] = health
 
         failure_context["stage"] = "gateway_rule_notification_firing"
-
-        def gateway_rule_firing_received() -> bool:
-            return any(
-                item["status"] == "firing" and item["severity"] == "warning"
-                for item in runtime.alert_receiver_statuses("GatewayFastSuccessBelowSLO")
-            )
-
-        runtime.stack.wait_for(
-            gateway_rule_firing_received,
-            seconds=180,
-            failure="The pinned Loki ruler did not deliver the real gateway SLI alert",
-        )
-        evidence["gateway_rule_firing"] = {
-            "alertname": "GatewayFastSuccessBelowSLO",
-            "status": "firing",
-        }
-
         rules_document = yaml.safe_load(
             (ROOT / "tools/infra/loki-rules/fake/gateway-sli.yml").read_text(encoding="utf-8")
         )
@@ -4376,25 +4524,89 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         success_expression = recordings["prl:gateway_successful_requests:sum5m"]
         fast_count_expression = recordings["prl:gateway_fast_successful_requests:sum5m"]
         ratio_expression = recordings["prl:gateway_fast_success:ratio5m"]
-        success_count = runtime.loki_scalar(success_expression)
-        fast_count = runtime.loki_scalar(fast_count_expression)
-        current_ratio = runtime.loki_scalar(ratio_expression)
-        current_predicate = runtime.loki_scalar(alert_expression)
-        evidence["gateway_rule_pre_recovery_query"] = {
-            "successful_requests": success_count,
-            "fast_successful_requests": fast_count,
-            "fast_success_ratio": current_ratio,
-            "exact_alert_predicate": current_predicate,
+
+        firing_receiver_baseline = runtime.alert_receiver_statuses("GatewayFastSuccessBelowSLO")
+        fresh_slow_event_count = 100
+        firing_fixture_push_started_at = (
+            datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        )
+        runtime.push_gateway_json_logs(
+            [
+                {
+                    "event": "gateway.request",
+                    "classification": "success",
+                    "route": "/__task8_fresh_all_slow",
+                    "duration_seconds": 0.75,
+                }
+                for _ in range(fresh_slow_event_count)
+            ]
+        )
+        evidence["gateway_rule_firing_fixture"] = {
+            "push_started_at_utc": firing_fixture_push_started_at,
+            "successful_events": fresh_slow_event_count,
+            "duration_seconds": 0.75,
         }
+
+        firing_snapshot: dict[str, float | None] = {}
+        firing_snapshot_refreshed_at = 0.0
+        fresh_firing_delivery: dict[str, str] | None = None
+
+        def gateway_rule_firing_received() -> bool:
+            nonlocal firing_snapshot, firing_snapshot_refreshed_at, fresh_firing_delivery
+            now = time.monotonic()
+            if now - firing_snapshot_refreshed_at >= 5 or not firing_snapshot:
+                firing_snapshot = {
+                    "successful_requests": runtime.loki_scalar(success_expression),
+                    "fast_successful_requests": runtime.loki_scalar(fast_count_expression),
+                    "fast_success_ratio": runtime.loki_scalar(ratio_expression),
+                    "exact_alert_predicate": runtime.loki_scalar(alert_expression),
+                }
+                firing_snapshot_refreshed_at = now
+                evidence["gateway_rule_pre_recovery_query"] = firing_snapshot
+            if not gateway_sli_firing_truth_table_is_active(
+                firing_snapshot["successful_requests"],
+                firing_snapshot["fast_successful_requests"],
+                firing_snapshot["fast_success_ratio"],
+                firing_snapshot["exact_alert_predicate"],
+            ):
+                return False
+            current_statuses = runtime.alert_receiver_statuses("GatewayFastSuccessBelowSLO")
+            new_firing_records = new_alert_statuses_since_snapshot(
+                firing_receiver_baseline,
+                current_statuses,
+                status="firing",
+                severity="warning",
+            )
+            if not new_firing_records:
+                return False
+            fresh_firing_delivery = new_firing_records[0]
+            evidence["gateway_rule_firing_delivery"] = fresh_firing_delivery
+            return True
+
+        runtime.stack.wait_for(
+            gateway_rule_firing_received,
+            seconds=180,
+            failure="The pinned Loki ruler did not deliver a fresh gateway SLI firing alert",
+        )
+        evidence["gateway_rule_firing"] = {
+            "alertname": "GatewayFastSuccessBelowSLO",
+            "status": "firing",
+            "receiver_delivery": fresh_firing_delivery,
+            "fresh_successful_events": fresh_slow_event_count,
+            "fixture_push_started_at_utc": firing_fixture_push_started_at,
+        }
+
+        success_count = firing_snapshot["successful_requests"]
+        fast_count = firing_snapshot["fast_successful_requests"]
+        current_ratio = firing_snapshot["fast_success_ratio"]
+        current_predicate = firing_snapshot["exact_alert_predicate"]
         if (
             success_count is None
-            or success_count < 20
             or fast_count is None
             or current_ratio is None
-            or current_ratio >= 0.95
             or current_predicate is None
         ):
-            raise AcceptanceFailure("The live gateway SLI did not meet the firing truth table")
+            raise AcceptanceFailure("The live gateway SLI firing snapshot is incomplete")
         healthy_needed = math.floor(max(0.0, 0.95 * success_count - fast_count) / 0.05) + 101
         if not 1 <= healthy_needed <= 5000:
             raise AcceptanceFailure("The calculated bounded recovery fixture exceeded its cap")
@@ -4407,7 +4619,16 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             }
             for _ in range(healthy_needed)
         ]
+        recovery_receiver_baseline = runtime.alert_receiver_statuses("GatewayFastSuccessBelowSLO")
+        recovery_fixture_push_started_at = (
+            datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        )
         runtime.push_gateway_json_logs(recovery_events)
+        evidence["gateway_rule_recovery_fixture"] = {
+            "push_started_at_utc": recovery_fixture_push_started_at,
+            "successful_events": healthy_needed,
+            "duration_seconds": 0.2,
+        }
         recovered_success_count = runtime.loki_scalar(success_expression)
         recovered_fast_count = runtime.loki_scalar(fast_count_expression)
         recovered_ratio = runtime.loki_scalar(ratio_expression)
@@ -4429,11 +4650,22 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             raise AcceptanceFailure("The recovery fixture did not clear the live gateway SLI")
         failure_context["stage"] = "gateway_rule_notification_resolved"
 
+        fresh_resolved_delivery: dict[str, str] | None = None
+
         def gateway_rule_resolved_received() -> bool:
-            return any(
-                item["status"] == "resolved" and item["severity"] == "warning"
-                for item in runtime.alert_receiver_statuses("GatewayFastSuccessBelowSLO")
+            nonlocal fresh_resolved_delivery
+            current_statuses = runtime.alert_receiver_statuses("GatewayFastSuccessBelowSLO")
+            new_resolved_records = new_alert_statuses_since_snapshot(
+                recovery_receiver_baseline,
+                current_statuses,
+                status="resolved",
+                severity="warning",
             )
+            if not new_resolved_records:
+                return False
+            fresh_resolved_delivery = new_resolved_records[0]
+            evidence["gateway_rule_resolved_delivery"] = fresh_resolved_delivery
+            return True
 
         runtime.stack.wait_for(
             gateway_rule_resolved_received,
@@ -4445,7 +4677,10 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             "status": "resolved",
             "healthy_success_events": len(recovery_events),
             "observed_recovery_ratio": recovered_ratio,
+            "fixture_push_started_at_utc": recovery_fixture_push_started_at,
+            "receiver_delivery": fresh_resolved_delivery,
         }
+        evidence["gateway_sli_truth_table"] = runtime.gateway_sli_truth_table()
         evidence["alert_summaries"] = runtime.synthetic_alert_summaries()
 
         health_logs = []
