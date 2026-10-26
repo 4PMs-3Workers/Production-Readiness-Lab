@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from http.cookies import SimpleCookie
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Literal
 from urllib.parse import urlencode
 from uuid import UUID, uuid4
@@ -21,6 +22,7 @@ from uuid import UUID, uuid4
 import pytest
 import yaml
 from tests.containers.test_compose_acceptance import AcceptanceFailure
+from tools.deploy.worker_status import WorkerProgress, WorkerProgressTracker, latest_worker_progress
 
 ROOT = Path(__file__).resolve().parents[2]
 pytestmark = pytest.mark.skipif(
@@ -468,6 +470,69 @@ class LiveBusinessProbe:
             "notification_count": sum(notice_counts.values()),
         }
 
+    def _set_expiry_due_window(self, proposal_id: str) -> float:
+        proposal = str(UUID(proposal_id))
+        sql_id = f"UNHEX(REPLACE('{proposal}', '-', ''))"
+        lines = (
+            self.runtime.stack.sql(
+                "SET time_zone = '+00:00';\n"
+                "SET @task8_expiry_now := UTC_TIMESTAMP(6);\n"
+                "UPDATE change_proposals SET expires_at = "
+                "TIMESTAMPADD(SECOND, 2, @task8_expiry_now) "
+                f"WHERE id = {sql_id} AND status = 'PENDING';\n"
+                "SELECT ROW_COUNT();\n"
+                "SELECT TIMESTAMPDIFF(MICROSECOND, UTC_TIMESTAMP(6), expires_at) / 1000000, "
+                "expires_at > created_at "
+                f"FROM change_proposals WHERE id = {sql_id};"
+            )
+            .strip()
+            .splitlines()
+        )
+        if len(lines) != 2 or lines[0] != "1":
+            raise AcceptanceFailure("The bounded expiry fixture was not updated exactly once")
+        measurement = lines[1].split("\t")
+        if len(measurement) != 2 or measurement[1] != "1":
+            raise AcceptanceFailure("The expiry fixture did not preserve its data check")
+        try:
+            due_seconds = float(measurement[0])
+        except ValueError:
+            raise AcceptanceFailure("The due expiry timestamp could not be measured") from None
+        if not 0 < due_seconds <= 2.1:
+            raise AcceptanceFailure("The worker expiry fixture was outside its bounded due window")
+        return due_seconds
+
+    def _wait_for_later_worker_scan(self) -> tuple[WorkerProgress, WorkerProgress]:
+        deadline = time.monotonic() + 45
+        baseline: WorkerProgress | None = None
+        tracker = WorkerProgressTracker()
+        while time.monotonic() < deadline:
+            progress = latest_worker_progress(
+                self.runtime.stack.worker_log_output(), require_heartbeat=False
+            )
+            if progress is not None:
+                baseline = progress
+                tracker.observe(progress, running=True)
+                break
+            time.sleep(0.5)
+        if baseline is None:
+            raise AcceptanceFailure("The running worker did not report a healthy scan baseline")
+
+        while time.monotonic() < deadline:
+            progress = latest_worker_progress(
+                self.runtime.stack.worker_log_output(), require_heartbeat=False
+            )
+            if progress is None:
+                time.sleep(0.5)
+                continue
+            if progress.worker_id != baseline.worker_id:
+                raise AcceptanceFailure(
+                    "The worker process changed during the expiry follow-up scan"
+                )
+            if tracker.observe(progress, running=True):
+                return baseline, progress
+            time.sleep(0.5)
+        raise AcceptanceFailure("The same worker process did not complete a later successful scan")
+
     def _expire_through_worker(self, appointment_id: str, proposal_id: str) -> dict[str, object]:
         worker_before = self.runtime.inspect_service("worker")
         worker_id = worker_before.get("Id")
@@ -491,27 +556,7 @@ class LiveBusinessProbe:
             raise AcceptanceFailure("The stopped expiry worker lost UUID ownership")
         proposal = str(UUID(proposal_id))
         sql_id = f"UNHEX(REPLACE('{proposal}', '-', ''))"
-        updated = (
-            self.runtime.stack.sql(
-                "UPDATE change_proposals SET expires_at = created_at + INTERVAL 2 SECOND "
-                f"WHERE id = {sql_id} AND status = 'PENDING';\nSELECT ROW_COUNT();"
-            )
-            .strip()
-            .splitlines()[-1]
-        )
-        if updated != "1":
-            raise AcceptanceFailure("The bounded expiry fixture was not updated exactly once")
-        try:
-            due_seconds = float(
-                self.runtime.stack.sql(
-                    "SELECT TIMESTAMPDIFF(MICROSECOND, UTC_TIMESTAMP(6), expires_at) / 1000000 "
-                    f"FROM change_proposals WHERE id = {sql_id};"
-                ).strip()
-            )
-        except ValueError:
-            raise AcceptanceFailure("The due expiry timestamp could not be measured") from None
-        if not 0 < due_seconds <= 2.1:
-            raise AcceptanceFailure("The worker expiry fixture was outside its bounded due window")
+        due_seconds = self._set_expiry_due_window(proposal_id)
         time.sleep(due_seconds + 0.2)
         before_restart = self.runtime.stack.sql(
             "SELECT CONCAT(cp.status, ':', a.status) "
@@ -539,7 +584,7 @@ class LiveBusinessProbe:
         if transition is None:
             raise AcceptanceFailure("The actual worker did not process the persisted expiry")
         effects = self._business_side_effects(appointment_id, proposal_id, expired=True)
-        time.sleep(1.5)
+        before_followup_scan, after_followup_scan = self._wait_for_later_worker_scan()
         if self._business_side_effects(appointment_id, proposal_id, expired=True) != effects:
             raise AcceptanceFailure("A later worker scan duplicated the expiry side effects")
         worker_after = self.runtime.inspect_service("worker")
@@ -549,10 +594,15 @@ class LiveBusinessProbe:
         ):
             raise AcceptanceFailure("The actual expiry worker changed its owned container")
         return {
+            "expiry_fixture_due_seconds": round(due_seconds, 6),
             "stopped_worker_container_preserved": True,
             "due_row_unchanged_while_stopped": True,
             "worker_restarted_unix_ns": restarted_ns,
             "actual_worker_transition": transition,
+            "followup_scan_counter_before": before_followup_scan.successful_scans,
+            "followup_scan_counter_after": after_followup_scan.successful_scans,
+            "followup_scan_worker_process_continuity": before_followup_scan.worker_id
+            == after_followup_scan.worker_id,
             "expiry_side_effects_stable_after_followup_scan": True,
             "worker_container_preserved": True,
         }
@@ -720,7 +770,7 @@ class LiveBusinessProbe:
             {"request_id": request_id, "trace_id": trace_id},
         )
 
-    def prepare_due_expiry_fixture(self) -> dict[str, str]:
+    def prepare_due_expiry_fixture(self) -> dict[str, object]:
         """Create a live authenticated due proposal and leave its worker stopped."""
         student, staff = self._session(), self._session(staff=True)
         identity, slots = self._calendar(student)
@@ -751,27 +801,7 @@ class LiveBusinessProbe:
         ):
             raise AcceptanceFailure("The stopped recovery worker lost UUID ownership")
         proposal_sql_id = f"UNHEX(REPLACE('{str(UUID(proposal_id))}', '-', ''))"
-        result = (
-            self.runtime.stack.sql(
-                "UPDATE change_proposals SET expires_at = created_at + INTERVAL 2 SECOND "
-                f"WHERE id = {proposal_sql_id} AND status = 'PENDING';\nSELECT ROW_COUNT();"
-            )
-            .strip()
-            .splitlines()[-1]
-        )
-        if result != "1":
-            raise AcceptanceFailure("The MySQL recovery expiry fixture was not updated once")
-        try:
-            remaining = float(
-                self.runtime.stack.sql(
-                    "SELECT TIMESTAMPDIFF(MICROSECOND, UTC_TIMESTAMP(6), expires_at) / 1000000 "
-                    f"FROM change_proposals WHERE id = {proposal_sql_id};"
-                ).strip()
-            )
-        except ValueError:
-            raise AcceptanceFailure("The MySQL recovery due time could not be measured") from None
-        if not 0 < remaining <= 2.1:
-            raise AcceptanceFailure("The MySQL recovery fixture had an invalid due time")
+        remaining = self._set_expiry_due_window(proposal_id)
         time.sleep(remaining + 0.2)
         state = self.runtime.stack.sql(
             "SELECT CONCAT(cp.status, ':', a.status) "
@@ -785,7 +815,103 @@ class LiveBusinessProbe:
             "proposal_id": proposal_id,
             "worker_container_id": worker_id,
             "due_while_worker_stopped": "true",
+            "expiry_fixture_due_seconds": round(remaining, 6),
         }
+
+
+def test_expiry_fixture_anchors_to_current_utc_database_time():
+    statements: list[str] = []
+
+    def sql(statement: str) -> str:
+        statements.append(statement)
+        return "1\n1.75\t1\n"
+
+    probe = object.__new__(LiveBusinessProbe)
+    probe.runtime = SimpleNamespace(stack=SimpleNamespace(sql=sql))
+
+    remaining = probe._set_expiry_due_window("00000000-0000-4000-8000-000000000001")
+
+    assert remaining == 1.75
+    assert len(statements) == 1
+    statement = statements[0]
+    assert "SET time_zone = '+00:00'" in statement
+    assert "SET @task8_expiry_now := UTC_TIMESTAMP(6)" in statement
+    assert "TIMESTAMPADD(SECOND, 2, @task8_expiry_now)" in statement
+    assert "SELECT ROW_COUNT()" in statement
+    assert "TIMESTAMPDIFF(MICROSECOND, UTC_TIMESTAMP(6), expires_at)" in statement
+    assert "expires_at > created_at" in statement
+    assert "created_at + INTERVAL 2 SECOND" not in statement
+
+
+def _worker_scan_record(worker_id: str, successful_scans: int) -> str:
+    return json.dumps(
+        {
+            "event": "scan",
+            "worker_id": worker_id,
+            "phase": "running",
+            "database_ok": True,
+            "successful_scans": successful_scans,
+            "last_successful_scan": "2026-10-26T00:00:00Z",
+        }
+    )
+
+
+def test_expiry_followup_scan_requires_same_worker_and_greater_counter():
+    worker_id = "a" * 32
+
+    class FakeStack:
+        outputs = [_worker_scan_record(worker_id, 7), _worker_scan_record(worker_id, 8)]
+
+        def worker_log_output(self) -> str:
+            return self.outputs.pop(0)
+
+    probe = object.__new__(LiveBusinessProbe)
+    probe.runtime = SimpleNamespace(stack=FakeStack())
+
+    before, after = probe._wait_for_later_worker_scan()
+
+    assert before.worker_id == after.worker_id == worker_id
+    assert before.successful_scans == 7
+    assert after.successful_scans == 8
+
+
+def test_expiry_followup_scan_preserves_baseline_across_unavailable_observation():
+    worker_id = "a" * 32
+
+    class FakeStack:
+        outputs = [
+            _worker_scan_record(worker_id, 7),
+            "not-json",
+            _worker_scan_record(worker_id, 8),
+        ]
+
+        def worker_log_output(self) -> str:
+            return self.outputs.pop(0)
+
+    probe = object.__new__(LiveBusinessProbe)
+    probe.runtime = SimpleNamespace(stack=FakeStack())
+
+    before, after = probe._wait_for_later_worker_scan()
+
+    assert before.successful_scans == 7
+    assert after.successful_scans == 8
+
+
+def test_expiry_followup_scan_rejects_a_different_worker_process():
+    class FakeStack:
+        outputs = [
+            _worker_scan_record("a" * 32, 7),
+            _worker_scan_record("b" * 32, 8),
+        ]
+
+        def worker_log_output(self) -> str:
+            return self.outputs.pop(0)
+
+    probe = object.__new__(LiveBusinessProbe)
+    probe.runtime = SimpleNamespace(stack=FakeStack())
+
+    with pytest.raises(AcceptanceFailure, match="worker process changed"):
+        probe._wait_for_later_worker_scan()
 
 
 def _span_attribute(span: dict[str, Any], key: str) -> object | None:
