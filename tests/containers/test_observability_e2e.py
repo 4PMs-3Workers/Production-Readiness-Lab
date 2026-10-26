@@ -7,6 +7,7 @@ import http.client
 import json
 import os
 import re
+import shutil
 import ssl
 import subprocess
 import time
@@ -1543,15 +1544,18 @@ def verify_stale_gateway_event(runtime: Any, event: dict[str, object]) -> dict[s
     }
 
 
-def capture_dashboard_screenshots(runtime: Any) -> dict[str, object]:
+def capture_dashboard_screenshots(
+    runtime: Any, *, evidence_root: Path | None = None
+) -> dict[str, object]:
     """Capture the five live Grafana dashboards through fixture-only browser TLS."""
     from tests.containers.test_telemetry_stack import OPS_PROBE_DASHBOARD_UIDS
 
-    node = Path("D:/appdata/nodejs/node.exe")
-    if not node.is_file():
+    node = shutil.which("node")
+    if node is None:
         raise AcceptanceFailure("The prepared local Node runtime was unavailable for screenshots")
     run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid4().hex[:8]
-    output_dir = ROOT / "docs/evidence/observability-foundation/screenshots" / run_id
+    output_root = evidence_root or ROOT / "docs/evidence/observability-foundation/screenshots"
+    output_dir = output_root / run_id
     output_dir.mkdir(parents=True, exist_ok=False)
     scratch = ROOT / ".superpowers/sdd/2026-10-23-observability-foundation"
     scratch.mkdir(parents=True, exist_ok=True)
@@ -1575,23 +1579,36 @@ const dir = process.env.TASK8_SCREENSHOT_DIR;
     });
     const results = [];
     for (const uid of uids) {
-      const metadata = await context.request.get(`${origin}/api/dashboards/uid/${uid}`);
-      if (metadata.status() !== 200) {
-        throw new Error(`dashboard_api_status:${uid}:${metadata.status()}`);
+      const page = await context.newPage();
+      const metadata = await page.goto(`${origin}/api/dashboards/uid/${uid}`, {
+        waitUntil: 'domcontentloaded', timeout: 45000
+      });
+      if (!metadata || metadata.status() !== 200) {
+        throw new Error(`dashboard_api_status:${uid}:${metadata?.status() ?? 'none'}`);
       }
       const model = await metadata.json();
       if (model.dashboard?.uid !== uid) throw new Error(`dashboard_uid_mismatch:${uid}`);
-      const page = await context.newPage();
+      const expectedTitle = String(model.dashboard.title || '');
+      if (!expectedTitle) throw new Error(`dashboard_title_missing:${uid}`);
       const response = await page.goto(`${origin}/d/${uid}/${uid}?orgId=1`, {
         waitUntil: 'domcontentloaded', timeout: 45000
       });
       if (!response || response.status() !== 200) {
         throw new Error(`dashboard_page_status:${uid}:${response?.status() ?? 'none'}`);
       }
+      const dashboardPath = new URL(page.url()).pathname;
+      if (!dashboardPath.startsWith(`/d/${uid}/`)) {
+        throw new Error(`dashboard_page_identity_mismatch:${uid}`);
+      }
+      const visibleTitle = page.getByText(expectedTitle, { exact: true }).first();
+      await visibleTitle.waitFor({ state: 'visible', timeout: 30000 });
+      if ((await visibleTitle.innerText()) !== expectedTitle) {
+        throw new Error(`dashboard_title_mismatch:${uid}`);
+      }
       await page.waitForTimeout(4000);
       const filename = `${dir}/${uid}.png`;
       await page.screenshot({ path: filename, fullPage: true });
-      results.push({ uid, title: String(model.dashboard.title).slice(0, 80), filename });
+      results.push({ uid, title: expectedTitle.slice(0, 80), dashboardPath, filename });
       await page.close();
     }
     process.stdout.write(JSON.stringify({ results }));
@@ -1608,7 +1625,6 @@ const dir = process.env.TASK8_SCREENSHOT_DIR;
 """
     env = dict(os.environ)
     env.update(
-        PLAYWRIGHT_BROWSERS_PATH=str((ROOT / ".superpowers/playwright").resolve()),
         TASK8_GRAFANA_ORIGIN=runtime.ops_origin,
         TASK8_GRAFANA_USER=runtime.admin_user,
         TASK8_GRAFANA_PASSWORD=runtime.admin_password,
@@ -1645,16 +1661,21 @@ const dir = process.env.TASK8_SCREENSHOT_DIR;
         if not path.is_file():
             raise AcceptanceFailure("A requested Grafana dashboard screenshot was missing")
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        try:
+            relative_path = path.relative_to(ROOT).as_posix()
+        except ValueError:
+            relative_path = path.relative_to(output_root).as_posix()
         screenshots.append(
             {
                 "uid": row["uid"],
                 "title": row["title"],
-                "path": path.relative_to(ROOT).as_posix(),
+                "dashboard_path": row["dashboardPath"],
+                "path": relative_path,
                 "sha256": digest,
             }
         )
     return {
-        "browser": "Chromium via prepared Playwright cache",
+        "browser": "Chromium via Playwright",
         "fixture_host_mapping": "ops.example.invalid to 127.0.0.1, process-local browser resolver",
         "fixture_tls_allowance": (
             "ignoreHTTPS for screenshot browser only; dedicated TLS probes verify "
@@ -1663,3 +1684,81 @@ const dir = process.env.TASK8_SCREENSHOT_DIR;
         "viewport": "1600x1000",
         "screenshots": screenshots,
     }
+
+
+def test_dashboard_screenshots_use_browser_resolver_for_metadata_and_pages(tmp_path: Path):
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from threading import Thread
+    from urllib.parse import urlsplit
+
+    from tests.containers.test_telemetry_stack import OPS_PROBE_DASHBOARD_UIDS
+
+    requested_paths: list[str] = []
+
+    class DashboardHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            path = urlsplit(self.path).path
+            requested_paths.append(path)
+            if path.startswith("/api/dashboards/uid/"):
+                uid = path.rsplit("/", 1)[-1]
+                if uid not in OPS_PROBE_DASHBOARD_UIDS:
+                    self.send_error(404)
+                    return
+                body = json.dumps({"dashboard": {"uid": uid, "title": f"Dashboard {uid}"}})
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(body.encode("utf-8"))
+                return
+            if path.startswith("/d/"):
+                uid = path.split("/", 3)[2]
+                if uid not in OPS_PROBE_DASHBOARD_UIDS:
+                    self.send_error(404)
+                    return
+                title = f"Dashboard {uid}"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(
+                    f"<!doctype html><title>{title}</title><main>{title}</main>".encode()
+                )
+                return
+            self.send_error(404)
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), DashboardHandler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    runtime = SimpleNamespace(
+        ops_origin=f"http://ops.example.invalid:{server.server_port}",
+        admin_user="screenshot-test-user",
+        admin_password="screenshot-test-password",
+    )
+    try:
+        result = capture_dashboard_screenshots(
+            runtime, evidence_root=tmp_path / "private-screenshots"
+        )
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+    assert result["fixture_host_mapping"] == (
+        "ops.example.invalid to 127.0.0.1, process-local browser resolver"
+    )
+    assert {path.rsplit("/", 1)[-1] for path in requested_paths if path.startswith("/api/")} == (
+        OPS_PROBE_DASHBOARD_UIDS
+    )
+    assert sum(path.startswith("/d/") for path in requested_paths) == 5
+    screenshots = result["screenshots"]
+    assert isinstance(screenshots, list)
+    screenshot_rows = [item for item in screenshots if isinstance(item, dict)]
+    assert {item["uid"] for item in screenshot_rows} == OPS_PROBE_DASHBOARD_UIDS
+    assert all(
+        (tmp_path / "private-screenshots" / str(item["path"])).is_file() for item in screenshot_rows
+    )
+    assert all(
+        str(item["dashboard_path"]).startswith(f"/d/{item['uid']}/") for item in screenshot_rows
+    )
