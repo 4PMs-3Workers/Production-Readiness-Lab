@@ -4954,7 +4954,234 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         if old_started is None:
             raise AcceptanceFailure("The current worker omitted its numeric start timestamp")
         old_owner_progress = runtime.stack.wait_heartbeat()
+
+        def validated_epoch_seconds(value: object) -> float | None:
+            if type(value) not in (int, float):
+                return None
+            timestamp = float(value)
+            if not math.isfinite(timestamp) or not 0 < timestamp < 10_000_000_000:
+                return None
+            return round(timestamp, 3)
+
+        def timestamp_delta_seconds(value: object, baseline: object) -> float | None:
+            timestamp = validated_epoch_seconds(value)
+            previous = validated_epoch_seconds(baseline)
+            if timestamp is None or previous is None:
+                return None
+            delta = timestamp - previous
+            if not math.isfinite(delta) or abs(delta) >= 10_000_000_000:
+                return None
+            return round(delta, 3)
+
+        def capture_worker_generation() -> tuple[str | None, dict[str, object]]:
+            container_id = None
+            started_at = None
+            restart_count = None
+            service_state: dict[str, object] = {
+                "status": None,
+                "exit_code": None,
+                "restart_count": None,
+                "oom_killed": None,
+            }
+            generation: dict[str, object] = {
+                "container_id_valid": False,
+                "container_started_at_unix_seconds": None,
+                "restart_count": None,
+                "container_state": service_state,
+            }
+            try:
+                record = runtime.inspect_service("worker", timeout=5)
+            except Exception as error:
+                generation["inspection_error_type"] = type(error).__name__
+                return None, generation
+
+            candidate_id = record.get("Id")
+            if isinstance(candidate_id, str) and re.fullmatch(r"[0-9a-f]{64}", candidate_id):
+                container_id = candidate_id
+            state = _object_mapping(record.get("State"))
+            raw_started_at = state.get("StartedAt")
+            if isinstance(raw_started_at, str):
+                try:
+                    parsed_started_at = datetime.fromisoformat(
+                        raw_started_at.replace("Z", "+00:00")
+                    )
+                    if (
+                        parsed_started_at.tzinfo is not None
+                        and parsed_started_at.utcoffset() is not None
+                    ):
+                        started_at = validated_epoch_seconds(parsed_started_at.timestamp())
+                except (OSError, OverflowError, ValueError):
+                    pass
+            raw_restart_count = record.get("RestartCount")
+            if type(raw_restart_count) is int and 0 <= raw_restart_count <= 1_000_000_000:
+                restart_count = raw_restart_count
+            raw_status = state.get("Status")
+            service_state = {
+                "status": (
+                    raw_status
+                    if isinstance(raw_status, str)
+                    and raw_status
+                    in {"created", "restarting", "running", "removing", "paused", "exited", "dead"}
+                    else None
+                ),
+                "exit_code": state.get("ExitCode") if type(state.get("ExitCode")) is int else None,
+                "oom_killed": (
+                    state.get("OOMKilled") if type(state.get("OOMKilled")) is bool else None
+                ),
+            }
+            generation.update(
+                {
+                    "container_id_valid": container_id is not None,
+                    "container_started_at_unix_seconds": started_at,
+                    "restart_count": restart_count,
+                    "container_state": service_state,
+                }
+            )
+
+            return container_id, generation
+
+        def capture_lifecycle_event_summary(container_id: str | None) -> dict[str, object]:
+            events = ("starting", "stopping", "stopped", "fatal")
+            counts = dict.fromkeys(events, 0)
+            valid_event_worker_counts = dict.fromkeys(events, 0)
+            latest_event_worker_matches: dict[str, bool | None] = {event: None for event in events}
+            event_logs_available = False
+            event_log_error_type = None
+            event_log_error_category = None
+            if container_id is not None:
+                try:
+                    log_result = acceptance_invoke(
+                        ["docker", "logs", "--tail", "200", container_id], timeout=3
+                    )
+                except Exception as error:
+                    event_log_error_type = type(error).__name__
+                else:
+                    if log_result.returncode == 0:
+                        event_logs_available = True
+                        for line in (log_result.stdout or "").splitlines():
+                            try:
+                                item = json.loads(line)
+                            except json.JSONDecodeError:
+                                continue
+                            if not isinstance(item, dict):
+                                continue
+                            event = item.get("event")
+                            if not isinstance(event, str) or event not in counts:
+                                continue
+                            counts[event] = min(counts[event] + 1, 200)
+                            worker_uuid = item.get("worker_id")
+                            if isinstance(worker_uuid, str) and re.fullmatch(
+                                r"[0-9a-f]{32}", worker_uuid
+                            ):
+                                valid_event_worker_counts[event] += 1
+                                latest_event_worker_matches[event] = (
+                                    worker_uuid == old_owner_progress.worker_id
+                                )
+                            else:
+                                latest_event_worker_matches[event] = None
+                    else:
+                        event_log_error_category = "nonzero_exit"
+            return {
+                "event_logs_available": event_logs_available,
+                "lifecycle_events": {
+                    event: {
+                        "count": counts[event],
+                        "worker_id_count": valid_event_worker_counts[event],
+                        "latest_worker_matches_pre_fixture": latest_event_worker_matches[event],
+                    }
+                    for event in events
+                },
+                **(
+                    {"event_log_error_type": event_log_error_type}
+                    if event_log_error_type is not None
+                    else {}
+                ),
+                **(
+                    {"event_log_error_category": event_log_error_category}
+                    if event_log_error_category is not None
+                    else {}
+                ),
+            }
+
+        pre_fixture_container_id, pre_fixture_generation = capture_worker_generation()
         recovery_fixture = business_probe.prepare_due_expiry_fixture()
+        fixture_container_id, fixture_generation = capture_worker_generation()
+
+        def compare_worker_generations(
+            current_id: str | None,
+            current: dict[str, object],
+            previous_id: str | None,
+            previous: dict[str, object],
+        ) -> dict[str, object]:
+            current_restart_count = current.get("restart_count")
+            previous_restart_count = previous.get("restart_count")
+            return {
+                "container_identity_matches": (
+                    current_id == previous_id
+                    if current_id is not None and previous_id is not None
+                    else None
+                ),
+                "started_at_delta_seconds": timestamp_delta_seconds(
+                    current.get("container_started_at_unix_seconds"),
+                    previous.get("container_started_at_unix_seconds"),
+                ),
+                "restart_count_delta": (
+                    current_restart_count - previous_restart_count
+                    if type(current_restart_count) is int and type(previous_restart_count) is int
+                    else None
+                ),
+            }
+
+        def stopped_metric_generation_correlation(
+            stopped_observation: dict[str, object],
+            timeout_generation: dict[str, object],
+        ) -> dict[str, object]:
+            timestamp_values = _object_mapping(stopped_observation.get("timestamp_values"))
+            sample_timestamps = _object_mapping(stopped_observation.get("sample_timestamps"))
+            final_metric_started = validated_epoch_seconds(
+                timestamp_values.get("started_timestamp_seconds")
+            )
+            final_sample_started = validated_epoch_seconds(sample_timestamps.get("started"))
+            pre_fixture_metric_started = validated_epoch_seconds(old_started)
+            pre_fixture_sample_started = validated_epoch_seconds(
+                _object_mapping(pre_restart_state.get("started")).get("sample_timestamp")
+            )
+            return {
+                "pre_fixture_metric_started_timestamp_seconds": pre_fixture_metric_started,
+                "pre_fixture_metric_started_sample_timestamp_seconds": pre_fixture_sample_started,
+                "pre_fixture_metric_minus_pre_fixture_container_started_seconds": (
+                    timestamp_delta_seconds(
+                        pre_fixture_metric_started,
+                        pre_fixture_generation.get("container_started_at_unix_seconds"),
+                    )
+                ),
+                "final_poll_metric_started_timestamp_seconds": final_metric_started,
+                "final_poll_started_sample_timestamp_seconds": final_sample_started,
+                "final_poll_metric_started_delta_from_pre_fixture_metric_seconds": (
+                    timestamp_delta_seconds(final_metric_started, pre_fixture_metric_started)
+                ),
+                "final_poll_started_sample_delta_from_pre_fixture_sample_seconds": (
+                    timestamp_delta_seconds(final_sample_started, pre_fixture_sample_started)
+                ),
+                "final_poll_started_sample_minus_metric_started_seconds": (
+                    timestamp_delta_seconds(final_sample_started, final_metric_started)
+                ),
+                "final_poll_metric_minus_container_started_seconds": {
+                    "before_fixture": timestamp_delta_seconds(
+                        final_metric_started,
+                        pre_fixture_generation.get("container_started_at_unix_seconds"),
+                    ),
+                    "at_fixture": timestamp_delta_seconds(
+                        final_metric_started,
+                        fixture_generation.get("container_started_at_unix_seconds"),
+                    ),
+                    "at_timeout": timestamp_delta_seconds(
+                        final_metric_started,
+                        timeout_generation.get("container_started_at_unix_seconds"),
+                    ),
+                },
+            }
+
         worker_restart_context["due_expiry_fixture_ready"] = True
         worker_container_id = recovery_fixture.get("worker_container_id")
         mysql_container_id = runtime.inspect_service("mysql").get("Id")
@@ -5124,6 +5351,46 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                 stopped_observation["service_states_at_timeout"] = {
                     "worker": stopped_service_state_summary("worker"),
                     "mysql": stopped_service_state_summary("mysql"),
+                }
+                timeout_container_id, timeout_generation = capture_worker_generation()
+                event_summaries_by_container: dict[str | None, dict[str, object]] = {}
+                for container_id, generation in (
+                    (pre_fixture_container_id, pre_fixture_generation),
+                    (fixture_container_id, fixture_generation),
+                    (timeout_container_id, timeout_generation),
+                ):
+                    if container_id not in event_summaries_by_container:
+                        event_summaries_by_container[container_id] = (
+                            capture_lifecycle_event_summary(container_id)
+                        )
+                    generation["lifecycle_event_summary"] = event_summaries_by_container[
+                        container_id
+                    ]
+                stopped_observation["worker_generation"] = {
+                    "before_fixture": pre_fixture_generation,
+                    "at_fixture": fixture_generation,
+                    "at_timeout": timeout_generation,
+                    "fixture_vs_before_fixture": compare_worker_generations(
+                        fixture_container_id,
+                        fixture_generation,
+                        pre_fixture_container_id,
+                        pre_fixture_generation,
+                    ),
+                    "timeout_vs_before_fixture": compare_worker_generations(
+                        timeout_container_id,
+                        timeout_generation,
+                        pre_fixture_container_id,
+                        pre_fixture_generation,
+                    ),
+                    "timeout_vs_fixture": compare_worker_generations(
+                        timeout_container_id,
+                        timeout_generation,
+                        fixture_container_id,
+                        fixture_generation,
+                    ),
+                    "metric_started_correlation": stopped_metric_generation_correlation(
+                        stopped_observation, timeout_generation
+                    ),
                 }
                 raise
             return stopped_baseline
