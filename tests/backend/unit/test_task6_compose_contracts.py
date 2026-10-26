@@ -1192,6 +1192,85 @@ def test_loki_index_summary_uses_series_endpoint_and_keeps_ids_private():
     assert empty["failure_category"] == "empty_series"
 
 
+def test_query_loki_request_can_recheck_an_original_event_after_long_acceptance(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    request_id = "d" * 32
+    trace_id = "e" * 32
+    release = "a" * 40
+    event_timestamp_ns = 1_793_010_000_000_000_000
+    now_ns = event_timestamp_ns + 900_000_000_000
+    start_ns = event_timestamp_ns - 1_000_000_000
+    seen_urls: list[str] = []
+    runtime = object.__new__(telemetry_stack.FullStackRuntime)
+    runtime.stack = cast(Any, SimpleNamespace(expected_sha=release))
+
+    def observe(url: str) -> dict[str, object]:
+        seen_urls.append(url)
+        if urlsplit(url).path == "/loki/api/v1/query_range":
+            body = {
+                "status": "success",
+                "data": {
+                    "result": [
+                        {
+                            "stream": {
+                                "service_name": "gateway",
+                                "deployment_environment_name": "demo",
+                            },
+                            "values": [
+                                [
+                                    str(event_timestamp_ns),
+                                    json.dumps(
+                                        {
+                                            "event": "gateway.request",
+                                            "request_id": request_id,
+                                            "trace_id": trace_id,
+                                            "release": release,
+                                        }
+                                    ),
+                                    {},
+                                ]
+                            ],
+                        }
+                    ]
+                },
+            }
+        else:
+            body = {
+                "status": "success",
+                "data": [
+                    {
+                        "service_name": "gateway",
+                        "deployment_environment_name": "demo",
+                    }
+                ],
+            }
+        return {
+            "http_status": 200,
+            "body": body,
+            "json_valid": True,
+            "truncated": False,
+            "error_category": None,
+        }
+
+    runtime.api_json_observation = cast(Any, observe)
+    monkeypatch.setattr(telemetry_stack.time, "time_ns", lambda: now_ns)
+
+    result = runtime.query_loki_request(request_id, trace_id, start_ns=start_ns)
+
+    request_query = next(
+        parse_qs(urlsplit(url).query)
+        for url in seen_urls
+        if urlsplit(url).path == "/loki/api/v1/query_range"
+    )
+    assert request_query["start"] == [str(start_ns)]
+    assert request_query["end"] == [str(now_ns + 60_000_000_000)]
+    assert result["request_id_match"] is True
+    assert result["request_event_timestamp_unix_ns"] == event_timestamp_ns
+    assert request_id not in json.dumps(result)
+    assert trace_id not in json.dumps(result)
+
+
 def test_loki_index_observation_calls_series_api_with_finite_gateway_selector():
     runtime = object.__new__(telemetry_stack.FullStackRuntime)
     seen = {}

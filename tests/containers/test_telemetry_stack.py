@@ -849,7 +849,7 @@ def summarize_loki_signal(
     data = response.get("data") if isinstance(response.get("data"), dict) else {}
     results = data.get("result") if isinstance(data.get("result"), list) else []
     streams = results[:100]
-    rows: list[tuple[dict[str, object], dict[str, object]]] = []
+    rows: list[tuple[dict[str, object], dict[str, object], int | None]] = []
     stream_label_keys: set[str] = set()
     field_keys: set[str] = set()
     finite_labels: set[tuple[str, str]] = set()
@@ -872,6 +872,15 @@ def summarize_loki_signal(
             if not isinstance(entry, (list, tuple)) or len(entry) < 2:
                 continue
             entry_count += 1
+            event_timestamp_ns = None
+            raw_timestamp = entry[0]
+            if type(raw_timestamp) in (int, str):
+                try:
+                    parsed_timestamp = int(raw_timestamp)
+                except (TypeError, ValueError, OverflowError):
+                    parsed_timestamp = 0
+                if 0 < parsed_timestamp < 100_000_000_000_000_000_000:
+                    event_timestamp_ns = parsed_timestamp
             try:
                 message = json.loads(entry[1]) if isinstance(entry[1], str) else {}
             except (json.JSONDecodeError, TypeError):
@@ -880,20 +889,27 @@ def summarize_loki_signal(
             metadata = entry[2] if len(entry) > 2 and isinstance(entry[2], dict) else {}
             combined = {**fields, **metadata}
             field_keys.update(str(key) for key in combined)
-            rows.append((labels, combined))
+            rows.append((labels, combined, event_timestamp_ns))
 
-    request_match = any(fields.get("request_id") == request_id for _, fields in rows)
-    trace_match = any(fields.get("trace_id") == trace_id for _, fields in rows)
-    event_match = any(fields.get("event") == "gateway.request" for _, fields in rows)
-    release_match = any(fields.get("release") == expected_release for _, fields in rows)
+    request_match = any(fields.get("request_id") == request_id for _, fields, _ in rows)
+    trace_match = any(fields.get("trace_id") == trace_id for _, fields, _ in rows)
+    event_match = any(fields.get("event") == "gateway.request" for _, fields, _ in rows)
+    release_match = any(fields.get("release") == expected_release for _, fields, _ in rows)
     trace_format = any(
-        re.fullmatch(r"[a-f0-9]{32}", str(fields.get("trace_id", ""))) for _, fields in rows
+        re.fullmatch(r"[a-f0-9]{32}", str(fields.get("trace_id", ""))) for _, fields, _ in rows
     )
     finite_resource_identity_ok = any(
         labels.get("service_name") == "gateway"
         and labels.get("deployment_environment_name") == "demo"
-        for labels, _ in rows
+        for labels, _, _ in rows
     )
+    matching_request_timestamps = [
+        timestamp
+        for _, fields, timestamp in rows
+        if fields.get("request_id") == request_id
+        and fields.get("event") == "gateway.request"
+        and timestamp is not None
+    ]
     if http_status != 200:
         failure = "http_status"
     elif response.get("status") != "success":
@@ -926,6 +942,9 @@ def summarize_loki_signal(
         "trace_id_format_ok": trace_format,
         "event_match": event_match,
         "release_match": release_match,
+        "request_event_timestamp_unix_ns": (
+            matching_request_timestamps[0] if len(matching_request_timestamps) == 1 else None
+        ),
         "failure_category": failure,
     }
 
@@ -1783,6 +1802,8 @@ class FullStackRuntime:
         self.worker_stream_diagnostic: dict[str, object] | None = None
         self.last_operations_probe: dict[str, object] = {"available": False}
         self.last_receiver_health_summary: dict[str, object] = {"available": False}
+        self.last_loki_request_diagnostic: dict[str, object] = {"available": False}
+        self.last_loki_index_series_diagnostic: dict[str, object] = {"available": False}
 
     def wait_app_gateway(self) -> None:
         deadline = time.monotonic() + 90
@@ -2353,17 +2374,30 @@ class FullStackRuntime:
                 return summary
             time.sleep(min(0.5, max(0, deadline - time.monotonic())))
 
-    def observe_loki_request(self, request_id: str, trace_id: str) -> dict[str, object]:
+    def observe_loki_request(
+        self,
+        request_id: str,
+        trace_id: str,
+        *,
+        start_ns: int | None = None,
+    ) -> dict[str, object]:
         query = (
             '{service_name="gateway",deployment_environment_name="demo"} '
             f'| request_id="{request_id}"'
         )
         now_ns = time.time_ns()
+        if start_ns is None:
+            query_start_ns = now_ns - 600_000_000_000
+        elif type(start_ns) is int and 0 < start_ns <= now_ns:
+            query_start_ns = start_ns
+        else:
+            raise AcceptanceFailure("The Loki request query start timestamp is invalid")
+        query_end_ns = now_ns + 60_000_000_000
         params = urlencode(
             {
                 "query": query,
-                "start": str(now_ns - 600_000_000_000),
-                "end": str(now_ns + 60_000_000_000),
+                "start": str(query_start_ns),
+                "end": str(query_end_ns),
                 "limit": "20",
             }
         )
@@ -2377,9 +2411,12 @@ class FullStackRuntime:
             trace_id=trace_id,
             expected_release=self.stack.expected_sha,
         )
+        summary["query_start_unix_ns"] = query_start_ns
+        summary["query_end_unix_ns"] = query_end_ns
         summary["transport_error_category"] = observation.get("error_category")
         summary["json_valid"] = observation.get("json_valid")
         summary["body_truncated"] = observation.get("truncated")
+        self.last_loki_request_diagnostic = summary
         return summary
 
     def observe_loki_native_application_log(self, service: str, event: str) -> dict[str, object]:
@@ -2435,6 +2472,7 @@ class FullStackRuntime:
         summary["transport_error_category"] = observation.get("error_category")
         summary["json_valid"] = observation.get("json_valid")
         summary["body_truncated"] = observation.get("truncated")
+        self.last_loki_index_series_diagnostic = summary
         return summary
 
     def observe_tempo_trace(self, trace_id: str) -> dict[str, object]:
@@ -3046,8 +3084,14 @@ class FullStackRuntime:
         self.target_info_schema = target_info_labels
         return sorted(series, key=lambda item: str(item["name"]))
 
-    def query_loki_request(self, request_id: str, trace_id: str) -> dict[str, object]:
-        query = self.observe_loki_request(request_id, trace_id)
+    def query_loki_request(
+        self,
+        request_id: str,
+        trace_id: str,
+        *,
+        start_ns: int | None = None,
+    ) -> dict[str, object]:
+        query = self.observe_loki_request(request_id, trace_id, start_ns=start_ns)
         index = self.observe_loki_index_series(expected_request_id=request_id)
         if query.get("failure_category") is not None:
             raise AcceptanceFailure("A gateway request did not produce one correlated Loki event")
@@ -3061,6 +3105,7 @@ class FullStackRuntime:
             "request_id_match": query.get("request_id_match") is True,
             "trace_id_format_ok": query.get("trace_id_format_ok") is True,
             "release_match": query.get("release_match") is True,
+            "request_event_timestamp_unix_ns": query.get("request_event_timestamp_unix_ns"),
             "index_label_keys": index.get("index_label_keys", []),
             "index_resource_identity": index.get("index_resource_identity", []),
             "index_series_count": index.get("series_count"),
@@ -5329,20 +5374,146 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                 "A persistent volume identity changed across worker/database restart"
             )
 
-        failure_context["stage"] = "collector_restart_and_persistence"
+        failure_context["stage"] = "collector_restart_command"
         acceptance_success(
             runtime.compose("restart", "--timeout", "20", "collector", timeout=45),
             "The UUID-owned Collector could not restart",
         )
+        failure_context["stage"] = "collector_restart_target_matrix"
         runtime.wait_targets()
+        failure_context["stage"] = "collector_restart_volume_identity"
         if old_volumes != runtime.volume_snapshot():
             raise AcceptanceFailure("Collector restart changed a persistent volume identity")
+        failure_context["stage"] = "collector_restart_https_readiness"
         after_collector = _https_request(
             runtime.app_host, runtime.port, runtime.app_cert, "GET", "/health/ready"
         )
         if after_collector[0] != 200:
             raise AcceptanceFailure("The app gateway did not recover after the Collector restart")
-        if runtime.query_loki_request(request_id, trace_id) != evidence["gateway_loki_event"]:
+        failure_context["stage"] = "collector_restart_gateway_event_query"
+        initial_gateway_event = evidence.get("gateway_loki_event")
+        initial_event_timestamp = (
+            initial_gateway_event.get("request_event_timestamp_unix_ns")
+            if isinstance(initial_gateway_event, dict)
+            else None
+        )
+        if type(initial_event_timestamp) is not int or initial_event_timestamp <= 0:
+            raise AcceptanceFailure("The initial gateway event omitted its Loki entry timestamp")
+        recent_query = runtime.observe_loki_request(request_id, trace_id)
+        recent_start_ns = recent_query.get("query_start_unix_ns")
+        recent_end_ns = recent_query.get("query_end_unix_ns")
+        current_time_ns = time.time_ns()
+        recent_failure = recent_query.get("failure_category")
+        if recent_failure not in {
+            None,
+            "http_status",
+            "api_status",
+            "event_cardinality",
+            "finite_resource_identity_missing",
+            "request_event_missing",
+            "trace_correlation_missing",
+            "release_missing",
+        }:
+            recent_failure = "other"
+        recent_query_diagnostic = {
+            "http_status": recent_query.get("http_status"),
+            "body_status_ok": recent_query.get("body_status_ok"),
+            "stream_count": recent_query.get("stream_count"),
+            "entry_count": recent_query.get("entry_count"),
+            "request_id_match": recent_query.get("request_id_match"),
+            "trace_id_match": recent_query.get("trace_id_match"),
+            "event_match": recent_query.get("event_match"),
+            "release_match": recent_query.get("release_match"),
+            "failure_category": recent_failure,
+            "query_start_unix_ns": recent_start_ns,
+            "query_end_unix_ns": recent_end_ns,
+        }
+        historical_query_start_ns = max(
+            1, min(initial_event_timestamp - 1_000_000_000, current_time_ns)
+        )
+        collector_event_query_diagnostic: dict[str, object] = {
+            "initial_event_timestamp_unix_ns": initial_event_timestamp,
+            "recent_query_age_seconds": round(
+                max(0, current_time_ns - initial_event_timestamp) / 1_000_000_000, 3
+            ),
+            "recent_query_window_seconds": 600,
+            "initial_event_precedes_recent_query_start": (
+                type(recent_start_ns) is int and initial_event_timestamp < recent_start_ns
+            ),
+            "recent_query": recent_query_diagnostic,
+            "historical_query_start_unix_ns": historical_query_start_ns,
+        }
+        failure_context["collector_restart_event_query"] = collector_event_query_diagnostic
+        evidence["collector_restart_event_query"] = collector_event_query_diagnostic
+        try:
+            runtime.last_loki_index_series_diagnostic = {"available": False}
+            persisted_gateway_event = runtime.query_loki_request(
+                request_id,
+                trace_id,
+                start_ns=historical_query_start_ns,
+            )
+        except AcceptanceFailure as exc:
+            historical_query = runtime.last_loki_request_diagnostic
+            historical_failure = historical_query.get("failure_category")
+            if historical_failure not in {
+                None,
+                "http_status",
+                "api_status",
+                "event_cardinality",
+                "finite_resource_identity_missing",
+                "request_event_missing",
+                "trace_correlation_missing",
+                "release_missing",
+            }:
+                historical_failure = "other"
+            collector_event_query_diagnostic["historical_query"] = {
+                "http_status": historical_query.get("http_status"),
+                "body_status_ok": historical_query.get("body_status_ok"),
+                "stream_count": historical_query.get("stream_count"),
+                "entry_count": historical_query.get("entry_count"),
+                "request_id_match": historical_query.get("request_id_match"),
+                "trace_id_match": historical_query.get("trace_id_match"),
+                "event_match": historical_query.get("event_match"),
+                "release_match": historical_query.get("release_match"),
+                "failure_category": historical_failure,
+                "query_start_unix_ns": historical_query.get("query_start_unix_ns"),
+                "query_end_unix_ns": historical_query.get("query_end_unix_ns"),
+            }
+            historical_index = runtime.last_loki_index_series_diagnostic
+            historical_index_failure = historical_index.get("failure_category")
+            if historical_index_failure not in {
+                None,
+                "http_status",
+                "api_status",
+                "invalid_shape",
+                "empty_series",
+                "index_schema",
+            }:
+                historical_index_failure = "other"
+            collector_event_query_diagnostic["historical_index"] = {
+                "http_status": historical_index.get("http_status"),
+                "series_count": historical_index.get("series_count"),
+                "index_schema_ok": historical_index.get("index_schema_ok"),
+                "request_id_indexed": historical_index.get("request_id_indexed"),
+                "failure_category": historical_index_failure,
+            }
+            if str(exc) == "A gateway request did not produce one correlated Loki event":
+                collector_event_query_diagnostic["historical_query_failure"] = (
+                    "gateway_event_missing_or_invalid"
+                )
+            elif str(exc) == "Loki gateway series did not retain the finite index schema":
+                collector_event_query_diagnostic["historical_query_failure"] = (
+                    "gateway_index_schema_invalid"
+                )
+            else:
+                collector_event_query_diagnostic["historical_query_failure"] = (
+                    "other_acceptance_failure"
+                )
+            raise
+        collector_event_query_diagnostic["historical_query_matches_initial"] = (
+            persisted_gateway_event == initial_gateway_event
+        )
+        if persisted_gateway_event != initial_gateway_event:
             raise AcceptanceFailure(
                 "The persisted gateway event changed or duplicated after Collector restart"
             )
@@ -5379,6 +5550,9 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                 )
                 diagnostic["worker_restart_observations"] = failure_context.get(
                     "worker_restart_observations", {"available": False}
+                )
+                diagnostic["collector_restart_event_query"] = failure_context.get(
+                    "collector_restart_event_query", {"available": False}
                 )
                 print(
                     "TASK6_PRE_CLEANUP_FAILURE_SNAPSHOT:"
