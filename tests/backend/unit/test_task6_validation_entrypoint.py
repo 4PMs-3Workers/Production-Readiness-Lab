@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import json
 import subprocess
 import sys
@@ -44,6 +45,45 @@ def test_pinned_validator_process_arguments_are_flat_strings(monkeypatch):
         and command[-3:] == ["test", "rules", "/etc/prometheus/rules/prometheus-rule-tests.yml"]
         for command in commands
     )
+
+
+def test_container_acceptance_runs_locked_prometheus_rule_fixture(monkeypatch):
+    telemetry_stack = importlib.import_module("tests.containers.test_telemetry_stack")
+    calls: list[tuple[list[str], float]] = []
+
+    def capture_invocation(args: list[str], *, timeout: float = 30):
+        calls.append((args, timeout))
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(telemetry_stack, "invoke", capture_invocation)
+    runner = getattr(telemetry_stack, "_run_prometheus_rule_tests", None)
+    assert callable(runner), "the required container suite must run the checked-in rule fixture"
+    runner()
+
+    assert len(calls) == 1
+    command, timeout = calls[0]
+    lock = json.loads((ROOT / "tools/infra/images.lock.json").read_text(encoding="utf-8-sig"))
+    assert timeout == 120
+    assert command[:4] == ["docker", "run", "--pull=missing", "--rm"]
+    assert command[command.index("--network") + 1] == "none"
+    assert "--read-only" in command
+    assert command[command.index("--workdir") + 1] == "/etc/prometheus/rules"
+    assert command[command.index("--entrypoint") + 2] == lock["images"]["prometheus"]
+    assert command[-3:] == [
+        "test",
+        "rules",
+        "/etc/prometheus/rules/prometheus-rule-tests.yml",
+    ]
+    assert (
+        "type=bind,source="
+        + str((ROOT / "tools/infra/prometheus-rules.yml").resolve())
+        + ",target=/etc/prometheus/rules/prometheus-rules.yml,readonly"
+    ) in command
+    assert (
+        "type=bind,source="
+        + str((ROOT / "tools/infra/prometheus-rule-tests.yml").resolve())
+        + ",target=/etc/prometheus/rules/prometheus-rule-tests.yml,readonly"
+    ) in command
 
 
 def test_temporary_compose_project_name_is_normalized_for_docker():

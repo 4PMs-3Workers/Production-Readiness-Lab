@@ -1332,6 +1332,61 @@ def invoke(args: list[str], *, timeout: float = 30) -> subprocess.CompletedProce
     )
 
 
+def _prometheus_rule_test_command() -> list[str]:
+    lock = json.loads((ROOT / "tools/infra/images.lock.json").read_text(encoding="utf-8-sig"))
+    rules = ROOT / "tools/infra/prometheus-rules.yml"
+    rule_tests = ROOT / "tools/infra/prometheus-rule-tests.yml"
+    rules_target = "/etc/prometheus/rules/prometheus-rules.yml"
+    tests_target = "/etc/prometheus/rules/prometheus-rule-tests.yml"
+    return [
+        "docker",
+        "run",
+        "--pull=missing",
+        "--rm",
+        "--network",
+        "none",
+        "--read-only",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--cpus",
+        "1.0",
+        "--memory",
+        "512m",
+        "--memory-swap",
+        "512m",
+        "--pids-limit",
+        "128",
+        "--tmpfs",
+        "/tmp:rw,nosuid,nodev,noexec,size=16m,mode=1777",
+        "--workdir",
+        "/etc/prometheus/rules",
+        "--mount",
+        f"type=bind,source={rules.resolve()},target={rules_target},readonly",
+        "--mount",
+        f"type=bind,source={rule_tests.resolve()},target={tests_target},readonly",
+        "--entrypoint",
+        "/bin/promtool",
+        lock["images"]["prometheus"],
+        "test",
+        "rules",
+        tests_target,
+    ]
+
+
+def _run_prometheus_rule_tests() -> subprocess.CompletedProcess[str]:
+    return invoke(_prometheus_rule_test_command(), timeout=120)
+
+
+def test_prometheus_rule_fixture_with_locked_promtool() -> None:
+    result = _run_prometheus_rule_tests()
+    assert result.returncode == 0, (
+        "The pinned Prometheus rule fixture failed."
+        f"\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+
 def make_certificate(tmp_path: Path, hostname: str = "app.example.invalid") -> tuple[Path, Path]:
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, hostname)])

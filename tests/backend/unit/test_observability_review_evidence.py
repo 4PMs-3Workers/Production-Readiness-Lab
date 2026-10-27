@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import cast
 
@@ -57,7 +57,7 @@ def _successful_business_case(state: str) -> dict[str, object]:
 
 
 def _projected_business_recovery(
-    evidence: dict[str, object], worker_alerts: dict[str, object] | None = None
+    evidence: Mapping[str, object], worker_alerts: Mapping[str, object] | None = None
 ) -> dict[str, object]:
     document = build_runtime_evidence(
         outcome="passed",
