@@ -421,6 +421,61 @@ async def test_latest_lane_coalesces_observations_while_one_export_is_blocked():
 
 
 @pytest.mark.asyncio
+async def test_latest_lane_accounts_for_pending_snapshot_lost_at_shutdown():
+    from app.observability.metric_exporting import LatestMetricExportLane
+
+    exporter = RecordingExporter()
+    exporter.block = True
+    latest = {"value": "first"}
+    lane_ref = {}
+    drop_calls = []
+    callback_lock_checks = []
+    callback_drop_counts = []
+
+    def on_drop(reason):
+        drop_calls.append(reason)
+        lane = lane_ref["lane"]
+        inspected = threading.Event()
+
+        def inspect_drop_count():
+            callback_drop_counts.append(lane.dropped["shutdown"])
+            inspected.set()
+
+        contender = threading.Thread(target=inspect_drop_count, daemon=True)
+        contender.start()
+        callback_lock_checks.append(inspected.wait(0.2))
+        contender.join(0.2)
+
+    lane = LatestMetricExportLane(
+        lambda: (_snapshot(latest["value"]),),
+        exporter,
+        interval_seconds=0.01,
+        max_age_seconds=1,
+        network_timeout_seconds=0.5,
+        on_drop=on_drop,
+    )
+    lane_ref["lane"] = lane
+    try:
+        lane.note_snapshot()
+        await _wait_for_event(exporter.entered)
+        latest["value"] = "newer-pending"
+        lane.note_snapshot()
+        closed = await lane.close(asyncio.get_running_loop().time() + 0.03)
+        assert not closed
+        assert lane.is_alive
+    finally:
+        exporter.release.set()
+        await lane.close(asyncio.get_running_loop().time() + 1)
+
+    assert [_snapshot_value(batch) for batch in exporter.batches] == ["first"]
+    assert not lane._pending
+    assert lane.dropped["shutdown"] == 1
+    assert drop_calls == ["shutdown"]
+    assert callback_lock_checks == [True]
+    assert callback_drop_counts == [1]
+
+
+@pytest.mark.asyncio
 async def test_latest_lane_close_returns_at_the_shared_short_deadline():
     from app.observability.metric_exporting import LatestMetricExportLane
 
@@ -444,6 +499,7 @@ async def test_latest_lane_close_returns_at_the_shared_short_deadline():
     finally:
         exporter.release.set()
         await lane.close(asyncio.get_running_loop().time() + 1)
+    assert lane.dropped["shutdown"] == 0
 
 
 def test_invalid_observation_accounts_loss_after_releasing_state_lock(monkeypatch):

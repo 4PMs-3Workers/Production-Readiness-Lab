@@ -188,11 +188,16 @@ class LatestMetricExportLane:
                     shutdown()
                 except Exception:
                     pass
+            dropped_pending = False
             with self._condition:
                 if self._pending:
                     self._pending = False
                     self._queue_revision += 1
+                    self._drop_counts["shutdown"] += 1
+                    dropped_pending = True
             self._notify_queue_change()
+            if dropped_pending:
+                self._callback(self._on_drop, "shutdown")
             self._done.set()
 
     @property
