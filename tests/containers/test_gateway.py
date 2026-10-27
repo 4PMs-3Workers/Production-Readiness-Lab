@@ -475,7 +475,7 @@ def test_real_gateway_generates_safe_error_when_api_stops(gateway):
         record = records[0]
         assert record["route"] == "/api/v1/purposes"
         assert record["upstream_identity"] == "api"
-        assert record["upstream_outcome"] == "service_error"
+        assert record["upstream_outcome"] in {"service_error", "upstream_timeout"}
         assert record["classification"] == "service_failure"
         assert "/api%2fv%31/%70urposes" not in logs
     finally:

@@ -550,7 +550,7 @@ def test_alert_receiver_status_summary_preserves_safe_received_at(
     monkeypatch.setattr(
         runtime,
         "api_json",
-        lambda _url: {
+        lambda _url, *, deadline=None: {
             "alerts": [
                 {
                     "alertname": "GatewayFastSuccessBelowSLO",

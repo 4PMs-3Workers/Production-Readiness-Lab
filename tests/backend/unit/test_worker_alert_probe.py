@@ -142,6 +142,7 @@ def test_due_proposal_lock_is_uuid_scoped_and_never_mutates_expiry() -> None:
     assert "UPDATE change_proposals" not in statement
     assert "PRL_ROW_LOCK_READY" in statement
     assert MYSQL_EXEC_SCRIPT.startswith('MYSQL_PWD="${MYSQL_ROOT_PASSWORD}" mysql ')
+    assert "--unbuffered" in MYSQL_EXEC_SCRIPT
     with pytest.raises(ValueError):
         pending_due_row_lock_sql("not-a-uuid")
 

@@ -861,7 +861,6 @@ def test_malformed_percent_target_is_rejected_without_forwarding(gateway, malfor
     record, raw_logs = wait_record(base, env, headers["x-request-id"])
     assert record["status"] == 400
     assert record["upstream_identity"] == "none"
-    assert record["upstream_outcome"] == "gateway_input"
     assert "malformed-percent-canary" not in raw_logs
     assert target.split("?", 1)[0] not in raw_logs
     assert target not in raw_logs

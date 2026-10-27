@@ -20,7 +20,7 @@ ROW_LOCK_RELEASED = "PRL_ROW_LOCK_RELEASED"
 ROW_LOCK_ROLLED_BACK = "PRL_ROW_LOCK_ROLLED_BACK"
 MYSQL_EXEC_SCRIPT = (
     'MYSQL_PWD="${MYSQL_ROOT_PASSWORD}" mysql --protocol=socket -uroot '
-    "--connect-timeout=3 --batch --raw --skip-column-names prl"
+    "--connect-timeout=3 --batch --unbuffered --raw --skip-column-names prl"
 )
 
 
