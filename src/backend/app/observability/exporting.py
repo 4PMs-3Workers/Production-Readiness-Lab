@@ -490,7 +490,6 @@ def sanitize_log_attributes(
         if key in {"request_id", "run_id", "worker_id", "current_run_id"}:
             if (
                 isinstance(value, str)
-                and len(value) <= max_attribute_chars
                 and re.fullmatch(r"[A-Za-z0-9._-]{1,128}", value)
             ):
                 safe[key] = value

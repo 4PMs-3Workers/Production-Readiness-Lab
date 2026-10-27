@@ -265,7 +265,7 @@ def sanitize_record(
             continue
         value = record[key]
         if key in {"request_id", "run_id", "worker_id", "current_run_id"}:
-            cleaned[key] = _identifier(value, max_chars=max_attribute_chars)
+            cleaned[key] = _identifier(value)
         elif key == "trace_id":
             if not isinstance(value, str) or _TRACE_ID_RE.fullmatch(value) is None:
                 raise InvalidTelemetryRecord("Invalid trace identifier")

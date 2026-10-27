@@ -9,6 +9,8 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from secrets import token_hex
+from uuid import UUID
 
 import pytest
 
@@ -27,6 +29,13 @@ def _exporting_module():
     if importlib.util.find_spec("app.observability.exporting") is None:
         pytest.fail("bounded telemetry export lane is not implemented")
     return importlib.import_module("app.observability.exporting")
+
+
+def _settings_with_small_attribute_limit(settings, monkeypatch):
+    monkeypatch.setenv("TELEMETRY_MAX_ATTRIBUTE_CHARS", "13")
+    values = settings.model_dump(by_alias=True)
+    values.pop("TELEMETRY_MAX_ATTRIBUTE_CHARS", None)
+    return type(settings)(**values)
 
 
 async def _wait_until(predicate):
@@ -214,6 +223,109 @@ async def test_runtime_redacts_unallowlisted_fields_and_isolates_providers(auth_
     row = json.loads(output_a[0])
     assert row["service"] == "api" and row["event"] == "worker.heartbeat"
     assert "private_sql" not in row and "error_payload" not in row
+
+
+async def test_runtime_preserves_protocol_valid_correlation_ids_with_small_attribute_limit(
+    auth_settings, monkeypatch
+):
+    runtime_module = _runtime_module()
+    settings = _settings_with_small_attribute_limit(auth_settings, monkeypatch)
+    assert settings.telemetry_max_attribute_chars == 13
+
+    generated_request_id = token_hex(16)
+    worker_id = UUID("12345678-1234-5678-1234-567812345678")
+    run_id = UUID("87654321-4321-8765-4321-876543218765")
+    proposal_id = UUID("00112233-4455-6677-8899-aabbccddeeff")
+    composite_request_id = f"expiry.{worker_id.hex}.{run_id.hex}.{proposal_id.hex}"
+    trusted_request_id = "z" * 128
+    assert len(generated_request_id) == 32
+    assert len(composite_request_id) == 105
+
+    records = [
+        {"event": "http.server.request", "request_id": generated_request_id},
+        {
+            "event": "worker.scan",
+            "request_id": composite_request_id,
+            "run_id": run_id,
+            "worker_id": worker_id,
+            "current_run_id": run_id,
+        },
+        {"event": "worker.heartbeat", "request_id": trusted_request_id},
+    ]
+    expected = [
+        {"request_id": generated_request_id},
+        {
+            "request_id": composite_request_id,
+            "run_id": run_id.hex,
+            "worker_id": worker_id.hex,
+            "current_run_id": run_id.hex,
+        },
+        {"request_id": trusted_request_id},
+    ]
+    stdout = []
+    exported = []
+    runtime = runtime_module.TelemetryRuntime(
+        settings,
+        "api",
+        stdout_sink=stdout.append,
+        log_exporter=lambda batch: (exported.extend(batch), True)[1],
+    )
+    try:
+        accepted = [runtime.emit(record) for record in records]
+    finally:
+        await runtime.close(asyncio.get_running_loop().time() + 1)
+
+    assert accepted == [True, True, True]
+    stdout_rows = [json.loads(line) for line in stdout]
+    otlp_rows = [record.log_record.attributes for record in exported]
+    stdout_attributes = [
+        {key: row[key] for key in attributes}
+        for row, attributes in zip(stdout_rows, expected, strict=True)
+    ]
+    otlp_attributes = [
+        {key: row[key] for key in attributes}
+        for row, attributes in zip(otlp_rows, expected, strict=True)
+    ]
+    assert stdout_attributes == expected
+    assert otlp_attributes == expected
+    for stdout_row, otlp_row, attributes in zip(stdout_rows, otlp_rows, expected, strict=True):
+        for key, value in attributes.items():
+            expected_bytes = value.encode("utf-8")
+            assert stdout_row[key].encode("utf-8") == expected_bytes
+            assert otlp_row[key].encode("utf-8") == expected_bytes
+
+
+async def test_runtime_rejects_invalid_correlation_ids_at_protocol_limit(
+    auth_settings, monkeypatch
+):
+    runtime_module = _runtime_module()
+    exporting = _exporting_module()
+    settings = _settings_with_small_attribute_limit(auth_settings, monkeypatch)
+    stdout = []
+    exported = []
+    runtime = runtime_module.TelemetryRuntime(
+        settings,
+        "worker",
+        stdout_sink=stdout.append,
+        log_exporter=lambda batch: (exported.extend(batch), True)[1],
+    )
+    invalid_ids = ("", "a" * 129, "line\nbreak", "line\rbreak", "slash/id")
+    identifier_fields = ("request_id", "run_id", "worker_id", "current_run_id")
+    try:
+        for field in identifier_fields:
+            for invalid_id in invalid_ids:
+                assert not runtime.emit({"event": "worker.heartbeat", field: invalid_id})
+                assert (
+                    exporting.sanitize_log_attributes(
+                        {field: invalid_id}, routes=runtime.routes, max_attribute_chars=13
+                    )
+                    == {}
+                )
+    finally:
+        await runtime.close(asyncio.get_running_loop().time() + 1)
+
+    assert stdout == []
+    assert exported == []
 
 
 async def test_span_budget_limits_nested_spans_per_request(auth_settings):
