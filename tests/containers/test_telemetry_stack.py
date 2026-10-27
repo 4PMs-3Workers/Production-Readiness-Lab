@@ -4410,10 +4410,21 @@ def worker_heartbeat_missing_failure_diagnostics(
             application_otel.get("application_otel_target_up") is True
         ),
     }
-    for key in ("expected_slot_sample_count", "current_heartbeat_sample_count"):
+    for key in (
+        "expected_slot_sample_count",
+        "current_heartbeat_sample_count",
+        "raw_heartbeat_sample_count",
+    ):
         count = predicate_values.get(key)
         if type(count) is int and 0 <= count <= 1_000_000:
             diagnostic[key] = count
+    for key in (
+        "raw_heartbeat_predates_worker_exit",
+        "current_heartbeat_recorded_after_collector_restart",
+    ):
+        value = predicate_values.get(key)
+        if isinstance(value, bool):
+            diagnostic[key] = value
     return diagnostic
 
 
@@ -7505,10 +7516,21 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         ):
             raise AcceptanceFailure("The stopped heartbeat-missing worker lost UUID ownership")
         missing_worker_exit_at_utc: str | None = None
+        missing_worker_exit_epoch: float | None = None
         try:
             missing_worker_exit_at_utc = normalize_alertmanager_timestamp(
                 missing_worker_finished_at
             )
+            parsed_worker_exit = datetime.fromisoformat(
+                missing_worker_finished_at.replace("Z", "+00:00")
+            )
+            if parsed_worker_exit.tzinfo is None or parsed_worker_exit.utcoffset() is None:
+                raise ValueError("The stopped worker exit timestamp was invalid")
+            missing_worker_exit_epoch = _validated_epoch_seconds(
+                parsed_worker_exit.timestamp()
+            )
+            if missing_worker_exit_epoch is None:
+                raise ValueError("The stopped worker exit timestamp was invalid")
             missing_transition_deadline = MonotonicDeadline.from_utc_timestamp(
                 missing_worker_finished_at, 90
             )
@@ -7726,10 +7748,48 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                 current_samples,
                 worker_slot="1",
             )
+            raw_heartbeat_vector = prometheus_vector(
+                'prl_worker_heartbeat_timestamp_seconds{worker_slot="1"}',
+                request_deadline,
+            )
+            raw_heartbeats = worker_alert_samples(raw_heartbeat_vector, worker_slot="1")
+
+            def sample_pair(sample: dict[str, object]) -> tuple[float, float] | None:
+                value = sample.get("value")
+                if not isinstance(value, list) or len(value) != 2:
+                    return None
+                sample_epoch = _finite_prometheus_number(value[0])
+                metric_value = _finite_prometheus_number(value[1])
+                if sample_epoch is None or metric_value is None:
+                    return None
+                return sample_epoch, metric_value
+
+            raw_heartbeat_pairs = [sample_pair(sample) for sample in raw_heartbeats]
+            current_heartbeat_pairs = [sample_pair(sample) for sample in current_heartbeats]
+            raw_heartbeat_predates_worker_exit = (
+                bool(raw_heartbeats)
+                and missing_worker_exit_epoch is not None
+                and len(raw_heartbeat_pairs) == len(raw_heartbeats)
+                and all(
+                    pair is not None and pair[1] < missing_worker_exit_epoch
+                    for pair in raw_heartbeat_pairs
+                )
+            )
+            current_heartbeat_recorded_after_collector_restart = any(
+                pair is not None and pair[0] >= collector_restart_epoch
+                for pair in current_heartbeat_pairs
+            )
             missing_worker_predicate_observation.update(
                 {
                     "expected_slot_sample_count": len(expected_slot),
                     "current_heartbeat_sample_count": len(current_heartbeats),
+                    "raw_heartbeat_sample_count": len(raw_heartbeats),
+                    "raw_heartbeat_predates_worker_exit": (
+                        raw_heartbeat_predates_worker_exit
+                    ),
+                    "current_heartbeat_recorded_after_collector_restart": (
+                        current_heartbeat_recorded_after_collector_restart
+                    ),
                 }
             )
             if len(expected_slot) != 1 or current_heartbeats:

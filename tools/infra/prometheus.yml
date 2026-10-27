@@ -21,6 +21,8 @@ scrape_configs:
       - targets:
           - collector:8888
   - job_name: application-otel
+    # The Collector exports OTLP point timestamps; mark vanished series stale on the next scrape.
+    track_timestamps_staleness: true
     static_configs:
       - targets:
           - collector:9464

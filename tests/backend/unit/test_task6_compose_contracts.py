@@ -155,6 +155,7 @@ def test_prometheus_scrapes_backend_and_collector_self_health_endpoints():
     assert jobs["api"]["static_configs"][0]["targets"] == ["api:8000"]
     assert jobs["collector"]["static_configs"][0]["targets"] == ["collector:8888"]
     assert jobs["application-otel"]["static_configs"][0]["targets"] == ["collector:9464"]
+    assert jobs["application-otel"]["track_timestamps_staleness"] is True
     assert jobs["local-alert-receiver"]["static_configs"][0]["targets"] == [
         "local_alert_receiver:8088"
     ]
@@ -1569,6 +1570,9 @@ def test_worker_heartbeat_missing_failure_diagnostics_only_include_booleans_and_
             "expected_slot_samples": [{"labels": {"service_name": "private"}, "value": ["1", "1"]}],
             "current_heartbeat_sample_count": 0,
             "current_heartbeat_samples": [],
+            "raw_heartbeat_sample_count": 1,
+            "raw_heartbeat_predates_worker_exit": True,
+            "current_heartbeat_recorded_after_collector_restart": False,
         },
     )
 
@@ -1577,10 +1581,14 @@ def test_worker_heartbeat_missing_failure_diagnostics_only_include_booleans_and_
         "application_otel_scrape_observed": False,
         "expected_slot_sample_count": 1,
         "current_heartbeat_sample_count": 0,
+        "raw_heartbeat_sample_count": 1,
+        "raw_heartbeat_predates_worker_exit": True,
+        "current_heartbeat_recorded_after_collector_restart": False,
     }
     message = telemetry_stack.format_worker_heartbeat_missing_failure_message(
         "acceptance failed", diagnostic
     )
     assert "collector_scrape_observed" in message
     assert "expected_slot_sample_count" in message
+    assert "raw_heartbeat_predates_worker_exit" in message
     assert "private" not in message
