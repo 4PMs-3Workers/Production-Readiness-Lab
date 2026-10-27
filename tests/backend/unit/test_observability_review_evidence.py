@@ -17,6 +17,8 @@ from tests.containers.observability_review_evidence import (
     write_evidence_documents,
 )
 
+_MISSING = object()
+
 
 @pytest.fixture
 def workspace_build_tmp_path() -> Iterator[Path]:
@@ -29,6 +31,150 @@ def workspace_build_tmp_path() -> Iterator[Path]:
 def _as_mapping(value: object) -> dict[str, object]:
     assert isinstance(value, dict)
     return cast(dict[str, object], value)
+
+
+def _successful_business_case(state: str) -> dict[str, object]:
+    return {
+        "state": state,
+        "application_readiness_http": 200,
+        "gateway_readiness_http": 200,
+        "authenticated_student_and_staff_sessions": True,
+        "booking_replay_receipt_stable": True,
+        "proposal_replay_receipt_stable": True,
+        "proposal_accept_replay_stable": True,
+        "successful_cancellation_route": 200,
+        "accepted_business_effects": {"audit_event_count": 4, "notification_count": 8},
+        "actual_worker_expiry": {
+            "actual_worker_transition": "EXPIRED:CANCELLED:CHANGE_PROPOSAL_EXPIRED",
+            "followup_scan_counter_before": 10,
+            "followup_scan_counter_after": 11,
+            "expiry_side_effects_stable_after_followup_scan": True,
+        },
+        "expired_business_effects": {"audit_event_count": 3, "notification_count": 6},
+        "write_latency_max_ms": 123.456,
+        "write_latency_count": 7,
+    }
+
+
+def _projected_business_recovery(
+    evidence: dict[str, object], worker_alerts: dict[str, object] | None = None
+) -> dict[str, object]:
+    document = build_runtime_evidence(
+        outcome="passed",
+        checkout_sha="1" * 40,
+        source_sha="2" * 40,
+        pr_head_sha="3" * 40,
+        started_at_utc="2026-10-27T02:00:00.000Z",
+        finished_at_utc="2026-10-27T02:05:00.000Z",
+        elapsed_seconds=300,
+        config_sha256={},
+        evidence=evidence,
+        worker_alerts=worker_alerts or {},
+        screenshot_evidence=None,
+    )
+    return _as_mapping(document["business_recovery"])
+
+
+def _assert_successful_business_case(case_value: object) -> None:
+    case = _as_mapping(case_value)
+    assert case["application_ready"] is True
+    assert case["gateway_ready"] is True
+    assert case["authenticated_sessions"] is True
+    assert case["booking_replay_stable"] is True
+    assert case["proposal_replay_stable"] is True
+    assert case["proposal_accept_replay_stable"] is True
+    assert case["cancellation_succeeded"] is True
+    assert case["accepted_audit_event_count"] == 4
+    assert case["accepted_notification_count"] == 8
+    assert case["proposal_expired_by_worker"] is True
+    assert case["followup_scan_advanced"] is True
+    assert case["expiry_effects_stable_after_followup_scan"] is True
+    assert case["expired_audit_event_count"] == 3
+    assert case["expired_notification_count"] == 6
+    assert case["write_latency_max_ms"] == 123.456
+    assert case["write_latency_count"] == 7
+
+
+@pytest.mark.parametrize("service", ["loki", "tempo", "prometheus"])
+def test_runtime_evidence_projects_backend_outage_business_case_wrapper(service: str) -> None:
+    state = f"{service}_stopped"
+    evidence = {
+        "business_outage_matrix": {
+            state: {
+                "service": service,
+                "stopped_container_preserved": True,
+                "business_case": _successful_business_case(state),
+                "outage_started_unix_ns": 1_800_000_000_000_000_000,
+                "recovery_started_unix_ns": 1_800_000_100_000_000_000,
+                "outage_elapsed_seconds": 100.0,
+                "recovered_targets": {"prometheus": "up"},
+            }
+        }
+    }
+
+    recovery = _projected_business_recovery(evidence)
+    outage_cases = _as_mapping(recovery["outage_cases"])
+
+    _assert_successful_business_case(outage_cases[state])
+
+
+def test_runtime_evidence_does_not_read_wrapper_when_nested_business_case_is_malformed() -> None:
+    recovery = _projected_business_recovery(
+        {
+            "business_outage_matrix": {
+                "loki_stopped": {
+                    "application_readiness_http": 200,
+                    "gateway_readiness_http": 200,
+                    "business_case": None,
+                }
+            }
+        }
+    )
+    outage_cases = _as_mapping(recovery["outage_cases"])
+
+    assert "loki_stopped" not in outage_cases
+
+
+@pytest.mark.parametrize("state", ["healthy", "collector_stopped"])
+def test_runtime_evidence_keeps_flat_healthy_and_collector_business_cases(state: str) -> None:
+    evidence = {"business_outage_matrix": {state: _successful_business_case(state)}}
+
+    recovery = _projected_business_recovery(evidence)
+    outage_cases = _as_mapping(recovery["outage_cases"])
+
+    _assert_successful_business_case(outage_cases[state])
+
+
+@pytest.mark.parametrize(
+    ("duplicate_value", "expected"),
+    [
+        pytest.param(False, False, id="no-duplication"),
+        pytest.param(True, True, id="duplication"),
+        pytest.param(_MISSING, None, id="missing"),
+        pytest.param(None, None, id="null"),
+        pytest.param(0, None, id="falsy-non-bool"),
+        pytest.param(1, None, id="truthy-non-bool"),
+        pytest.param("", None, id="empty-string"),
+        pytest.param("false", None, id="string"),
+        pytest.param([], None, id="empty-list"),
+    ],
+)
+def test_runtime_evidence_preserves_only_boolean_duplicate_effect_values(
+    duplicate_value: object, expected: bool | None
+) -> None:
+    business_invariants: dict[str, object] = {
+        "audit_expired_cancelled_reason": "EXPIRED:CANCELLED:CHANGE_PROPOSAL_EXPIRED",
+        "proposal_expired_audits": 1,
+        "proposal_expired_notifications": 2,
+    }
+    if duplicate_value is not _MISSING:
+        business_invariants["later_scan_duplicated_effects"] = duplicate_value
+    worker_alerts = {"WorkerBacklogOverdue": {"business_invariants": business_invariants}}
+
+    recovery = _projected_business_recovery({}, worker_alerts)
+    overdue = _as_mapping(recovery["overdue_alert_expiry"])
+
+    assert overdue["later_scan_duplicated_effects"] is expected
 
 
 def test_runtime_evidence_keeps_only_sanitized_route_sli_alert_and_business_facts(

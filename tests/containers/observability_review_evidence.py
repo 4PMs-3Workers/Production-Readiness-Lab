@@ -205,11 +205,9 @@ def _project_worker_alerts(value: object) -> dict[str, dict[str, object]]:
             "alertname": name,
             "severity": severity,
             "worker_slot": None if name == "WorkerBacklogOverdue" else "1",
-            "status": "resolved"
-            if recovery_observed
-            else "firing"
-            if firing_observed
-            else "not_observed",
+            "status": (
+                "resolved" if recovery_observed else "firing" if firing_observed else "not_observed"
+            ),
             "fingerprint": firing_delivery["fingerprint"] if firing_observed else None,
             "starts_at_utc": firing_delivery["starts_at_utc"] if firing_observed else None,
             "firing_budget_seconds": firing_budget,
@@ -354,7 +352,12 @@ def _project_business_recovery(
     matrix = _mapping(evidence.get("business_outage_matrix"))
     cases: dict[str, object] = {}
     for state in _BUSINESS_CASES:
-        case = _mapping(matrix.get(state))
+        case_wrapper = _mapping(matrix.get(state))
+        case = (
+            _mapping(case_wrapper.get("business_case"))
+            if "business_case" in case_wrapper
+            else case_wrapper
+        )
         if not case:
             continue
         expiry = _mapping(case.get("actual_worker_expiry"))
@@ -386,6 +389,7 @@ def _project_business_recovery(
     overdue = _mapping(
         _mapping(worker_alerts.get("WorkerBacklogOverdue")).get("business_invariants")
     )
+    later_scan_duplicated_effects = overdue.get("later_scan_duplicated_effects")
     return {
         "outage_cases": cases,
         "new_owner_database_recovery": {
@@ -404,7 +408,11 @@ def _project_business_recovery(
             == "EXPIRED:CANCELLED:CHANGE_PROPOSAL_EXPIRED",
             "expiry_audit_count": _count(overdue.get("proposal_expired_audits")),
             "expiry_notification_count": _count(overdue.get("proposal_expired_notifications")),
-            "later_scan_duplicated_effects": overdue.get("later_scan_duplicated_effects") is False,
+            "later_scan_duplicated_effects": (
+                later_scan_duplicated_effects
+                if type(later_scan_duplicated_effects) is bool
+                else None
+            ),
         },
     }
 
