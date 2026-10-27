@@ -829,6 +829,7 @@ def test_malformed_published_request_is_local_input_400(gateway):
         previous_ids,
         lambda value: value.get("status") == 400 and value.get("route") == "/api/v1/auth/login",
     )
+    assert record["method"] == "POST"
     assert record["upstream_identity"] == "none"
     assert record["upstream_outcome"] == "gateway_input"
     assert record["classification"] == "excluded"
@@ -841,6 +842,11 @@ def test_malformed_published_request_is_local_input_400(gateway):
 @pytest.mark.parametrize("malformed_escape", ["%", "%2", "%GG"])
 def test_malformed_percent_target_is_rejected_without_forwarding(gateway, malformed_escape):
     _, _, base, env = gateway
+    previous_ids = {
+        record["request_id"]
+        for record in gateway_records(base, env)[0]
+        if isinstance(record.get("request_id"), str)
+    }
     connection, port = open_gateway_connection(gateway)
     target = f"/api/v1/purposes{malformed_escape}?private=malformed-percent-canary"
     request = (
@@ -854,7 +860,83 @@ def test_malformed_percent_target_is_rejected_without_forwarding(gateway, malfor
     finally:
         connection.close()
 
-    status, headers, _ = parse_raw_http_response(raw)
+    status, headers, body = parse_raw_http_response(raw)
+    if status != 400:
+        response_code_is_http_error = False
+        try:
+            payload = json.loads(body)
+            error = payload.get("error") if isinstance(payload, dict) else None
+            response_code_is_http_error = (
+                isinstance(error, dict) and error.get("code") == "HTTP_ERROR"
+            )
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            pass
+
+        deadline = time.monotonic() + 3
+        safe_record = None
+        raw_logs = ""
+        response_request_id = headers.get("x-request-id")
+        while time.monotonic() < deadline:
+            records, raw_logs = gateway_records(base, env)
+            new_records = [
+                record
+                for record in records
+                if isinstance(record.get("request_id"), str)
+                and (
+                    record["request_id"] == response_request_id
+                    if response_request_id
+                    else record["request_id"] not in previous_ids
+                )
+            ]
+            if new_records:
+                record = new_records[-1]
+                safe_record = {
+                    key: record.get(key)
+                    for key in (
+                        "route",
+                        "status",
+                        "upstream_identity",
+                        "error_class",
+                        "upstream_outcome",
+                        "classification",
+                    )
+                }
+                break
+            time.sleep(0.1)
+
+        access_route_is_expected = (
+            safe_record is not None and safe_record.get("route") == "/api/v1/purposes"
+        )
+        access_status_is_400 = safe_record is not None and safe_record.get("status") == 400
+        access_upstream_is_none = (
+            safe_record is not None and safe_record.get("upstream_identity") == "none"
+        )
+        access_error_class_is_input = (
+            safe_record is not None and safe_record.get("error_class") == "input"
+        )
+        access_outcome_is_gateway_input = (
+            safe_record is not None and safe_record.get("upstream_outcome") == "gateway_input"
+        )
+        access_classification_is_excluded = (
+            safe_record is not None and safe_record.get("classification") == "excluded"
+        )
+        pytest.fail(
+            "Malformed path target did not return the expected safe input response: "
+            f"status_is_400={status == 400}, "
+            f"response_code_is_http_error={response_code_is_http_error}, "
+            f"x_error_class_is_input={headers.get('x-error-class') == 'input'}, "
+            f"request_id_present={bool(headers.get('x-request-id'))}, "
+            f"access_record_observed={safe_record is not None}, "
+            f"access_route_is_expected={access_route_is_expected}, "
+            f"access_status_is_400={access_status_is_400}, "
+            f"access_upstream_is_none={access_upstream_is_none}, "
+            f"access_error_class_is_input={access_error_class_is_input}, "
+            f"access_outcome_is_gateway_input={access_outcome_is_gateway_input}, "
+            f"access_classification_is_excluded={access_classification_is_excluded}, "
+            f"canary_in_response={b'malformed-percent-canary' in raw}, "
+            f"canary_in_gateway_logs={'malformed-percent-canary' in raw_logs}"
+        )
+
     assert status == 400
     assert headers["x-error-class"] == "input"
     assert target.encode() not in raw
@@ -1310,7 +1392,7 @@ def test_generated_gateway_route_map_matches_business_openapi():
     )
     assert result.returncode == 0, result.stdout + result.stderr
     route_map = (ROOT / "tools/deploy/nginx/route-map.conf").read_text(encoding="utf-8")
-    assert route_map.count('map "$request_method:$request_uri"') == 2
+    assert route_map.count('map "$prl_method:$request_uri"') == 2
     assert "$request_method:$uri" not in route_map
     assert "(?:p|%70)" in route_map
     assert "(?:/|%2[fF])" in route_map

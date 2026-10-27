@@ -1485,3 +1485,102 @@ def test_pre_cleanup_snapshot_keeps_loki_query_index_and_tempo_independent():
     assert all(
         service["inspection_available"] is False for service in diagnostic["services"].values()
     )
+
+
+def test_post_restart_collector_epoch_comes_from_same_owned_running_container():
+    container_id = "a" * 64
+    project = "prl-task6-owned"
+    record = {
+        "Id": container_id,
+        "Config": {"Labels": {"com.docker.compose.project": project}},
+        "State": {
+            "Status": "running",
+            "StartedAt": "2026-10-27T00:00:00.123456Z",
+        },
+    }
+
+    epoch = telemetry_stack.post_restart_container_started_epoch(
+        record,
+        expected_container_id=container_id,
+        expected_project=project,
+        later_than_epoch=1_793_059_200.0,
+    )
+
+    assert epoch == pytest.approx(1_793_059_200.123456)
+
+    replaced = {**record, "Id": "b" * 64}
+    stopped = {**record, "State": {**record["State"], "Status": "exited"}}
+    foreign = {
+        **record,
+        "Config": {"Labels": {"com.docker.compose.project": "another-project"}},
+    }
+    for invalid_record in (replaced, stopped, foreign):
+        assert (
+            telemetry_stack.post_restart_container_started_epoch(
+                invalid_record,
+                expected_container_id=container_id,
+                expected_project=project,
+                later_than_epoch=1_793_059_200.0,
+            )
+            is None
+        )
+    assert (
+        telemetry_stack.post_restart_container_started_epoch(
+            record,
+            expected_container_id=container_id,
+            expected_project=project,
+            later_than_epoch=epoch,
+        )
+        is None
+    )
+
+
+def test_prometheus_scrape_barrier_rejects_samples_from_before_container_start():
+    old_sample = {
+        "metric": {"job": "application-otel", "private_label": "do-not-report"},
+        "value": ["1799999999", "1"],
+    }
+    current_sample = {
+        "metric": {"job": "application-otel", "private_label": "do-not-report"},
+        "value": ["1800000001", "1"],
+    }
+
+    assert (
+        telemetry_stack.prometheus_up_sample_after_epoch(
+            [old_sample], job="application-otel", not_before_epoch=1_800_000_000
+        )
+        is None
+    )
+    assert telemetry_stack.prometheus_up_sample_after_epoch(
+        [old_sample, current_sample],
+        job="application-otel",
+        not_before_epoch=1_800_000_000,
+    ) == pytest.approx(1_800_000_001)
+
+
+def test_worker_heartbeat_missing_failure_diagnostics_only_include_booleans_and_counts():
+    diagnostic = telemetry_stack.worker_heartbeat_missing_failure_diagnostics(
+        {
+            "collector": {"collector_target_up": True, "raw": "private"},
+            "application_otel": {"application_otel_target_up": False},
+        },
+        {
+            "expected_slot_sample_count": 1,
+            "expected_slot_samples": [{"labels": {"service_name": "private"}, "value": ["1", "1"]}],
+            "current_heartbeat_sample_count": 0,
+            "current_heartbeat_samples": [],
+        },
+    )
+
+    assert diagnostic == {
+        "collector_scrape_observed": True,
+        "application_otel_scrape_observed": False,
+        "expected_slot_sample_count": 1,
+        "current_heartbeat_sample_count": 0,
+    }
+    message = telemetry_stack.format_worker_heartbeat_missing_failure_message(
+        "acceptance failed", diagnostic
+    )
+    assert "collector_scrape_observed" in message
+    assert "expected_slot_sample_count" in message
+    assert "private" not in message

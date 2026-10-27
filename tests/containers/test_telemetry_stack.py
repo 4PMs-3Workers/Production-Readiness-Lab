@@ -4309,6 +4309,125 @@ def _object_mapping(value: object) -> dict[str, object]:
     return {key: item for key, item in value.items() if isinstance(key, str)}
 
 
+def _validated_epoch_seconds(value: object) -> float | None:
+    if type(value) not in (int, float):
+        return None
+    timestamp = float(value)
+    if not math.isfinite(timestamp) or not 0 < timestamp < 10_000_000_000:
+        return None
+    return timestamp
+
+
+def post_restart_container_started_epoch(
+    record: object,
+    *,
+    expected_container_id: str,
+    expected_project: str,
+    later_than_epoch: object | None = None,
+) -> float | None:
+    """Return a finite start time for the same running Compose-owned container generation."""
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_container_id) or not expected_project:
+        return None
+    container = _object_mapping(record)
+    config = _object_mapping(container.get("Config"))
+    labels = _object_mapping(config.get("Labels"))
+    state = _object_mapping(container.get("State"))
+    if (
+        container.get("Id") != expected_container_id
+        or labels.get("com.docker.compose.project") != expected_project
+        or state.get("Status") != "running"
+    ):
+        return None
+
+    raw_started_at = state.get("StartedAt")
+    if not isinstance(raw_started_at, str):
+        return None
+    try:
+        started_at = datetime.fromisoformat(raw_started_at.replace("Z", "+00:00"))
+        if started_at.tzinfo is None or started_at.utcoffset() is None:
+            return None
+        timestamp = _validated_epoch_seconds(started_at.timestamp())
+    except (OSError, OverflowError, ValueError):
+        return None
+    if timestamp is None:
+        return None
+
+    if later_than_epoch is not None:
+        previous_timestamp = _validated_epoch_seconds(later_than_epoch)
+        if previous_timestamp is None or timestamp <= previous_timestamp:
+            return None
+    return timestamp
+
+
+def _finite_prometheus_number(value: object) -> float | None:
+    if type(value) in (int, float):
+        number = float(value)
+    elif isinstance(value, str) and len(value) <= 64:
+        try:
+            number = float(value)
+        except (OverflowError, ValueError):
+            return None
+    else:
+        return None
+    return number if math.isfinite(number) and abs(number) < 10_000_000_000 else None
+
+
+def prometheus_up_sample_after_epoch(
+    samples: object,
+    *,
+    job: str,
+    not_before_epoch: object,
+) -> float | None:
+    """Return a target-up sample timestamp only when it is from after the owner start."""
+    minimum_epoch = _validated_epoch_seconds(not_before_epoch)
+    if minimum_epoch is None or not isinstance(samples, list):
+        return None
+    for sample in samples:
+        sample_mapping = _object_mapping(sample)
+        labels = _object_mapping(sample_mapping.get("metric"))
+        values = sample_mapping.get("value")
+        if labels.get("job") != job or not isinstance(values, list) or len(values) != 2:
+            continue
+        sample_epoch = _finite_prometheus_number(values[0])
+        target_up = _finite_prometheus_number(values[1])
+        if sample_epoch is not None and target_up == 1 and sample_epoch >= minimum_epoch:
+            return sample_epoch
+    return None
+
+
+def worker_heartbeat_missing_failure_diagnostics(
+    barriers: object,
+    predicate: object,
+) -> dict[str, bool | int]:
+    """Keep pytest failure details to bounded booleans/counts without Prometheus labels."""
+    barrier_values = _object_mapping(barriers)
+    collector = _object_mapping(barrier_values.get("collector"))
+    application_otel = _object_mapping(barrier_values.get("application_otel"))
+    predicate_values = _object_mapping(predicate)
+    diagnostic: dict[str, bool | int] = {
+        "collector_scrape_observed": collector.get("collector_target_up") is True,
+        "application_otel_scrape_observed": (
+            application_otel.get("application_otel_target_up") is True
+        ),
+    }
+    for key in ("expected_slot_sample_count", "current_heartbeat_sample_count"):
+        count = predicate_values.get(key)
+        if type(count) is int and 0 <= count <= 1_000_000:
+            diagnostic[key] = count
+    return diagnostic
+
+
+def format_worker_heartbeat_missing_failure_message(
+    reason: str,
+    diagnostics: dict[str, bool | int],
+) -> str:
+    return (
+        reason
+        + "; bounded_observations="
+        + json.dumps(diagnostics, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    )
+
+
 def _worker_metric_value(state: dict[str, dict[str, object]], role: str) -> float | None:
     sample = state.get(role)
     if not isinstance(sample, dict):
@@ -7432,9 +7551,18 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
 
         failure_context["stage"] = "collector_restart_command"
         require_missing_worker_deadline("before_collector_restart")
-        collector_restart_started_at = (
-            datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        collector_before_restart = runtime.inspect_service(
+            "collector", timeout=5, deadline=missing_transition_deadline.expires_at
         )
+        collector_started_before_restart_epoch = post_restart_container_started_epoch(
+            collector_before_restart,
+            expected_container_id=collector_id_before,
+            expected_project=runtime.stack.project,
+        )
+        if collector_started_before_restart_epoch is None:
+            raise AcceptanceFailure(
+                "The UUID-owned Collector did not expose its running pre-restart generation"
+            )
         try:
             acceptance_success(
                 runtime.compose(
@@ -7451,6 +7579,20 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             record_missing_worker_deadline("collector_restart_command_failed")
             raise
         require_missing_worker_deadline("collector_restart_command_completed")
+        collector_after_restart = runtime.inspect_service(
+            "collector", timeout=5, deadline=missing_transition_deadline.expires_at
+        )
+        collector_restart_epoch = post_restart_container_started_epoch(
+            collector_after_restart,
+            expected_container_id=collector_id_before,
+            expected_project=runtime.stack.project,
+            later_than_epoch=collector_started_before_restart_epoch,
+        )
+        if collector_restart_epoch is None:
+            raise AcceptanceFailure(
+                "The UUID-owned Collector did not expose a newer running start time after restart"
+            )
+        require_missing_worker_deadline("collector_restart_inspected")
 
         failure_context["stage"] = "collector_restart_target_matrix"
         try:
@@ -7472,35 +7614,42 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         require_missing_worker_deadline("collector_volume_check_completed")
 
         collector_scrape_after_restart: dict[str, object] = {}
+        application_otel_scrape_after_restart: dict[str, object] = {}
+        failure_context["worker_heartbeat_missing_scrape_barriers"] = {
+            "collector": collector_scrape_after_restart,
+            "application_otel": application_otel_scrape_after_restart,
+        }
+        missing_worker_predicate_observation: dict[str, object] = {}
+
+        def missing_worker_failure_message(reason: str) -> str:
+            diagnostic = worker_heartbeat_missing_failure_diagnostics(
+                failure_context.get("worker_heartbeat_missing_scrape_barriers"),
+                missing_worker_predicate_observation,
+            )
+            failure_context["worker_heartbeat_missing_failure_observations"] = diagnostic
+            return format_worker_heartbeat_missing_failure_message(
+                reason,
+                diagnostic,
+            )
+
         collector_scrape_deadline = missing_transition_deadline
-        collector_restart_epoch = datetime.fromisoformat(
-            collector_restart_started_at.replace("Z", "+00:00")
-        ).timestamp()
 
         def collector_was_scraped_after_restart(request_deadline: float) -> object:
             samples = prometheus_vector('up{job="collector"}', request_deadline)
-            for sample in samples:
-                labels = sample.get("metric")
-                value = sample.get("value")
-                if (
-                    isinstance(labels, dict)
-                    and labels.get("job") == "collector"
-                    and isinstance(value, list)
-                    and len(value) == 2
-                ):
-                    try:
-                        sample_timestamp, sample_value = float(value[0]), float(value[1])
-                    except (TypeError, ValueError):
-                        continue
-                    if sample_value == 1 and sample_timestamp >= collector_restart_epoch:
-                        collector_scrape_after_restart.update(
-                            {
-                                "collector_target_up": True,
-                                "sample_timestamp_seconds": sample_timestamp,
-                            }
-                        )
-                        return collector_scrape_after_restart
-            return None
+            sample_timestamp = prometheus_up_sample_after_epoch(
+                samples,
+                job="collector",
+                not_before_epoch=collector_restart_epoch,
+            )
+            if sample_timestamp is None:
+                return None
+            collector_scrape_after_restart.update(
+                {
+                    "collector_target_up": True,
+                    "sample_timestamp_seconds": sample_timestamp,
+                }
+            )
+            return collector_scrape_after_restart
 
         try:
             wait_until_deadline(
@@ -7512,19 +7661,76 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                 ),
                 interval_seconds=5,
             )
+        except AcceptanceFailure:
+            record_missing_worker_deadline("collector_scrape_wait_failed")
+            raise AcceptanceFailure(
+                missing_worker_failure_message(
+                    "Prometheus did not scrape the recovered Collector before the worker alert "
+                    "phase"
+                )
+            ) from None
         except Exception:
             record_missing_worker_deadline("collector_scrape_wait_failed")
             raise
         require_missing_worker_deadline("collector_scrape_wait_completed")
+
+        def application_otel_was_scraped_after_restart(request_deadline: float) -> object:
+            samples = prometheus_vector('up{job="application-otel"}', request_deadline)
+            sample_timestamp = prometheus_up_sample_after_epoch(
+                samples,
+                job="application-otel",
+                not_before_epoch=collector_restart_epoch,
+            )
+            if sample_timestamp is None:
+                return None
+            application_otel_scrape_after_restart.update(
+                {
+                    "application_otel_target_up": True,
+                    "sample_timestamp_seconds": sample_timestamp,
+                }
+            )
+            return application_otel_scrape_after_restart
+
+        failure_context["stage"] = "worker_heartbeat_missing_application_otel_scrape"
+        try:
+            wait_until_deadline(
+                missing_transition_deadline,
+                application_otel_was_scraped_after_restart,
+                failure=(
+                    "Prometheus did not scrape the restarted Collector's application metrics "
+                    "endpoint before the worker heartbeat check"
+                ),
+                interval_seconds=5,
+            )
+        except AcceptanceFailure:
+            record_missing_worker_deadline("application_otel_scrape_wait_failed")
+            raise AcceptanceFailure(
+                missing_worker_failure_message(
+                    "Prometheus did not scrape the restarted Collector's application metrics "
+                    "endpoint before the worker heartbeat check"
+                )
+            ) from None
+        except Exception:
+            record_missing_worker_deadline("application_otel_scrape_wait_failed")
+            raise
+        record_missing_worker_deadline("application_otel_scrape_wait_completed")
+        failure_context["stage"] = "worker_heartbeat_missing_slot_predicate"
 
         def expected_slot_present_without_current_heartbeat(request_deadline: float) -> object:
             expected_samples = prometheus_vector(
                 'prl_expected_worker_slot{worker_slot="1"}', request_deadline
             )
             expected_slot = worker_alert_samples(expected_samples, worker_slot="1")
+            current_samples = prometheus_vector("prl:worker:heartbeat_current", request_deadline)
             current_heartbeats = worker_alert_samples(
-                prometheus_vector("prl:worker:heartbeat_current", request_deadline),
+                current_samples,
                 worker_slot="1",
+            )
+            missing_worker_predicate_observation.update(
+                {
+                    "expected_slot_sample_count": len(expected_slot),
+                    "current_heartbeat_sample_count": len(current_heartbeats),
+                }
             )
             if len(expected_slot) != 1 or current_heartbeats:
                 return None
@@ -7550,7 +7756,15 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             )
         except AcceptanceFailure:
             record_missing_worker_deadline("slot_and_heartbeat_predicate_timeout")
-            raise
+            failure_context["worker_heartbeat_missing_predicate"] = dict(
+                missing_worker_predicate_observation
+            )
+            raise AcceptanceFailure(
+                missing_worker_failure_message(
+                    "The expected worker slot did not remain present after its current heartbeat "
+                    "disappeared"
+                )
+            ) from None
         record_missing_worker_deadline("slot_and_heartbeat_predicate_observed")
         try:
             missing_firing = wait_for_worker_alert_firing(
@@ -7561,7 +7775,11 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             )
         except AcceptanceFailure:
             record_missing_worker_deadline("alert_firing_timeout")
-            raise
+            raise AcceptanceFailure(
+                missing_worker_failure_message(
+                    "WorkerHeartbeatMissing did not fire before the worker restart deadline"
+                )
+            ) from None
         record_missing_worker_deadline("alert_firing_observed")
         worker_alert_resolution_baselines["WorkerHeartbeatMissing"] = worker_receiver_snapshot(
             "WorkerHeartbeatMissing"
