@@ -43,10 +43,18 @@ from tests.containers.test_compose_acceptance import (
 from tests.containers.test_compose_acceptance import (
     require_success as acceptance_success,
 )
+from tests.containers.worker_alert_probe import (
+    MonotonicDeadline,
+    acquire_pending_proposal_row_lock,
+    active_worker_alert_identity,
+    normalize_alertmanager_timestamp,
+    run_bounded_mysql_statement,
+    wait_until_deadline,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 NGINX_IMAGE = (
-    "nginx:stable-alpine" "@sha256:c59d1f8b1e0e42da75be973424cd72e23f7f8adfb54e982f4d1cd0216a5a5576"
+    "nginx:stable-alpine@sha256:c59d1f8b1e0e42da75be973424cd72e23f7f8adfb54e982f4d1cd0216a5a5576"
 )
 GATEWAY_SUBNET = ipaddress.ip_network("172.30.34.0/29")
 GATEWAY_API_IP = "172.30.34.3"
@@ -123,6 +131,7 @@ def restart_worker_while_database_is_unavailable(
     worker_container_id: str,
     mysql_container_id: str,
     capture_baseline: Callable[[], dict[str, dict[str, object]]],
+    on_worker_stopped: Callable[[], None] | None = None,
 ) -> dict[str, dict[str, object]]:
     """Restart the existing worker container while MySQL is stopped."""
 
@@ -139,6 +148,8 @@ def restart_worker_while_database_is_unavailable(
         "The UUID-owned worker could not stop for the same-slot observation",
     )
     require_status("worker", worker_container_id, "exited")
+    if on_worker_stopped is not None:
+        on_worker_stopped()
     acceptance_success(
         compose("stop", "--timeout", "10", "mysql", timeout=30),
         "The UUID-owned database could not stop for the same-slot observation",
@@ -460,13 +471,29 @@ def receiver_health_is_passed(summary: dict[str, object]) -> bool:
     )
 
 
-def _receiver_status_key(item: dict[str, str]) -> tuple[str, str, str] | None:
+def _receiver_status_key(item: dict[str, str]) -> tuple[str, str, str, str, str] | None:
     status = item.get("status")
     severity = item.get("severity")
     received_at = item.get("received_at")
     if not all(isinstance(value, str) for value in (status, severity, received_at)):
         return None
-    return status, severity, received_at
+    fingerprint = item.get("fingerprint")
+    starts_at = item.get("starts_at")
+    if fingerprint is None and starts_at is None:
+        fingerprint = starts_at = ""
+    elif (
+        not isinstance(fingerprint, str)
+        or not re.fullmatch(r"[0-9a-f]{16,64}", fingerprint)
+        or not isinstance(starts_at, str)
+    ):
+        return None
+    else:
+        try:
+            if normalize_alertmanager_timestamp(starts_at) != starts_at:
+                return None
+        except ValueError:
+            return None
+    return status, severity, received_at, fingerprint, starts_at
 
 
 def new_alert_statuses_since_snapshot(
@@ -1347,9 +1374,9 @@ def _assert_test_subnet_is_unused() -> None:
         for value in result.stdout.splitlines():
             if not value:
                 continue
-            assert not GATEWAY_SUBNET.overlaps(
-                ipaddress.ip_network(value)
-            ), "the fixed gateway fixture subnet overlaps an existing Docker network"
+            assert not GATEWAY_SUBNET.overlaps(ipaddress.ip_network(value)), (
+                "the fixed gateway fixture subnet overlaps an existing Docker network"
+            )
 
 
 def _free_loopback_port() -> int:
@@ -1521,8 +1548,7 @@ def test_gateway_readiness_requires_real_https_response_without_grafana_dns(
     entrypoint = ROOT / "tools/deploy/nginx/gateway-entrypoint.sh"
     original = entrypoint.read_text(encoding="utf-8")
     dynamic_lines = (
-        "        set $prl_ops_upstream http://grafana:3000;\n"
-        "        proxy_pass $prl_ops_upstream;"
+        "        set $prl_ops_upstream http://grafana:3000;\n        proxy_pass $prl_ops_upstream;"
     )
     assert original.count(dynamic_lines) == 1, "the dynamic Grafana proxy seam changed"
     old_literal = tmp_path / "old-literal-entrypoint.sh"
@@ -1844,8 +1870,20 @@ class FullStackRuntime:
             + json.dumps(last, sort_keys=True, separators=(",", ":"))
         )
 
-    def compose(self, *args: str, timeout: float = 180):
-        return self.stack.compose(*args, timeout=timeout)
+    def compose(
+        self,
+        *args: str,
+        timeout: float = 180,
+        deadline: float | None = None,
+    ):
+        if deadline is None:
+            return self.stack.compose(*args, timeout=timeout)
+        if type(deadline) not in (int, float) or not math.isfinite(float(deadline)):
+            raise AcceptanceFailure("The Compose command deadline is invalid")
+        remaining = float(deadline) - time.monotonic()
+        if not math.isfinite(remaining) or remaining <= 0:
+            raise AcceptanceFailure("The Compose command deadline expired")
+        return self.stack.compose(*args, timeout=min(timeout, remaining))
 
     def api_json(
         self,
@@ -2164,8 +2202,12 @@ class FullStackRuntime:
             "pushed_gateway_json_events": len(events),
         }
 
-    def alert_receiver_statuses(self, name: str) -> list[dict[str, str]]:
-        records = self.api_json("http://local_alert_receiver:8088/alerts").get("alerts", [])
+    def alert_receiver_statuses(
+        self, name: str, *, deadline: float | None = None
+    ) -> list[dict[str, str]]:
+        records = self.api_json("http://local_alert_receiver:8088/alerts", deadline=deadline).get(
+            "alerts", []
+        )
         matching: list[dict[str, str]] = []
         for item in records:
             if not isinstance(item, dict) or item.get("alertname") != name:
@@ -2175,7 +2217,32 @@ class FullStackRuntime:
             received_at = item.get("received_at")
             if not all(isinstance(value, str) for value in (status, severity, received_at)):
                 raise AcceptanceFailure("The local receiver returned an invalid rule alert summary")
-            matching.append({"status": status, "severity": severity, "received_at": received_at})
+            fingerprint = item.get("fingerprint")
+            starts_at = item.get("starts_at")
+            if fingerprint is None and starts_at is None:
+                summary = {"status": status, "severity": severity, "received_at": received_at}
+            elif (
+                not isinstance(fingerprint, str)
+                or not re.fullmatch(r"[0-9a-f]{16,64}", fingerprint)
+                or not isinstance(starts_at, str)
+            ):
+                raise AcceptanceFailure("The local receiver returned an invalid alert identity")
+            else:
+                try:
+                    if normalize_alertmanager_timestamp(starts_at) != starts_at:
+                        raise ValueError
+                except ValueError:
+                    raise AcceptanceFailure(
+                        "The local receiver returned an invalid alert identity"
+                    ) from None
+                summary = {
+                    "status": status,
+                    "severity": severity,
+                    "received_at": received_at,
+                    "fingerprint": fingerprint,
+                    "starts_at": starts_at,
+                }
+            matching.append(summary)
         if any(
             item["status"] not in {"firing", "resolved"}
             or item["severity"] not in {"critical", "warning", "info"}
@@ -2704,7 +2771,17 @@ class FullStackRuntime:
         except Exception:
             return {"available": False}
 
-    def volume_snapshot(self) -> dict[str, dict[str, object]]:
+    def volume_snapshot(self, *, deadline: float | None = None) -> dict[str, dict[str, object]]:
+        def bounded_timeout() -> float:
+            if deadline is None:
+                return 180
+            if type(deadline) not in (int, float) or not math.isfinite(float(deadline)):
+                raise AcceptanceFailure("The volume snapshot deadline is invalid")
+            remaining = float(deadline) - time.monotonic()
+            if not math.isfinite(remaining) or remaining <= 0:
+                raise AcceptanceFailure("The volume snapshot deadline expired")
+            return min(180, remaining)
+
         listed = acceptance_success(
             acceptance_invoke(
                 [
@@ -2714,14 +2791,17 @@ class FullStackRuntime:
                     "-q",
                     "--filter",
                     f"label=com.docker.compose.project={self.stack.project}",
-                ]
+                ],
+                timeout=bounded_timeout(),
             ),
             "The UUID-owned Compose volumes could not be listed",
         )
         names = [name for name in listed.splitlines() if name]
         records = (
             acceptance_json(
-                acceptance_invoke(["docker", "volume", "inspect", *names]),
+                acceptance_invoke(
+                    ["docker", "volume", "inspect", *names], timeout=bounded_timeout()
+                ),
                 "The UUID-owned volume identities could not be read",
             )
             if names
@@ -2778,7 +2858,15 @@ class FullStackRuntime:
             raise AcceptanceFailure(f"The {service} container failed its exact owner check")
         return records[0]
 
-    def wait_targets(self) -> list[dict[str, str]]:
+    def wait_targets(self, *, deadline: float | None = None) -> list[dict[str, str]]:
+        wait_seconds = 90.0
+        if deadline is not None:
+            if type(deadline) not in (int, float) or not math.isfinite(float(deadline)):
+                raise AcceptanceFailure("The Prometheus target wait deadline is invalid")
+            remaining = float(deadline) - time.monotonic()
+            if not math.isfinite(remaining) or remaining <= 0:
+                raise AcceptanceFailure("The Prometheus target wait deadline expired")
+            wait_seconds = min(wait_seconds, remaining)
         expected = {
             "api",
             "collector",
@@ -2794,7 +2882,9 @@ class FullStackRuntime:
 
         def ready() -> bool:
             nonlocal observed
-            response = self.api_json("http://prometheus:9090/api/v1/targets?state=active")
+            response = self.api_json(
+                "http://prometheus:9090/api/v1/targets?state=active", deadline=deadline
+            )
             observed = response.get("data", {}).get("activeTargets", [])
             up = {
                 target.get("labels", {}).get("job")
@@ -2804,7 +2894,9 @@ class FullStackRuntime:
             return up == expected and len(observed) == len(expected)
 
         self.stack.wait_for(
-            ready, seconds=90, failure="The complete Prometheus target matrix did not become UP"
+            ready,
+            seconds=wait_seconds,
+            failure="The complete Prometheus target matrix did not become UP",
         )
         return [
             {
@@ -2859,6 +2951,7 @@ class FullStackRuntime:
             "last_successful_scan": "last_successful_scan_timestamp_seconds",
             "last_progress": "last_progress_timestamp_seconds",
             "backlog_count": "backlog_count",
+            "oldest_overdue": "oldest_overdue_seconds",
             "successful_scans": "successful_scans_total",
         }
         selected = {
@@ -3886,6 +3979,103 @@ print("TASK6_PROBE:" + json.dumps({"spoofed_forwarded_status": status}))
         self.stack.assert_demo_untouched()
 
 
+def test_full_stack_helper_deadlines_cap_runtime_and_keep_default_limits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = FullStackRuntime.__new__(FullStackRuntime)
+    compose_timeouts: list[float] = []
+    target_waits: list[float] = []
+    target_deadlines: list[float | None] = []
+    volume_timeouts: list[float] = []
+    jobs = (
+        "api",
+        "collector",
+        "application-otel",
+        "local-alert-receiver",
+        "prometheus-self",
+        "loki-self",
+        "tempo-self",
+        "grafana-self",
+        "alertmanager-self",
+    )
+
+    class FakeStack:
+        project = "prl-task5-bounded"
+
+        def compose(self, *_args: str, timeout: float) -> None:
+            compose_timeouts.append(timeout)
+
+        def wait_for(self, predicate: Callable[[], bool], *, seconds: float, failure: str) -> None:
+            del failure
+            target_waits.append(seconds)
+            assert predicate()
+
+    runtime.stack = FakeStack()
+
+    def fake_api_json(_url: str, *, deadline: float | None = None) -> dict[str, object]:
+        target_deadlines.append(deadline)
+        return {
+            "data": {
+                "activeTargets": [
+                    {"labels": {"job": job, "instance": "fixture"}, "health": "up"}
+                    for job in jobs
+                ]
+            }
+        }
+
+    monkeypatch.setattr(runtime, "api_json", fake_api_json)
+
+    def fake_acceptance_invoke(args: list[str], *, timeout: float = 180):
+        volume_timeouts.append(timeout)
+        if "inspect" in args:
+            stdout = json.dumps(
+                [
+                    {
+                        "Name": "prl_task5_bounded_data",
+                        "Driver": "local",
+                        "Mountpoint": "/fixture",
+                        "Options": {},
+                        "Labels": {"com.docker.compose.project": FakeStack.project},
+                        "CreatedAt": "2026-10-27T00:00:00Z",
+                    }
+                ]
+            )
+        else:
+            stdout = "prl_task5_bounded_data\n"
+        return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(
+        "tests.containers.test_telemetry_stack.acceptance_invoke", fake_acceptance_invoke
+    )
+
+    runtime.compose("restart", "collector", timeout=45, deadline=time.monotonic() + 10)
+    runtime.compose("ps")
+    runtime.wait_targets(deadline=time.monotonic() + 10)
+    runtime.wait_targets()
+    runtime.volume_snapshot(deadline=time.monotonic() + 10)
+    runtime.volume_snapshot()
+
+    assert 0 < compose_timeouts[0] <= 10
+    assert compose_timeouts[1] == 180
+    assert 0 < target_waits[0] <= 10
+    assert target_waits[1] == 90
+    assert target_deadlines[0] is not None
+    assert target_deadlines[1] is None
+    assert len(volume_timeouts) == 4
+    assert all(0 < timeout <= 10 for timeout in volume_timeouts[:2])
+    assert volume_timeouts[2:] == [180, 180]
+
+    calls_before_expiry = (len(compose_timeouts), len(target_waits), len(volume_timeouts))
+    expired_deadline = time.monotonic() - 1
+    with pytest.raises(AcceptanceFailure, match="deadline expired"):
+        runtime.compose("restart", "collector", deadline=expired_deadline)
+    with pytest.raises(AcceptanceFailure, match="deadline expired"):
+        runtime.wait_targets(deadline=expired_deadline)
+    with pytest.raises(AcceptanceFailure, match="deadline expired"):
+        runtime.volume_snapshot(deadline=expired_deadline)
+    assert calls_before_expiry == (len(compose_timeouts), len(target_waits), len(volume_timeouts))
+
+
 @pytest.mark.skipif(
     not _full_stack_enabled(),
     reason="requires all five opt-in Compose runtime gates",
@@ -3904,9 +4094,9 @@ def test_receiver_backend_health_component(tmp_path: Path) -> None:
     )
     passed = False
 
-    def safe_service_snapshot() -> (
-        tuple[dict[str, dict[str, object]], dict[str, dict[str, object]]]
-    ):
+    def safe_service_snapshot() -> tuple[
+        dict[str, dict[str, object]], dict[str, dict[str, object]]
+    ]:
         states: dict[str, dict[str, object]] = {}
         records_by_service: dict[str, dict[str, object]] = {}
         for name in services:
@@ -4134,6 +4324,7 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         print(f"Task 6 runtime owner: prl-task6-{token}")
     runtime = FullStackRuntime(tmp_path, pin_ops_edge_network=True)
     evidence: dict[str, object] = {}
+    worker_alert_evidence: dict[str, object] = {}
     sink_observations: dict[str, dict[str, object]] = {}
     failure_context: dict[str, object] = {
         "stage": "runtime_start",
@@ -4141,8 +4332,296 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         "request_id": "",
         "trace_id": "",
         "worker_restart_observations": {"available": False},
+        "worker_alerts": worker_alert_evidence,
     }
     accepted = False
+
+    worker_alert_rules_document = yaml.safe_load(
+        (ROOT / "tools/infra/prometheus-rules.yml").read_text(encoding="utf-8")
+    )
+    worker_alert_expressions = {
+        rule["alert"]: rule["expr"]
+        for group in worker_alert_rules_document["groups"]
+        for rule in group["rules"]
+        if rule.get("alert")
+        in {
+            "WorkerHeartbeatStale",
+            "WorkerHeartbeatMissing",
+            "WorkerProgressStale",
+            "WorkerBacklogSnapshotStale",
+            "WorkerBacklogOverdue",
+        }
+    }
+    worker_alert_severity = {
+        "WorkerHeartbeatStale": "critical",
+        "WorkerHeartbeatMissing": "critical",
+        "WorkerProgressStale": "critical",
+        "WorkerBacklogSnapshotStale": "warning",
+        "WorkerBacklogOverdue": "warning",
+    }
+    worker_alert_slot = {
+        "WorkerHeartbeatStale": "1",
+        "WorkerHeartbeatMissing": "1",
+        "WorkerProgressStale": "1",
+        "WorkerBacklogSnapshotStale": "1",
+        "WorkerBacklogOverdue": None,
+    }
+
+    def prometheus_vector(expression: str, deadline: float) -> list[dict[str, object]]:
+        response = runtime.api_json(
+            "http://prometheus:9090/api/v1/query?" + urlencode({"query": expression}),
+            deadline=deadline,
+        )
+        if not isinstance(response, dict) or response.get("status") != "success":
+            raise AcceptanceFailure("Prometheus returned an unsuccessful worker alert query")
+        data = response.get("data")
+        raw_samples = data.get("result") if isinstance(data, dict) else None
+        if not isinstance(raw_samples, list) or len(raw_samples) > 100:
+            raise AcceptanceFailure("Prometheus returned an invalid worker alert vector")
+        samples = [sample for sample in raw_samples if isinstance(sample, dict)]
+        if len(samples) != len(raw_samples):
+            raise AcceptanceFailure("Prometheus returned a malformed worker alert sample")
+        return samples
+
+    def worker_alert_samples(
+        samples: list[dict[str, object]], *, worker_slot: str | None
+    ) -> list[dict[str, object]]:
+        matches = []
+        for sample in samples:
+            labels = sample.get("metric")
+            if not isinstance(labels, dict):
+                raise AcceptanceFailure("Prometheus returned missing worker alert labels")
+            if (
+                labels.get("service_name") != "worker"
+                or labels.get("deployment_environment_name") != "demo"
+            ):
+                continue
+            if worker_slot is None:
+                if "worker_slot" in labels:
+                    raise AcceptanceFailure(
+                        "The overdue worker alert predicate gained a slot label"
+                    )
+            elif labels.get("worker_slot") != worker_slot:
+                continue
+            matches.append(sample)
+        return matches
+
+    def worker_receiver_snapshot(alertname: str) -> list[dict[str, str]]:
+        return runtime.alert_receiver_statuses(alertname)
+
+    def matching_receiver_episode(
+        alertname: str,
+        *,
+        status: str,
+        baseline: list[dict[str, str]],
+        identity: dict[str, object],
+        deadline: float,
+    ) -> dict[str, str] | None:
+        current = runtime.alert_receiver_statuses(alertname, deadline=deadline)
+        fresh = new_alert_statuses_since_snapshot(
+            baseline,
+            current,
+            status=status,
+            severity=worker_alert_severity[alertname],
+        )
+        for record in fresh:
+            if record.get("fingerprint") == identity.get("fingerprint") and record.get(
+                "starts_at"
+            ) == identity.get("starts_at"):
+                return record
+        return None
+
+    def wait_for_worker_alert_firing(
+        alertname: str,
+        baseline: list[dict[str, str]],
+        deadline: MonotonicDeadline,
+        stimulus_check: Callable[[float], object] | None = None,
+    ) -> dict[str, object]:
+        poll_count = 0
+        severity = worker_alert_severity[alertname]
+        worker_slot = worker_alert_slot[alertname]
+        expression = worker_alert_expressions[alertname]
+
+        def probe(request_deadline: float) -> object:
+            nonlocal poll_count
+            poll_count += 1
+            stimulus_observation = (
+                stimulus_check(request_deadline) if stimulus_check is not None else None
+            )
+            if stimulus_check is not None and stimulus_observation is None:
+                return None
+            predicate_samples = worker_alert_samples(
+                prometheus_vector(expression, request_deadline), worker_slot=worker_slot
+            )
+            firing_samples = worker_alert_samples(
+                prometheus_vector(
+                    f'ALERTS{{alertname="{alertname}",alertstate="firing"}}',
+                    request_deadline,
+                ),
+                worker_slot=worker_slot,
+            )
+            if len(predicate_samples) > 1 or len(firing_samples) > 1:
+                raise AcceptanceFailure("Prometheus returned multiple matching worker alert series")
+            if not predicate_samples or not firing_samples:
+                return None
+            active = active_worker_alert_identity(
+                runtime.api_json(
+                    "http://alertmanager:9093/api/v2/alerts", deadline=request_deadline
+                ),
+                alertname,
+                severity=severity,
+                worker_slot=worker_slot,
+            )
+            if active is None:
+                return None
+            predicate_labels = _object_mapping(predicate_samples[0].get("metric"))
+            firing_labels = _object_mapping(firing_samples[0].get("metric"))
+            active_labels = _object_mapping(active.get("labels"))
+            common_labels = ("service_name", "deployment_environment_name")
+            if any(
+                predicate_labels.get(label) != firing_labels.get(label)
+                or firing_labels.get(label) != active_labels.get(label)
+                for label in common_labels
+            ):
+                return None
+            if (
+                firing_labels.get("alertname") != alertname
+                or firing_labels.get("alertstate") != "firing"
+                or firing_labels.get("severity") != severity
+            ):
+                return None
+            if worker_slot is None:
+                if any(
+                    "worker_slot" in labels
+                    for labels in (predicate_labels, firing_labels, active_labels)
+                ):
+                    raise AcceptanceFailure(
+                        "The backlog overdue firing identity unexpectedly had a slot"
+                    )
+            elif any(
+                labels.get("worker_slot") != worker_slot
+                for labels in (predicate_labels, firing_labels, active_labels)
+            ):
+                return None
+            delivery = matching_receiver_episode(
+                alertname,
+                status="firing",
+                baseline=baseline,
+                identity=active,
+                deadline=request_deadline,
+            )
+            if delivery is None:
+                return None
+            return {
+                **active,
+                "receiver_delivery": delivery,
+                "prometheus_predicate_sample_count": len(predicate_samples),
+                "prometheus_firing_sample_count": len(firing_samples),
+                "poll_count": poll_count,
+                "detection_elapsed_seconds": round(deadline.elapsed, 3),
+                **(
+                    {"stimulus_observation": stimulus_observation}
+                    if stimulus_check is not None
+                    else {}
+                ),
+            }
+
+        result = wait_until_deadline(
+            deadline,
+            probe,
+            failure=f"The real {alertname} firing notification did not arrive before its deadline",
+            interval_seconds=5,
+        )
+        if not isinstance(result, dict):
+            raise AcceptanceFailure("The worker alert firing observation was malformed")
+        return result
+
+    def wait_for_worker_alert_resolution(
+        alertname: str,
+        firing: dict[str, object],
+        baseline: list[dict[str, str]],
+        deadline: MonotonicDeadline,
+        recovery_check: Callable[[float], bool],
+    ) -> dict[str, object]:
+        poll_count = 0
+        severity = worker_alert_severity[alertname]
+        worker_slot = worker_alert_slot[alertname]
+        expression = worker_alert_expressions[alertname]
+
+        def probe(request_deadline: float) -> object:
+            nonlocal poll_count
+            poll_count += 1
+            predicate_samples = worker_alert_samples(
+                prometheus_vector(expression, request_deadline), worker_slot=worker_slot
+            )
+            firing_samples = worker_alert_samples(
+                prometheus_vector(
+                    f'ALERTS{{alertname="{alertname}",alertstate="firing"}}',
+                    request_deadline,
+                ),
+                worker_slot=worker_slot,
+            )
+            if predicate_samples or firing_samples or not recovery_check(request_deadline):
+                return None
+            active = active_worker_alert_identity(
+                runtime.api_json(
+                    "http://alertmanager:9093/api/v2/alerts", deadline=request_deadline
+                ),
+                alertname,
+                severity=severity,
+                worker_slot=worker_slot,
+            )
+            if active is not None:
+                return None
+            identity = {
+                "fingerprint": firing.get("fingerprint"),
+                "starts_at": firing.get("starts_at"),
+            }
+            delivery = matching_receiver_episode(
+                alertname,
+                status="resolved",
+                baseline=baseline,
+                identity=identity,
+                deadline=request_deadline,
+            )
+            if delivery is None:
+                return None
+            firing_delivery = firing.get("receiver_delivery")
+            if not isinstance(firing_delivery, dict):
+                raise AcceptanceFailure("The worker firing delivery omitted its receiver timestamp")
+            try:
+                received = normalize_alertmanager_timestamp(delivery.get("received_at"))
+                fired = normalize_alertmanager_timestamp(firing_delivery.get("received_at"))
+            except ValueError:
+                raise AcceptanceFailure("A worker alert receiver timestamp was invalid") from None
+            if datetime.fromisoformat(received.replace("Z", "+00:00")) <= datetime.fromisoformat(
+                fired.replace("Z", "+00:00")
+            ):
+                return None
+            return {
+                "fingerprint": identity["fingerprint"],
+                "starts_at": identity["starts_at"],
+                "receiver_delivery": delivery,
+                "prometheus_predicate_cleared": True,
+                "prometheus_firing_cleared": True,
+                "real_recovery_observed": True,
+                "poll_count": poll_count,
+                "recovery_elapsed_seconds": round(deadline.elapsed, 3),
+            }
+
+        result = wait_until_deadline(
+            deadline,
+            probe,
+            failure=(
+                f"The real {alertname} resolved notification did not arrive "
+                "before its deadline"
+            ),
+            interval_seconds=5,
+        )
+        if not isinstance(result, dict):
+            raise AcceptanceFailure("The worker alert recovery observation was malformed")
+        return result
+
     try:
         failure_context["stage"] = "stack_start_and_self_health"
         runtime.start()
@@ -4319,21 +4798,17 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         gateway_dashboard = json.loads(
             (ROOT / "tools/infra/grafana/dashboards/gateway.json").read_text(encoding="utf-8")
         )
-        gateway_dashboard_panels = {
-            panel["id"]: panel for panel in gateway_dashboard["panels"]
-        }
+        gateway_dashboard_panels = {panel["id"]: panel for panel in gateway_dashboard["panels"]}
         gateway_sli_query_expressions = {
             "dashboard_availability": gateway_dashboard_panels[2]["targets"][0]["expr"],
             "dashboard_fast_success": gateway_dashboard_panels[3]["targets"][0]["expr"],
-            "yaml_availability": gateway_recording_rules[
-                "prl:gateway_availability:ratio5m"
-            ]["expr"],
-            "yaml_fast_success": gateway_recording_rules[
-                "prl:gateway_fast_success:ratio5m"
-            ]["expr"],
-            "yaml_fast_success_alert": gateway_alert_rules["GatewayFastSuccessBelowSLO"][
+            "yaml_availability": gateway_recording_rules["prl:gateway_availability:ratio5m"][
                 "expr"
             ],
+            "yaml_fast_success": gateway_recording_rules["prl:gateway_fast_success:ratio5m"][
+                "expr"
+            ],
+            "yaml_fast_success_alert": gateway_alert_rules["GatewayFastSuccessBelowSLO"]["expr"],
         }
         gateway_sli_ratio_names = (
             "dashboard_availability",
@@ -4342,7 +4817,7 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             "yaml_fast_success",
         )
         gateway_request_denominators = {
-            "availability": '''
+            "availability": """
                 sum(count_over_time(
                   {service_name="gateway",deployment_environment_name="demo"}
                   | json event="event", classification="classification", route="route"
@@ -4352,8 +4827,8 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                   | keep event, classification, route
                   [5m]
                 ))
-            ''',
-            "successful_requests": '''
+            """,
+            "successful_requests": """
                 sum(count_over_time(
                   {service_name="gateway",deployment_environment_name="demo"}
                   | json event="event", classification="classification", route="route"
@@ -4363,13 +4838,12 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                   | keep event, classification, route
                   [5m]
                 ))
-            ''',
+            """,
         }
 
         def query_gateway_sli_samples(expressions: dict[str, str]) -> dict[str, float | None]:
             return {
-                name: runtime.loki_scalar(expression)
-                for name, expression in expressions.items()
+                name: runtime.loki_scalar(expression) for name, expression in expressions.items()
             }
 
         pipeline_rule = next(
@@ -5209,9 +5683,7 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                 if deadline is None:
                     record = runtime.inspect_service("worker", timeout=5)
                 else:
-                    record = runtime.inspect_service(
-                        "worker", timeout=5, deadline=deadline
-                    )
+                    record = runtime.inspect_service("worker", timeout=5, deadline=deadline)
             except Exception as error:
                 generation["inspection_error_type"] = type(error).__name__
                 return None, generation
@@ -5328,9 +5800,7 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         pinned_started_at = validated_epoch_seconds(
             pre_fixture_generation.get("container_started_at_unix_seconds")
         )
-        pinned_status = _object_mapping(pre_fixture_generation.get("container_state")).get(
-            "status"
-        )
+        pinned_status = _object_mapping(pre_fixture_generation.get("container_state")).get("status")
         freshness_diagnostic: dict[str, object] = {
             "poll_count": 0,
             "last_poll_duration_seconds": None,
@@ -5404,14 +5874,14 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                 started_sample = _object_mapping(candidate_state.get("started")).get(
                     "sample_timestamp"
                 )
-                freshness_diagnostic["last_metric_started_value_seconds"] = (
-                    validated_epoch_seconds(metric_started_value)
+                freshness_diagnostic["last_metric_started_value_seconds"] = validated_epoch_seconds(
+                    metric_started_value
                 )
                 freshness_diagnostic["last_metric_sample_timestamp_seconds"] = (
                     validated_epoch_seconds(started_sample)
                 )
-                freshness_diagnostic["last_metric_started_delta_seconds"] = (
-                    timestamp_delta_seconds(metric_started_value, pinned_started_at)
+                freshness_diagnostic["last_metric_started_delta_seconds"] = timestamp_delta_seconds(
+                    metric_started_value, pinned_started_at
                 )
                 freshness_diagnostic["last_poll_duration_seconds"] = round(
                     time.monotonic() - poll_started, 3
@@ -5455,9 +5925,7 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                             "verified_container_started_at_matches_pin": started_at_matches_pin,
                             "verified_container_started_at_unix_seconds": verified_started_at,
                             "verified_container_status": verified_status,
-                            "last_poll_duration_seconds": round(
-                                time.monotonic() - poll_started, 3
-                            ),
+                            "last_poll_duration_seconds": round(time.monotonic() - poll_started, 3),
                         }
                     )
                     if time.monotonic() >= freshness_deadline:
@@ -5508,6 +5976,14 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         if old_started is None:
             raise AcceptanceFailure("The current worker omitted its numeric start timestamp")
 
+        worker_alert_firing_baselines = {
+            name: worker_receiver_snapshot(name)
+            for name in (
+                "WorkerHeartbeatStale",
+                "WorkerProgressStale",
+                "WorkerBacklogSnapshotStale",
+            )
+        }
         recovery_fixture = business_probe.prepare_due_expiry_fixture()
         fixture_container_id, fixture_generation = capture_worker_generation()
 
@@ -5799,6 +6275,52 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                 raise
             return stopped_baseline
 
+        heartbeat_stale_episode: dict[str, object] = {}
+        worker_alert_resolution_baselines: dict[str, list[dict[str, str]]] = {}
+
+        def wait_for_heartbeat_stale_after_worker_exit() -> None:
+            stopped_record = runtime.inspect_service("worker")
+            stopped_state = _object_mapping(stopped_record.get("State"))
+            stopped_labels = _object_mapping(
+                _object_mapping(stopped_record.get("Config")).get("Labels")
+            )
+            raw_finished_at = stopped_state.get("FinishedAt")
+            if (
+                stopped_record.get("Id") != worker_container_id
+                or stopped_state.get("Status") != "exited"
+                or stopped_labels.get("com.docker.compose.project") != runtime.stack.project
+                or not isinstance(raw_finished_at, str)
+                or raw_finished_at.startswith("0001-")
+            ):
+                raise AcceptanceFailure(
+                    "The stopped worker exit time or UUID ownership was invalid"
+                )
+            try:
+                finished_at = normalize_alertmanager_timestamp(raw_finished_at)
+                deadline = MonotonicDeadline.from_utc_timestamp(raw_finished_at, 90)
+            except ValueError:
+                raise AcceptanceFailure(
+                    "The stopped worker exit time was invalid or too old"
+                ) from None
+            firing = wait_for_worker_alert_firing(
+                "WorkerHeartbeatStale",
+                worker_alert_firing_baselines["WorkerHeartbeatStale"],
+                deadline,
+            )
+            heartbeat_stale_episode.update(
+                {
+                    "stimulus": {
+                        "worker_container_id_matches": True,
+                        "worker_finished_at_utc": finished_at,
+                    },
+                    "firing": firing,
+                }
+            )
+            worker_alert_resolution_baselines["WorkerHeartbeatStale"] = worker_receiver_snapshot(
+                "WorkerHeartbeatStale"
+            )
+            worker_alert_evidence["WorkerHeartbeatStale"] = heartbeat_stale_episode
+
         failure_context["stage"] = "worker_and_database_restart"
         stopped_baseline = restart_worker_while_database_is_unavailable(
             runtime.compose,
@@ -5806,6 +6328,7 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             worker_container_id=worker_container_id,
             mysql_container_id=mysql_container_id,
             capture_baseline=capture_stopped_baseline,
+            on_worker_stopped=wait_for_heartbeat_stale_after_worker_exit,
         )
         worker_restart_context["stopped_baseline"] = {
             name: _worker_metric_value(stopped_baseline, role)
@@ -6025,6 +6548,141 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         new_owner_started = _worker_metric_value(new_state, "started")
         if new_owner_started is None:
             raise AcceptanceFailure("The new worker start timestamp was not numeric")
+        worker_start_time = new_owner_state.get("StartedAt")
+        if not isinstance(worker_start_time, str):
+            raise AcceptanceFailure("The restarted worker omitted its actual start time")
+        try:
+            worker_start_at_utc = normalize_alertmanager_timestamp(worker_start_time)
+            progress_stale_deadline = MonotonicDeadline.from_utc_timestamp(worker_start_time, 180)
+        except ValueError:
+            raise AcceptanceFailure("The restarted worker start time was invalid") from None
+        initial_new_heartbeat = _worker_metric_value(new_state, "heartbeat")
+        if initial_new_heartbeat is None:
+            raise AcceptanceFailure("The restarted worker omitted its current-process heartbeat")
+
+        def advancing_worker_heartbeat(request_deadline: float) -> object:
+            _metric_names, current = runtime.worker_metric_state(deadline=request_deadline)
+            started = _worker_metric_value(current, "started")
+            heartbeat = _worker_metric_value(current, "heartbeat")
+            heartbeat_sample = _object_mapping(current.get("heartbeat"))
+            heartbeat_labels = _object_mapping(heartbeat_sample.get("labels"))
+            if (
+                started != new_owner_started
+                or heartbeat is None
+                or heartbeat <= initial_new_heartbeat
+                or heartbeat < new_owner_started
+                or time.time() - heartbeat > 45
+                or heartbeat_labels.get("worker_slot") != "1"
+            ):
+                return None
+            return current
+
+        new_state = cast(
+            dict[str, dict[str, object]],
+            wait_until_deadline(
+                progress_stale_deadline,
+                advancing_worker_heartbeat,
+                failure="The restarted worker heartbeat did not advance in its new process",
+                interval_seconds=5,
+            ),
+        )
+        heartbeat_stale_firing = heartbeat_stale_episode.get("firing")
+        if not isinstance(heartbeat_stale_firing, dict):
+            raise AcceptanceFailure("The stopped worker did not produce its stale heartbeat alert")
+
+        def restarted_worker_heartbeat_is_fresh(request_deadline: float) -> bool:
+            _metric_names, current = runtime.worker_metric_state(deadline=request_deadline)
+            started = _worker_metric_value(current, "started")
+            heartbeat = _worker_metric_value(current, "heartbeat")
+            heartbeat_labels = _object_mapping(
+                _object_mapping(current.get("heartbeat")).get("labels")
+            )
+            inspected = runtime.inspect_service("worker", deadline=request_deadline)
+            inspected_state = _object_mapping(inspected.get("State"))
+            return (
+                started == new_owner_started
+                and heartbeat is not None
+                and heartbeat >= new_owner_started
+                and time.time() - heartbeat <= 45
+                and heartbeat_labels.get("worker_slot") == "1"
+                and inspected.get("Id") == worker_container_id
+                and inspected_state.get("Status") == "running"
+            )
+
+        heartbeat_recovery_deadline = MonotonicDeadline.from_utc_timestamp(worker_start_time, 90)
+        heartbeat_recovery = wait_for_worker_alert_resolution(
+            "WorkerHeartbeatStale",
+            heartbeat_stale_firing,
+            worker_alert_resolution_baselines["WorkerHeartbeatStale"],
+            heartbeat_recovery_deadline,
+            restarted_worker_heartbeat_is_fresh,
+        )
+        heartbeat_stale_episode["recovery"] = heartbeat_recovery
+        worker_alert_evidence["WorkerHeartbeatStale"] = heartbeat_stale_episode
+
+        progress_stale_firing = wait_for_worker_alert_firing(
+            "WorkerProgressStale",
+            worker_alert_firing_baselines["WorkerProgressStale"],
+            progress_stale_deadline,
+        )
+        backlog_snapshot_stale_firing = wait_for_worker_alert_firing(
+            "WorkerBacklogSnapshotStale",
+            worker_alert_firing_baselines["WorkerBacklogSnapshotStale"],
+            progress_stale_deadline,
+        )
+        stale_process_state = runtime.worker_metric_state(
+            deadline=progress_stale_deadline.expires_at
+        )[1]
+        stale_started = _worker_metric_value(stale_process_state, "started")
+        stale_heartbeat = _worker_metric_value(stale_process_state, "heartbeat")
+        stale_progress = _worker_metric_value(stale_process_state, "last_progress")
+        stale_snapshot = _worker_metric_value(stale_process_state, "last_successful_scan")
+        if (
+            stale_started != new_owner_started
+            or stale_heartbeat is None
+            or stale_heartbeat <= initial_new_heartbeat
+            or time.time() - stale_heartbeat > 45
+            or stale_progress is None
+            or stale_progress >= new_owner_started
+            or stale_snapshot is None
+            or stale_snapshot >= new_owner_started
+        ):
+            raise AcceptanceFailure(
+                "The worker did not keep advancing heartbeats while process progress and backlog "
+                "snapshot stayed stale"
+            )
+        worker_alert_resolution_baselines["WorkerProgressStale"] = worker_receiver_snapshot(
+            "WorkerProgressStale"
+        )
+        worker_alert_resolution_baselines["WorkerBacklogSnapshotStale"] = worker_receiver_snapshot(
+            "WorkerBacklogSnapshotStale"
+        )
+        progress_stale_evidence: dict[str, object] = {
+            "stimulus": {
+                "worker_started_at_utc": worker_start_at_utc,
+                "worker_container_id_matches": True,
+                "mysql_unavailable": True,
+                "worker_slot": "1",
+            },
+            "heartbeat_advanced_and_fresh": True,
+            "progress_timestamp_remained_before_process_start": True,
+            "backlog_snapshot_timestamp_remained_before_process_start": True,
+            "firing": progress_stale_firing,
+        }
+        backlog_snapshot_stale_evidence: dict[str, object] = {
+            "stimulus": {
+                "worker_started_at_utc": worker_start_at_utc,
+                "worker_container_id_matches": True,
+                "mysql_unavailable": True,
+                "worker_slot": "1",
+            },
+            "heartbeat_advanced_and_fresh": True,
+            "progress_timestamp_remained_before_process_start": True,
+            "backlog_snapshot_timestamp_remained_before_process_start": True,
+            "firing": backlog_snapshot_stale_firing,
+        }
+        worker_alert_evidence["WorkerProgressStale"] = progress_stale_evidence
+        worker_alert_evidence["WorkerBacklogSnapshotStale"] = backlog_snapshot_stale_evidence
         evidence["same_slot_restart"] = {
             "slot": "1",
             **restart_summary,
@@ -6078,6 +6736,43 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         recovered_progress_timestamp = _worker_metric_value(recovered_owner_state, "last_progress")
         if recovered_scan_timestamp is None or recovered_progress_timestamp is None:
             raise AcceptanceFailure("The new owner omitted its recovered scan/progress timestamps")
+
+        def recovered_worker_snapshot_is_fresh(request_deadline: float) -> bool:
+            _metric_names, current = runtime.worker_metric_state(deadline=request_deadline)
+            started = _worker_metric_value(current, "started")
+            heartbeat = _worker_metric_value(current, "heartbeat")
+            scan = _worker_metric_value(current, "last_successful_scan")
+            progress = _worker_metric_value(current, "last_progress")
+            snapshot_samples = prometheus_vector(
+                "prl:worker:backlog_snapshot_fresh", request_deadline
+            )
+            fresh_snapshot_samples = worker_alert_samples(snapshot_samples, worker_slot="1")
+            return (
+                started == new_owner_started
+                and heartbeat is not None
+                and 0 <= time.time() - heartbeat <= 45
+                and scan is not None
+                and scan > stopped_scan_timestamp
+                and progress is not None
+                and progress != stopped_progress_timestamp
+                and bool(fresh_snapshot_samples)
+            )
+
+        worker_recovery_deadline = MonotonicDeadline.after(120)
+        progress_stale_evidence["recovery"] = wait_for_worker_alert_resolution(
+            "WorkerProgressStale",
+            progress_stale_firing,
+            worker_alert_resolution_baselines["WorkerProgressStale"],
+            worker_recovery_deadline,
+            recovered_worker_snapshot_is_fresh,
+        )
+        backlog_snapshot_stale_evidence["recovery"] = wait_for_worker_alert_resolution(
+            "WorkerBacklogSnapshotStale",
+            backlog_snapshot_stale_firing,
+            worker_alert_resolution_baselines["WorkerBacklogSnapshotStale"],
+            worker_recovery_deadline,
+            recovered_worker_snapshot_is_fresh,
+        )
         recovery_appointment_id = recovery_fixture.get("appointment_id")
         recovery_proposal_id = recovery_fixture.get("proposal_id")
         if not isinstance(recovery_appointment_id, str) or not isinstance(
@@ -6085,12 +6780,14 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         ):
             raise AcceptanceFailure("The worker recovery fixture omitted its business identifiers")
         runtime.stack.wait_for(
-            lambda: runtime.stack.sql(
-                "SELECT CONCAT(cp.status, ':', a.status, ':', COALESCE(a.cancel_reason, '-')) "
-                "FROM change_proposals cp JOIN appointments a ON a.id = cp.appointment_id "
-                f"WHERE cp.id = UNHEX(REPLACE('{str(UUID(recovery_proposal_id))}', '-', ''));"
-            ).strip()
-            == "EXPIRED:CANCELLED:CHANGE_PROPOSAL_EXPIRED",
+            lambda: (
+                runtime.stack.sql(
+                    "SELECT CONCAT(cp.status, ':', a.status, ':', COALESCE(a.cancel_reason, '-')) "
+                    "FROM change_proposals cp JOIN appointments a ON a.id = cp.appointment_id "
+                    f"WHERE cp.id = UNHEX(REPLACE('{str(UUID(recovery_proposal_id))}', '-', ''));"
+                ).strip()
+                == "EXPIRED:CANCELLED:CHANGE_PROPOSAL_EXPIRED"
+            ),
             seconds=30,
             failure="The new owner did not expire the persisted proposal after MySQL recovery",
         )
@@ -6154,16 +6851,711 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                 "A persistent volume identity changed across worker/database restart"
             )
 
-        failure_context["stage"] = "collector_restart_command"
-        acceptance_success(
-            runtime.compose("restart", "--timeout", "20", "collector", timeout=45),
-            "The UUID-owned Collector could not restart",
+        failure_context["stage"] = "worker_backlog_overdue_row_lock"
+        overdue_receiver_baseline = worker_receiver_snapshot("WorkerBacklogOverdue")
+        overdue_fixture = business_probe.prepare_due_expiry_fixture()
+        overdue_appointment_id = overdue_fixture.get("appointment_id")
+        overdue_proposal_id = overdue_fixture.get("proposal_id")
+        overdue_worker_id = overdue_fixture.get("worker_container_id")
+        if (
+            not isinstance(overdue_appointment_id, str)
+            or not isinstance(overdue_proposal_id, str)
+            or not isinstance(overdue_worker_id, str)
+            or overdue_worker_id != worker_container_id
+        ):
+            raise AcceptanceFailure("The backlog overdue fixture lost its owned worker identity")
+        overdue_stopped_container = runtime.inspect_service("worker")
+        overdue_stopped_state = _object_mapping(overdue_stopped_container.get("State"))
+        overdue_stopped_labels = _object_mapping(
+            _object_mapping(overdue_stopped_container.get("Config")).get("Labels")
         )
-        failure_context["stage"] = "collector_restart_target_matrix"
-        runtime.wait_targets()
-        failure_context["stage"] = "collector_restart_volume_identity"
+        overdue_finished_at = overdue_stopped_state.get("FinishedAt")
+        if (
+            overdue_stopped_container.get("Id") != worker_container_id
+            or overdue_stopped_state.get("Status") != "exited"
+            or overdue_stopped_labels.get("com.docker.compose.project") != runtime.stack.project
+            or not isinstance(overdue_finished_at, str)
+            or overdue_finished_at.startswith("0001-")
+        ):
+            raise AcceptanceFailure("The overdue worker stop did not preserve container ownership")
+        try:
+            overdue_stop_at_utc = normalize_alertmanager_timestamp(overdue_finished_at)
+            overdue_deadline = MonotonicDeadline.from_utc_timestamp(overdue_finished_at, 220)
+        except ValueError:
+            raise AcceptanceFailure(
+                "The overdue worker stop exceeded its bounded firing window"
+            ) from None
+
+        def start_same_worker_for_overdue_probe() -> str:
+            acceptance_success(
+                runtime.compose("up", "-d", "--no-deps", "--no-recreate", "worker", timeout=45),
+                "The same worker container did not start behind the held proposal row lock",
+            )
+            started_record = runtime.inspect_service("worker")
+            started_state = _object_mapping(started_record.get("State"))
+            started_labels = _object_mapping(
+                _object_mapping(started_record.get("Config")).get("Labels")
+            )
+            started_at = started_state.get("StartedAt")
+            if (
+                started_record.get("Id") != worker_container_id
+                or started_state.get("Status") != "running"
+                or started_labels.get("com.docker.compose.project") != runtime.stack.project
+                or not isinstance(started_at, str)
+            ):
+                raise AcceptanceFailure("The overdue worker did not retain its owned container")
+            return started_at
+
+        with acquire_pending_proposal_row_lock(
+            runtime.stack.base,
+            runtime.stack.env,
+            lambda: runtime.inspect_service("mysql"),
+            compose_project=runtime.stack.project,
+            mysql_container_id=mysql_container_id,
+            proposal_id=overdue_proposal_id,
+        ) as proposal_row_lock:
+            stopped_overdue_metrics = runtime.worker_metric_state(
+                deadline=overdue_deadline.expires_at
+            )[1]
+            stopped_overdue_started = _worker_metric_value(stopped_overdue_metrics, "started")
+            if stopped_overdue_started is None:
+                raise AcceptanceFailure("The stopped worker omitted its overdue alert baseline")
+            overdue_worker_started_at = start_same_worker_for_overdue_probe()
+            overdue_started_at_utc = normalize_alertmanager_timestamp(overdue_worker_started_at)
+            overdue_start_metrics: dict[str, dict[str, object]] = {}
+
+            def overdue_worker_started_with_fresh_heartbeat(request_deadline: float) -> object:
+                nonlocal overdue_start_metrics
+                _metric_names, candidate = runtime.worker_metric_state(deadline=request_deadline)
+                started = _worker_metric_value(candidate, "started")
+                heartbeat = _worker_metric_value(candidate, "heartbeat")
+                heartbeat_labels = _object_mapping(
+                    _object_mapping(candidate.get("heartbeat")).get("labels")
+                )
+                parsed_container_start = datetime.fromisoformat(
+                    overdue_worker_started_at.replace("Z", "+00:00")
+                ).timestamp()
+                if (
+                    started is None
+                    or started <= stopped_overdue_started
+                    or not runtime.worker_started_value_matches_container_generation(
+                        started, parsed_container_start
+                    )
+                    or heartbeat is None
+                    or heartbeat < started
+                    or not 0 <= time.time() - heartbeat <= 45
+                    or heartbeat_labels.get("worker_slot") != "1"
+                ):
+                    return None
+                overdue_start_metrics = candidate
+                return candidate
+
+            wait_until_deadline(
+                overdue_deadline,
+                overdue_worker_started_with_fresh_heartbeat,
+                failure="The overdue worker did not publish its fresh same-slot heartbeat",
+                interval_seconds=5,
+            )
+            overdue_started_metric = _worker_metric_value(overdue_start_metrics, "started")
+            overdue_initial_scan = _worker_metric_value(
+                overdue_start_metrics, "last_successful_scan"
+            )
+            if overdue_started_metric is None or overdue_initial_scan is None:
+                raise AcceptanceFailure("The overdue worker omitted fresh scan metrics")
+            last_fresh_scan = overdue_initial_scan
+            fresh_scan_advancements = 0
+            latest_overdue_metrics: dict[str, float] = {}
+
+            def fresh_overdue_worker_discovery(request_deadline: float) -> object:
+                nonlocal last_fresh_scan, fresh_scan_advancements, latest_overdue_metrics
+                if not proposal_row_lock.is_open:
+                    return None
+                _metric_names, current = runtime.worker_metric_state(deadline=request_deadline)
+                started = _worker_metric_value(current, "started")
+                heartbeat = _worker_metric_value(current, "heartbeat")
+                scan = _worker_metric_value(current, "last_successful_scan")
+                backlog_count = _worker_metric_value(current, "backlog_count")
+                overdue_seconds = _worker_metric_value(current, "oldest_overdue")
+                heartbeat_labels = _object_mapping(
+                    _object_mapping(current.get("heartbeat")).get("labels")
+                )
+                if (
+                    started != overdue_started_metric
+                    or heartbeat is None
+                    or not 0 <= time.time() - heartbeat <= 45
+                    or heartbeat_labels.get("worker_slot") != "1"
+                    or scan is None
+                    or scan < started
+                    or not 0 <= time.time() - scan <= 90
+                    or backlog_count is None
+                    or backlog_count <= 0
+                    or overdue_seconds is None
+                    or overdue_seconds <= 60
+                ):
+                    return None
+                if scan > last_fresh_scan:
+                    fresh_scan_advancements += 1
+                    last_fresh_scan = scan
+                latest_overdue_metrics = {
+                    "started_timestamp_seconds": started,
+                    "heartbeat_timestamp_seconds": heartbeat,
+                    "last_successful_scan_timestamp_seconds": scan,
+                    "backlog_count": backlog_count,
+                    "oldest_overdue_seconds": overdue_seconds,
+                    "fresh_scan_advancements_while_locked": float(fresh_scan_advancements),
+                }
+                if fresh_scan_advancements < 2:
+                    return None
+                return latest_overdue_metrics
+
+            def overdue_pending_observed(request_deadline: float) -> object:
+                metric_observation = fresh_overdue_worker_discovery(request_deadline)
+                if metric_observation is None:
+                    return None
+                predicate_samples = worker_alert_samples(
+                    prometheus_vector(
+                        worker_alert_expressions["WorkerBacklogOverdue"], request_deadline
+                    ),
+                    worker_slot=None,
+                )
+                pending_samples = worker_alert_samples(
+                    prometheus_vector(
+                        'ALERTS{alertname="WorkerBacklogOverdue",alertstate="pending"}',
+                        request_deadline,
+                    ),
+                    worker_slot=None,
+                )
+                if not predicate_samples or not pending_samples:
+                    return None
+                return {
+                    "prometheus_predicate_sample_count": len(predicate_samples),
+                    "prometheus_pending_sample_count": len(pending_samples),
+                    "metrics": metric_observation,
+                    "observed_elapsed_seconds": round(overdue_deadline.elapsed, 3),
+                }
+
+            pending_observation = wait_until_deadline(
+                overdue_deadline,
+                overdue_pending_observed,
+                failure=(
+                    "Prometheus did not expose WorkerBacklogOverdue as pending while the row "
+                    "was locked"
+                ),
+                interval_seconds=5,
+            )
+            if not isinstance(pending_observation, dict):
+                raise AcceptanceFailure("The overdue alert pending observation was malformed")
+            overdue_firing = wait_for_worker_alert_firing(
+                "WorkerBacklogOverdue",
+                overdue_receiver_baseline,
+                overdue_deadline,
+                stimulus_check=fresh_overdue_worker_discovery,
+            )
+            sql_id = f"UNHEX(REPLACE('{str(UUID(overdue_proposal_id))}', '-', ''))"
+            remaining_sql_budget = min(10.0, overdue_deadline.remaining)
+            if remaining_sql_budget < 1:
+                raise AcceptanceFailure("The overdue alert deadline expired before row validation")
+            pending_row = run_bounded_mysql_statement(
+                runtime.stack.base,
+                runtime.stack.env,
+                "SELECT CONCAT(status, ':', IF(expires_at > created_at, 1, 0), ':', "
+                "TIMESTAMPDIFF(MICROSECOND, expires_at, UTC_TIMESTAMP(6)) / 1000000) "
+                f"FROM change_proposals WHERE id = {sql_id};",
+                timeout_seconds=max(1.0, remaining_sql_budget),
+            )
+            pending_parts = pending_row.split(":")
+            if len(pending_parts) != 3 or pending_parts[0] != "PENDING" or pending_parts[1] != "1":
+                raise AcceptanceFailure("The overdue proposal expired or corrupted before unlock")
+            try:
+                overdue_age_at_firing = float(pending_parts[2])
+            except ValueError:
+                raise AcceptanceFailure("The naturally due proposal age was invalid") from None
+            if overdue_age_at_firing <= 60 or not proposal_row_lock.is_open:
+                raise AcceptanceFailure(
+                    "The overdue proposal lock or natural expiry interval was lost"
+                )
+            overdue_alert_evidence: dict[str, object] = {
+                "stimulus": {
+                    "worker_stopped_at_utc": overdue_stop_at_utc,
+                    "worker_container_id_matches": True,
+                    "mysql_container_id_matches": True,
+                    "mysql_running_and_compose_owned": True,
+                    "proposal_remained_pending": True,
+                    "expires_at_remained_after_created_at": True,
+                    "proposal_age_at_firing_seconds": round(overdue_age_at_firing, 3),
+                    "row_lock_ready_marker_observed": proposal_row_lock.is_open,
+                    "row_lock_commit_marker_pending": True,
+                },
+                "worker_started_at_utc": overdue_started_at_utc,
+                "prometheus_pending": pending_observation,
+                "firing": overdue_firing,
+            }
+            worker_alert_evidence["WorkerBacklogOverdue"] = overdue_alert_evidence
+            proposal_row_lock.commit_and_release()
+            overdue_recovery_deadline = MonotonicDeadline.after(120)
+
+            def overdue_business_state(request_deadline: float) -> str:
+                return run_bounded_mysql_statement(
+                    runtime.stack.base,
+                    runtime.stack.env,
+                    "SELECT CONCAT(cp.status, ':', a.status, ':', COALESCE(a.cancel_reason, '-')) "
+                    "FROM change_proposals cp JOIN appointments a ON a.id = cp.appointment_id "
+                    f"WHERE cp.id = {sql_id};",
+                    timeout_seconds=max(1.0, min(10.0, request_deadline - time.monotonic())),
+                )
+
+            def overdue_recovery_observed(request_deadline: float) -> object:
+                _metric_names, current = runtime.worker_metric_state(deadline=request_deadline)
+                started = _worker_metric_value(current, "started")
+                heartbeat = _worker_metric_value(current, "heartbeat")
+                scan = _worker_metric_value(current, "last_successful_scan")
+                progress = _worker_metric_value(current, "last_progress")
+                backlog_count = _worker_metric_value(current, "backlog_count")
+                scans = _worker_metric_value(current, "successful_scans")
+                snapshot_samples = worker_alert_samples(
+                    prometheus_vector("prl:worker:backlog_snapshot_fresh", request_deadline),
+                    worker_slot="1",
+                )
+                state = overdue_business_state(request_deadline)
+                current_container = runtime.inspect_service("worker", deadline=request_deadline)
+                current_state = _object_mapping(current_container.get("State"))
+                if (
+                    started != overdue_started_metric
+                    or heartbeat is None
+                    or not 0 <= time.time() - heartbeat <= 45
+                    or scan is None
+                    or scan <= overdue_initial_scan
+                    or not 0 <= time.time() - scan <= 90
+                    or progress is None
+                    or backlog_count != 0
+                    or not snapshot_samples
+                    or scans is None
+                    or current_container.get("Id") != worker_container_id
+                    or current_state.get("Status") != "running"
+                    or state != "EXPIRED:CANCELLED:CHANGE_PROPOSAL_EXPIRED"
+                ):
+                    return None
+                return {
+                    "worker_started_timestamp_seconds": started,
+                    "last_successful_scan_timestamp_seconds": scan,
+                    "last_progress_timestamp_seconds": progress,
+                    "successful_scans_total": scans,
+                    "backlog_count": backlog_count,
+                    "worker_container_identity_preserved": True,
+                    "proposal_expired_by_worker": True,
+                }
+
+            overdue_resolved = wait_for_worker_alert_resolution(
+                "WorkerBacklogOverdue",
+                overdue_firing,
+                worker_receiver_snapshot("WorkerBacklogOverdue"),
+                overdue_recovery_deadline,
+                lambda request_deadline: bool(overdue_recovery_observed(request_deadline)),
+            )
+
+        overdue_appointment_uuid = str(UUID(overdue_appointment_id))
+        overdue_proposal_uuid = str(UUID(overdue_proposal_id))
+        overdue_effects_sql = (
+            "SELECT CONCAT(cp.status, ':', a.status, ':', COALESCE(a.cancel_reason, '-')) "
+            "FROM change_proposals cp JOIN appointments a ON a.id = cp.appointment_id "
+            f"WHERE cp.id = {sql_id};\n"
+            "SELECT COUNT(*) FROM audit_events "
+            "WHERE action = 'APPOINTMENT_CREATED' AND entity_type = 'APPOINTMENT' "
+            f"AND entity_id = '{overdue_appointment_uuid}';\n"
+            "SELECT COUNT(*) FROM audit_events "
+            "WHERE action = 'CHANGE_PROPOSAL_CREATED' AND entity_type = 'CHANGE_PROPOSAL' "
+            f"AND entity_id = '{overdue_proposal_uuid}';\n"
+            "SELECT COUNT(*) FROM audit_events "
+            "WHERE action = 'CHANGE_PROPOSAL_EXPIRED' AND entity_type = 'CHANGE_PROPOSAL' "
+            f"AND entity_id = '{overdue_proposal_uuid}';\n"
+            "SELECT COUNT(*) FROM notifications "
+            f"WHERE appointment_id = UNHEX(REPLACE('{overdue_appointment_uuid}', '-', '')) "
+            "AND event_type = 'APPOINTMENT_CREATED';\n"
+            "SELECT COUNT(*) FROM notifications "
+            f"WHERE appointment_id = UNHEX(REPLACE('{overdue_appointment_uuid}', '-', '')) "
+            "AND event_type = 'CHANGE_PROPOSAL_CREATED';\n"
+            "SELECT COUNT(*) FROM notifications "
+            f"WHERE appointment_id = UNHEX(REPLACE('{overdue_appointment_uuid}', '-', '')) "
+            "AND event_type = 'CHANGE_PROPOSAL_EXPIRED';"
+        )
+
+        overdue_business_deadline = MonotonicDeadline.after(45)
+
+        def overdue_business_effects(deadline: MonotonicDeadline) -> tuple[str, ...]:
+            remaining = deadline.remaining
+            if remaining < 1:
+                raise AcceptanceFailure("The overdue business verification deadline expired")
+            output = run_bounded_mysql_statement(
+                runtime.stack.base,
+                runtime.stack.env,
+                overdue_effects_sql,
+                timeout_seconds=min(10.0, remaining),
+            )
+            lines = tuple(output.splitlines())
+            if lines != (
+                "EXPIRED:CANCELLED:CHANGE_PROPOSAL_EXPIRED",
+                "1",
+                "1",
+                "1",
+                "2",
+                "2",
+                "2",
+            ):
+                raise AcceptanceFailure(
+                    "The overdue proposal did not retain exactly one expiry audit and two "
+                    "notifications"
+                )
+            return lines
+
+        overdue_effects = overdue_business_effects(overdue_business_deadline)
+        latest_overdue_metrics = runtime.worker_metric_state(
+            deadline=overdue_business_deadline.expires_at
+        )[1]
+        first_overdue_scan_total = _worker_metric_value(latest_overdue_metrics, "successful_scans")
+        if first_overdue_scan_total is None:
+            raise AcceptanceFailure("The overdue worker omitted its successful scan counter")
+
+        def later_overdue_scan(request_deadline: float) -> object:
+            _metric_names, current = runtime.worker_metric_state(deadline=request_deadline)
+            scans = _worker_metric_value(current, "successful_scans")
+            started = _worker_metric_value(current, "started")
+            container = runtime.inspect_service("worker", deadline=request_deadline)
+            container_state = _object_mapping(container.get("State"))
+            if (
+                scans is None
+                or scans <= first_overdue_scan_total
+                or started != overdue_started_metric
+                or container.get("Id") != worker_container_id
+                or container_state.get("Status") != "running"
+            ):
+                return None
+            return scans
+
+        wait_until_deadline(
+            overdue_business_deadline,
+            later_overdue_scan,
+            failure="The same overdue worker process did not complete a later scan after recovery",
+            interval_seconds=5,
+        )
+        if overdue_business_effects(overdue_business_deadline) != overdue_effects:
+            raise AcceptanceFailure("A later worker scan duplicated overdue proposal side effects")
+        overdue_alert_evidence.update(
+            {
+                "recovery": overdue_resolved,
+                "business_invariants": {
+                    "audit_expired_cancelled_reason": overdue_effects[0],
+                    "appointment_created_audits": int(overdue_effects[1]),
+                    "proposal_created_audits": int(overdue_effects[2]),
+                    "proposal_expired_audits": int(overdue_effects[3]),
+                    "appointment_created_notifications": int(overdue_effects[4]),
+                    "proposal_created_notifications": int(overdue_effects[5]),
+                    "proposal_expired_notifications": int(overdue_effects[6]),
+                    "later_scan_duplicated_effects": False,
+                },
+            }
+        )
         if old_volumes != runtime.volume_snapshot():
-            raise AcceptanceFailure("Collector restart changed a persistent volume identity")
+            raise AcceptanceFailure("Backlog alert recovery changed a persistent volume identity")
+
+        failure_context["stage"] = "worker_heartbeat_missing_collector_reset"
+        missing_receiver_baseline = worker_receiver_snapshot("WorkerHeartbeatMissing")
+        missing_worker_before = runtime.inspect_service("worker")
+        missing_worker_before_state = _object_mapping(missing_worker_before.get("State"))
+        if (
+            missing_worker_before.get("Id") != worker_container_id
+            or missing_worker_before_state.get("Status") != "running"
+        ):
+            raise AcceptanceFailure("The heartbeat-missing phase lost the running worker container")
+        missing_worker_metrics_before = runtime.worker_metric_state()[1]
+        missing_worker_started_before = _worker_metric_value(
+            missing_worker_metrics_before, "started"
+        )
+        if missing_worker_started_before is None:
+            raise AcceptanceFailure("The heartbeat-missing phase omitted the worker baseline")
+        acceptance_success(
+            runtime.compose("stop", "--timeout", "10", "worker", timeout=30),
+            "The UUID-owned worker could not stop before the final Collector reset",
+        )
+        missing_worker_stopped = runtime.inspect_service("worker")
+        missing_worker_stopped_state = _object_mapping(missing_worker_stopped.get("State"))
+        missing_worker_stopped_labels = _object_mapping(
+            _object_mapping(missing_worker_stopped.get("Config")).get("Labels")
+        )
+        missing_worker_finished_at = missing_worker_stopped_state.get("FinishedAt")
+        if (
+            missing_worker_stopped.get("Id") != worker_container_id
+            or missing_worker_stopped_state.get("Status") != "exited"
+            or missing_worker_stopped_labels.get("com.docker.compose.project")
+            != runtime.stack.project
+            or not isinstance(missing_worker_finished_at, str)
+            or missing_worker_finished_at.startswith("0001-")
+        ):
+            raise AcceptanceFailure("The stopped heartbeat-missing worker lost UUID ownership")
+        missing_worker_exit_at_utc: str | None = None
+        try:
+            missing_worker_exit_at_utc = normalize_alertmanager_timestamp(
+                missing_worker_finished_at
+            )
+            missing_transition_deadline = MonotonicDeadline.from_utc_timestamp(
+                missing_worker_finished_at, 90
+            )
+        except ValueError as error:
+            deadline_expired_at_capture = str(error) == "The event deadline has already expired"
+            failure_context["worker_heartbeat_missing_firing_budget"] = {
+                "worker_exit_at_utc": missing_worker_exit_at_utc,
+                "budget_seconds": 90,
+                "expired": deadline_expired_at_capture,
+                "deadline_error": (
+                    "expired_at_capture"
+                    if deadline_expired_at_capture
+                    else "invalid_worker_exit_timestamp"
+                ),
+            }
+            if deadline_expired_at_capture:
+                raise AcceptanceFailure(
+                    "The WorkerHeartbeatMissing 90-second firing budget had already expired "
+                    "at worker stop"
+                ) from None
+            raise AcceptanceFailure("The stopped worker exit timestamp was invalid") from None
+
+        def record_missing_worker_deadline(stage: str) -> float:
+            remaining = missing_transition_deadline.remaining
+            failure_context["worker_heartbeat_missing_firing_budget"] = {
+                "worker_exit_at_utc": missing_worker_exit_at_utc,
+                "budget_seconds": 90,
+                "stage": stage,
+                "elapsed_seconds": round(missing_transition_deadline.elapsed, 3),
+                "remaining_seconds": round(remaining, 3),
+                "expired": remaining <= 0,
+            }
+            return remaining
+
+        def require_missing_worker_deadline(stage: str) -> None:
+            if record_missing_worker_deadline(stage) <= 0:
+                raise AcceptanceFailure(
+                    f"The WorkerHeartbeatMissing 90-second firing budget expired during {stage}"
+                )
+
+        failure_context["stage"] = "collector_restart_command"
+        require_missing_worker_deadline("before_collector_restart")
+        collector_restart_started_at = (
+            datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        )
+        try:
+            acceptance_success(
+                runtime.compose(
+                    "restart",
+                    "--timeout",
+                    "20",
+                    "collector",
+                    timeout=45,
+                    deadline=missing_transition_deadline.expires_at,
+                ),
+                "The UUID-owned Collector could not restart",
+            )
+        except Exception:
+            record_missing_worker_deadline("collector_restart_command_failed")
+            raise
+        require_missing_worker_deadline("collector_restart_command_completed")
+
+        failure_context["stage"] = "collector_restart_target_matrix"
+        try:
+            runtime.wait_targets(deadline=missing_transition_deadline.expires_at)
+        except Exception:
+            record_missing_worker_deadline("collector_target_wait_failed")
+            raise
+        require_missing_worker_deadline("collector_target_wait_completed")
+
+        failure_context["stage"] = "collector_restart_volume_identity"
+        try:
+            if old_volumes != runtime.volume_snapshot(
+                deadline=missing_transition_deadline.expires_at
+            ):
+                raise AcceptanceFailure("Collector restart changed a persistent volume identity")
+        except Exception:
+            record_missing_worker_deadline("collector_volume_check_failed")
+            raise
+        require_missing_worker_deadline("collector_volume_check_completed")
+
+        collector_scrape_after_restart: dict[str, object] = {}
+        collector_scrape_deadline = missing_transition_deadline
+        collector_restart_epoch = datetime.fromisoformat(
+            collector_restart_started_at.replace("Z", "+00:00")
+        ).timestamp()
+
+        def collector_was_scraped_after_restart(request_deadline: float) -> object:
+            samples = prometheus_vector('up{job="collector"}', request_deadline)
+            for sample in samples:
+                labels = sample.get("metric")
+                value = sample.get("value")
+                if (
+                    isinstance(labels, dict)
+                    and labels.get("job") == "collector"
+                    and isinstance(value, list)
+                    and len(value) == 2
+                ):
+                    try:
+                        sample_timestamp, sample_value = float(value[0]), float(value[1])
+                    except (TypeError, ValueError):
+                        continue
+                    if sample_value == 1 and sample_timestamp >= collector_restart_epoch:
+                        collector_scrape_after_restart.update(
+                            {
+                                "collector_target_up": True,
+                                "sample_timestamp_seconds": sample_timestamp,
+                            }
+                        )
+                        return collector_scrape_after_restart
+            return None
+
+        try:
+            wait_until_deadline(
+                collector_scrape_deadline,
+                collector_was_scraped_after_restart,
+                failure=(
+                    "Prometheus did not scrape the recovered Collector before the worker alert "
+                    "phase"
+                ),
+                interval_seconds=5,
+            )
+        except Exception:
+            record_missing_worker_deadline("collector_scrape_wait_failed")
+            raise
+        require_missing_worker_deadline("collector_scrape_wait_completed")
+
+        def expected_slot_present_without_current_heartbeat(request_deadline: float) -> object:
+            expected_samples = prometheus_vector(
+                'prl_expected_worker_slot{worker_slot="1"}', request_deadline
+            )
+            expected_slot = worker_alert_samples(expected_samples, worker_slot="1")
+            current_heartbeats = worker_alert_samples(
+                prometheus_vector("prl:worker:heartbeat_current", request_deadline),
+                worker_slot="1",
+            )
+            if len(expected_slot) != 1 or current_heartbeats:
+                return None
+            raw_value = expected_slot[0].get("value")
+            if not isinstance(raw_value, list) or len(raw_value) != 2 or str(raw_value[1]) != "1":
+                return None
+            return {
+                "expected_worker_slot_present": True,
+                "expected_slot_value": 1,
+                "current_process_heartbeat_absent": True,
+                "worker_slot": "1",
+            }
+
+        try:
+            missing_stimulus_observation = wait_until_deadline(
+                missing_transition_deadline,
+                expected_slot_present_without_current_heartbeat,
+                failure=(
+                    "The expected worker slot did not remain present after its current heartbeat "
+                    "disappeared"
+                ),
+                interval_seconds=5,
+            )
+        except AcceptanceFailure:
+            record_missing_worker_deadline("slot_and_heartbeat_predicate_timeout")
+            raise
+        record_missing_worker_deadline("slot_and_heartbeat_predicate_observed")
+        try:
+            missing_firing = wait_for_worker_alert_firing(
+                "WorkerHeartbeatMissing",
+                missing_receiver_baseline,
+                missing_transition_deadline,
+                stimulus_check=expected_slot_present_without_current_heartbeat,
+            )
+        except AcceptanceFailure:
+            record_missing_worker_deadline("alert_firing_timeout")
+            raise
+        record_missing_worker_deadline("alert_firing_observed")
+        worker_alert_resolution_baselines["WorkerHeartbeatMissing"] = worker_receiver_snapshot(
+            "WorkerHeartbeatMissing"
+        )
+        acceptance_success(
+            runtime.compose("up", "-d", "--no-deps", "--no-recreate", "worker", timeout=45),
+            "The UUID-owned worker could not restart after WorkerHeartbeatMissing fired",
+        )
+        missing_worker_started = runtime.inspect_service("worker")
+        missing_worker_started_state = _object_mapping(missing_worker_started.get("State"))
+        missing_worker_started_labels = _object_mapping(
+            _object_mapping(missing_worker_started.get("Config")).get("Labels")
+        )
+        missing_worker_started_at = missing_worker_started_state.get("StartedAt")
+        if (
+            missing_worker_started.get("Id") != worker_container_id
+            or missing_worker_started_state.get("Status") != "running"
+            or missing_worker_started_labels.get("com.docker.compose.project")
+            != runtime.stack.project
+            or not isinstance(missing_worker_started_at, str)
+        ):
+            raise AcceptanceFailure(
+                "The heartbeat-missing worker restart changed container identity"
+            )
+        missing_recovery_deadline = MonotonicDeadline.from_utc_timestamp(
+            missing_worker_started_at, 90
+        )
+
+        def restarted_worker_has_fresh_process_metrics(request_deadline: float) -> object:
+            _metric_names, current = runtime.worker_metric_state(deadline=request_deadline)
+            started = _worker_metric_value(current, "started")
+            heartbeat = _worker_metric_value(current, "heartbeat")
+            heartbeat_labels = _object_mapping(
+                _object_mapping(current.get("heartbeat")).get("labels")
+            )
+            container_started_epoch = datetime.fromisoformat(
+                missing_worker_started_at.replace("Z", "+00:00")
+            ).timestamp()
+            if (
+                started is None
+                or started <= missing_worker_started_before
+                or not runtime.worker_started_value_matches_container_generation(
+                    started, container_started_epoch
+                )
+                or heartbeat is None
+                or heartbeat < started
+                or not 0 <= time.time() - heartbeat <= 45
+                or heartbeat_labels.get("worker_slot") != "1"
+            ):
+                return None
+            return {
+                "worker_started_timestamp_seconds": started,
+                "worker_heartbeat_timestamp_seconds": heartbeat,
+                "worker_slot": "1",
+                "same_container_identity": True,
+                "fresh_process_generation": True,
+            }
+
+        missing_recovery_metrics = wait_until_deadline(
+            missing_recovery_deadline,
+            restarted_worker_has_fresh_process_metrics,
+            failure="The restarted worker did not publish fresh process and heartbeat metrics",
+            interval_seconds=5,
+        )
+        missing_resolved = wait_for_worker_alert_resolution(
+            "WorkerHeartbeatMissing",
+            missing_firing,
+            worker_alert_resolution_baselines["WorkerHeartbeatMissing"],
+            missing_recovery_deadline,
+            lambda request_deadline: bool(
+                restarted_worker_has_fresh_process_metrics(request_deadline)
+            ),
+        )
+        worker_alert_evidence["WorkerHeartbeatMissing"] = {
+            "stimulus": {
+                "worker_exit_at_utc": missing_worker_exit_at_utc,
+                "worker_container_id_matches": True,
+                "collector_reset_completed": True,
+                "collector_scrape_after_reset": collector_scrape_after_restart,
+                "worker_slot_remained_present_without_current_heartbeat": (
+                    missing_stimulus_observation
+                ),
+            },
+            "firing": missing_firing,
+            "recovery_metrics": missing_recovery_metrics,
+            "recovery": missing_resolved,
+        }
+
         failure_context["stage"] = "collector_restart_https_readiness"
         after_collector = _https_request(
             runtime.app_host, runtime.port, runtime.app_cert, "GET", "/health/ready"
@@ -6300,6 +7692,7 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         evidence["persistent_volumes"] = sorted(
             name.removeprefix(runtime.stack.project + "_") for name in runtime.volume_snapshot()
         )
+        evidence["worker_alert_observations"] = worker_alert_evidence
         evidence["collector_restart"] = "same file-storage volume; HTTPS and Loki event persisted"
 
         print(
@@ -6331,6 +7724,7 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                 diagnostic["worker_restart_observations"] = failure_context.get(
                     "worker_restart_observations", {"available": False}
                 )
+                diagnostic["worker_alerts"] = worker_alert_evidence
                 diagnostic["collector_restart_event_query"] = failure_context.get(
                     "collector_restart_event_query", {"available": False}
                 )
@@ -6352,6 +7746,7 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                             "worker_restart_observations": failure_context.get(
                                 "worker_restart_observations", {"available": False}
                             ),
+                            "worker_alerts": worker_alert_evidence,
                         },
                         sort_keys=True,
                         separators=(",", ":"),
@@ -6604,13 +7999,15 @@ def test_gateway_alert_resolution_runtime_diagnostic(tmp_path: Path) -> None:
             raise AcceptanceFailure("The diagnostic receiver failed its exact UUID owner check")
         runtime.api_id = receiver_id
         runtime.stack.wait_for(
-            lambda: runtime.api_status("http://loki:3100/ready", method="GET", body=None) == 200
-            and runtime.api_status("http://alertmanager:9093/-/ready", method="GET", body=None)
-            == 200
-            and runtime.api_status(
-                "http://local_alert_receiver:8088/health/ready", method="GET", body=None
-            )
-            == 200,
+            lambda: (
+                runtime.api_status("http://loki:3100/ready", method="GET", body=None) == 200
+                and runtime.api_status("http://alertmanager:9093/-/ready", method="GET", body=None)
+                == 200
+                and runtime.api_status(
+                    "http://local_alert_receiver:8088/health/ready", method="GET", body=None
+                )
+                == 200
+            ),
             seconds=90,
             failure="The three bounded alert-path services did not become ready",
         )

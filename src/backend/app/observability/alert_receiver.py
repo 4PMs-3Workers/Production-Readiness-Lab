@@ -26,6 +26,64 @@ TELEMETRY_TARGETS = (
 )
 
 
+def sanitize_alert_summary(alert: object) -> dict[str, str]:
+    """Validate an Alertmanager alert and retain only its bounded summary fields."""
+    if not isinstance(alert, dict):
+        raise ValueError("Invalid alert")
+    labels = alert.get("labels", {})
+    if not isinstance(labels, dict):
+        raise ValueError("Invalid alert labels")
+    name = labels.get("alertname", "")
+    severity = labels.get("severity", "unknown")
+    status = alert.get("status", "firing")
+    if (
+        not isinstance(name, str)
+        or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,64}", name)
+        or severity not in {"critical", "warning", "info", "unknown"}
+        or status not in {"firing", "resolved"}
+    ):
+        raise ValueError("Invalid alert summary")
+
+    has_fingerprint = "fingerprint" in alert
+    has_starts_at = "startsAt" in alert
+    if has_fingerprint != has_starts_at:
+        raise ValueError("Incomplete alert identity")
+
+    identity: dict[str, str] = {}
+    if has_fingerprint:
+        fingerprint = alert["fingerprint"]
+        starts_at = alert["startsAt"]
+        if not isinstance(fingerprint, str) or not re.fullmatch(r"[0-9a-f]{16,64}", fingerprint):
+            raise ValueError("Invalid alert fingerprint")
+        if not isinstance(starts_at, str):
+            raise ValueError("Invalid alert start timestamp")
+        if not 1 <= len(starts_at) <= 40:
+            raise ValueError("Invalid alert start timestamp")
+        try:
+            parsed_starts_at = datetime.fromisoformat(starts_at.replace("Z", "+00:00"))
+        except ValueError:
+            raise ValueError("Invalid alert start timestamp") from None
+        if parsed_starts_at.tzinfo is None or parsed_starts_at.utcoffset() is None:
+            raise ValueError("Invalid alert start timestamp")
+        identity = {
+            "fingerprint": fingerprint,
+            "starts_at": (
+                parsed_starts_at.astimezone(UTC)
+                .isoformat(timespec="milliseconds")
+                .replace("+00:00", "Z")
+            ),
+        }
+
+    received_at = datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    return {
+        "alertname": name,
+        "severity": severity,
+        "status": status,
+        "received_at": received_at,
+        **identity,
+    }
+
+
 def parse_expected_slots(value: str) -> tuple[int, ...]:
     if not isinstance(value, str) or not value or len(value) > 31:
         raise ValueError("Invalid expected worker slots")
@@ -138,34 +196,7 @@ class Handler(BaseHTTPRequestHandler):
             alerts = value["alerts"]
             if not isinstance(alerts, list) or len(alerts) > MAX_ALERTS_PER_REQUEST:
                 raise ValueError
-            summaries = []
-            for alert in alerts:
-                if not isinstance(alert, dict):
-                    raise ValueError
-                labels = alert.get("labels", {})
-                if not isinstance(labels, dict):
-                    raise ValueError
-                name = labels.get("alertname", "")
-                severity = labels.get("severity", "unknown")
-                status = alert.get("status", "firing")
-                if (
-                    not isinstance(name, str)
-                    or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,64}", name)
-                    or severity not in {"critical", "warning", "info", "unknown"}
-                    or status not in {"firing", "resolved"}
-                ):
-                    raise ValueError
-                received_at = (
-                    datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-                )
-                summaries.append(
-                    {
-                        "alertname": name,
-                        "severity": severity,
-                        "status": status,
-                        "received_at": received_at,
-                    }
-                )
+            summaries = [sanitize_alert_summary(alert) for alert in alerts]
         except TimeoutError:
             self._send(408, b'{"error":"request_timeout"}')
             return

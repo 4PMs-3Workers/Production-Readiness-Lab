@@ -86,6 +86,28 @@ def _health_request(port, timeout=2.5):
             return b""
 
 
+def _post_alerts(port, alerts):
+    body = json.dumps({"alerts": alerts}, separators=(",", ":")).encode("utf-8")
+    request = (
+        b"POST /alerts HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n"
+        + f"Content-Length: {len(body)}\r\n".encode("ascii")
+        + b"Content-Type: application/json\r\n\r\n"
+        + body
+    )
+    with socket.create_connection(("127.0.0.1", port), timeout=2.5) as client:
+        client.settimeout(2.5)
+        client.sendall(request)
+        return _read_response(client)
+
+
+def _get_alerts(port):
+    with socket.create_connection(("127.0.0.1", port), timeout=2.5) as client:
+        client.settimeout(2.5)
+        client.sendall(b"GET /alerts HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        response = _read_response(client)
+    return json.loads(response.split(b"\r\n\r\n", 1)[1])["alerts"]
+
+
 def test_idle_http11_keepalive_cannot_starve_health_route(alert_receiver_server):
     port = alert_receiver_server
     with socket.create_connection(("127.0.0.1", port), timeout=2.5) as idle:
@@ -127,32 +149,93 @@ def test_non_object_alert_member_is_rejected_without_breaking_server(alert_recei
 
 def test_received_alerts_expose_only_bounded_sanitized_summaries(alert_receiver_server):
     port = alert_receiver_server
-    body = (
-        b'{"alerts":[{"status":"resolved","labels":{"alertname":"WorkerStalled",'
-        b'"severity":"warning","tenant":"private-alert-label"},'
-        b'"annotations":{"description":"private-alert-annotation"}}]}'
+    response = _post_alerts(
+        port,
+        [
+            {
+                "status": "resolved",
+                "labels": {
+                    "alertname": "WorkerStalled",
+                    "severity": "warning",
+                    "tenant": "private-alert-label",
+                },
+                "annotations": {"description": "private-alert-annotation"},
+            }
+        ],
     )
-    request = (
-        b"POST /alerts HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n"
-        + f"Content-Length: {len(body)}\r\n".encode("ascii")
-        + b"Content-Type: application/json\r\n\r\n"
-        + body
-    )
-    with socket.create_connection(("127.0.0.1", port), timeout=2.5) as client:
-        client.settimeout(2.5)
-        client.sendall(request)
-        assert _status(_read_response(client)) == 202
-    with socket.create_connection(("127.0.0.1", port), timeout=2.5) as client:
-        client.settimeout(2.5)
-        client.sendall(b"GET /alerts HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
-        response = _read_response(client)
-    assert _status(response) == 200
-    payload = json.loads(response.split(b"\r\n\r\n", 1)[1])
-    assert len(payload["alerts"]) == 1
-    item = payload["alerts"][0]
+    assert _status(response) == 202
+    payload = _get_alerts(port)
+    assert len(payload) == 1
+    item = payload[0]
     assert set(item) == {"alertname", "severity", "status", "received_at"}
     assert item["alertname"] == "WorkerStalled"
     assert item["severity"] == "warning"
     assert item["status"] == "resolved"
     assert isinstance(datetime.fromisoformat(item["received_at"]), datetime)
-    assert b"private-alert" not in response
+    assert "private-alert" not in json.dumps(payload)
+
+
+@pytest.mark.parametrize("fingerprint", ["0" * 16, "a" * 64])
+def test_received_alert_exposes_only_validated_alertmanager_identity(fingerprint):
+    item = load().sanitize_alert_summary(
+        {
+            "status": "firing",
+            "fingerprint": fingerprint,
+            "startsAt": "2026-10-27T03:04:05+02:00",
+            "labels": {
+                "alertname": "WorkerHeartbeatStale",
+                "severity": "critical",
+                "worker_slot": "1",
+                "tenant": "private-alert-label",
+            },
+            "annotations": {"description": "private-alert-annotation"},
+        }
+    )
+    assert set(item) == {
+        "alertname",
+        "severity",
+        "status",
+        "received_at",
+        "fingerprint",
+        "starts_at",
+    }
+    assert item["fingerprint"] == fingerprint
+    assert item["starts_at"] == "2026-10-27T01:04:05.000Z"
+    assert "private-alert" not in json.dumps(item)
+    assert "worker_slot" not in json.dumps(item)
+
+
+def test_legacy_alert_without_identity_remains_supported():
+    item = load().sanitize_alert_summary(
+        {
+            "status": "firing",
+            "labels": {"alertname": "WorkerHeartbeatStale", "severity": "critical"},
+        }
+    )
+
+    assert set(item) == {"alertname", "severity", "status", "received_at"}
+
+
+@pytest.mark.parametrize(
+    "identity",
+    [
+        {"fingerprint": "0123456789abcdef0123456789abcdef"},
+        {"startsAt": "2026-10-27T03:04:05Z"},
+        {"fingerprint": "0123456789abcde", "startsAt": "2026-10-27T03:04:05Z"},
+        {"fingerprint": "a" * 65, "startsAt": "2026-10-27T03:04:05Z"},
+        {"fingerprint": "A123456789abcdef", "startsAt": "2026-10-27T03:04:05Z"},
+        {"fingerprint": "g123456789abcdef", "startsAt": "2026-10-27T03:04:05Z"},
+        {"fingerprint": "0123456789abcdef", "startsAt": "2026-10-27T03:04:05"},
+        {"fingerprint": "0123456789abcdef", "startsAt": "not-a-timestamp"},
+        {"fingerprint": "0123456789abcdef", "startsAt": "2026-10-27T03:04:05." + "1" * 30 + "Z"},
+    ],
+)
+def test_invalid_or_partial_alertmanager_identity_is_rejected(identity):
+    with pytest.raises(ValueError):
+        load().sanitize_alert_summary(
+            {
+                "status": "firing",
+                **identity,
+                "labels": {"alertname": "WorkerHeartbeatStale", "severity": "critical"},
+            }
+        )
