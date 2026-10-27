@@ -4,6 +4,7 @@ import json
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
+from typing import cast
 
 import pytest
 import tests.containers.observability_review_evidence as review_evidence
@@ -23,6 +24,11 @@ def workspace_build_tmp_path() -> Iterator[Path]:
     build_root.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="evidence-unit-", dir=build_root) as directory:
         yield Path(directory)
+
+
+def _as_mapping(value: object) -> dict[str, object]:
+    assert isinstance(value, dict)
+    return cast(dict[str, object], value)
 
 
 def test_runtime_evidence_keeps_only_sanitized_route_sli_alert_and_business_facts(
@@ -208,35 +214,37 @@ def test_runtime_evidence_keeps_only_sanitized_route_sli_alert_and_business_fact
         "source_sha": "2" * 40,
         "pr_head_sha": "3" * 40,
     }
-    assert document["route_attribution"]["api_route"] == "/api/v1/appointments"
-    assert document["route_attribution"]["gateway_request_log_matched"] is True
-    assert document["gateway_sli"]["empty_window_is_unknown"] is True
-    assert document["collector_outage"]["gateway_sli_absent_after_heartbeat_expiry"] is True
-    assert document["collector_outage"]["gateway_sli_restored_after_recovery"] is True
-    assert document["collector_outage"]["minimum_outage_seconds"] == 90
-    assert document["gateway_sli"]["alertname"] == "GatewayFastSuccessBelowSLO"
-    assert document["alert_episodes"]["WorkerHeartbeatStale"]["fingerprint"] == "f" * 32
-    assert document["alert_episodes"]["WorkerHeartbeatStale"]["alertname"] == (
-        "WorkerHeartbeatStale"
-    )
-    assert document["alert_episodes"]["WorkerHeartbeatStale"]["firing_budget_seconds"] == 90
-    assert document["dashboards"]["all_five_captured"] is True
-    assert document["dashboards"]["captured_dashboard_count"] == 5
-    assert all(
-        row["path"].startswith("build/observability-review/")
-        for row in document["dashboards"]["screenshots"]
-    )
-    assert (
-        document["business_recovery"]["outage_cases"]["collector_stopped"][
-            "expired_audit_event_count"
-        ]
-        == 3
-    )
-    assert (
-        document["business_recovery"]["outage_cases"]["collector_stopped"]["followup_scan_advanced"]
-        is True
-    )
-    assert document["configuration_sha256"]["tools/infra/images.lock.json"] is None
+    route_attribution = _as_mapping(document["route_attribution"])
+    gateway_sli = _as_mapping(document["gateway_sli"])
+    collector_outage = _as_mapping(document["collector_outage"])
+    alert_episodes = _as_mapping(document["alert_episodes"])
+    heartbeat_stale = _as_mapping(alert_episodes["WorkerHeartbeatStale"])
+    dashboards = _as_mapping(document["dashboards"])
+    assert route_attribution["api_route"] == "/api/v1/appointments"
+    assert route_attribution["gateway_request_log_matched"] is True
+    assert gateway_sli["empty_window_is_unknown"] is True
+    assert collector_outage["gateway_sli_absent_after_heartbeat_expiry"] is True
+    assert collector_outage["gateway_sli_restored_after_recovery"] is True
+    assert collector_outage["minimum_outage_seconds"] == 90
+    assert gateway_sli["alertname"] == "GatewayFastSuccessBelowSLO"
+    assert heartbeat_stale["fingerprint"] == "f" * 32
+    assert heartbeat_stale["alertname"] == "WorkerHeartbeatStale"
+    assert heartbeat_stale["firing_budget_seconds"] == 90
+    assert dashboards["all_five_captured"] is True
+    assert dashboards["captured_dashboard_count"] == 5
+    screenshot_rows = dashboards["screenshots"]
+    assert isinstance(screenshot_rows, list)
+    for screenshot in screenshot_rows:
+        screenshot_path = _as_mapping(screenshot)["path"]
+        assert isinstance(screenshot_path, str)
+        assert screenshot_path.startswith("build/observability-review/")
+    business_recovery = _as_mapping(document["business_recovery"])
+    outage_cases = _as_mapping(business_recovery["outage_cases"])
+    collector_case = _as_mapping(outage_cases["collector_stopped"])
+    configuration_hashes = _as_mapping(document["configuration_sha256"])
+    assert collector_case["expired_audit_event_count"] == 3
+    assert collector_case["followup_scan_advanced"] is True
+    assert configuration_hashes["tools/infra/images.lock.json"] is None
     for forbidden in (request_id, trace_id, secret, "raw_alert_payload", "raw_body"):
         assert forbidden not in encoded
 
@@ -410,7 +418,7 @@ def test_all_worker_alert_episodes_project_matching_firing_and_recovery_identity
             },
         }
 
-    def project(alert_observations: dict[str, object]) -> dict[str, object]:
+    def project(alert_observations: object) -> dict[str, object]:
         return build_runtime_evidence(
             outcome="passed",
             checkout_sha="1" * 40,
@@ -427,7 +435,7 @@ def test_all_worker_alert_episodes_project_matching_firing_and_recovery_identity
 
     document = project(worker_alerts)
     encoded = json.dumps(document, sort_keys=True)
-    projected = document["alert_episodes"]
+    projected = cast(dict[str, dict[str, object]], document["alert_episodes"])
     assert set(projected) == set(expected)
     for name, (severity, worker_slot) in expected.items():
         fingerprint, starts_at, firing_received_at, recovery_received_at = identities[name]
@@ -446,7 +454,8 @@ def test_all_worker_alert_episodes_project_matching_firing_and_recovery_identity
     recovery_fingerprint = "e" * 32
     mismatched_recovery["WorkerHeartbeatStale"]["recovery"]["fingerprint"] = recovery_fingerprint
     recovery_document = project(mismatched_recovery)
-    recovery_episode = recovery_document["alert_episodes"]["WorkerHeartbeatStale"]
+    recovery_episodes = cast(dict[str, dict[str, object]], recovery_document["alert_episodes"])
+    recovery_episode = recovery_episodes["WorkerHeartbeatStale"]
     assert recovery_episode["status"] == "firing"
     assert recovery_episode["recovery_receiver_received_at_utc"] is None
     assert recovery_fingerprint not in json.dumps(recovery_document, sort_keys=True)
@@ -455,7 +464,8 @@ def test_all_worker_alert_episodes_project_matching_firing_and_recovery_identity
     firing_fingerprint = "f" * 32
     mismatched_firing["WorkerProgressStale"]["firing"]["fingerprint"] = firing_fingerprint
     firing_document = project(mismatched_firing)
-    firing_episode = firing_document["alert_episodes"]["WorkerProgressStale"]
+    firing_episodes = cast(dict[str, dict[str, object]], firing_document["alert_episodes"])
+    firing_episode = firing_episodes["WorkerProgressStale"]
     assert firing_episode["status"] == "not_observed"
     assert firing_episode["fingerprint"] is None
     assert firing_episode["firing_receiver_received_at_utc"] is None
@@ -475,7 +485,7 @@ def test_writer_cleans_staged_files_when_atomic_replace_fails(
     real_replace = review_evidence.os.replace
     replace_calls = 0
 
-    def fail_second_replace(source: object, destination: object) -> None:
+    def fail_second_replace(source: Path, destination: Path) -> None:
         nonlocal replace_calls
         replace_calls += 1
         if replace_calls == 2:
