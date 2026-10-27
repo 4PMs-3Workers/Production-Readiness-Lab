@@ -11,6 +11,7 @@ import re
 import socket
 import ssl
 import subprocess
+import sys
 import time
 from collections import Counter
 from collections.abc import Callable
@@ -27,6 +28,12 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
+from tests.containers.observability_review_evidence import (
+    build_failure_diagnostics,
+    build_runtime_evidence,
+    collect_config_hashes,
+    write_evidence_documents,
+)
 from tests.containers.test_compose_acceptance import (
     OPS_EDGE_TEST_GATEWAY,
     OPS_EDGE_TEST_SUBNET,
@@ -4319,39 +4326,126 @@ def _worker_metric_value(state: dict[str, dict[str, object]], role: str) -> floa
     reason="requires all five opt-in Compose runtime gates",
 )
 def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
-    token = os.environ.get("PRL_TASK6_ACCEPTANCE_TOKEN", "")
-    if token:
-        print(f"Task 6 runtime owner: prl-task6-{token}")
-    runtime = FullStackRuntime(tmp_path, pin_ops_edge_network=True)
+    run_started_monotonic = time.monotonic()
+    run_started_at = datetime.now(UTC)
+    run_id = run_started_at.strftime("%Y%m%dT%H%M%SZ") + "-" + uuid4().hex[:8]
+    run_directory = ROOT / "build/observability-review" / f"run-{run_id}"
+    screenshot_root = run_directory / "screenshots"
+    config_hashes = collect_config_hashes(ROOT)
+    try:
+        checkout_result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
+        checkout_sha = checkout_result.stdout.strip() if checkout_result.returncode == 0 else None
+    except Exception:
+        checkout_sha = None
+    if not isinstance(checkout_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", checkout_sha):
+        checkout_sha = None
+    pr_head_sha = os.environ.get("PR_HEAD_SHA")
+    if not isinstance(pr_head_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", pr_head_sha):
+        pr_head_sha = None
+    runtime_source_sha: str | None = checkout_sha
+    screenshot_evidence: dict[str, object] | None = None
     evidence: dict[str, object] = {}
     worker_alert_evidence: dict[str, object] = {}
+    failure_context: dict[str, object] = {"stage": "runtime_start"}
+
+    def persist_review_evidence(outcome: str, error_type: str | None, stage: object) -> None:
+        finished_at = datetime.now(UTC)
+        elapsed = max(0.0, time.monotonic() - run_started_monotonic)
+        runtime_document = build_runtime_evidence(
+            outcome=outcome,
+            checkout_sha=checkout_sha,
+            source_sha=runtime_source_sha,
+            pr_head_sha=pr_head_sha,
+            started_at_utc=run_started_at.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+            finished_at_utc=finished_at.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+            elapsed_seconds=elapsed,
+            config_sha256=config_hashes,
+            evidence=evidence,
+            worker_alerts=worker_alert_evidence,
+            screenshot_evidence=screenshot_evidence,
+        )
+        failure_document = build_failure_diagnostics(
+            outcome=outcome,
+            checkout_sha=checkout_sha,
+            source_sha=runtime_source_sha,
+            pr_head_sha=pr_head_sha,
+            started_at_utc=run_started_at.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+            elapsed_seconds=elapsed,
+            config_sha256=config_hashes,
+            stage=stage,
+            error_type=error_type,
+            evidence=evidence,
+            worker_alerts=worker_alert_evidence,
+            failure_context=failure_context,
+            screenshot_evidence=screenshot_evidence,
+        )
+        runtime_path, failure_path = write_evidence_documents(
+            run_directory,
+            runtime_document=runtime_document,
+            failure_document=failure_document,
+        )
+        print(f"TASK6_RUNTIME_EVIDENCE_ARTIFACT={runtime_path.relative_to(ROOT).as_posix()}")
+        print(f"TASK6_FAILURE_DIAGNOSTICS_ARTIFACT={failure_path.relative_to(ROOT).as_posix()}")
+
+    try:
+        runtime = FullStackRuntime(tmp_path, pin_ops_edge_network=True)
+        runtime_source_sha = runtime.stack.expected_sha
+    except Exception as exc:
+        failure_context["stage"] = "runtime_initialization"
+        try:
+            persist_review_evidence("failed", type(exc).__name__, "runtime_initialization")
+        except Exception:
+            print("TASK6_EVIDENCE_WRITE_FAILURE=io_error")
+        raise
+
     sink_observations: dict[str, dict[str, object]] = {}
-    failure_context: dict[str, object] = {
-        "stage": "runtime_start",
-        "route_status": None,
-        "request_id": "",
-        "trace_id": "",
-        "worker_restart_observations": {"available": False},
-        "worker_alerts": worker_alert_evidence,
-    }
+    failure_context.update(
+        {
+            "stage": "runtime_start",
+            "route_status": None,
+            "request_id": "",
+            "trace_id": "",
+            "worker_restart_observations": {"available": False},
+            "worker_alerts": worker_alert_evidence,
+        }
+    )
     accepted = False
 
-    worker_alert_rules_document = yaml.safe_load(
-        (ROOT / "tools/infra/prometheus-rules.yml").read_text(encoding="utf-8")
-    )
-    worker_alert_expressions = {
-        rule["alert"]: rule["expr"]
-        for group in worker_alert_rules_document["groups"]
-        for rule in group["rules"]
-        if rule.get("alert")
-        in {
-            "WorkerHeartbeatStale",
-            "WorkerHeartbeatMissing",
-            "WorkerProgressStale",
-            "WorkerBacklogSnapshotStale",
-            "WorkerBacklogOverdue",
+    try:
+        worker_alert_rules_document = yaml.safe_load(
+            (ROOT / "tools/infra/prometheus-rules.yml").read_text(encoding="utf-8")
+        )
+        worker_alert_expressions = {
+            rule["alert"]: rule["expr"]
+            for group in worker_alert_rules_document["groups"]
+            for rule in group["rules"]
+            if rule.get("alert")
+            in {
+                "WorkerHeartbeatStale",
+                "WorkerHeartbeatMissing",
+                "WorkerProgressStale",
+                "WorkerBacklogSnapshotStale",
+                "WorkerBacklogOverdue",
+            }
         }
-    }
+    except Exception as exc:
+        failure_context["stage"] = "worker_alert_rule_load"
+        try:
+            runtime.cleanup()
+        except Exception:
+            pass
+        try:
+            persist_review_evidence("failed", type(exc).__name__, "worker_alert_rule_load")
+        except Exception:
+            print("TASK6_EVIDENCE_WRITE_FAILURE=io_error")
+        raise
     worker_alert_severity = {
         "WorkerHeartbeatStale": "critical",
         "WorkerHeartbeatMissing": "critical",
@@ -4613,8 +4707,7 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             deadline,
             probe,
             failure=(
-                f"The real {alertname} resolved notification did not arrive "
-                "before its deadline"
+                f"The real {alertname} resolved notification did not arrive before its deadline"
             ),
             interval_seconds=5,
         )
@@ -5390,7 +5483,8 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             "anonymous_auth_disabled": True,
             "signup_disabled": True,
         }
-        evidence["dashboard_screenshots"] = capture_dashboard_screenshots(runtime)
+        screenshot_evidence = capture_dashboard_screenshots(runtime, evidence_root=screenshot_root)
+        evidence["dashboard_screenshots"] = screenshot_evidence
 
         negative = runtime.run_probe("task6-ops-denied-probe", "task6_ops_denied_probe")
         if negative.get("spoofed_forwarded_status") != 403:
@@ -7695,64 +7789,34 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         evidence["worker_alert_observations"] = worker_alert_evidence
         evidence["collector_restart"] = "same file-storage volume; HTTPS and Loki event persisted"
 
-        print(
-            "TASK6_RUNTIME_EVIDENCE=" + json.dumps(evidence, sort_keys=True, separators=(",", ":"))
-        )
         accepted = True
     finally:
-        if not accepted:
-            try:
-                route_status_value = failure_context.get("route_status")
-                route_status = route_status_value if type(route_status_value) is int else None
-                receiver_health_value = failure_context.get("receiver_health")
-                receiver_health_summary = (
-                    _object_mapping(receiver_health_value)
-                    if isinstance(receiver_health_value, dict)
-                    else None
-                )
-                diagnostic = runtime.signal_boundary_diagnostic(
-                    route_status=route_status,
-                    request_id=str(failure_context["request_id"]),
-                    trace_id=str(failure_context["trace_id"]),
-                    sink_observations=sink_observations,
-                    receiver_health_summary=receiver_health_summary,
-                )
-                diagnostic["failure_stage"] = failure_context["stage"]
-                diagnostic["collector_outage_readiness"] = failure_context.get(
-                    "collector_outage_readiness", {"available": False}
-                )
-                diagnostic["worker_restart_observations"] = failure_context.get(
-                    "worker_restart_observations", {"available": False}
-                )
-                diagnostic["worker_alerts"] = worker_alert_evidence
-                diagnostic["collector_restart_event_query"] = failure_context.get(
-                    "collector_restart_event_query", {"available": False}
-                )
-                print(
-                    "TASK6_PRE_CLEANUP_FAILURE_SNAPSHOT:"
-                    + json.dumps(diagnostic, sort_keys=True, separators=(",", ":"))
-                )
-            except Exception as exc:
-                print(
-                    "TASK6_PRE_CLEANUP_FAILURE_SNAPSHOT:"
-                    + json.dumps(
-                        {
-                            "failure_stage": failure_context["stage"],
-                            "snapshot_available": False,
-                            "diagnostic_error_category": type(exc).__name__,
-                            "receiver_health": failure_context.get(
-                                "receiver_health", {"available": False}
-                            ),
-                            "worker_restart_observations": failure_context.get(
-                                "worker_restart_observations", {"available": False}
-                            ),
-                            "worker_alerts": worker_alert_evidence,
-                        },
-                        sort_keys=True,
-                        separators=(",", ":"),
-                    )
-                )
-        runtime.cleanup()
+        active_error = sys.exc_info()[1]
+        cleanup_error: Exception | None = None
+        try:
+            runtime.cleanup()
+        except Exception as exc:
+            cleanup_error = exc
+
+        outcome = "passed" if accepted and cleanup_error is None else "failed"
+        if cleanup_error is not None and active_error is None:
+            failure_context["stage"] = "cleanup"
+        error = active_error or cleanup_error
+        try:
+            persist_review_evidence(
+                outcome,
+                type(error).__name__ if error is not None else None,
+                failure_context.get("stage", "complete"),
+            )
+        except Exception:
+            print("TASK6_EVIDENCE_WRITE_FAILURE=io_error")
+            if error is None:
+                raise AcceptanceFailure(
+                    "Sanitized observability review evidence could not be persisted"
+                ) from None
+
+        if active_error is None and cleanup_error is not None:
+            raise cleanup_error
 
 
 @pytest.mark.skipif(

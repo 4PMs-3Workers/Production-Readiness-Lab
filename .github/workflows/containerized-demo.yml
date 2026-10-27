@@ -26,6 +26,7 @@ jobs:
       RUN_GATEWAY_TESTS: '1'
       RUN_COMPOSE_ACCEPTANCE: '1'
       RUN_OBSERVABILITY_TESTS: '1'
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v7
 
@@ -75,3 +76,14 @@ jobs:
           if skipped:
               raise SystemExit(f"Container acceptance tests skipped: {skipped}")
           PY
+
+      - name: Preserve sanitized observability review evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: observability-review-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            build/observability-review/**/*.json
+            build/observability-review/**/*.png
+          if-no-files-found: warn
+          retention-days: 7
