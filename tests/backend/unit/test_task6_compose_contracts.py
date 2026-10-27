@@ -1536,27 +1536,108 @@ def test_post_restart_collector_epoch_comes_from_same_owned_running_container():
     )
 
 
-def test_prometheus_scrape_barrier_rejects_samples_from_before_container_start():
-    old_sample = {
+def test_prometheus_up_timestamp_query_matches_runtime_contract():
+    collector_query = telemetry_stack.prometheus_up_timestamp_query("collector")
+    assert collector_query == (
+        'timestamp(up{job="collector"}) and on(job, instance) ' '(up{job="collector"} == 1)'
+    )
+    assert telemetry_stack.prometheus_up_timestamp_query("application-otel") == (
+        'timestamp(up{job="application-otel"}) and on(job, instance) '
+        '(up{job="application-otel"} == 1)'
+    )
+    rule_tests = yaml.safe_load((INFRA / "prometheus-rule-tests.yml").read_text())
+    fixture_query = rule_tests["tests"][0]["promql_expr_test"][0]["expr"]
+    assert fixture_query == collector_query
+
+
+def test_prometheus_timestamp_query_barrier_uses_stored_sample_time():
+    evaluation_time_after_restart = 1_800_000_045
+    old_stored_sample = {
         "metric": {"job": "application-otel", "private_label": "do-not-report"},
-        "value": ["1799999999", "1"],
+        "value": [str(evaluation_time_after_restart), "1799999999"],
     }
-    current_sample = {
+    post_restart_stored_sample = {
         "metric": {"job": "application-otel", "private_label": "do-not-report"},
-        "value": ["1800000001", "1"],
+        "value": [str(evaluation_time_after_restart), "1800000001"],
     }
 
     assert (
-        telemetry_stack.prometheus_up_sample_after_epoch(
-            [old_sample], job="application-otel", not_before_epoch=1_800_000_000
+        telemetry_stack.prometheus_timestamp_query_sample_after_epoch(
+            [old_stored_sample],
+            job="application-otel",
+            not_before_epoch=1_800_000_000,
         )
         is None
     )
-    assert telemetry_stack.prometheus_up_sample_after_epoch(
-        [old_sample, current_sample],
+    assert telemetry_stack.prometheus_timestamp_query_sample_after_epoch(
+        [post_restart_stored_sample],
         job="application-otel",
         not_before_epoch=1_800_000_000,
     ) == pytest.approx(1_800_000_001)
+
+
+@pytest.mark.parametrize(
+    "samples,job,not_before_epoch",
+    [
+        ([], "collector", 1_800_000_000),  # Empty vector, including down targets filtered out.
+        (
+            [{"metric": {"job": "another-job"}, "value": ["1800000045", "1800000001"]}],
+            "collector",
+            1_800_000_000,
+        ),
+        ([{"metric": {"job": "collector"}, "value": ["1800000045"]}], "collector", 1_800_000_000),
+        (
+            [{"metric": {"job": "collector"}, "value": ["NaN", "1800000001"]}],
+            "collector",
+            1_800_000_000,
+        ),
+        (
+            [{"metric": {"job": "collector"}, "value": ["1800000045", "+Inf"]}],
+            "collector",
+            1_800_000_000,
+        ),
+        (
+            [{"metric": {"job": "collector"}, "value": ["bad", "1800000001"]}],
+            "collector",
+            1_800_000_000,
+        ),
+        (
+            [{"metric": {"job": "collector"}, "value": ["1800000045", "bad"]}],
+            "collector",
+            1_800_000_000,
+        ),
+        ([{"metric": {"job": "collector"}, "value": "malformed"}], "collector", 1_800_000_000),
+        (
+            [{"metric": {"job": "collector"}, "value": ["1800000045", "1800000001"]}],
+            "collector",
+            float("inf"),
+        ),
+    ],
+)
+def test_prometheus_timestamp_query_barrier_rejects_invalid_samples(samples, job, not_before_epoch):
+    assert (
+        telemetry_stack.prometheus_timestamp_query_sample_after_epoch(
+            samples, job=job, not_before_epoch=not_before_epoch
+        )
+        is None
+    )
+
+
+def test_heartbeat_recording_time_diagnostic_rejects_pre_restart_stored_sample():
+    current_heartbeat_query = [
+        {
+            "metric": {"service_name": "worker", "worker_slot": "1"},
+            "value": ["1800000045", "1799999999"],
+        }
+    ]
+
+    current_heartbeat_recorded_after_restart = (
+        telemetry_stack.prometheus_timestamp_query_has_sample_after_epoch(
+            current_heartbeat_query, not_before_epoch=1_800_000_000
+        )
+    )
+
+    assert current_heartbeat_recorded_after_restart is False
 
 
 def test_worker_heartbeat_missing_failure_diagnostics_only_include_booleans_and_counts():

@@ -103,6 +103,16 @@ def wait_until_deadline(
     raise AcceptanceFailure(f"{failure}{suffix}")
 
 
+def capture_receiver_snapshot_before_recovery(
+    receiver_snapshot: Callable[[], list[dict[str, str]]],
+    recovery: Callable[[], None],
+) -> list[dict[str, str]]:
+    """Capture the receiver baseline before running a recovery that can deliver resolution."""
+    snapshot = receiver_snapshot()
+    recovery()
+    return snapshot
+
+
 def active_worker_alert_identity(
     alerts: object,
     alertname: str,

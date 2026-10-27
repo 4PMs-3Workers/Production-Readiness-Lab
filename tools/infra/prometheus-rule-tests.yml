@@ -2,6 +2,20 @@ rule_files:
   - prometheus-rules.yml
 evaluation_interval: 15s
 tests:
+  # timestamp() returns the stored scrape time while the query result is evaluated later.
+  - interval: 15s
+    input_series:
+      - series: 'up{job="collector",instance="collector:8888"}'
+        values: "1 1 _ _"
+      - series: 'up{job="collector",instance="collector-down:8888"}'
+        values: "1 0 _ _"
+    promql_expr_test:
+      - expr: 'timestamp(up{job="collector"}) and on(job, instance) (up{job="collector"} == 1)'
+        eval_time: 45s
+        exp_samples:
+          - labels: '{instance="collector:8888",job="collector"}'
+            value: 15
+
   # >0.5% with >=20 requests must warn after two minutes.
   - interval: 15s
     input_series:

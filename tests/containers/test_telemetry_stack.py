@@ -54,6 +54,7 @@ from tests.containers.worker_alert_probe import (
     MonotonicDeadline,
     acquire_pending_proposal_row_lock,
     active_worker_alert_identity,
+    capture_receiver_snapshot_before_recovery,
     normalize_alertmanager_timestamp,
     run_bounded_mysql_statement,
     wait_until_deadline,
@@ -4372,13 +4373,22 @@ def _finite_prometheus_number(value: object) -> float | None:
     return number if math.isfinite(number) and abs(number) < 10_000_000_000 else None
 
 
-def prometheus_up_sample_after_epoch(
+def prometheus_up_timestamp_query(job: str) -> str:
+    """Build a query that keeps only up targets and returns each stored sample time."""
+    return f'timestamp(up{{job="{job}"}}) and on(job, instance) (up{{job="{job}"}} == 1)'
+
+
+def prometheus_timestamp_query_sample_after_epoch(
     samples: object,
     *,
-    job: str,
     not_before_epoch: object,
+    job: str | None = None,
 ) -> float | None:
-    """Return a target-up sample timestamp only when it is from after the owner start."""
+    """Return value[1] from a timestamp() vector when its stored sample is after an epoch.
+
+    Instant-query values are ``[evaluation timestamp, stored sample timestamp]``; value[0]
+    identifies when Prometheus evaluated the query and cannot establish sample freshness.
+    """
     minimum_epoch = _validated_epoch_seconds(not_before_epoch)
     if minimum_epoch is None or not isinstance(samples, list):
         return None
@@ -4386,13 +4396,38 @@ def prometheus_up_sample_after_epoch(
         sample_mapping = _object_mapping(sample)
         labels = _object_mapping(sample_mapping.get("metric"))
         values = sample_mapping.get("value")
-        if labels.get("job") != job or not isinstance(values, list) or len(values) != 2:
+        if (
+            (job is not None and labels.get("job") != job)
+            or not isinstance(values, list)
+            or len(values) != 2
+        ):
             continue
-        sample_epoch = _finite_prometheus_number(values[0])
-        target_up = _finite_prometheus_number(values[1])
-        if sample_epoch is not None and target_up == 1 and sample_epoch >= minimum_epoch:
-            return sample_epoch
+        evaluation_epoch = _finite_prometheus_number(values[0])
+        stored_sample_epoch = _finite_prometheus_number(values[1])
+        if (
+            evaluation_epoch is not None
+            and stored_sample_epoch is not None
+            and stored_sample_epoch >= minimum_epoch
+        ):
+            return stored_sample_epoch
     return None
+
+
+def prometheus_timestamp_query_has_sample_after_epoch(
+    samples: object,
+    *,
+    not_before_epoch: object,
+    job: str | None = None,
+) -> bool:
+    """Report whether a timestamp() vector contains a fresh stored sample."""
+    return (
+        prometheus_timestamp_query_sample_after_epoch(
+            samples,
+            not_before_epoch=not_before_epoch,
+            job=job,
+        )
+        is not None
+    )
 
 
 def worker_heartbeat_missing_failure_diagnostics(
@@ -7315,7 +7350,10 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                 "firing": overdue_firing,
             }
             worker_alert_evidence["WorkerBacklogOverdue"] = overdue_alert_evidence
-            proposal_row_lock.commit_and_release()
+            overdue_resolution_receiver_baseline = capture_receiver_snapshot_before_recovery(
+                lambda: worker_receiver_snapshot("WorkerBacklogOverdue"),
+                proposal_row_lock.commit_and_release,
+            )
             overdue_recovery_deadline = MonotonicDeadline.after(120)
 
             def overdue_business_state(request_deadline: float) -> str:
@@ -7372,7 +7410,7 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             overdue_resolved = wait_for_worker_alert_resolution(
                 "WorkerBacklogOverdue",
                 overdue_firing,
-                worker_receiver_snapshot("WorkerBacklogOverdue"),
+                overdue_resolution_receiver_baseline,
                 overdue_recovery_deadline,
                 lambda request_deadline: bool(overdue_recovery_observed(request_deadline)),
             )
@@ -7657,8 +7695,10 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         collector_scrape_deadline = missing_transition_deadline
 
         def collector_was_scraped_after_restart(request_deadline: float) -> object:
-            samples = prometheus_vector('up{job="collector"}', request_deadline)
-            sample_timestamp = prometheus_up_sample_after_epoch(
+            samples = prometheus_vector(
+                prometheus_up_timestamp_query("collector"), request_deadline
+            )
+            sample_timestamp = prometheus_timestamp_query_sample_after_epoch(
                 samples,
                 job="collector",
                 not_before_epoch=collector_restart_epoch,
@@ -7697,8 +7737,10 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         require_missing_worker_deadline("collector_scrape_wait_completed")
 
         def application_otel_was_scraped_after_restart(request_deadline: float) -> object:
-            samples = prometheus_vector('up{job="application-otel"}', request_deadline)
-            sample_timestamp = prometheus_up_sample_after_epoch(
+            samples = prometheus_vector(
+                prometheus_up_timestamp_query("application-otel"), request_deadline
+            )
+            sample_timestamp = prometheus_timestamp_query_sample_after_epoch(
                 samples,
                 job="application-otel",
                 not_before_epoch=collector_restart_epoch,
@@ -7743,7 +7785,9 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                 'prl_expected_worker_slot{worker_slot="1"}', request_deadline
             )
             expected_slot = worker_alert_samples(expected_samples, worker_slot="1")
-            current_samples = prometheus_vector("prl:worker:heartbeat_current", request_deadline)
+            current_samples = prometheus_vector(
+                "timestamp(prl:worker:heartbeat_current)", request_deadline
+            )
             current_heartbeats = worker_alert_samples(
                 current_samples,
                 worker_slot="1",
@@ -7765,7 +7809,6 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                 return sample_epoch, metric_value
 
             raw_heartbeat_pairs = [sample_pair(sample) for sample in raw_heartbeats]
-            current_heartbeat_pairs = [sample_pair(sample) for sample in current_heartbeats]
             raw_heartbeat_predates_worker_exit = (
                 bool(raw_heartbeats)
                 and missing_worker_exit_epoch is not None
@@ -7775,9 +7818,10 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                     for pair in raw_heartbeat_pairs
                 )
             )
-            current_heartbeat_recorded_after_collector_restart = any(
-                pair is not None and pair[0] >= collector_restart_epoch
-                for pair in current_heartbeat_pairs
+            current_heartbeat_recorded_after_collector_restart = (
+                prometheus_timestamp_query_has_sample_after_epoch(
+                    current_heartbeats, not_before_epoch=collector_restart_epoch
+                )
             )
             missing_worker_predicate_observation.update(
                 {

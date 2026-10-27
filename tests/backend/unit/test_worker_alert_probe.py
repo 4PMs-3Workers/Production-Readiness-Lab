@@ -1,4 +1,5 @@
 import pytest
+from tests.containers import worker_alert_probe
 from tests.containers.test_compose_acceptance import AcceptanceFailure
 from tests.containers.test_telemetry_stack import (
     FullStackRuntime,
@@ -11,6 +12,55 @@ from tests.containers.worker_alert_probe import (
     normalize_alertmanager_timestamp,
     pending_due_row_lock_sql,
 )
+
+
+def test_recovery_receiver_snapshot_precedes_immediate_resolved_delivery() -> None:
+    firing = {
+        "status": "firing",
+        "severity": "warning",
+        "received_at": "2026-10-27T01:00:00.000Z",
+        "fingerprint": "0123456789abcdef",
+        "starts_at": "2026-10-27T00:59:00.000Z",
+    }
+    resolved = {
+        "status": "resolved",
+        "severity": "warning",
+        "received_at": "2026-10-27T01:01:00.000Z",
+        "fingerprint": firing["fingerprint"],
+        "starts_at": firing["starts_at"],
+    }
+    receiver_history = [firing]
+
+    baseline = worker_alert_probe.capture_receiver_snapshot_before_recovery(
+        lambda: list(receiver_history),
+        lambda: receiver_history.append(resolved),
+    )
+
+    fresh_resolved = new_alert_statuses_since_snapshot(
+        baseline,
+        receiver_history,
+        status="resolved",
+        severity="warning",
+    )
+    assert fresh_resolved == [resolved]
+    assert fresh_resolved[0]["fingerprint"] == firing["fingerprint"]
+    assert fresh_resolved[0]["starts_at"] == firing["starts_at"]
+
+
+def test_receiver_snapshot_failure_prevents_recovery() -> None:
+    recovery_called = False
+
+    def fail_snapshot() -> list[dict[str, str]]:
+        raise RuntimeError("snapshot failed")
+
+    def recover() -> None:
+        nonlocal recovery_called
+        recovery_called = True
+
+    with pytest.raises(RuntimeError, match="snapshot failed"):
+        worker_alert_probe.capture_receiver_snapshot_before_recovery(fail_snapshot, recover)
+
+    assert not recovery_called
 
 
 def test_alert_receiver_status_summary_preserves_alert_episode_identity(
