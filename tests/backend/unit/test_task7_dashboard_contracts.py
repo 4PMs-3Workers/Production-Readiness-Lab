@@ -11,6 +11,16 @@ import yaml
 ROOT = Path(__file__).resolve().parents[3]
 INFRA = ROOT / "tools/infra"
 LOKI_RULES = INFRA / "loki-rules/fake/gateway-sli.yml"
+GATEWAY_HEARTBEAT_FILTER = (
+    'andon()(sum(count_over_time('
+    '{service_name="gateway",deployment_environment_name="demo"}'
+    '|jsonevent="event"|__error__=""|event="gateway.healthcheck"'
+    '|keepevent[1m]))>0)'
+)
+
+
+def _compact_logql(expression: str) -> str:
+    return re.sub(r"\s+", "", expression)
 
 
 def _loki_rules():
@@ -35,12 +45,14 @@ def test_gateway_sli_ratio_rules_have_truthful_denominators_and_bounded_fields()
     assert "or on()" in availability and "0 *" in availability
     assert "> 0" in availability
     assert "vector(0)" not in availability and "vector(1)" not in availability
+    assert GATEWAY_HEARTBEAT_FILTER in _compact_logql(availability)
 
     assert 'classification="success"' in fast_success
     assert "duration_seconds <= 0.500" in fast_success
     assert "or on()" in fast_success and "0 *" in fast_success
     assert "> 0" in fast_success
     assert "vector(0)" not in fast_success and "vector(1)" not in fast_success
+    assert GATEWAY_HEARTBEAT_FILTER in _compact_logql(fast_success)
     assert "request_id" not in availability + fast_success
     assert "trace_id" not in availability + fast_success
     assert "duration_seconds" not in availability
@@ -67,6 +79,9 @@ def test_gateway_alerts_have_required_windows_and_runbook_annotations():
         assert rule["labels"]["severity"] in {"warning", "critical"}
         assert rule["annotations"].get("summary")
         assert rule["annotations"].get("runbook_url", "").startswith("https://")
+    assert GATEWAY_HEARTBEAT_FILTER in _compact_logql(
+        alerts["GatewayFastSuccessBelowSLO"][1]["expr"]
+    )
 
 
 def test_every_alert_runbook_url_resolves_to_a_real_heading():
@@ -146,8 +161,14 @@ def test_gateway_dashboard_runs_the_native_loki_sli_and_excludes_healthchecks():
     assert "or on()" in fast_success and "> 0" in fast_success
     assert 'event="gateway.healthcheck"' in healthcheck
     assert all("prl:" not in query for query in (availability, fast_success, healthcheck))
-    assert "insufficient data" in panels[2]["description"].lower()
+    assert GATEWAY_HEARTBEAT_FILTER in _compact_logql(availability)
+    assert GATEWAY_HEARTBEAT_FILTER in _compact_logql(fast_success)
+    assert "unknown" in panels[2]["description"].lower()
+    assert "denominator" in panels[2]["description"].lower()
     assert "unknown" in panels[3]["description"].lower()
+    assert "heartbeat" in panels[2]["description"].lower()
+    assert "heartbeat" in panels[3]["description"].lower()
+    assert "heartbeat" in panels[1]["options"]["content"].lower()
 
 
 def test_worker_dashboard_runtime_gauges_use_observed_worker_scope():
@@ -382,6 +403,16 @@ def test_fullstack_collector_outage_covers_pipeline_missing_and_genuine_recovery
         "collector_outage_elapsed_seconds",
         "collector_pipeline_missing_firing",
         "collector_pipeline_missing_resolved",
+        '"dashboard_availability"',
+        '"dashboard_fast_success"',
+        '"yaml_availability"',
+        '"yaml_fast_success"',
+        '"yaml_fast_success_alert"',
+        "gateway_sli_samples_before_collector_stop",
+        "gateway_sli_samples_after_heartbeat_expiry",
+        "gateway_sli_samples_after_collector_recovery",
+        "gateway_request_denominators_at_heartbeat_expiry",
+        "runtime.loki_scalar(expression)",
     ):
         assert required in outage
     assert "push_gateway_json_logs" not in outage

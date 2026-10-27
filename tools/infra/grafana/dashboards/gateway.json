@@ -40,14 +40,14 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "Availability uses successful requests / (successful + service failures). Fast-success uses successful requests completed in <= 500 ms / all successful requests. Empty eligible windows are insufficient data. The separate healthcheck panel detects a missing pipeline heartbeat; confirm target and loss panels before treating it as telemetry gap."
+        "content": "Availability uses successful requests / (successful + service failures). Fast-success uses successful requests completed in <= 500 ms / all successful requests. A ratio is unknown when its request denominator is empty or the genuine gateway healthcheck heartbeat has expired. Check the separate heartbeat, target, and telemetry-loss panels; an unknown ratio is not 0% or 100%."
       }
     },
     {
       "id": 2,
       "type": "timeseries",
       "title": "Availability (5m)",
-      "description": "No eligible business requests is insufficient data; no zero/one fallback is used.",
+      "description": "Unknown when the eligible request denominator is empty or the genuine gateway healthcheck heartbeat has expired (no event in 1m). No zero/one fallback is used.",
       "datasource": {
         "type": "loki",
         "uid": "prl-loki"
@@ -65,7 +65,7 @@
             "uid": "prl-loki"
           },
           "editorMode": "code",
-          "expr": "((\n  (sum(count_over_time(\n  {service_name=\"gateway\",deployment_environment_name=\"demo\"} | json event=\"event\", classification=\"classification\", route=\"route\" | __error__ = \"\" | event=\"gateway.request\" | classification=\"success\" | keep event, classification, route\n  [5m]\n))) or on() (0 * (sum(count_over_time(\n  {service_name=\"gateway\",deployment_environment_name=\"demo\"} | json event=\"event\", classification=\"classification\", route=\"route\" | __error__ = \"\" | event=\"gateway.request\" | classification=~\"success|service_failure\" | keep event, classification, route\n  [5m]\n))))\n) / ((sum(count_over_time(\n  {service_name=\"gateway\",deployment_environment_name=\"demo\"} | json event=\"event\", classification=\"classification\", route=\"route\" | __error__ = \"\" | event=\"gateway.request\" | classification=~\"success|service_failure\" | keep event, classification, route\n  [5m]\n))) > 0))",
+          "expr": "((\n  (sum(count_over_time(\n  {service_name=\"gateway\",deployment_environment_name=\"demo\"} | json event=\"event\", classification=\"classification\", route=\"route\" | __error__ = \"\" | event=\"gateway.request\" | classification=\"success\" | keep event, classification, route\n  [5m]\n))) or on() (0 * (sum(count_over_time(\n  {service_name=\"gateway\",deployment_environment_name=\"demo\"} | json event=\"event\", classification=\"classification\", route=\"route\" | __error__ = \"\" | event=\"gateway.request\" | classification=~\"success|service_failure\" | keep event, classification, route\n  [5m]\n))))\n) / ((sum(count_over_time(\n  {service_name=\"gateway\",deployment_environment_name=\"demo\"} | json event=\"event\", classification=\"classification\", route=\"route\" | __error__ = \"\" | event=\"gateway.request\" | classification=~\"success|service_failure\" | keep event, classification, route\n  [5m]\n))) > 0))\n  and on() (\n    sum(count_over_time(\n      {service_name=\"gateway\",deployment_environment_name=\"demo\"}\n      | json event=\"event\"\n      | __error__ = \"\"\n      | event=\"gateway.healthcheck\"\n      | keep event\n      [1m]\n    )) > 0\n  )",
           "instant": false,
           "legendFormat": "availability",
           "range": true,
@@ -97,7 +97,7 @@
       "id": 3,
       "type": "timeseries",
       "title": "Fast-success (5m)",
-      "description": "Successful gateway requests completed in <= 500 ms divided by all successful in-scope requests. Empty success denominator stays unknown.",
+      "description": "Successful gateway requests completed in <= 500 ms divided by all successful in-scope requests. Unknown when the success denominator is empty or the genuine gateway healthcheck heartbeat has expired (no event in 1m).",
       "datasource": {
         "type": "loki",
         "uid": "prl-loki"
@@ -115,7 +115,7 @@
             "uid": "prl-loki"
           },
           "editorMode": "code",
-          "expr": "((\n  (sum(count_over_time(\n  {service_name=\"gateway\",deployment_environment_name=\"demo\"} | json event=\"event\", classification=\"classification\", route=\"route\", duration_seconds=\"duration_seconds\" | __error__ = \"\" | event=\"gateway.request\" | classification=\"success\" | duration_seconds <= 0.500 | keep event, classification, route\n  [5m]\n))) or on() (0 * (sum(count_over_time(\n  {service_name=\"gateway\",deployment_environment_name=\"demo\"} | json event=\"event\", classification=\"classification\", route=\"route\" | __error__ = \"\" | event=\"gateway.request\" | classification=\"success\" | keep event, classification, route\n  [5m]\n))))\n) / ((sum(count_over_time(\n  {service_name=\"gateway\",deployment_environment_name=\"demo\"} | json event=\"event\", classification=\"classification\", route=\"route\" | __error__ = \"\" | event=\"gateway.request\" | classification=\"success\" | keep event, classification, route\n  [5m]\n))) > 0))",
+          "expr": "((\n  (sum(count_over_time(\n  {service_name=\"gateway\",deployment_environment_name=\"demo\"} | json event=\"event\", classification=\"classification\", route=\"route\", duration_seconds=\"duration_seconds\" | __error__ = \"\" | event=\"gateway.request\" | classification=\"success\" | duration_seconds <= 0.500 | keep event, classification, route\n  [5m]\n))) or on() (0 * (sum(count_over_time(\n  {service_name=\"gateway\",deployment_environment_name=\"demo\"} | json event=\"event\", classification=\"classification\", route=\"route\" | __error__ = \"\" | event=\"gateway.request\" | classification=\"success\" | keep event, classification, route\n  [5m]\n))))\n) / ((sum(count_over_time(\n  {service_name=\"gateway\",deployment_environment_name=\"demo\"} | json event=\"event\", classification=\"classification\", route=\"route\" | __error__ = \"\" | event=\"gateway.request\" | classification=\"success\" | keep event, classification, route\n  [5m]\n))) > 0))\n  and on() (\n    sum(count_over_time(\n      {service_name=\"gateway\",deployment_environment_name=\"demo\"}\n      | json event=\"event\"\n      | __error__ = \"\"\n      | event=\"gateway.healthcheck\"\n      | keep event\n      [1m]\n    )) > 0\n  )",
           "instant": false,
           "legendFormat": "fast-success",
           "range": true,

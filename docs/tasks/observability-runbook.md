@@ -34,9 +34,9 @@ The alert requires a fresh positive backlog and oldest-overdue age above 60 seco
 
 ## Gateway fast-success or pipeline heartbeat
 
-Open **Gateway SLI**. Fast-success is successful in-scope gateway requests completed within 500 ms divided by all successful in-scope requests. Availability uses successful in-scope requests divided by successful plus service-failure requests. Health checks and operations-vhost requests are excluded. A missing ratio with no eligible samples is insufficient data; a missing healthcheck heartbeat with a down target or telemetry loss indicates a pipeline gap.
+Open **Gateway SLI**. Fast-success is successful in-scope gateway requests completed within 500 ms divided by all successful in-scope requests. Availability uses successful in-scope requests divided by successful plus service-failure requests. Health checks and operations-vhost requests are excluded. Both ratios show no sample (unknown) when their request denominator is empty or Loki has not observed a genuine `gateway.healthcheck` event within the last minute. An expired heartbeat does not turn a ratio into 0% or 100%; this gate also suppresses the fast-success alert while pipeline freshness is unknown.
 
-For a pipeline gap, check the gateway filelog handoff, Collector target, Loki target, and telemetry dropped/failed counters in **Telemetry loss**. Confirm new genuine `/health/gateway` events reach Loki before trusting SLI panels again.
+If the denominator remains positive while a ratio is unknown, check `GatewayPipelineHeartbeatMissing`, the gateway filelog handoff, Collector target, Loki target, and telemetry dropped/failed counters in **Telemetry loss**. Confirm new genuine `/health/gateway` events reach Loki before trusting SLI panels or the fast-success alert again.
 
 ## Telemetry target or loss
 
@@ -74,7 +74,7 @@ The configured alerts are local receivers, not an external paging service:
 | `WorkerHeartbeatStale` | A current-process heartbeat is over 45 seconds old. | Check process liveness, OTLP target, and DB connection status. |
 | `WorkerProgressStale` / `WorkerBacklogSnapshotStale` | A current-process heartbeat has no progress or successful-scan snapshot newer than 90 seconds after startup; each alert is held for 30 seconds. | Check the worker's latest successful scan and progress timestamp; old-process values do not establish current progress. |
 | `WorkerBacklogOverdue` | Fresh positive backlog has oldest overdue age above 60 seconds for one minute. | Compare the maximum fresh backlog across slots; do not sum replicas. |
-| `GatewayFastSuccessBelowSLO` | Fewer than 95% of at least 20 successful in-scope requests finish within 500 ms over five minutes, held for two minutes. | Check gateway SLI, API/service failures, and request-volume sufficiency. |
+| `GatewayFastSuccessBelowSLO` | Fewer than 95% of at least 20 successful in-scope requests finish within 500 ms over five minutes, held for two minutes, while a genuine gateway healthcheck was observed within one minute. | Check gateway SLI, API/service failures, request-volume sufficiency, and `GatewayPipelineHeartbeatMissing`. |
 | `GatewayPipelineHeartbeatMissing` | The genuine gateway healthcheck event is absent from Loki for 60 seconds, held for 30 seconds. | Check gateway file output, Collector target and Loki target before interpreting the SLI. |
 
 There is one `TelemetryTargetDown` rule for the Collector and all other configured jobs; the former duplicate collector-only warning was removed. Prometheus can alert that its own scrape target is down only while the Prometheus evaluator, Alertmanager, and receiver path remain available. The local receiver records alert summaries; it does not deliver an external page.

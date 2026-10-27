@@ -72,6 +72,17 @@ groups:
               )) > 0
             )
           )
+          and on()
+          (
+            sum(count_over_time(
+              {service_name="gateway",deployment_environment_name="demo"}
+              | json event="event"
+              | __error__ = ""
+              | event="gateway.healthcheck"
+              | keep event
+              [1m]
+            )) > 0
+          )
       - record: prl:gateway_fast_success:ratio5m
         expr: |
           (
@@ -108,6 +119,17 @@ groups:
                 [5m]
               )) > 0
             )
+          )
+          and on()
+          (
+            sum(count_over_time(
+              {service_name="gateway",deployment_environment_name="demo"}
+              | json event="event"
+              | __error__ = ""
+              | event="gateway.healthcheck"
+              | keep event
+              [1m]
+            )) > 0
           )
       - record: prl:gateway_healthcheck:count1m
         expr: |
@@ -171,6 +193,17 @@ groups:
               | keep event, classification, route
               [5m]
             )) >= 20
+          )
+          and on()
+          (
+            sum(count_over_time(
+              {service_name="gateway",deployment_environment_name="demo"}
+              | json event="event"
+              | __error__ = ""
+              | event="gateway.healthcheck"
+              | keep event
+              [1m]
+            )) > 0
           )
         for: 2m
         labels:

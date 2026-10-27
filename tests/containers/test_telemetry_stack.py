@@ -4304,6 +4304,74 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         pipeline_rules = yaml.safe_load(
             (ROOT / "tools/infra/loki-rules/fake/gateway-sli.yml").read_text(encoding="utf-8")
         )
+        gateway_recording_rules = {
+            rule["record"]: rule
+            for group in pipeline_rules["groups"]
+            for rule in group["rules"]
+            if "record" in rule
+        }
+        gateway_alert_rules = {
+            rule["alert"]: rule
+            for group in pipeline_rules["groups"]
+            for rule in group["rules"]
+            if "alert" in rule
+        }
+        gateway_dashboard = json.loads(
+            (ROOT / "tools/infra/grafana/dashboards/gateway.json").read_text(encoding="utf-8")
+        )
+        gateway_dashboard_panels = {
+            panel["id"]: panel for panel in gateway_dashboard["panels"]
+        }
+        gateway_sli_query_expressions = {
+            "dashboard_availability": gateway_dashboard_panels[2]["targets"][0]["expr"],
+            "dashboard_fast_success": gateway_dashboard_panels[3]["targets"][0]["expr"],
+            "yaml_availability": gateway_recording_rules[
+                "prl:gateway_availability:ratio5m"
+            ]["expr"],
+            "yaml_fast_success": gateway_recording_rules[
+                "prl:gateway_fast_success:ratio5m"
+            ]["expr"],
+            "yaml_fast_success_alert": gateway_alert_rules["GatewayFastSuccessBelowSLO"][
+                "expr"
+            ],
+        }
+        gateway_sli_ratio_names = (
+            "dashboard_availability",
+            "dashboard_fast_success",
+            "yaml_availability",
+            "yaml_fast_success",
+        )
+        gateway_request_denominators = {
+            "availability": '''
+                sum(count_over_time(
+                  {service_name="gateway",deployment_environment_name="demo"}
+                  | json event="event", classification="classification", route="route"
+                  | __error__ = ""
+                  | event="gateway.request"
+                  | classification=~"success|service_failure"
+                  | keep event, classification, route
+                  [5m]
+                ))
+            ''',
+            "successful_requests": '''
+                sum(count_over_time(
+                  {service_name="gateway",deployment_environment_name="demo"}
+                  | json event="event", classification="classification", route="route"
+                  | __error__ = ""
+                  | event="gateway.request"
+                  | classification="success"
+                  | keep event, classification, route
+                  [5m]
+                ))
+            ''',
+        }
+
+        def query_gateway_sli_samples(expressions: dict[str, str]) -> dict[str, float | None]:
+            return {
+                name: runtime.loki_scalar(expression)
+                for name, expression in expressions.items()
+            }
+
         pipeline_rule = next(
             rule
             for group in pipeline_rules["groups"]
@@ -4328,6 +4396,29 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
                 "The genuine gateway healthcheck was not fresh before Collector pause"
             )
         evidence["genuine_gateway_healthchecks_before_collector_outage"] = pre_outage_healthchecks
+        gateway_sli_samples_before_collector_stop = query_gateway_sli_samples(
+            gateway_sli_query_expressions
+        )
+        gateway_request_denominators_before_collector_stop = query_gateway_sli_samples(
+            gateway_request_denominators
+        )
+        if any(
+            gateway_sli_samples_before_collector_stop[name] is None
+            for name in gateway_sli_ratio_names
+        ) or any(
+            value is None or value <= 0
+            for value in gateway_request_denominators_before_collector_stop.values()
+        ):
+            raise AcceptanceFailure(
+                "Fresh genuine gateway healthchecks and positive request denominators "
+                "were not queryable before the Collector stop"
+            )
+        evidence["gateway_sli_samples_before_collector_stop"] = {
+            "sample_values": gateway_sli_samples_before_collector_stop,
+            "request_denominators": gateway_request_denominators_before_collector_stop,
+            "dashboard_queries_are_exact_provisioned_expressions": True,
+            "yaml_queries_are_exact_rule_expressions_not_recording_series": True,
+        }
         collector_before = runtime.inspect_service("collector")
         collector_id_before = collector_before.get("Id")
         if not isinstance(collector_id_before, str) or not re.fullmatch(
@@ -4382,6 +4473,35 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             seconds=80,
             failure="The pinned Loki absence predicate did not become visible after 60 seconds",
         )
+        gateway_request_denominators_at_heartbeat_expiry = query_gateway_sli_samples(
+            gateway_request_denominators
+        )
+        if any(
+            value is None or value <= 0
+            for value in gateway_request_denominators_at_heartbeat_expiry.values()
+        ):
+            raise AcceptanceFailure(
+                "The prior five-minute gateway request denominators expired with the heartbeat"
+            )
+        gateway_sli_samples_after_heartbeat_expiry = query_gateway_sli_samples(
+            gateway_sli_query_expressions
+        )
+        if any(
+            gateway_sli_samples_after_heartbeat_expiry[name] is not None
+            for name in (*gateway_sli_ratio_names, "yaml_fast_success_alert")
+        ):
+            raise AcceptanceFailure(
+                "Gateway ratios or the fast-success alert predicate remained queryable "
+                "after genuine heartbeat expiry"
+            )
+        evidence["gateway_request_denominators_at_heartbeat_expiry"] = (
+            gateway_request_denominators_at_heartbeat_expiry
+        )
+        evidence["gateway_sli_samples_after_heartbeat_expiry"] = {
+            "sample_values": gateway_sli_samples_after_heartbeat_expiry,
+            "ratio_samples_absent": True,
+            "fast_success_alert_predicate_absent": True,
+        }
         evidence["collector_pipeline_missing_predicate"] = {
             "expression": pipeline_missing_expression,
             "value": pipeline_predicate,
@@ -4500,6 +4620,21 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
             raise AcceptanceFailure(
                 "The returned gateway healthchecks were not fresh after Collector restart"
             )
+        gateway_sli_samples_after_collector_recovery = query_gateway_sli_samples(
+            gateway_sli_query_expressions
+        )
+        if any(
+            gateway_sli_samples_after_collector_recovery[name] is None
+            for name in gateway_sli_ratio_names
+        ):
+            raise AcceptanceFailure(
+                "Gateway ratio samples did not return after genuine healthcheck recovery"
+            )
+        evidence["gateway_sli_samples_after_collector_recovery"] = {
+            "sample_values": gateway_sli_samples_after_collector_recovery,
+            "ratio_samples_returned": True,
+            "genuine_healthcheck_source": "gateway /health/gateway",
+        }
         collector_outage_elapsed_seconds = (
             collector_recovered_ns - collector_outage_started_ns
         ) / 1_000_000_000
