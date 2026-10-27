@@ -1,0 +1,306 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "How to read this dashboard",
+      "description": "Static interpretation notes.",
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Availability uses successful requests / (successful + service failures). Fast-success uses successful requests completed in <= 500 ms / all successful requests. A ratio is unknown when its request denominator is empty or the genuine gateway healthcheck heartbeat has expired. Check the separate heartbeat, target, and telemetry-loss panels; an unknown ratio is not 0% or 100%."
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Availability (5m)",
+      "description": "Unknown when the eligible request denominator is empty or the genuine gateway healthcheck heartbeat has expired (no event in 1m). No zero/one fallback is used.",
+      "datasource": {
+        "type": "loki",
+        "uid": "prl-loki"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "prl-loki"
+          },
+          "editorMode": "code",
+          "expr": "((\n  (sum(count_over_time(\n  {service_name=\"gateway\",deployment_environment_name=\"demo\"} | json event=\"event\", classification=\"classification\", route=\"route\" | __error__ = \"\" | event=\"gateway.request\" | classification=\"success\" | keep event, classification, route\n  [5m]\n))) or on() (0 * (sum(count_over_time(\n  {service_name=\"gateway\",deployment_environment_name=\"demo\"} | json event=\"event\", classification=\"classification\", route=\"route\" | __error__ = \"\" | event=\"gateway.request\" | classification=~\"success|service_failure\" | keep event, classification, route\n  [5m]\n))))\n) / ((sum(count_over_time(\n  {service_name=\"gateway\",deployment_environment_name=\"demo\"} | json event=\"event\", classification=\"classification\", route=\"route\" | __error__ = \"\" | event=\"gateway.request\" | classification=~\"success|service_failure\" | keep event, classification, route\n  [5m]\n))) > 0))\n  and on() (\n    sum(count_over_time(\n      {service_name=\"gateway\",deployment_environment_name=\"demo\"}\n      | json event=\"event\"\n      | __error__ = \"\"\n      | event=\"gateway.healthcheck\"\n      | keep event\n      [1m]\n    )) > 0\n  )",
+          "instant": false,
+          "legendFormat": "availability",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Fast-success (5m)",
+      "description": "Successful gateway requests completed in <= 500 ms divided by all successful in-scope requests. Unknown when the success denominator is empty or the genuine gateway healthcheck heartbeat has expired (no event in 1m).",
+      "datasource": {
+        "type": "loki",
+        "uid": "prl-loki"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "prl-loki"
+          },
+          "editorMode": "code",
+          "expr": "((\n  (sum(count_over_time(\n  {service_name=\"gateway\",deployment_environment_name=\"demo\"} | json event=\"event\", classification=\"classification\", route=\"route\", duration_seconds=\"duration_seconds\" | __error__ = \"\" | event=\"gateway.request\" | classification=\"success\" | duration_seconds <= 0.500 | keep event, classification, route\n  [5m]\n))) or on() (0 * (sum(count_over_time(\n  {service_name=\"gateway\",deployment_environment_name=\"demo\"} | json event=\"event\", classification=\"classification\", route=\"route\" | __error__ = \"\" | event=\"gateway.request\" | classification=\"success\" | keep event, classification, route\n  [5m]\n))))\n) / ((sum(count_over_time(\n  {service_name=\"gateway\",deployment_environment_name=\"demo\"} | json event=\"event\", classification=\"classification\", route=\"route\" | __error__ = \"\" | event=\"gateway.request\" | classification=\"success\" | keep event, classification, route\n  [5m]\n))) > 0))\n  and on() (\n    sum(count_over_time(\n      {service_name=\"gateway\",deployment_environment_name=\"demo\"}\n      | json event=\"event\"\n      | __error__ = \"\"\n      | event=\"gateway.healthcheck\"\n      | keep event\n      [1m]\n    )) > 0\n  )",
+          "instant": false,
+          "legendFormat": "fast-success",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Gateway pipeline healthcheck count (1m)",
+      "description": "Only the genuine completed local GET /health/gateway event is counted; it is excluded from business SLI denominators. No data indicates heartbeat absence.",
+      "datasource": {
+        "type": "loki",
+        "uid": "prl-loki"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 11
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "prl-loki"
+          },
+          "editorMode": "code",
+          "expr": "sum(count_over_time(\n  {service_name=\"gateway\",deployment_environment_name=\"demo\"} | json event=\"event\" | __error__ = \"\" | event=\"gateway.healthcheck\" | keep event\n  [1m]\n))",
+          "instant": false,
+          "legendFormat": "healthchecks",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Telemetry targets",
+      "description": "A missing gateway healthcheck is a telemetry gap only when target or loss evidence is unhealthy. Empty scrape data is not healthy.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prl-prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 11
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "up{job=~\"collector|loki-self|application-otel\"}",
+          "instant": false,
+          "legendFormat": "{{job}} {{instance}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "logs",
+      "title": "Gateway request logs",
+      "description": "Gateway JSON only. Request and trace IDs remain structured fields; the TraceID field has a Grafana link to Tempo.",
+      "datasource": {
+        "type": "loki",
+        "uid": "prl-loki"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "prl-loki"
+          },
+          "expr": "{service_name=\"gateway\",deployment_environment_name=\"demo\"} | json event=\"event\",route=\"route\",classification=\"classification\",request_id=\"request_id\",trace_id=\"trace_id\",duration_seconds=\"duration_seconds\" | __error__ = \"\" | event=\"gateway.request\" | keep event,route,classification,request_id,trace_id,duration_seconds",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      }
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 41,
+  "tags": [
+    "production-readiness",
+    "observability"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Gateway SLI",
+  "uid": "prl-gateway",
+  "version": 1
+}

@@ -3,8 +3,12 @@
 No database, password authentication, or replacement application server is provided.
 """
 
+import asyncio
+import re
+import secrets
 import sys
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import UUID
 
 import uvicorn
@@ -25,9 +29,42 @@ app.add_middleware(RequestIdMiddleware, trusted_gateway_cidrs=settings.trusted_g
 install_error_handlers(app)
 
 
-@app.api_route("/{path:path}", methods=["GET", "POST"])
+def route_template(method: str, path: str) -> str:
+    canonical = path.rstrip("/") or "/"
+    if method == "GET" and canonical == "/api/v1/purposes":
+        return "/api/v1/purposes"
+    if method == "POST" and canonical == "/api/v1/auth/login":
+        return "/api/v1/auth/login"
+    if method == "GET" and re.fullmatch(r"/api/v1/appointments/[^/]+", canonical):
+        return "/api/v1/appointments/{appointment_id}"
+    return "__unmatched__"
+
+
+def safe_response(request: Request, *, status: int, error_class: str | None = None,
+                  route_marker: str | None = None, outcome: str | None = None,
+                  trace_id: str | None = None):
+    headers = {"Cache-Control": "private, no-store", "Retry-After": "7"}
+    if error_class is not None:
+        headers["X-Error-Class"] = error_class
+    if route_marker is not None:
+        headers["X-PRL-Route"] = route_marker
+    if outcome is not None:
+        headers["X-PRL-Outcome"] = outcome
+    headers["X-Trace-ID"] = trace_id if trace_id is not None else secrets.token_hex(16)
+    if status >= 400:
+        body = {"error": {"code": "FIXTURE_ERROR", "request_id": request.state.request_id}}
+    else:
+        body = {"role": sys.argv[2], "path": request.url.path}
+    return JSONResponse(body, status_code=status, headers=headers)
+
+
+@app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 async def echo(request: Request, path: str):
     body = await request.body()
+    route = route_template(request.method, request.url.path)
+    fixture = request.query_params.get("prl_test", "")
+    if path == "api/v1/not-a-published-operation":
+        return safe_response(request, status=404, route_marker=route)
     if path == "api/v1/upstream-error":
         return JSONResponse(
             {"error": {"code": "UPSTREAM_UNAVAILABLE", "request_id": request.state.request_id}},
@@ -36,6 +73,8 @@ async def echo(request: Request, path: str):
                 "Retry-After": "7",
                 "Cache-Control": "private, no-store",
                 "X-Error-Class": "service",
+                "X-Trace-ID": secrets.token_hex(16),
+                "X-PRL-Route": "__unmatched__",
             },
         )
     if path == "api/v1/mutate":
@@ -46,6 +85,104 @@ async def echo(request: Request, path: str):
             session_id=session_id,
             secret=settings.csrf_secret.get_secret_value(),
         )
+
+    if fixture == "input":
+        return safe_response(
+            request, status=422, error_class="input", route_marker=route
+        )
+    if fixture == "object_404":
+        return safe_response(
+            request, status=404, error_class="input", route_marker=route
+        )
+    if fixture == "published_wrong_marker":
+        return safe_response(
+            request, status=200, route_marker="__unmatched__"
+        )
+    if fixture == "published_missing_marker":
+        return safe_response(request, status=404, error_class="input")
+    if fixture == "service_4xx":
+        return safe_response(
+            request, status=400, error_class="service", route_marker=route
+        )
+    if fixture == "service_2xx":
+        return safe_response(
+            request, status=200, error_class="service", route_marker=route
+        )
+    if fixture == "business_422":
+        return safe_response(
+            request, status=422, error_class="business", route_marker=route
+        )
+    if fixture == "unclassified_4xx":
+        return safe_response(request, status=400, route_marker=route)
+    if fixture == "unknown_class_4xx":
+        return safe_response(
+            request,
+            status=400,
+            error_class="secret-error-class-canary",
+            route_marker=route,
+        )
+    if fixture == "trace_invalid":
+        return safe_response(
+            request, status=200, route_marker=route, trace_id="not-a-trace-id"
+        )
+    if fixture == "trace_zero":
+        return safe_response(
+            request, status=200, route_marker=route, trace_id="0" * 32
+        )
+    if fixture == "upstream_timeout":
+        await asyncio.sleep(2)
+        return safe_response(request, status=200, route_marker=route)
+    if fixture == "client_disconnect":
+        probe = request.query_params.get("probe", "")
+        if re.fullmatch(r"[a-f0-9]{32}", probe):
+            marker = Path("/tmp") / f"prl-client-disconnect-{probe}"
+            marker.touch()
+            try:
+                await asyncio.sleep(2)
+            finally:
+                marker.unlink(missing_ok=True)
+        return safe_response(request, status=200, route_marker=route)
+    if fixture == "service":
+        return safe_response(
+            request, status=503, error_class="service", route_marker=route
+        )
+    if fixture == "capacity_429":
+        return safe_response(
+            request, status=429, error_class="input", route_marker=route
+        )
+    if fixture == "login_throttled":
+        return safe_response(
+            request,
+            status=429,
+            error_class="input",
+            route_marker=route,
+            outcome="login_throttled",
+        )
+    if fixture == "login_throttled_missing_class":
+        return safe_response(
+            request, status=429, route_marker=route, outcome="login_throttled"
+        )
+    if fixture == "login_throttled_business_class":
+        return safe_response(
+            request,
+            status=429,
+            error_class="business",
+            route_marker=route,
+            outcome="login_throttled",
+        )
+    if fixture == "login_throttled_service_class":
+        return safe_response(
+            request,
+            status=429,
+            error_class="service",
+            route_marker=route,
+            outcome="login_throttled",
+        )
+    if sys.argv[2] == "frontend" and fixture == "copy_marker":
+        return safe_response(
+            request, status=200, route_marker="/api/v1/purposes"
+        )
+
     response = JSONResponse(
         {
             "role": sys.argv[2],
@@ -56,7 +193,12 @@ async def echo(request: Request, path: str):
             "request_id": request.state.request_id,
             "peer": request.client.host,
         },
-        headers={"Cache-Control": "private, no-store", "Retry-After": "7"},
+        headers={
+            "Cache-Control": "private, no-store",
+            "Retry-After": "7",
+            "X-PRL-Route": route,
+            "X-Trace-ID": secrets.token_hex(16),
+        },
     )
     if path == "api/v1/cookies":
         now = datetime.now(UTC)

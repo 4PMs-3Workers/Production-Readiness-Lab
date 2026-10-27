@@ -34,6 +34,8 @@ COMPOSE_FILES = (DEPLOY / "compose.yaml", DEPLOY / "compose.local.yaml")
 SCHEMA_REVISION = "20261019_1200_proposal_replay"
 REVISION_LABEL = "org.opencontainers.image.revision"
 GATEWAY_SUBNET = ipaddress.ip_network("172.30.34.0/29")
+OPS_EDGE_TEST_SUBNET = ipaddress.IPv4Network("172.30.35.0/29")
+OPS_EDGE_TEST_GATEWAY = ipaddress.ip_address(int(OPS_EDGE_TEST_SUBNET.network_address) + 1)
 PROJECT_PREFIX = "prl-task6-"
 RUN = os.environ.get("RUN_COMPOSE_ACCEPTANCE") == "1"
 
@@ -100,11 +102,17 @@ def one_volume(name: str, labels: dict[str, str] | None = None) -> dict[str, obj
 
 
 class ComposeAcceptance:
-    def __init__(self, scratch: Path) -> None:
+    def __init__(
+        self,
+        scratch: Path,
+        *,
+        origin_scheme: str = "http",
+        origin_host: str = "localhost",
+    ) -> None:
         self.project = PROJECT_PREFIX + uuid4().hex
         self.image_tag = "task6-" + uuid4().hex[:20]
         self.port = self._free_port()
-        self.origin = f"http://localhost:{self.port}"
+        self.origin = f"{origin_scheme}://{origin_host}:{self.port}"
         self.volume_name = f"{self.project}_mysql_data"
         self.expected_sha = self._source_revision()
         self.seed_passwords = {
@@ -265,7 +273,10 @@ class ComposeAcceptance:
             identities.append((name, json.dumps(identity, sort_keys=True)))
         return containers, tuple(sorted(identities))
 
-    def _ensure_gateway_subnet_available(self) -> None:
+    def _ensure_gateway_subnet_available(
+        self, *, additional_subnets: tuple[ipaddress.IPv4Network, ...] = ()
+    ) -> None:
+        reserved_subnets = (GATEWAY_SUBNET, *additional_subnets)
         listed = invoke(["docker", "network", "ls", "-q"])
         identifiers = require_success(listed, "Docker networks could not be inspected").splitlines()
         for identifier in filter(None, identifiers):
@@ -284,8 +295,9 @@ class ComposeAcceptance:
                 if not subnet:
                     continue
                 try:
-                    if ipaddress.ip_network(subnet, strict=False).overlaps(GATEWAY_SUBNET):
-                        raise AcceptanceFailure("The dedicated gateway subnet is already in use")
+                    configured = ipaddress.ip_network(subnet, strict=False)
+                    if any(configured.overlaps(reserved) for reserved in reserved_subnets):
+                        raise AcceptanceFailure("A dedicated acceptance subnet is already in use")
                 except ValueError:
                     raise AcceptanceFailure(
                         "A Docker network has an invalid subnet declaration"
@@ -476,6 +488,7 @@ class ComposeAcceptance:
             "--app-dir",
             "src/backend",
             "--no-proxy-headers",
+            "--no-access-log",
             "--host",
             "0.0.0.0",
             "--port",
@@ -485,15 +498,12 @@ class ComposeAcceptance:
         return api_id, worker_id
 
     def worker_log_output(self) -> str:
-        result = self.compose(
-            "logs",
-            "--no-color",
-            "--no-log-prefix",
-            "--tail",
-            "400",
-            "worker",
-            timeout=30,
+        worker_id = require_success(
+            self.compose("ps", "-q", "worker"), "The test-owned worker container is missing"
         )
+        if not re.fullmatch(r"[0-9a-f]{64}", worker_id):
+            raise AcceptanceFailure("The test-owned worker container identity is invalid")
+        result = invoke(["docker", "logs", "--tail", "400", worker_id], timeout=30)
         return require_success(result, "The test-owned worker progress could not be read")
 
     def worker_records(self) -> list[dict[str, object]]:

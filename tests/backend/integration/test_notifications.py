@@ -425,3 +425,32 @@ async def test_recipient_query_plans_and_concurrent_read_with_large_history(noti
 async def _count_audits(factory):
     async with factory() as db:
         return await db.scalar(select(func.count()).select_from(AuditEvent))
+
+
+async def test_mark_read_requires_signed_csrf_and_same_origin(notification_env):
+    client, factory, _, _, _, _, _ = notification_env
+    notification_id = UUID("00000000-0000-0000-0000-000000000001")
+    path = f"/api/v1/notifications/{notification_id}/read"
+    valid_token = client.headers["X-CSRF-Token"]
+
+    invalid_csrf = await client.post(path, json={}, headers={"X-CSRF-Token": "invalid-token"})
+    invalid_origin = await client.post(
+        path,
+        json={},
+        headers={"Origin": "https://attacker.invalid", "X-CSRF-Token": valid_token},
+    )
+
+    for response, code in (
+        (invalid_csrf, "INVALID_CSRF"),
+        (invalid_origin, "INVALID_ORIGIN"),
+    ):
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == code
+        assert response.json()["error"]["request_id"] == response.headers["X-Request-ID"]
+        assert response.headers["Cache-Control"] == "private, no-store"
+
+    async with factory() as db:
+        assert (
+            await db.scalar(select(Notification.read_at).where(Notification.id == notification_id))
+            is None
+        )

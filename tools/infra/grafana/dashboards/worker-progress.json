@@ -1,0 +1,399 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "How to read this dashboard",
+      "description": "Static interpretation notes.",
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Expected slots come from static configuration. No current-process heartbeat/progress/snapshot is stale or unknown. Backlog is the maximum fresh snapshot across replicas, never a sum; a stale high snapshot is excluded before aggregation."
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Expected worker slots",
+      "description": "Configured slot inventory; default slot is 1. A listed slot without fresh worker signals is not healthy.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prl-prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "prl_expected_worker_slot{job=\"local-alert-receiver\"}",
+          "instant": true,
+          "legendFormat": "slot {{worker_slot}}",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value",
+        "wideLayout": true
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Heartbeat age (current process)",
+      "description": "Only heartbeats at or after this slot\u2019s current started timestamp and no older than 45 seconds are shown. Empty means stale, missing, or pre-restart.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prl-prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "time() - prl:worker:heartbeat_fresh",
+          "instant": false,
+          "legendFormat": "slot {{worker_slot}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Progress age (current process)",
+      "description": "Only actual current-process progress timestamps are shown; startup time is used only for first-progress grace.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prl-prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "time() - prl:worker:progress_fresh",
+          "instant": false,
+          "legendFormat": "slot {{worker_slot}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Fresh maximum backlog",
+      "description": "Absolute lower-bound count. The snapshot is age-gated per slot before max aggregation; no fresh observation is unknown.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prl-prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 11
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "prl:worker:backlog_max_fresh",
+          "instant": false,
+          "legendFormat": "{{deployment_environment_name}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Oldest overdue age (fresh max)",
+      "description": "Only fresh successful-scan snapshots contribute. Missing values remain unknown, including empty or unknown backlog.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prl-prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 11
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "prl:worker:backlog_oldest_overdue_max_fresh",
+          "instant": false,
+          "legendFormat": "{{deployment_environment_name}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Fresh snapshot age by slot",
+      "description": "A missing series means no current-process successful scan within 90 seconds. Stale snapshots are excluded.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prl-prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 11
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "prl:worker:backlog_snapshot_age_seconds",
+          "instant": false,
+          "legendFormat": "slot {{worker_slot}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "logs",
+      "title": "Worker logs",
+      "description": "Native OTLP event bodies remain finite event names. Run and worker IDs are metadata for drilldown only.",
+      "datasource": {
+        "type": "loki",
+        "uid": "prl-loki"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "prl-loki"
+          },
+          "expr": "{service_name=\"worker\",deployment_environment_name=\"demo\"} |= \"worker.\" | keep worker_id,current_run_id,phase,database_ok,successful_scans,failed_scans,backlog_count",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      }
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 41,
+  "tags": [
+    "production-readiness",
+    "observability"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Worker progress / backlog",
+  "uid": "prl-worker-progress",
+  "version": 1
+}

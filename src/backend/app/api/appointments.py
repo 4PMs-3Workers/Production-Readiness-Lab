@@ -1,6 +1,7 @@
 """Student appointment creation and owned current-detail endpoints."""
 
 import asyncio
+from functools import partial
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -13,6 +14,7 @@ from app.dependencies.auth import require_csrf
 from app.dependencies.catalog import reject_duplicate_catalog_query, require_student
 from app.dependencies.database import get_db_session
 from app.domain.auth import AuthContext
+from app.observability.database import record_database_failure
 from app.schemas.appointments import (
     AppointmentCancelRequest,
     AppointmentCancelResponse,
@@ -126,6 +128,7 @@ async def create_appointment(
     deadline = getattr(request.state, "request_deadline", None)
     if deadline is None:
         deadline = asyncio.get_running_loop().time() + settings.request_timeout_seconds
+    telemetry = getattr(request.app.state, "telemetry", None)
     receipt, replayed = await booking_service.create_appointment(
         db,
         payload,
@@ -134,6 +137,10 @@ async def create_appointment(
         request_id=request.state.request_id,
         settings=settings,
         deadline=deadline,
+        span_factory=telemetry.span if telemetry is not None else None,
+        failure_callback=(
+            partial(record_database_failure, telemetry) if telemetry is not None else None
+        ),
     )
     if replayed:
         response.status_code = 200

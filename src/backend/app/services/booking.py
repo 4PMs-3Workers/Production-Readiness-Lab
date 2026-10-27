@@ -17,7 +17,10 @@ from app.core.transactions import (
     CommitOutcomeUnknown as _CommitOutcomeUnknown,
 )
 from app.core.transactions import (
+    CommitUnknownCallback,
+    FailureCallback,
     commit_safely,
+    report_commit_unknown,
 )
 from app.core.transactions import (
     mysql_error_code as _mysql_error_code,
@@ -33,6 +36,7 @@ from app.domain.availability import (
 )
 from app.domain.booking import booking_request_hash, require_description
 from app.models import Appointment, AuditEvent, Notification, User
+from app.observability.tracing import SpanFactory, safe_span, set_business_outcome
 from app.repositories import appointments, availability, catalog, users
 from app.schemas.appointments import AppointmentCreateRequest, AppointmentCreateResponse
 from app.services.availability_rules import (
@@ -130,6 +134,9 @@ async def _run_attempt_with_commit_safety(
     request_id: str,
     request_hash: bytes,
     settings: Settings,
+    span_factory: SpanFactory | None = None,
+    failure_callback: FailureCallback | None = None,
+    commit_unknown_callback: CommitUnknownCallback | None = None,
 ) -> tuple[AppointmentCreateResponse, bool]:
     """Run one complete transaction and distinguish deterministic aborts from uncertain commit."""
     # The low-level attempt owns rollback for statement errors. A commit-time transport failure
@@ -151,7 +158,18 @@ async def _run_attempt_with_commit_safety(
         )
         replay = _resolve_replay(existing, expected_hash=request_hash)
         if replay is not None:
-            await transaction.commit()
+            with safe_span(span_factory, "db.commit") as span:
+                try:
+                    await transaction.commit()
+                except asyncio.CancelledError:
+                    set_business_outcome(span, "commit_unknown")
+                    report_commit_unknown(commit_unknown_callback)
+                    raise
+                except BaseException:
+                    set_business_outcome(span, "failed")
+                    raise
+                else:
+                    set_business_outcome(span, "replayed")
             return replay
 
         student = locked_users.get(context.user_id)
@@ -270,24 +288,36 @@ async def _run_attempt_with_commit_safety(
         )
         await db.flush()
         result = (_receipt(appointment), False)
-        await commit_safely(db, transaction, known_abort=_is_named_creation_duplicate)
+        await commit_safely(
+            db,
+            transaction,
+            known_abort=_is_named_creation_duplicate,
+            span_factory=span_factory,
+            failure_callback=failure_callback,
+            commit_unknown_callback=commit_unknown_callback,
+        )
         return result
     except SQLAlchemyError as error:
-        await _rollback(db)
+        if failure_callback is not None:
+            try:
+                failure_callback(error)
+            except BaseException:
+                pass
+        await _rollback(db, span_factory=span_factory, failure_callback=failure_callback)
         if _is_named_creation_duplicate(error):
             raise _NamedDuplicate() from error
         if _mysql_error_code(error) in _RETRYABLE_MYSQL_ERRORS:
             raise
         raise
     except asyncio.CancelledError:
-        await _rollback(db)
+        await _rollback(db, span_factory=span_factory, failure_callback=failure_callback)
         raise
     except BaseException:
-        await _rollback(db)
+        await _rollback(db, span_factory=span_factory, failure_callback=failure_callback)
         raise
 
 
-async def create_appointment(
+async def _create_appointment_impl(
     db: AsyncSession,
     payload: AppointmentCreateRequest,
     *,
@@ -296,6 +326,9 @@ async def create_appointment(
     request_id: str,
     settings: Settings,
     deadline: float,
+    span_factory: SpanFactory | None = None,
+    failure_callback: FailureCallback | None = None,
+    commit_unknown_callback: CommitUnknownCallback | None = None,
 ) -> tuple[AppointmentCreateResponse, bool]:
     """Create one appointment transactionally, returning the immutable receipt and replay flag.
 
@@ -318,8 +351,13 @@ async def create_appointment(
                 )
             except AppError:
                 raise
-            except SQLAlchemyError:
-                await _rollback(db)
+            except SQLAlchemyError as error:
+                if failure_callback is not None:
+                    try:
+                        failure_callback(error)
+                    except BaseException:
+                        pass
+                await _rollback(db, span_factory=span_factory, failure_callback=failure_callback)
                 raise ServiceUnavailable() from None
             if replay is not None:
                 return replay
@@ -338,6 +376,9 @@ async def create_appointment(
                             request_id=request_id,
                             request_hash=request_hash,
                             settings=settings,
+                            span_factory=span_factory,
+                            failure_callback=failure_callback,
+                            commit_unknown_callback=commit_unknown_callback,
                         )
                 except _NamedDuplicate:
                     try:
@@ -350,16 +391,30 @@ async def create_appointment(
                         )
                     except AppError:
                         raise
-                    except SQLAlchemyError:
-                        await _rollback(db)
+                    except SQLAlchemyError as error:
+                        if failure_callback is not None:
+                            try:
+                                failure_callback(error)
+                            except BaseException:
+                                pass
+                        await _rollback(
+                            db, span_factory=span_factory, failure_callback=failure_callback
+                        )
                         raise ServiceUnavailable() from None
                     if replay is not None:
                         return replay
                     raise ServiceUnavailable() from None
                 except _CommitOutcomeUnknown:
-                    raise ServiceUnavailable() from None
+                    raise
                 except SQLAlchemyError as error:
-                    await _rollback(db)
+                    if failure_callback is not None:
+                        try:
+                            failure_callback(error)
+                        except BaseException:
+                            pass
+                    await _rollback(
+                        db, span_factory=span_factory, failure_callback=failure_callback
+                    )
                     if _mysql_error_code(error) not in _RETRYABLE_MYSQL_ERRORS:
                         raise ServiceUnavailable() from None
                     if attempt >= retries:
@@ -370,21 +425,74 @@ async def create_appointment(
                         raise ServiceUnavailable() from None
                     await asyncio.sleep(delay)
                 except AppError:
-                    await _rollback(db)
+                    await _rollback(
+                        db, span_factory=span_factory, failure_callback=failure_callback
+                    )
                     raise
             raise ServiceUnavailable() from None
     except TimeoutError:
-        await _rollback(db)
+        await _rollback(db, span_factory=span_factory, failure_callback=failure_callback)
         raise ServiceUnavailable() from None
     except asyncio.CancelledError:
-        await _rollback(db)
+        await _rollback(db, span_factory=span_factory, failure_callback=failure_callback)
         raise
     except AvailabilityConfigurationError:
-        await _rollback(db)
+        await _rollback(db, span_factory=span_factory, failure_callback=failure_callback)
         raise ServiceUnavailable() from None
     except BookingDateError:
-        await _rollback(db)
+        await _rollback(db, span_factory=span_factory, failure_callback=failure_callback)
         raise _booking_conflict() from None
-    except SQLAlchemyError:
-        await _rollback(db)
+    except SQLAlchemyError as error:
+        if failure_callback is not None:
+            try:
+                failure_callback(error)
+            except BaseException:
+                pass
+        await _rollback(db, span_factory=span_factory, failure_callback=failure_callback)
         raise ServiceUnavailable() from None
+
+
+async def create_appointment(
+    db: AsyncSession,
+    payload: AppointmentCreateRequest,
+    *,
+    context: AuthContext,
+    idempotency_key: str,
+    request_id: str,
+    settings: Settings,
+    deadline: float,
+    span_factory: SpanFactory | None = None,
+    failure_callback: FailureCallback | None = None,
+) -> tuple[AppointmentCreateResponse, bool]:
+    """Create one booking with optional owner-injected, failure-safe tracing."""
+    with safe_span(span_factory, "booking.create") as span:
+        commit_unknown = False
+
+        def mark_commit_unknown() -> None:
+            nonlocal commit_unknown
+            commit_unknown = True
+            set_business_outcome(span, "commit_unknown")
+
+        try:
+            result = await _create_appointment_impl(
+                db,
+                payload,
+                context=context,
+                idempotency_key=idempotency_key,
+                request_id=request_id,
+                settings=settings,
+                deadline=deadline,
+                span_factory=span_factory,
+                failure_callback=failure_callback,
+                commit_unknown_callback=mark_commit_unknown,
+            )
+        except _CommitOutcomeUnknown:
+            set_business_outcome(span, "commit_unknown")
+            raise ServiceUnavailable() from None
+        except BaseException:
+            if not commit_unknown:
+                set_business_outcome(span, "failed")
+            raise
+        else:
+            set_business_outcome(span, "replayed" if result[1] else "committed")
+            return result

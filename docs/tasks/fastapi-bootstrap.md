@@ -54,7 +54,7 @@ confirms the release supports all accepted schemas.
 became the current release head. The initial schema revision was `a1b2c3d4e5f6`; these older
 revisions are not accepted by the current release.
 
-Use `python -m uvicorn app.main:app --app-dir src/backend --no-proxy-headers` from the repo root.
+Use `python -m uvicorn app.main:app --app-dir src/backend --no-proxy-headers --no-access-log` from the repo root.
 Keep the immediate Nginx peer visible to the ASGI app and configure only that peer's CIDR as
 trusted. If a deployment enables proxy-header rewriting, it must retain the original peer for
 request-ID trust decisions; client-supplied forwarded headers never grant trust. Gateway/Nginx

@@ -1,0 +1,388 @@
+rule_files:
+  - prometheus-rules.yml
+evaluation_interval: 15s
+tests:
+  # timestamp() returns the stored scrape time while the query result is evaluated later.
+  - interval: 15s
+    input_series:
+      - series: 'up{job="collector",instance="collector:8888"}'
+        values: "1 1 _ _"
+      - series: 'up{job="collector",instance="collector-down:8888"}'
+        values: "1 0 _ _"
+    promql_expr_test:
+      - expr: 'timestamp(up{job="collector"}) and on(job, instance) (up{job="collector"} == 1)'
+        eval_time: 45s
+        exp_samples:
+          - labels: '{instance="collector:8888",job="collector"}'
+            value: 15
+
+  # >0.5% with >=20 requests must warn after two minutes.
+  - interval: 15s
+    input_series:
+      - series: 'prl_http_requests_total{route="/api/v1/appointments",method="GET",status="200"}'
+        values: "0+1000x12"
+      - series: 'prl_http_requests_total{route="/api/v1/appointments",method="GET",status="500"}'
+        values: "0+6x12"
+    alert_rule_test:
+      - eval_time: 2m15s
+        alertname: ApiHttpErrorRateWarning
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: More than 0.5% of at least 20 API requests failed in five minutes.
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#api-http-error-rate
+
+  # >5% with >=20 requests must become critical after one minute.
+  - interval: 15s
+    input_series:
+      - series: 'prl_http_requests_total{route="/api/v1/appointments",method="GET",status="200"}'
+        values: "0+100x12"
+      - series: 'prl_http_requests_total{route="/api/v1/appointments",method="GET",status="500"}'
+        values: "0+6x12"
+    alert_rule_test:
+      - eval_time: 1m15s
+        alertname: ApiHttpErrorRateCritical
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: More than 5% of at least 20 API requests failed in five minutes.
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#api-http-error-rate
+
+  # The 0.5% boundary is strict, so it does not fire the warning.
+  - interval: 15s
+    input_series:
+      - series: 'prl_http_requests_total{route="/api/v1/appointments",method="GET",status="200"}'
+        values: "0+199x20"
+      - series: 'prl_http_requests_total{route="/api/v1/appointments",method="GET",status="500"}'
+        values: "0+1x20"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: ApiHttpErrorRateWarning
+        exp_alerts: []
+
+  # A live API target with no required registry family is a telemetry gap.
+  - interval: 15s
+    input_series:
+      - series: 'up{job="api",instance="api:8000"}'
+        values: "1+0x4"
+    alert_rule_test:
+      - eval_time: 45s
+        alertname: ApiTelemetryFamilyMissing
+        exp_alerts:
+          - exp_labels:
+              job: api
+              instance: api:8000
+              severity: critical
+            exp_annotations:
+              summary: The API target is up but its telemetry registry is missing the required stdout queue family.
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-target-or-loss
+
+  # A pinned telemetry target down for 30 seconds is nonhealthy.
+  - interval: 15s
+    input_series:
+      - series: 'up{job="prometheus-self",instance="prometheus:9090"}'
+        values: "0+0x4"
+    alert_rule_test:
+      - eval_time: 45s
+        alertname: TelemetryTargetDown
+        exp_alerts:
+          - exp_labels:
+              job: prometheus-self
+              instance: prometheus:9090
+              severity: warning
+            exp_annotations:
+              summary: A required application or observability scrape target is unavailable.
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-target-or-loss
+
+  # Same-slot restart: retained event timestamps before the newer start are unknown.
+  - interval: 15s
+    input_series:
+      - series: 'prl_expected_worker_slot{job="local-alert-receiver",instance="local_alert_receiver:8088",service_name="worker",deployment_environment_name="demo",worker_slot="1",slot="1"}'
+        values: "1+0x4"
+      - series: 'prl_worker_started_timestamp_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
+        values: "25+0x4"
+      - series: 'prl_worker_heartbeat_timestamp_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
+        values: "20+0x4"
+      - series: 'prl_worker_last_progress_timestamp_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
+        values: "20+0x4"
+      - series: 'prl_worker_last_successful_scan_timestamp_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
+        values: "20 20 20 35 35"
+      - series: 'prl_worker_backlog_count_ratio{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
+        values: "3 3 3 4 4"
+      - series: 'prl_worker_oldest_overdue_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
+        values: "180 180 180 15 15"
+    alert_rule_test:
+      - eval_time: 15s
+        alertname: WorkerHeartbeatMissing
+        exp_alerts: []
+      - eval_time: 30s
+        alertname: WorkerHeartbeatMissing
+        exp_alerts:
+          - exp_labels:
+              job: local-alert-receiver
+              instance: local_alert_receiver:8088
+              service_name: worker
+              deployment_environment_name: demo
+              worker_slot: "1"
+              slot: "1"
+              severity: critical
+            exp_annotations:
+              summary: An expected worker slot has no valid current-process heartbeat timestamp for 30 seconds.
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#worker-heartbeat-missing
+    promql_expr_test:
+      - expr: prl:worker:backlog_max_fresh
+        eval_time: 30s
+        exp_samples: []
+      - expr: prl:worker:backlog_oldest_overdue_max_fresh
+        eval_time: 30s
+        exp_samples: []
+      - expr: prl:worker:backlog_max_fresh
+        eval_time: 45s
+        exp_samples:
+          - labels: '{__name__="prl:worker:backlog_max_fresh",service_name="worker",deployment_environment_name="demo"}'
+            value: 4
+      - expr: prl:worker:backlog_oldest_overdue_max_fresh
+        eval_time: 45s
+        exp_samples:
+          - labels: '{__name__="prl:worker:backlog_oldest_overdue_max_fresh",service_name="worker",deployment_environment_name="demo"}'
+            value: 15
+
+  # A current-owner heartbeat fires immediately after its age crosses 45 seconds.
+  - interval: 15s
+    input_series:
+      - series: 'prl_expected_worker_slot{job="local-alert-receiver",instance="local_alert_receiver:8088",service_name="worker",deployment_environment_name="demo",worker_slot="1",slot="1"}'
+        values: "1+0x4"
+      - series: 'prl_worker_started_timestamp_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
+        values: "1+0x4"
+      - series: 'prl_worker_heartbeat_timestamp_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
+        values: "1+0x4"
+    alert_rule_test:
+      - eval_time: 45s
+        alertname: WorkerHeartbeatStale
+        exp_alerts: []
+      - eval_time: 45s
+        alertname: WorkerHeartbeatMissing
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: WorkerHeartbeatStale
+        exp_alerts:
+          - exp_labels:
+              service_name: worker
+              deployment_environment_name: demo
+              worker_slot: "1"
+              severity: critical
+            exp_annotations:
+              summary: A current-process worker heartbeat is more than 45 seconds old.
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#worker-heartbeat-stale
+
+  # Missing first progress uses process start only for grace; heartbeat must be current and live.
+  - interval: 15s
+    input_series:
+      - series: 'prl_expected_worker_slot{job="local-alert-receiver",instance="local_alert_receiver:8088",service_name="worker",deployment_environment_name="demo",worker_slot="1",slot="1"}'
+        values: "1+0x12"
+      - series: 'prl_worker_started_timestamp_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
+        values: "1+0x12"
+      - series: 'prl_worker_heartbeat_timestamp_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
+        values: "100+0x12"
+    alert_rule_test:
+      - eval_time: 2m15s
+        alertname: WorkerProgressStale
+        exp_alerts:
+          - exp_labels:
+              job: local-alert-receiver
+              instance: local_alert_receiver:8088
+              service_name: worker
+              deployment_environment_name: demo
+              worker_slot: "1"
+              slot: "1"
+              severity: critical
+            exp_annotations:
+              summary: A live worker slot has made no current-process progress for more than 90 seconds.
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#worker-progress-stale
+      - eval_time: 2m15s
+        alertname: WorkerBacklogSnapshotStale
+        exp_alerts:
+          - exp_labels:
+              job: local-alert-receiver
+              instance: local_alert_receiver:8088
+              service_name: worker
+              deployment_environment_name: demo
+              worker_slot: "1"
+              slot: "1"
+              severity: warning
+            exp_annotations:
+              summary: A live worker slot has no current backlog snapshot newer than 90 seconds.
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#worker-backlog-snapshot-stale
+
+  # Stale high backlog is excluded before max; the fresh low replica remains the aggregate.
+  - interval: 15s
+    input_series:
+      - series: 'prl_expected_worker_slot{job="local-alert-receiver",instance="local_alert_receiver:8088",service_name="worker",deployment_environment_name="demo",worker_slot="1",slot="1"}'
+        values: "1+0x8"
+      - series: 'prl_expected_worker_slot{job="local-alert-receiver",instance="local_alert_receiver:8088",service_name="worker",deployment_environment_name="demo",worker_slot="2",slot="2"}'
+        values: "1+0x8"
+      - series: 'prl_worker_started_timestamp_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
+        values: "1+0x8"
+      - series: 'prl_worker_started_timestamp_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="2"}'
+        values: "90+0x8"
+      - series: 'prl_worker_last_successful_scan_timestamp_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
+        values: "1+0x8"
+      - series: 'prl_worker_last_successful_scan_timestamp_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="2"}'
+        values: "115+0x8"
+      - series: 'prl_worker_backlog_count_ratio{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
+        values: "100+0x8"
+      - series: 'prl_worker_backlog_count_ratio{service_name="worker",deployment_environment_name="demo",worker_slot="2"}'
+        values: "5+0x8"
+      - series: 'prl_worker_oldest_overdue_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
+        values: "120+0x8"
+      - series: 'prl_worker_oldest_overdue_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="2"}'
+        values: "30+0x8"
+    promql_expr_test:
+      - expr: prl:worker:backlog_max_fresh
+        eval_time: 2m
+        exp_samples:
+          - labels: '{__name__="prl:worker:backlog_max_fresh",service_name="worker",deployment_environment_name="demo"}'
+            value: 5
+      - expr: prl:worker:backlog_oldest_overdue_max_fresh
+        eval_time: 2m
+        exp_samples:
+          - labels: '{__name__="prl:worker:backlog_oldest_overdue_max_fresh",service_name="worker",deployment_environment_name="demo"}'
+            value: 30
+      - expr: prl:worker:backlog_max_fresh > 0 and on(service_name,deployment_environment_name) prl:worker:backlog_oldest_overdue_max_fresh > 60
+        eval_time: 2m
+        exp_samples: []
+
+  # A fresh empty scan excludes a retained oldest-overdue value before max.
+  - interval: 15s
+    input_series:
+      - series: 'prl_expected_worker_slot{job="local-alert-receiver",instance="local_alert_receiver:8088",service_name="worker",deployment_environment_name="demo",worker_slot="1",slot="1"}'
+        values: "1+0x8"
+      - series: 'prl_expected_worker_slot{job="local-alert-receiver",instance="local_alert_receiver:8088",service_name="worker",deployment_environment_name="demo",worker_slot="2",slot="2"}'
+        values: "1+0x8"
+      - series: 'prl_worker_started_timestamp_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
+        values: "1+0x8"
+      - series: 'prl_worker_started_timestamp_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="2"}'
+        values: "1+0x8"
+      - series: 'prl_worker_last_successful_scan_timestamp_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
+        values: "100+0x8"
+      - series: 'prl_worker_last_successful_scan_timestamp_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="2"}'
+        values: "115+0x8"
+      - series: 'prl_worker_backlog_count_ratio{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
+        values: "3+0x8"
+      - series: 'prl_worker_backlog_count_ratio{service_name="worker",deployment_environment_name="demo",worker_slot="2"}'
+        values: "0+0x8"
+      - series: 'prl_worker_oldest_overdue_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
+        values: "5+0x8"
+      - series: 'prl_worker_oldest_overdue_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="2"}'
+        values: "180+0x8"
+    promql_expr_test:
+      - expr: prl:worker:backlog_max_fresh
+        eval_time: 2m
+        exp_samples:
+          - labels: '{__name__="prl:worker:backlog_max_fresh",service_name="worker",deployment_environment_name="demo"}'
+            value: 3
+      - expr: prl:worker:backlog_oldest_overdue_max_fresh
+        eval_time: 2m
+        exp_samples:
+          - labels: '{__name__="prl:worker:backlog_oldest_overdue_max_fresh",service_name="worker",deployment_environment_name="demo"}'
+            value: 5
+      - expr: prl:worker:backlog_max_fresh > 0 and on(service_name,deployment_environment_name) prl:worker:backlog_oldest_overdue_max_fresh > 60
+        eval_time: 2m
+        exp_samples: []
+
+  # A fresh positive backlog overdue by more than 60 seconds alerts after one minute.
+  - interval: 15s
+    input_series:
+      - series: 'prl_expected_worker_slot{job="local-alert-receiver",instance="local_alert_receiver:8088",service_name="worker",deployment_environment_name="demo",worker_slot="1",slot="1"}'
+        values: "1+0x12"
+      - series: 'prl_worker_started_timestamp_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
+        values: "1+0x12"
+      - series: 'prl_worker_heartbeat_timestamp_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
+        values: "100+0x12"
+      - series: 'prl_worker_last_progress_timestamp_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
+        values: "100+0x12"
+      - series: 'prl_worker_last_successful_scan_timestamp_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
+        values: "100+0x12"
+      - series: 'prl_worker_backlog_count_ratio{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
+        values: "5+0x12"
+      - series: 'prl_worker_oldest_overdue_seconds{service_name="worker",deployment_environment_name="demo",worker_slot="1"}'
+        values: "61+0x12"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: WorkerBacklogOverdue
+        exp_alerts:
+          - exp_labels:
+              service_name: worker
+              deployment_environment_name: demo
+              severity: warning
+            exp_annotations:
+              summary: A fresh positive worker backlog contains work more than 60 seconds overdue.
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#worker-backlog-overdue
+
+  # A drop/refusal increase is actionable without an extra pending window.
+  - interval: 15s
+    input_series:
+      - series: 'prl_telemetry_dropped_total{service="api",signal="traces",reason="queue_full"}'
+        values: "0+1x2"
+    alert_rule_test:
+      - eval_time: 15s
+        alertname: TelemetryLossDetected
+        exp_alerts:
+          - exp_labels:
+              service: api
+              signal: traces
+              reason: queue_full
+              severity: critical
+            exp_annotations:
+              summary: Telemetry items were dropped, refused, or failed export during the last five minutes.
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-target-or-loss
+
+  # Collector refuses metric points with an immediate alert.
+  - interval: 15s
+    input_series:
+      - series: 'otelcol_receiver_refused_metric_points{job="collector",receiver="otlp"}'
+        values: "0+1x2"
+    alert_rule_test:
+      - eval_time: 15s
+        alertname: TelemetryLossDetected
+        exp_alerts:
+          - exp_labels:
+              receiver: otlp
+              severity: critical
+            exp_annotations:
+              summary: Telemetry items were dropped, refused, or failed export during the last five minutes.
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-target-or-loss
+
+  # Collector enqueue failure for metric points loses data immediately.
+  - interval: 15s
+    input_series:
+      - series: 'otelcol_exporter_enqueue_failed_metric_points{job="collector",exporter="otlp/tempo"}'
+        values: "0+1x2"
+    alert_rule_test:
+      - eval_time: 15s
+        alertname: TelemetryLossDetected
+        exp_alerts:
+          - exp_labels:
+              exporter: otlp/tempo
+              severity: critical
+            exp_annotations:
+              summary: Telemetry items were dropped, refused, or failed export during the last five minutes.
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-target-or-loss
+
+  # Collector export failure for metric points is immediately actionable.
+  - interval: 15s
+    input_series:
+      - series: 'otelcol_exporter_send_failed_metric_points{job="collector",exporter="otlphttp/loki"}'
+        values: "0+1x2"
+    alert_rule_test:
+      - eval_time: 15s
+        alertname: TelemetryLossDetected
+        exp_alerts:
+          - exp_labels:
+              exporter: otlphttp/loki
+              severity: critical
+            exp_annotations:
+              summary: Telemetry items were dropped, refused, or failed export during the last five minutes.
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-target-or-loss

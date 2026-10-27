@@ -25,7 +25,7 @@ chuyển sang fixtures khi backend lỗi. Mode được đóng vào client bundl
    database phát triển riêng, chạy `python -m alembic upgrade head`.
 3. Đặt backend `APPLICATION_ORIGIN=http://127.0.0.1:3000`, `COOKIE_SECURE=false`,
    `ENVIRONMENT=local`, `ACCEPTED_SCHEMA_REVISIONS=20261019_1200_proposal_replay`.
-   Khởi động `python -m uvicorn app.main:app --app-dir src/backend --host 127.0.0.1 --port 8000 --no-proxy-headers --timeout-keep-alive 30`.
+   Khởi động `python -m uvicorn app.main:app --app-dir src/backend --host 127.0.0.1 --port 8000 --no-proxy-headers --no-access-log --timeout-keep-alive 30`.
 4. Sao chép `src/frontend/.env.example` thành `.env.local` cùng thư mục. Giữ
    `NEXT_PUBLIC_APP_MODE=api`, `API_UPSTREAM_URL=http://127.0.0.1:8000`.
 5. Chạy `npm --workspace src/frontend run dev`, mở `/login` tại origin ở bước 3.

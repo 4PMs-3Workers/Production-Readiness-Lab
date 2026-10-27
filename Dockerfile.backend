@@ -22,4 +22,4 @@ COPY src/backend/migrations ./src/backend/migrations
 COPY tools/scripts/seed_demo.py ./tools/scripts/seed_demo.py
 USER 10001:10001
 EXPOSE 8000
-CMD ["python", "-m", "uvicorn", "app.main:app", "--app-dir", "src/backend", "--no-proxy-headers", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "uvicorn", "app.main:app", "--app-dir", "src/backend", "--no-proxy-headers", "--no-access-log", "--host", "0.0.0.0", "--port", "8000"]

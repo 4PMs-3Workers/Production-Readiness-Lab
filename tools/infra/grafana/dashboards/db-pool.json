@@ -1,0 +1,336 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "How to read this dashboard",
+      "description": "Static interpretation notes.",
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "No DB or pool series is unknown, not zero utilization. API gauges retain their direct Prometheus names. Worker unit-1 gauge conversions carry the _ratio suffix and still represent absolute values."
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Checked-out connections",
+      "description": "Separate API scrape from worker OTLP scrape; worker values with _ratio are absolute counts.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prl-prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "prl_db_pool_checked_out{job=\"api\"}",
+          "instant": false,
+          "legendFormat": "API",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "prl_db_pool_checked_out_ratio{job=\"application-otel\",service_name=\"worker\",deployment_environment_name=\"demo\"}",
+          "instant": false,
+          "legendFormat": "worker slot {{worker_slot}}",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Idle connections",
+      "description": "No sample remains unknown; worker unit-1 gauges use the _ratio-suffixed Prometheus name.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prl-prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "prl_db_pool_idle{job=\"api\"}",
+          "instant": false,
+          "legendFormat": "API",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "prl_db_pool_idle_ratio{job=\"application-otel\",service_name=\"worker\",deployment_environment_name=\"demo\"}",
+          "instant": false,
+          "legendFormat": "worker slot {{worker_slot}}",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Overflow connections",
+      "description": "Pool overflow is an absolute gauge. A missing series is not a zero.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prl-prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 11
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "prl_db_pool_overflow{job=\"api\"}",
+          "instant": false,
+          "legendFormat": "API",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "prl_db_pool_overflow_ratio{job=\"application-otel\",service_name=\"worker\",deployment_environment_name=\"demo\"}",
+          "instant": false,
+          "legendFormat": "worker slot {{worker_slot}}",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Database failures (5m)",
+      "description": "Finite database failure reasons only; increase is absent when no DB failure series has been observed.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prl-prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 11
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by(job,reason) (increase(prl_db_failures_total[5m]))",
+          "instant": false,
+          "legendFormat": "{{job}} {{reason}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "logs",
+      "title": "API error logs and trace drilldown",
+      "description": "Native OTLP API event and structured metadata. TraceID links to Tempo; request ID and finite error code remain available in log details.",
+      "datasource": {
+        "type": "loki",
+        "uid": "prl-loki"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "prl-loki"
+          },
+          "expr": "{service_name=\"api\",deployment_environment_name=\"demo\"} |= \"http.server.request\" | status >= 500 | keep route,method,status,error_code,request_id,trace_id",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      }
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 41,
+  "tags": [
+    "production-readiness",
+    "observability"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "DB / pool",
+  "uid": "prl-db-pool",
+  "version": 1
+}

@@ -1,0 +1,247 @@
+groups:
+  - name: telemetry-foundation
+    interval: 15s
+    rules:
+      - alert: TelemetryTargetDown
+        expr: up{job=~"api|collector|application-otel|local-alert-receiver|prometheus-self|loki-self|tempo-self|grafana-self|alertmanager-self"} == 0
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: A required application or observability scrape target is unavailable.
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-target-or-loss
+      - alert: ApiTelemetryFamilyMissing
+        expr: |
+          (up{job="api"} == 1)
+          unless on(job, instance)
+          prl_telemetry_queue_capacity{service="api",signal="stdout"}
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: The API target is up but its telemetry registry is missing the required stdout queue family.
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-target-or-loss
+      - alert: TelemetryLossDetected
+        expr: |
+          increase(prl_telemetry_dropped_total[5m]) > 0
+          or increase(prl_telemetry_failed_total[5m]) > 0
+          or sum by(receiver) (increase(otelcol_receiver_refused_log_records{job="collector"}[5m])) > 0
+          or sum by(receiver) (increase(otelcol_receiver_refused_metric_points{job="collector"}[5m])) > 0
+          or sum by(receiver) (increase(otelcol_receiver_refused_spans{job="collector"}[5m])) > 0
+          or sum by(receiver) (increase(otelcol_receiver_failed_log_records{job="collector"}[5m])) > 0
+          or sum by(receiver) (increase(otelcol_receiver_failed_metric_points{job="collector"}[5m])) > 0
+          or sum by(receiver) (increase(otelcol_receiver_failed_spans{job="collector"}[5m])) > 0
+          or sum by(exporter) (increase(otelcol_exporter_enqueue_failed_log_records{job="collector"}[5m])) > 0
+          or sum by(exporter) (increase(otelcol_exporter_enqueue_failed_metric_points{job="collector"}[5m])) > 0
+          or sum by(exporter) (increase(otelcol_exporter_enqueue_failed_spans{job="collector"}[5m])) > 0
+          or sum by(exporter) (increase(otelcol_exporter_send_failed_log_records{job="collector"}[5m])) > 0
+          or sum by(exporter) (increase(otelcol_exporter_send_failed_metric_points{job="collector"}[5m])) > 0
+          or sum by(exporter) (increase(otelcol_exporter_send_failed_spans{job="collector"}[5m])) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: Telemetry items were dropped, refused, or failed export during the last five minutes.
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-target-or-loss
+
+  - name: api-errors
+    interval: 15s
+    rules:
+      - record: prl:api_http_requests:increase5m
+        expr: sum by(route) (increase(prl_http_requests_total[5m]))
+      - record: prl:api_http_errors:increase5m
+        expr: sum by(route) (increase(prl_http_requests_total{status=~"5..|aborted"}[5m]))
+      - record: prl:api_http_error_ratio:ratio5m
+        expr: |
+          (
+            prl:api_http_errors:increase5m
+            or on(route) (0 * prl:api_http_requests:increase5m)
+          )
+          /
+          (prl:api_http_requests:increase5m > 0)
+      - alert: ApiHttpErrorRateWarning
+        expr: |
+          (
+            sum(increase(prl_http_requests_total{status=~"5..|aborted"}[5m]))
+            /
+            sum(increase(prl_http_requests_total[5m]))
+          ) > 0.005
+          and on() (sum(increase(prl_http_requests_total[5m])) >= 20)
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: More than 0.5% of at least 20 API requests failed in five minutes.
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#api-http-error-rate
+      - alert: ApiHttpErrorRateCritical
+        expr: |
+          (
+            sum(increase(prl_http_requests_total{status=~"5..|aborted"}[5m]))
+            /
+            sum(increase(prl_http_requests_total[5m]))
+          ) > 0.05
+          and on() (sum(increase(prl_http_requests_total[5m])) >= 20)
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: More than 5% of at least 20 API requests failed in five minutes.
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#api-http-error-rate
+
+  - name: database-health
+    interval: 15s
+    rules:
+      - alert: DatabasePoolOrLockTimeout
+        expr: increase(prl_db_failures_total{reason=~"pool_timeout|lock_timeout"}[5m]) > 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: A database pool or lock timeout occurred during the last five minutes.
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#database-pool-or-lock-timeout
+
+  - name: worker-health
+    interval: 15s
+    rules:
+      - record: prl:worker:heartbeat_current
+        expr: |
+          (
+            prl_worker_heartbeat_timestamp_seconds
+            >= on(service_name, deployment_environment_name, worker_slot)
+            prl_worker_started_timestamp_seconds
+          )
+          and on(service_name, deployment_environment_name, worker_slot)
+          ((time() - prl_worker_heartbeat_timestamp_seconds) >= 0)
+      - record: prl:worker:heartbeat_fresh
+        expr: |
+          (
+            prl_worker_heartbeat_timestamp_seconds
+            >= on(service_name, deployment_environment_name, worker_slot)
+            prl_worker_started_timestamp_seconds
+          )
+          and on(service_name, deployment_environment_name, worker_slot)
+          ((time() - prl_worker_heartbeat_timestamp_seconds) >= 0)
+          and on(service_name, deployment_environment_name, worker_slot)
+          ((time() - prl_worker_heartbeat_timestamp_seconds) <= 45)
+      - record: prl:worker:progress_fresh
+        expr: |
+          (
+            prl_worker_last_progress_timestamp_seconds
+            >= on(service_name, deployment_environment_name, worker_slot)
+            prl_worker_started_timestamp_seconds
+          )
+          and on(service_name, deployment_environment_name, worker_slot)
+          ((time() - prl_worker_last_progress_timestamp_seconds) >= 0)
+          and on(service_name, deployment_environment_name, worker_slot)
+          ((time() - prl_worker_last_progress_timestamp_seconds) <= 90)
+      - record: prl:worker:backlog_snapshot_fresh
+        expr: |
+          (
+            prl_worker_last_successful_scan_timestamp_seconds
+            >= on(service_name, deployment_environment_name, worker_slot)
+            prl_worker_started_timestamp_seconds
+          )
+          and on(service_name, deployment_environment_name, worker_slot)
+          ((time() - prl_worker_last_successful_scan_timestamp_seconds) >= 0)
+          and on(service_name, deployment_environment_name, worker_slot)
+          ((time() - prl_worker_last_successful_scan_timestamp_seconds) <= 90)
+      - record: prl:worker:backlog_max_fresh
+        expr: |
+          max by(service_name, deployment_environment_name) (
+            prl_worker_backlog_count_ratio
+            and on(service_name, deployment_environment_name, worker_slot)
+              (
+                prl_worker_last_successful_scan_timestamp_seconds
+                >= on(service_name, deployment_environment_name, worker_slot)
+                prl_worker_started_timestamp_seconds
+              )
+            and on(service_name, deployment_environment_name, worker_slot)
+              ((time() - prl_worker_last_successful_scan_timestamp_seconds) >= 0)
+            and on(service_name, deployment_environment_name, worker_slot)
+              ((time() - prl_worker_last_successful_scan_timestamp_seconds) <= 90)
+          )
+      - record: prl:worker:backlog_oldest_overdue_max_fresh
+        expr: |
+          max by(service_name, deployment_environment_name) (
+            prl_worker_oldest_overdue_seconds
+            and on(service_name, deployment_environment_name, worker_slot)
+              (prl_worker_backlog_count_ratio > 0)
+            and on(service_name, deployment_environment_name, worker_slot)
+              (
+                prl_worker_last_successful_scan_timestamp_seconds
+                >= on(service_name, deployment_environment_name, worker_slot)
+                prl_worker_started_timestamp_seconds
+              )
+            and on(service_name, deployment_environment_name, worker_slot)
+              ((time() - prl_worker_last_successful_scan_timestamp_seconds) >= 0)
+            and on(service_name, deployment_environment_name, worker_slot)
+              ((time() - prl_worker_last_successful_scan_timestamp_seconds) <= 90)
+          )
+      - record: prl:worker:backlog_snapshot_age_seconds
+        expr: time() - prl:worker:backlog_snapshot_fresh
+      - alert: WorkerHeartbeatMissing
+        expr: |
+          prl_expected_worker_slot{job="local-alert-receiver"}
+          unless on(service_name, deployment_environment_name, worker_slot)
+          prl:worker:heartbeat_current
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: An expected worker slot has no valid current-process heartbeat timestamp for 30 seconds.
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#worker-heartbeat-missing
+      - alert: WorkerHeartbeatStale
+        expr: time() - prl:worker:heartbeat_current > 45
+        labels:
+          severity: critical
+        annotations:
+          summary: A current-process worker heartbeat is more than 45 seconds old.
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#worker-heartbeat-stale
+      - alert: WorkerProgressStale
+        expr: |
+          (
+            (
+              prl_expected_worker_slot{job="local-alert-receiver"}
+              and on(service_name, deployment_environment_name, worker_slot)
+                (time() - prl_worker_started_timestamp_seconds > 90)
+            )
+            and on(service_name, deployment_environment_name, worker_slot)
+              prl:worker:heartbeat_fresh
+          )
+          unless on(service_name, deployment_environment_name, worker_slot)
+          prl:worker:progress_fresh
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: A live worker slot has made no current-process progress for more than 90 seconds.
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#worker-progress-stale
+      - alert: WorkerBacklogSnapshotStale
+        expr: |
+          (
+            (
+              prl_expected_worker_slot{job="local-alert-receiver"}
+              and on(service_name, deployment_environment_name, worker_slot)
+                (time() - prl_worker_started_timestamp_seconds > 90)
+            )
+            and on(service_name, deployment_environment_name, worker_slot)
+              prl:worker:heartbeat_fresh
+          )
+          unless on(service_name, deployment_environment_name, worker_slot)
+          prl:worker:backlog_snapshot_fresh
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: A live worker slot has no current backlog snapshot newer than 90 seconds.
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#worker-backlog-snapshot-stale
+      - alert: WorkerBacklogOverdue
+        expr: |
+          (prl:worker:backlog_max_fresh > 0)
+          and on(service_name, deployment_environment_name)
+          (prl:worker:backlog_oldest_overdue_max_fresh > 60)
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: A fresh positive worker backlog contains work more than 60 seconds overdue.
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#worker-backlog-overdue

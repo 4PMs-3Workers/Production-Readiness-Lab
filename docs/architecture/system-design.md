@@ -98,9 +98,9 @@ Browser và API dùng cùng origin. Health, metrics và dashboard được truy 
 
 ### 2.6. Hệ thống giám sát
 
-OpenTelemetry Collector thu thập telemetry. Prometheus lưu metrics, Loki lưu logs, Tempo lưu traces; Grafana cung cấp dashboard.
+OpenTelemetry Collector thu thập telemetry. Prometheus lưu metrics, Loki lưu logs, Tempo lưu traces; Grafana cung cấp dashboard. Trong Compose local/demo hiện tại, Alertmanager cũng chạy trong cùng stack và gửi webhook tới local receiver nội bộ.
 
-Probe và Alertmanager nằm ngoài máy chủ ứng dụng để phát hiện và gửi cảnh báo khi cả máy chủ ngừng phục vụ. Giám sát sử dụng quyền hạ tầng riêng.
+Repository chưa triển khai probe, evaluator hoặc kênh thông báo độc lập ngoài Docker host. Alert target có thể được phát khi Prometheus, Alertmanager và đường receiver còn hoạt động; khi host hoặc chính đường đánh giá/cảnh báo dừng, không có bảo đảm phát hiện hay gửi thông báo. Muốn giám sát host outage cần bổ sung và kiểm chứng riêng một monitor ngoài host.
 
 ### 2.7. Công nghệ và đóng gói
 
@@ -115,7 +115,7 @@ Probe và Alertmanager nằm ngoài máy chủ ứng dụng để phát hiện v
 | Triển khai | Docker Compose trên máy chủ Linux/VM | Container, network, volume và health check. |
 | CI/CD | GitHub Actions và container registry | Kiểm tra, đóng gói, deploy và rollback. |
 | Telemetry | OpenTelemetry Collector, Prometheus, Loki, Tempo | Thu thập và lưu metrics/logs/traces. |
-| Theo dõi | Grafana, Alertmanager, probe ngoài máy chủ ứng dụng | Dashboard, cảnh báo và phát hiện outage. |
+| Theo dõi | Grafana, Alertmanager trong Compose; chưa có probe ngoài host | Dashboard và cảnh báo nội bộ khi telemetry stack còn hoạt động. |
 
 Phiên bản package được khóa bằng lockfile; image được khóa bằng digest. Mỗi request hoặc giao dịch worker có một session riêng.
 
@@ -532,21 +532,22 @@ flowchart TB
         Grafana["Grafana"] -->|"Truy vấn"| Prom
         Grafana -->|"Truy vấn"| Loki
         Grafana -->|"Truy vấn"| Tempo
+        Alert["Alertmanager"]
+        Prom -->|"Alert ứng dụng / hạ tầng"| Alert
+        Loki -->|"Alert gateway từ LogQL rules"| Alert
     end
-    Alert["Alertmanager ngoài máy chủ ứng dụng"]
-    Prom -->|"Alert ứng dụng / hạ tầng"| Alert
-    Loki -->|"Alert gateway từ LogQL rules"| Alert
-    Probe["Probe ngoài máy chủ"] -->|"HTTPS"| Proxy
-    Probe -->|"Alert outage / resolved"| Alert
-    Probe -->|"Kết quả probe qua kênh vận hành"| Prom
 ```
 
+Sơ đồ mô tả topology local/demo hiện có: ứng dụng và toàn bộ evaluator/alert receiver ở cùng host. Không có đường probe hoặc notification độc lập để phát hiện host outage.
+
 ### 8.2. Thu thập telemetry
+
+Runbook và bằng chứng nghiệm thu Issue #35: [hướng dẫn vận hành](../tasks/observability-runbook.md), [handoff và giới hạn](../tasks/observability-foundation.md).
 
 - API và worker gửi logs/traces qua OTLP đến Collector; stdout giữ log JSON để kiểm tra tại container.
 - Prometheus scrape metrics API tại `/metrics`. Metrics worker đi qua OTLP đến endpoint của Collector; mỗi nguồn chỉ có một đường thu thập.
 - Nginx ghi access log JSON vào volume mà Collector có quyền đọc.
-- Collector chuyển logs sang Loki và traces sang Tempo.
+- Collector chuyển logs sang Loki và traces sang Tempo. Filelog checkpoint nằm trên named volume; restart có kiểm chứng checkpoint nhưng không tạo giao dịch exactly-once nguyên tử giữa offset và downstream export.
 
 Log chứa timestamp, service, environment, release, request ID, trace ID khi có, route, method, status, duration và mã lỗi. Trace đặt lịch có span HTTP, nghiệp vụ và database; nội dung truy vấn nhạy cảm được loại bỏ.
 
@@ -563,9 +564,9 @@ Phạm vi SLI là request đến các route nghiệp vụ đã công bố dướ
 - **Availability:** số request trong phạm vi hoàn tất thành công chia cho tổng request trong phạm vi.
 - **Độ trễ:** số request thành công trong phạm vi hoàn tất trong ≤500 ms chia cho tổng request thành công trong phạm vi.
 - **Không có mẫu:** hiển thị không đủ dữ liệu; không suy ra availability 100%.
-- **Mất telemetry:** báo cáo khoảng thiếu dữ liệu; outage được đối chiếu bằng probe, không coi khoảng trống access log là hệ thống khỏe.
+- **Mất telemetry:** khoảng dữ liệu không có chỉ là unknown; không suy ra hệ thống khỏe. Hiện chưa có probe ngoài host để đối chiếu outage khi cả Compose host mất kết nối.
 
-| Mục tiêu nghiệm thu | Điểm đo / cách xác minh |
+| Mục tiêu thiết kế cần nghiệm thu | Điểm đo / cách xác minh |
 |---|---|
 | Availability ≥99,5% trên request hợp lệ, cửa sổ trượt 7 ngày | Access log gateway; tính cả `5xx`, timeout và `429` do thiếu năng lực. |
 | ≥95% request hợp lệ thành công hoàn tất trong ≤500 ms | Thời gian hoàn tất tại gateway, cùng cửa sổ 7 ngày. |
@@ -573,11 +574,13 @@ Phạm vi SLI là request đến các route nghiệp vụ đã công bố dướ
 | Alert firing trong ≤3 phút khi diễn tập | Timeline bắt đầu sự cố và thời điểm alert firing dưới tải diễn tập. |
 | Khôi phục bằng rollback trong ≤5 phút | Từ quyết định rollback đến khi readiness, smoke test và probe xác nhận phục hồi. |
 
-Probe và Alertmanager đặt ngoài máy chủ ứng dụng, có thể trên máy vận hành độc lập. Probe chạy chu kỳ tối đa 15 giây, dùng tài khoản lab gọi endpoint cần DB và kiểm tra JSON. Khi số lần thất bại liên tiếp đạt ngưỡng cấu hình, probe gửi cảnh báo mất dịch vụ trực tiếp đến Alertmanager; khi phục hồi gửi trạng thái resolved. Chu kỳ, timeout và số lần thất bại được cấu hình sao cho tổng thời gian phát hiện và gửi cảnh báo đáp ứng mục tiêu 3 phút. Đường cảnh báo tiếp tục hoạt động khi máy chủ ứng dụng dừng. Kết quả probe được đưa về Prometheus khi kết nối khả dụng.
+Các hàng trên là mục tiêu cần nghiệm thu, không phải kết quả đã đo. Bài chấp nhận local/demo ngắn không chứng minh SLO cửa sổ 7 ngày, mục tiêu phát hiện trong 3 phút, khôi phục rollback trong 5 phút hoặc host-outage notification. Những mục tiêu này cần diễn tập và quan sát riêng trên cấu hình triển khai thực tế.
 
-Thời hạn lưu telemetry: logs/traces ít nhất 7 ngày, metrics ít nhất 14 ngày. Theo dõi riêng heartbeat worker, số đề nghị quá hạn còn chờ và độ trễ xử lý. Sampling, dung lượng queue và timeout exporter được cấu hình và ghi trong bằng chứng. Khoảng thiếu telemetry phải được báo cáo; kết luận SLO sử dụng đúng thời gian dữ liệu thực tế.
+Retention được cấu hình là 168 giờ cho Loki/Tempo và 14 ngày cho Prometheus TSDB. Đây là cấu hình local trên named volumes, không phải bằng chứng đã diễn ra soak đủ thời gian hay có backup/restore. Sampling, giới hạn queue và timeout exporter được ghi trong cấu hình; hãy điều tra mọi khoảng mất telemetry thay vì tính chúng là healthy time.
 
 ### 8.4. Ngân sách tài nguyên
+
+Envelope acceptance run 3 ghi cap bộ nhớ cấu hình tổng 5.888 MiB cho 13 dịch vụ Compose; đây là giới hạn, không phải mức sử dụng đo được. Một số bài integration test chạy operations probe tạm thời, cap 128 MiB trong cấu hình test và nằm ngoài envelope run 3. Spool gateway 64 MiB là bộ đệm volatile đã tính trong cap gateway. Giả định sizing là host demo 8 vCPU/16 GiB RAM, ít nhất 50 GiB trống và đồng hồ đồng bộ; run local không đo xác nhận các điều kiện này. Retention 168 giờ/14 ngày không phải quota volume; Compose không đặt giới hạn dung lượng named volume. Hãy tính thêm hệ điều hành, Docker và tải thực tế, đồng thời theo dõi disk usage.
 
 - Deadline request có giá trị khởi điểm 3 giây. Timeout query, chờ khóa và chờ pool phải nằm trong ngân sách này.
 - Retry deadlock có số lần giới hạn và dùng thời gian còn lại. Lock timeout phải rollback toàn bộ transaction.
@@ -602,14 +605,14 @@ current work và cleanup, không kéo dài `expires_at`. Xem
 | Mất response sau commit | Retry cùng key trả đúng kết quả tạo; số lịch/audit/thông báo giữ nguyên. |
 | Worker dừng | API tiếp tục phục vụ; đề nghị quá hạn còn giữ chỗ. Cảnh báo backlog/heartbeat; restart xử lý lại. |
 | Collector/Loki/Tempo/Prometheus lỗi | Transaction nghiệp vụ tiếp tục; exporter có timeout và hàng đợi hữu hạn, ghi nhận dữ liệu giám sát bị mất. |
-| Gateway hoặc máy chủ dừng | Probe ngoài máy chủ phát hiện outage; kiểm tra host, network, container và volume trước khi khởi động lại dịch vụ. |
+| Gateway hoặc máy chủ dừng | Ứng dụng có thể không phục vụ; stack cùng host không bảo đảm phát alert. Kiểm tra host, network, container và volume bằng kênh vận hành độc lập trước khi khởi động lại. |
 | Release gây lỗi | Phát hiện qua alert, xác minh release, rollback UI/API/worker về bản ổn định; giữ DB volume. |
 
 ## 9. Phát hành và phục hồi
 
 ### 9.1. Môi trường và health check
 
-Local và demo dùng Docker Compose. Local có thể chạy toàn bộ thành phần cùng máy; demo tách probe/Alertmanager sang máy vận hành độc lập theo mục 8. Chỉ gateway công khai cổng ứng dụng; truy cập vận hành được giới hạn. MySQL có volume bền vững; telemetry có lưu trữ và giới hạn tài nguyên/retention. Next.js, API và worker chạy dưới user không có quyền root.
+Local và demo dùng Docker Compose. Cả ứng dụng và telemetry/Alertmanager hiện cùng host; chưa có probe hay notification path ngoài host. Chỉ gateway công khai cổng ứng dụng; truy cập Grafana dùng hostname vận hành riêng và bị giới hạn theo cấu hình. MySQL và telemetry dùng named volumes; gateway spool là volatile. Resource caps và retention nằm trong Compose/configuration, không tự chứng minh tải production hoặc backup/restore. Next.js, API và worker chạy dưới user không có quyền root.
 
 | Thành phần | Health và vòng đời |
 |---|---|
@@ -625,7 +628,7 @@ Local và demo dùng Docker Compose. Local có thể chạy toàn bộ thành ph
 3. Xác minh cấu hình, khả năng tương thích migration và release ổn định trước đó; lưu manifest của release đang chạy.
 4. Chạy migration bằng một job triển khai riêng; dừng phát hành nếu migration thất bại.
 5. Triển khai frontend, API và worker bằng digest; API và worker dùng cùng digest backend.
-6. Kiểm tra readiness, smoke test qua gateway, heartbeat worker và probe ngoài máy chủ. Ghi nhận release ổn định khi tất cả kiểm tra đạt.
+6. Kiểm tra readiness, smoke test qua gateway và heartbeat worker. Chỉ kiểm tra probe ngoài host nếu môi trường đã triển khai nó; repository hiện chưa cung cấp probe độc lập.
 
 Deploy và rollback chạy tuần tự để tránh hai thao tác phát hành cạnh tranh. Nếu smoke test thất bại và có release ổn định trước đó, pipeline quay lại digest tương ứng của frontend/backend, cập nhật cả API và worker. Database giữ dữ liệu đã commit.
 
@@ -636,8 +639,8 @@ Migration được rà soát FK/CHECK/UNIQUE, generated column, collation và ch
 1. Ghi thời điểm quyết định rollback, release lỗi và dấu hiệu quan sát được; giữ logs/traces phục vụ điều tra.
 2. Chọn manifest của release ổn định gần nhất có schema tương thích. Nếu không có release phù hợp, dừng chuyển image và xử lý lỗi theo tình trạng hệ thống.
 3. Khôi phục đồng bộ digest frontend, API và worker; giữ nguyên database volume, dữ liệu đã commit và schema tương thích.
-4. Kiểm tra readiness, đăng nhập, đọc khả dụng, tạo/hủy lịch bằng tài khoản lab, heartbeat worker và probe. Retry cùng key phải trả đúng lịch, không tạo bản trùng.
-5. Xác nhận probe phục hồi theo ngưỡng đã cấu hình; ghi thời điểm kết thúc, trạng thái alert và tổng thời gian phục hồi. Đối chiếu mục tiêu ≤5 phút.
+4. Kiểm tra readiness, đăng nhập, đọc khả dụng, tạo/hủy lịch bằng tài khoản lab và heartbeat worker. Kiểm tra probe chỉ khi môi trường đã triển khai; retry cùng key phải trả đúng lịch, không tạo bản trùng.
+5. Nếu môi trường có probe độc lập, xác nhận nó phục hồi theo ngưỡng và ghi trạng thái/timeline. Local/demo hiện chưa có đường này; mục tiêu ≤5 phút chưa được kiểm chứng.
 
 ### 9.4. Sao lưu và khôi phục dữ liệu
 
@@ -649,7 +652,7 @@ Máy chủ đơn có thể gián đoạn khi deploy. Zero downtime hoặc chịu
 
 Công cụ diễn tập yêu cầu `LAB_MODE`, TTL và kiểm tra release; dùng dữ liệu và tài khoản lab. Trạng thái kích hoạt được lưu bền ngoài tiến trình API để tồn tại qua restart. Khi hết TTL, kết thúc diễn tập hoặc rollback baseline, hành vi gây lỗi phải được gỡ bỏ. Dashboard, công cụ diễn tập và endpoint vận hành dùng quyền hạ tầng.
 
-Mỗi lần diễn tập ghi kịch bản, người thực hiện, thời điểm bắt đầu/kết thúc, release, alert firing/resolved và kết quả kiểm tra dữ liệu. Các kịch bản gồm DB mất kết nối, worker dừng, telemetry gián đoạn, gateway/host dừng và release gây lỗi. Sau diễn tập, xác minh cấu hình gây lỗi đã tắt và hệ thống phục vụ bình thường.
+Khi công cụ diễn tập được triển khai, mỗi lần chạy cần ghi kịch bản, người thực hiện, thời điểm bắt đầu/kết thúc, release, alert firing/resolved và kết quả kiểm tra dữ liệu. Kịch bản DB mất kết nối, worker dừng, telemetry gián đoạn và release gây lỗi cần thực hiện theo môi trường. Host/gateway outage cần một probe ngoài host; repository hiện chưa cung cấp đường này. Bài Task 8 chỉ xác nhận luồng nghiệp vụ trong các trạng thái telemetry được nêu ở bằng chứng, không chứng minh host outage, release rollback hay backup/restore.
 
 ## 10. Kiểm chứng và quản lý cấu hình
 
@@ -666,7 +669,7 @@ Mỗi lần diễn tập ghi kịch bản, người thực hiện, thời điể
 | Duyệt/từ chối/hết hạn cạnh tranh | Một kết quả cuối; lịch và đề nghị nhất quán, giờ/hạn mức đúng trạng thái. |
 | Restart worker | Xử lý được đề nghị quá hạn còn chờ; các cập nhật đã hoàn tất giữ nguyên. |
 | DB/telemetry outage | DB lỗi ảnh hưởng readiness/request trong timeout; telemetry lỗi giữ khả năng phục vụ nghiệp vụ. |
-| Máy chủ/gateway dừng | Probe và kênh cảnh báo ngoài máy chủ phát hiện outage. |
+| Máy chủ/gateway dừng | Chỉ phát hiện được khi môi trường có monitor và kênh cảnh báo ngoài host; thành phần này chưa được triển khai trong repository. |
 | Release lỗi và rollback | UI/API/worker về đúng digest; DB giữ lịch đã commit, readiness/smoke/probe xác nhận phục hồi. |
 
 Bài tải chuẩn dùng 20 phiên đồng thời trong 10 phút và bộ seed ít nhất 10 nhân viên/1.000 lịch. Bằng chứng gồm cấu hình môi trường, commit/digest, kết quả test/tải, trace mẫu, trạng thái alert firing/resolved và timeline phục hồi.
@@ -681,7 +684,7 @@ Các mục tiêu mô tả yêu cầu đối với hệ thống. Việc đạt m�
 | Ứng dụng | Khóa phiên bản runtime/package; cấu hình origin, cookie, secret và deadline request cho từng môi trường. |
 | Database | Giữ UTC, SQL mode nghiêm ngặt và `READ COMMITTED`; giới hạn tổng pool theo năng lực MySQL. |
 | Worker | Cấu hình chu kỳ quét, batch size, grace period, heartbeat và ngưỡng cảnh báo backlog. |
-| Giám sát | Cấu hình retention, sampling, queue exporter, timeout probe, ngưỡng firing/resolved và kênh nhận cảnh báo. |
+| Giám sát | Cấu hình retention, sampling, queue exporter và ngưỡng alert nội bộ. Timeout probe và kênh cảnh báo ngoài host chỉ áp dụng sau khi triển khai monitor độc lập. |
 | Release | Ghi commit, digest frontend/backend, phiên bản schema và release ổn định để rollback. |
 | Dữ liệu | Lịch, đề nghị và audit được giữ để đối chiếu; không tự động xóa lịch sử ngoài chính sách lưu dữ liệu đã cấu hình. Sao lưu có lịch chạy và bài restore xác minh. |
 

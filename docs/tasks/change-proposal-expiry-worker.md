@@ -82,7 +82,7 @@ python -m app.worker
 ```
 
 Use a second terminal/process for the API (`python -m uvicorn app.main:app --app-dir
-src/backend --no-proxy-headers`). Starting the API does not start a worker. Each process
+src/backend --no-proxy-headers --no-access-log`). Starting the API does not start a worker. Each process
 creates/disposes its own finite pool; include every API/worker process in the connection
 budget. Multiple workers are supported through row locks, without a broker or leader lease.
 

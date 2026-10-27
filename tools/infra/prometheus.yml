@@ -1,0 +1,65 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    deployment: prl-demo
+rule_files:
+  - /etc/prometheus/rules/*.yml
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+scrape_configs:
+  - job_name: api
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - api:8000
+  - job_name: collector
+    static_configs:
+      - targets:
+          - collector:8888
+  - job_name: application-otel
+    # The Collector exports OTLP point timestamps; mark vanished series stale on the next scrape.
+    track_timestamps_staleness: true
+    static_configs:
+      - targets:
+          - collector:9464
+  - job_name: local-alert-receiver
+    static_configs:
+      - targets:
+          - local_alert_receiver:8088
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: prl_expected_worker_slot
+        target_label: service_name
+        replacement: worker
+      - source_labels: [__name__]
+        regex: prl_expected_worker_slot
+        target_label: deployment_environment_name
+        replacement: demo
+      - source_labels: [slot]
+        regex: ([1-8])
+        target_label: worker_slot
+        replacement: $1
+  - job_name: prometheus-self
+    static_configs:
+      - targets:
+          - prometheus:9090
+  - job_name: loki-self
+    static_configs:
+      - targets:
+          - loki:3100
+  - job_name: tempo-self
+    static_configs:
+      - targets:
+          - tempo:3200
+  - job_name: grafana-self
+    static_configs:
+      - targets:
+          - grafana:3000
+  - job_name: alertmanager-self
+    static_configs:
+      - targets:
+          - alertmanager:9093

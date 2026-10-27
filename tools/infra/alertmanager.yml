@@ -1,0 +1,16 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: local
+  group_by: [alertname]
+  group_wait: 5s
+  group_interval: 15s
+  repeat_interval: 30m
+
+receivers:
+  - name: local
+    webhook_configs:
+      - url: http://local_alert_receiver:8088/alerts
+        send_resolved: true
+        max_alerts: 20

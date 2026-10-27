@@ -1,0 +1,566 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "How to read this dashboard",
+      "description": "Static interpretation notes.",
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Missing targets, required metric families, or pipeline heartbeats are gaps. A missing loss counter is not proof of zero loss. Worker unit-1 queue gauges carry the _ratio suffix but remain absolute queue counts/capacities."
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Scrape targets",
+      "description": "1 = scraped, 0 = target down. An absent target series is unknown and should be investigated.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prl-prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "up{job=~\"api|collector|application-otel|loki-self|tempo-self|grafana-self|alertmanager-self|local-alert-receiver\"}",
+          "instant": false,
+          "legendFormat": "{{job}} {{instance}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Dropped / refused items (5m)",
+      "description": "API drops plus pinned Collector refusal and receiver-processing failure counters for logs, metric points, and spans. Missing zero-valued families can be unmaterialized; check target health.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prl-prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by(service,signal,reason) (increase(prl_telemetry_dropped_total[5m]))",
+          "instant": false,
+          "legendFormat": "{{service}} {{signal}} {{reason}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by(receiver) (increase(otelcol_receiver_refused_log_records{job=\"collector\"}[5m]))",
+          "instant": false,
+          "legendFormat": "Collector refused log records {{receiver}}",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by(receiver) (increase(otelcol_receiver_refused_metric_points{job=\"collector\"}[5m]))",
+          "instant": false,
+          "legendFormat": "Collector refused metric points {{receiver}}",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by(receiver) (increase(otelcol_receiver_refused_spans{job=\"collector\"}[5m]))",
+          "instant": false,
+          "legendFormat": "Collector refused spans {{receiver}}",
+          "range": true,
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by(receiver) (increase(otelcol_receiver_failed_log_records{job=\"collector\"}[5m]))",
+          "instant": false,
+          "legendFormat": "Collector failed log records {{receiver}}",
+          "range": true,
+          "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by(receiver) (increase(otelcol_receiver_failed_metric_points{job=\"collector\"}[5m]))",
+          "instant": false,
+          "legendFormat": "Collector failed metric points {{receiver}}",
+          "range": true,
+          "refId": "F"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by(receiver) (increase(otelcol_receiver_failed_spans{job=\"collector\"}[5m]))",
+          "instant": false,
+          "legendFormat": "Collector failed spans {{receiver}}",
+          "range": true,
+          "refId": "G"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Export failures (5m)",
+      "description": "API send failures plus pinned Collector exporter queue and send failures for logs, metric points, and spans. Missing zero-valued families can be unmaterialized; check target health.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prl-prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 11
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by(service,signal) (increase(prl_telemetry_failed_total[5m]))",
+          "instant": false,
+          "legendFormat": "{{service}} {{signal}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by(exporter) (increase(otelcol_exporter_enqueue_failed_log_records{job=\"collector\"}[5m]))",
+          "instant": false,
+          "legendFormat": "Collector enqueue failed log records {{exporter}}",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by(exporter) (increase(otelcol_exporter_enqueue_failed_metric_points{job=\"collector\"}[5m]))",
+          "instant": false,
+          "legendFormat": "Collector enqueue failed metric points {{exporter}}",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by(exporter) (increase(otelcol_exporter_enqueue_failed_spans{job=\"collector\"}[5m]))",
+          "instant": false,
+          "legendFormat": "Collector enqueue failed spans {{exporter}}",
+          "range": true,
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by(exporter) (increase(otelcol_exporter_send_failed_log_records{job=\"collector\"}[5m]))",
+          "instant": false,
+          "legendFormat": "Collector send failed log records {{exporter}}",
+          "range": true,
+          "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by(exporter) (increase(otelcol_exporter_send_failed_metric_points{job=\"collector\"}[5m]))",
+          "instant": false,
+          "legendFormat": "Collector send failed metric points {{exporter}}",
+          "range": true,
+          "refId": "F"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by(exporter) (increase(otelcol_exporter_send_failed_spans{job=\"collector\"}[5m]))",
+          "instant": false,
+          "legendFormat": "Collector send failed spans {{exporter}}",
+          "range": true,
+          "refId": "G"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "API telemetry queues",
+      "description": "Direct API registry names. Missing capacity while API is up is a telemetry gap.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prl-prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 11
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "prl_telemetry_queue_size{job=\"api\"}",
+          "instant": false,
+          "legendFormat": "API {{signal}} size",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "prl_telemetry_queue_capacity{job=\"api\"}",
+          "instant": false,
+          "legendFormat": "API {{signal}} capacity",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Worker telemetry queues",
+      "description": "Worker unit-1 gauges use _ratio-suffixed Prometheus names; values remain absolute counts.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prl-prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 18
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "prl_telemetry_queue_size_ratio{job=\"application-otel\",service_name=\"worker\",deployment_environment_name=\"demo\"}",
+          "instant": false,
+          "legendFormat": "worker slot {{worker_slot}} {{signal}} size",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "prl_telemetry_queue_capacity_ratio{job=\"application-otel\",service_name=\"worker\",deployment_environment_name=\"demo\"}",
+          "instant": false,
+          "legendFormat": "worker slot {{worker_slot}} {{signal}} capacity",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "API required family missing",
+      "description": "A positive result identifies an up API target without prl_telemetry_queue_capacity{service=\"api\",signal=\"stdout\"}.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prl-prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 18
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prl-prometheus"
+          },
+          "editorMode": "code",
+          "expr": "(up{job=\"api\"} == 1) unless on(job,instance) prl_telemetry_queue_capacity{service=\"api\",signal=\"stdout\"}",
+          "instant": false,
+          "legendFormat": "{{instance}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "logs",
+      "title": "Recent API and worker events",
+      "description": "Native OTLP event bodies are finite event names; IDs and diagnostic fields remain structured metadata.",
+      "datasource": {
+        "type": "loki",
+        "uid": "prl-loki"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "prl-loki"
+          },
+          "expr": "{service_name=~\"api|worker\",deployment_environment_name=\"demo\"} | keep service_name,trace_id,request_id,severity",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      }
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 41,
+  "tags": [
+    "production-readiness",
+    "observability"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Telemetry loss",
+  "uid": "prl-telemetry-loss",
+  "version": 1
+}

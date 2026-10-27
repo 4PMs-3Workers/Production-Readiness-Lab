@@ -12,11 +12,13 @@ from app.core.errors import AppError
 from app.core.transactions import (
     RETRYABLE_MYSQL_ERRORS,
     CommitOutcomeUnknown,
+    FailureCallback,
     commit_safely,
     invalidate,
     mysql_error_code,
     rollback,
 )
+from app.observability.tracing import SpanFactory, safe_span, set_business_outcome
 from app.services.change_proposals import expire_change_proposal_in_transaction
 from app.worker.models import CandidateResult, FailureReason, Outcome
 from app.worker.resources import (
@@ -29,10 +31,16 @@ from app.worker.resources import (
 SessionFactory = Callable[[], AsyncSession]
 
 
-async def _finish_session(db: AsyncSession, deadline: float) -> None:
+async def _finish_session(
+    db: AsyncSession,
+    deadline: float,
+    *,
+    span_factory: SpanFactory | None = None,
+    failure_callback: FailureCallback | None = None,
+) -> None:
     try:
         async with asyncio.timeout_at(deadline):
-            await rollback(db)
+            await rollback(db, span_factory=span_factory, failure_callback=failure_callback)
             await db.close()
     except (Exception, asyncio.CancelledError):
         try:
@@ -49,6 +57,48 @@ async def process_candidate(
     request_id: str,
     *,
     cleanup_deadline: CleanupDeadline | None = None,
+    span_factory: SpanFactory | None = None,
+    failure_callback: FailureCallback | None = None,
+) -> CandidateResult:
+    with safe_span(span_factory, "worker.candidate") as candidate_span:
+
+        def mark_commit_unknown() -> None:
+            set_business_outcome(candidate_span, "commit_unknown")
+
+        def mark_committed() -> None:
+            set_business_outcome(candidate_span, "committed")
+
+        result = await _process_candidate(
+            sessions,
+            proposal_id,
+            settings,
+            request_id,
+            cleanup_deadline=cleanup_deadline,
+            span_factory=span_factory,
+            failure_callback=failure_callback,
+            commit_unknown_callback=mark_commit_unknown,
+            committed_callback=mark_committed,
+        )
+        if result.outcome == Outcome.NOOP:
+            set_business_outcome(candidate_span, "noop")
+        elif result.reason == FailureReason.COMMIT_UNKNOWN:
+            set_business_outcome(candidate_span, "commit_unknown")
+        elif result.outcome == Outcome.FAILED:
+            set_business_outcome(candidate_span, "failed")
+        return result
+
+
+async def _process_candidate(
+    sessions: SessionFactory,
+    proposal_id: UUID,
+    settings: Settings,
+    request_id: str,
+    *,
+    cleanup_deadline: CleanupDeadline | None,
+    span_factory: SpanFactory | None,
+    failure_callback: FailureCallback | None,
+    commit_unknown_callback: Callable[[], object],
+    committed_callback: Callable[[], object],
 ) -> CandidateResult:
     started = asyncio.get_running_loop().time()
     deadline = started + settings.request_timeout_seconds
@@ -69,11 +119,23 @@ async def process_candidate(
                     transaction = await db.begin()
                     await validate_schema(db, settings)
                     transition = await expire_change_proposal_in_transaction(
-                        db, proposal_id=proposal_id, settings=settings, request_id=request_id
+                        db,
+                        proposal_id=proposal_id,
+                        settings=settings,
+                        request_id=request_id,
+                        span_factory=span_factory,
+                        failure_callback=failure_callback,
                     )
                     if transition == "EXPIRED":
                         await db.flush()
-                        await commit_safely(db, transaction)
+                        await commit_safely(
+                            db,
+                            transaction,
+                            span_factory=span_factory,
+                            failure_callback=failure_callback,
+                            commit_unknown_callback=commit_unknown_callback,
+                        )
+                        committed_callback()
                         outcome = Outcome.EXPIRED
                     elif transition == "INCONSISTENT":
                         reason = FailureReason.INCONSISTENT
@@ -101,7 +163,12 @@ async def process_candidate(
             reason = FailureReason.UNEXPECTED_FAILURE
         finally:
             if db is not None:
-                await _finish_session(db, earlier_deadline(deadline, cleanup_deadline))
+                await _finish_session(
+                    db,
+                    earlier_deadline(deadline, cleanup_deadline),
+                    span_factory=span_factory,
+                    failure_callback=failure_callback,
+                )
         task = asyncio.current_task()
         if task is not None and task.cancelling():
             raise asyncio.CancelledError

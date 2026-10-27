@@ -10,6 +10,7 @@ import re
 import socket
 import ssl
 import subprocess
+import sys
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -85,6 +86,96 @@ def backend_image():
     yield image
     run("docker", "image", "rm", image)
 
+
+def preserve_gateway_failure(base, project, env):
+    """Save diagnostics for this UUID-owned fixture before its teardown."""
+    output = (
+        ROOT
+        / ".superpowers/sdd/2026-10-23-observability-foundation"
+        / f"task-5-gateway-fixture-{project}.txt"
+    )
+    sections = []
+    for label, command in (
+        ("compose ps -a", [*base, "ps", "--all", "--format", "json"]),
+        ("compose logs", [*base, "logs", "--no-color"]),
+        (
+            "spool metadata as UID 101 helper",
+            [
+                *base, "exec", "-T", "rotate_helper", "sh", "-c",
+                'id; stat -c "%a %u:%g %n" /var/log/prl /var/log/prl/access.jsonl*',
+            ],
+        ),
+    ):
+        result = subprocess.run(
+            command, cwd=ROOT, env=env, text=True, capture_output=True, timeout=30
+        )
+        sections.append(f"## {label} (exit {result.returncode})\n{result.stdout}\n{result.stderr}")
+    for service in ("gateway", "collector"):
+        for suffix in ("", ".1", ".2", ".3", ".4"):
+            snapshot = output.with_name(f"{output.stem}-{service}-access.jsonl{suffix}")
+            copied = subprocess.run(
+                [
+                    "docker", "cp",
+                    f"{project}-{service}-1:/var/log/prl/access.jsonl{suffix}",
+                    str(snapshot),
+                ],
+                cwd=ROOT, env=env, text=True, capture_output=True, timeout=30,
+            )
+            sections.append(
+                f"## {service} file snapshot -> {snapshot.name} "
+                f"(exit {copied.returncode})\n{copied.stdout}\n{copied.stderr}"
+            )
+    checkpoint_snapshot = output.with_name(f"{output.stem}-collector-file-storage")
+    checkpoint_copy = subprocess.run(
+        [
+            "docker", "cp",
+            f"{project}-collector-1:/var/lib/otelcol/file_storage",
+            str(checkpoint_snapshot),
+        ],
+        cwd=ROOT, env=env, text=True, capture_output=True, timeout=30,
+    )
+    sections.append(
+        f"## Collector file_storage snapshot -> {checkpoint_snapshot.name} "
+        f"(exit {checkpoint_copy.returncode})\n"
+        f"{checkpoint_copy.stdout}\n{checkpoint_copy.stderr}"
+    )
+    ids_result = subprocess.run(
+        ["docker", "ps", "-aq", "--filter", f"label=com.docker.compose.project={project}"],
+        cwd=ROOT, env=env, text=True, capture_output=True, timeout=30,
+    )
+    container_ids = ids_result.stdout.split()
+    if container_ids:
+        inspected = subprocess.run(
+            ["docker", "inspect", *container_ids], cwd=ROOT, env=env, text=True,
+            capture_output=True, timeout=30,
+        )
+        sections.append(
+            f"## docker inspect (exit {inspected.returncode})\n"
+            f"{inspected.stdout}\n{inspected.stderr}"
+        )
+    volumes_result = subprocess.run(
+        ["docker", "volume", "ls", "-q", "--filter", f"label=com.docker.compose.project={project}"],
+        cwd=ROOT, env=env, text=True, capture_output=True, timeout=30,
+    )
+    volume_names = volumes_result.stdout.split()
+    if volume_names:
+        inspected_volumes = subprocess.run(
+            ["docker", "volume", "inspect", *volume_names], cwd=ROOT, env=env,
+            text=True, capture_output=True, timeout=30,
+        )
+        sections.append(
+            f"## docker volume inspect (exit {inspected_volumes.returncode})\n"
+            f"{inspected_volumes.stdout}\n{inspected_volumes.stderr}"
+        )
+    output.write_text("\n\n".join(sections), encoding="utf-8")
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    report = outcome.get_result()
+    if report.when == "call":
+        item.rep_call = report
 
 def certificate(directory):
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -199,7 +290,10 @@ def gateway(request, tmp_path_factory, backend_image):
                 pytest.fail("gateway/upstream did not become ready")
             yield client, mode, base, env
     finally:
-        run(*base, "down", "--remove-orphans", "--timeout", "5", env=env)
+        report = getattr(request.node, "rep_call", None)
+        if sys.exc_info()[0] is not None or (report is not None and report.failed):
+            preserve_gateway_failure(base, project, env)
+        run(*base, "down", "--remove-orphans", "--volumes", "--timeout", "5", env=env)
 
 
 def test_real_routing_headers_and_spoofed_identity(gateway):
@@ -319,7 +413,7 @@ def test_real_login_rate_limit_and_sanitized_logs(gateway):
     logs = run(*base, "logs", "--no-log-prefix", "gateway", env=env)
     for private in ("secret-query", "secret-cookie", "sensitive-body", "csrf-token", "spoofed"):
         assert private not in logs
-    assert '"path":"/api/v1/probe"' in logs
+    assert '"route":"__unmatched__"' in logs
 
 
 def test_real_upstream_errors_pass_without_interception(gateway):
@@ -358,13 +452,32 @@ def test_real_gateway_generates_safe_error_when_api_stops(gateway):
     client, _, base, env = gateway
     run(*base, "stop", "--timeout", "5", "api", env=env)
     try:
-        response = client.get("/api/v1/probe?secret-query=hidden")
+        response = client.get("/api%2fv%31/%70urposes?secret-query=hidden")
         assert response.status_code == 503
         assert response.json()["error"]["code"] == "SERVICE_UNAVAILABLE"
         assert response.json()["error"]["request_id"] == response.headers["x-request-id"]
         assert response.headers["x-error-class"] == "service"
         assert response.headers["cache-control"] == "private, no-store"
-        assert "secret-query" not in run(*base, "logs", "--no-log-prefix", "gateway", env=env)
+        logs = run(*base, "logs", "--no-log-prefix", "gateway", env=env)
+        assert "secret-query" not in logs
+        records = []
+        for line in logs.splitlines():
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if (
+                isinstance(value, dict)
+                and value.get("request_id") == response.headers["x-request-id"]
+            ):
+                records.append(value)
+        assert len(records) == 1
+        record = records[0]
+        assert record["route"] == "/api/v1/purposes"
+        assert record["upstream_identity"] == "api"
+        assert record["upstream_outcome"] in {"service_error", "upstream_timeout"}
+        assert record["classification"] == "service_failure"
+        assert "/api%2fv%31/%70urposes" not in logs
     finally:
         run(*base, "start", "api", env=env)
 

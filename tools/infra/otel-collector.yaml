@@ -1,0 +1,128 @@
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  file_storage:
+    directory: /var/lib/otelcol/file_storage
+    timeout: 1s
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+  filelog/gateway:
+    include:
+      - /var/log/prl/access.jsonl
+      - /var/log/prl/access.jsonl.*
+    start_at: beginning
+    storage: file_storage
+    poll_interval: 500ms
+    operators:
+      - type: json_parser
+        id: gateway_json
+        parse_from: body
+        timestamp:
+          parse_from: attributes.timestamp
+          layout_type: gotime
+          layout: "2006-01-02T15:04:05-07:00"
+      - type: move
+        from: attributes.service
+        to: resource["service.name"]
+      - type: move
+        from: attributes.environment
+        to: resource["deployment.environment.name"]
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 384
+    spike_limit_mib: 64
+  transform/worker_identity:
+    error_mode: ignore
+    metric_statements:
+      - context: datapoint
+        statements:
+          - 'set(datapoint.attributes["service.name"], resource.attributes["service.name"]) where resource.attributes["service.name"] == "worker"'
+          - 'set(datapoint.attributes["deployment.environment.name"], resource.attributes["deployment.environment.name"]) where resource.attributes["service.name"] == "worker" and resource.attributes["deployment.environment.name"] != nil'
+  batch:
+    send_batch_size: 64
+    send_batch_max_size: 64
+    timeout: 1s
+exporters:
+  prometheus:
+    endpoint: 0.0.0.0:9464
+    send_timestamps: true
+    metric_expiration: 5m
+    resource_to_telemetry_conversion:
+      enabled: false
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+    timeout: 2s
+    sending_queue:
+      enabled: true
+      queue_size: 128
+      num_consumers: 2
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 5s
+      max_elapsed_time: 30s
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+    timeout: 2s
+    sending_queue:
+      enabled: true
+      queue_size: 128
+      num_consumers: 2
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 5s
+      max_elapsed_time: 30s
+service:
+  extensions:
+    - health_check
+    - file_storage
+  telemetry:
+    metrics:
+      level: normal
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+                without_type_suffix: true
+                without_units: true
+    resource:
+      service.version: null
+      service.instance.id: null
+  pipelines:
+    metrics:
+      receivers:
+        - otlp
+      processors:
+        - memory_limiter
+        - transform/worker_identity
+        - batch
+      exporters:
+        - prometheus
+    logs:
+      receivers:
+        - otlp
+        - filelog/gateway
+      processors:
+        - memory_limiter
+        - batch
+      exporters:
+        - otlphttp/loki
+    traces:
+      receivers:
+        - otlp
+      processors:
+        - memory_limiter
+        - batch
+      exporters:
+        - otlp/tempo

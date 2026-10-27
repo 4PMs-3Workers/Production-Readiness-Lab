@@ -253,7 +253,7 @@ bằng giá trị local riêng. Không commit `.env`. Với môi trường demo/
 `APPLICATION_ORIGIN=https://...` và `COOKIE_SECURE=true`. Khởi động từ gốc repo:
 
 ```bash
-python -m uvicorn app.main:app --app-dir src/backend --no-proxy-headers
+python -m uvicorn app.main:app --app-dir src/backend --no-proxy-headers --no-access-log
 ```
 
 API khởi động khi MySQL tạm thời không truy cập được. `/health/live` kiểm tra tiến trình
@@ -487,6 +487,10 @@ Xem [manifest đầy đủ, phân quyền DML và hướng dẫn xử lý lỗi]
 - Giới hạn công cụ gây lỗi bằng `LAB_MODE`, thời gian hết hiệu lực và kiểm tra release.
 
 Bằng chứng nghiệm thu gồm cấu hình môi trường, commit/image digest, kết quả kiểm thử và bài tải, trace mẫu, trạng thái cảnh báo và timeline phục hồi.
+
+## Nền tảng observability (Issue #35)
+
+Cấu hình stack local/demo, các dashboard, bằng chứng nghiệm thu và giới hạn đã biết nằm trong [handoff observability](docs/tasks/observability-foundation.md). Dùng [runbook cảnh báo](docs/tasks/observability-runbook.md) cho truy vấn, TLS, redaction và quy trình recovery.
 
 ## Đóng góp
 

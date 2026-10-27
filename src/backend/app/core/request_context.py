@@ -10,6 +10,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 REQUEST_ID_PATTERN = re.compile(rb"[A-Za-z0-9._-]{1,128}\Z")
 GatewayNetworks = tuple[IPv4Network | IPv6Network, ...]
+UNTRUSTED_TRACE_HEADERS = frozenset({b"traceparent", b"tracestate", b"baggage"})
 
 
 def get_request_id(request: Request) -> str:
@@ -89,6 +90,12 @@ class RequestIdMiddleware:
             return
         peer = scope.get("client")
         peer_host = peer[0] if peer else None
+        # The API always creates a new trace root; remote context and baggage are ignored.
+        scope["headers"] = [
+            (key, value)
+            for key, value in scope.get("headers", [])
+            if key.lower() not in UNTRUSTED_TRACE_HEADERS
+        ]
         incoming = [value for key, value in scope["headers"] if key.lower() == b"x-request-id"]
         request_id = (
             incoming[0].decode("ascii")

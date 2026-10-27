@@ -129,6 +129,19 @@ def operator(monkeypatch, tmp_path):
                 )
         if args[:2] == ["docker", "inspect"]:
             return "true" if "{{.State.Running}}" in args else "healthy"
+        if args[:2] == ["docker", "logs"]:
+            from datetime import datetime
+
+            return json.dumps(
+                {
+                    "event": "heartbeat",
+                    "phase": "running",
+                    "database_ok": True,
+                    "worker_id": "a" * 32,
+                    "successful_scans": len(calls),
+                    "last_successful_scan": datetime.now(UTC).isoformat(),
+                }
+            )
         if args[:3] == ["docker", "image", "inspect"]:
             return json.dumps(
                 {
@@ -247,6 +260,7 @@ def test_config_does_not_check_existing_image_provenance(operator, monkeypatch):
 
     result = demo.main(["config", "--overlay", "local"])
     assert not any(call[:3] == ["docker", "image", "inspect"] for call in calls)
+
     assert result == 0
     assert written[0]["verification"] == {"command": "config", "status": "passed"}
     assert written[0]["images"] == {}
@@ -336,12 +350,239 @@ def test_subprocess_failure_discards_both_output_streams(capsys):
     assert "secret" not in captured.out + captured.err
 
 
+def test_subprocess_success_returns_stdout_without_stderr():
+    demo = module("demo")
+    output = demo.run(
+        [
+            sys.executable,
+            "-c",
+            "print('reporter-json'); print('sdk-warning', file=__import__('sys').stderr)",
+        ]
+    )
+    assert output == "reporter-json"
+
+
+def test_run_classifies_only_missing_local_image_errors(monkeypatch):
+    demo = module("demo")
+    missing_args = ["docker", "image", "inspect", "example.invalid/prl-task6-absent:missing"]
+
+    def missing_image(args, **kwargs):
+        return subprocess.CompletedProcess(
+            args,
+            1,
+            stdout="",
+            stderr=(
+                "Error response from daemon: No such image: "
+                "example.invalid/prl-task6-absent:missing"
+            ),
+        )
+
+    monkeypatch.setattr(demo.subprocess, "run", missing_image)
+    with pytest.raises(demo.OperationFailed) as missing:
+        demo.run(missing_args)
+    assert type(missing.value).__name__ == "ImageNotFound"
+
+    def daemon_failure(args, **kwargs):
+        return subprocess.CompletedProcess(
+            args, 1, stdout="", stderr="error during connect: daemon unavailable"
+        )
+
+    monkeypatch.setattr(demo.subprocess, "run", daemon_failure)
+    with pytest.raises(demo.OperationFailed) as unavailable:
+        demo.run(missing_args)
+    assert type(unavailable.value) is demo.OperationFailed
+
+
 def test_status_is_read_only_and_never_starts_dependencies(operator):
     demo, calls = operator
     assert demo.main(["status", "--overlay", "local"]) == 0
     steps = compose_calls(calls)
     assert ["ps", "--all", "--format", "json"] in steps
     assert not any(step[0] in {"run", "up", "exec"} for step in steps)
+
+
+@pytest.mark.parametrize("observability", [False, True], ids=["legacy", "observability"])
+def test_empty_status_omits_unbuilt_images_without_inspecting_or_starting_services(
+    operator, monkeypatch, observability
+):
+    demo, calls = operator
+    args = ["status", "--overlay", "https" if observability else "local"]
+    if observability:
+        args.append("--observability")
+        files = {
+            "PRL_TLS_CERT_FILE": "app-cert",
+            "PRL_TLS_KEY_FILE": "app-key",
+            "PRL_OPS_TLS_CERT_FILE": "ops-cert",
+            "PRL_OPS_TLS_KEY_FILE": "ops-key",
+            "PRL_GRAFANA_ADMIN_USER_FILE": "grafana-user",
+            "PRL_GRAFANA_ADMIN_PASSWORD_FILE": "grafana-password",
+        }
+        for name, filename in files.items():
+            path = demo.ROOT / filename
+            path.write_bytes(b"synthetic-credential")
+            monkeypatch.setenv(name, str(path))
+        monkeypatch.setenv("PRL_HTTPS_ORIGIN", "https://app.example.invalid:8443")
+        monkeypatch.setenv("PRL_OPS_ORIGIN", "https://ops.example.invalid:8443")
+        monkeypatch.setenv("PRL_OPS_CIDRS", "203.0.113.10/32")
+
+    original = demo.run
+
+    def empty_stack(args, timeout=180):
+        if args[:2] == ["docker", "compose"]:
+            command = next(item for item in ("images", "config", "ps") if item in args)
+            tail = args[args.index(command) :]
+            if tail[:2] == ["images", "-q"]:
+                calls.append(args)
+                return ""
+            if tail[:1] == ["config"] and tail[1:2] == ["--no-env-resolution"]:
+                if observability:
+                    lock = demo._image_lock()
+                    services = demo.evidence.V2_SERVICES
+                    images = {
+                        service: {
+                            "image": (
+                                lock[demo.VENDOR_SERVICE_KEYS[service]]
+                                if service in demo.VENDOR_SERVICE_KEYS
+                                else "fake-image"
+                            )
+                        }
+                        for service in services
+                    }
+                    return json.dumps({"services": images})
+                return original(args, timeout)
+            if observability and tail[:1] == ["config"]:
+                return ""
+        if args[:4] == ["docker", "image", "ls", "--quiet"]:
+            calls.append(args)
+            return ""
+        if args[:3] == ["docker", "image", "inspect"]:
+            calls.append(args)
+            raise demo.ImageNotFound()
+        return original(args, timeout)
+
+    monkeypatch.setattr(demo, "run", empty_stack)
+
+    result = demo.main(args)
+    assert result == 0, calls[-12:]
+    manifest = json.loads((demo.ROOT / "build/deploy" / ("a" * 40) / "manifest.json").read_text())
+    assert manifest["images"] == {}
+    inspect_calls = [call for call in calls if call[:3] == ["docker", "image", "inspect"]]
+    if observability:
+        assert inspect_calls
+        assert all("@sha256:" in call[-1] for call in inspect_calls)
+    else:
+        assert not inspect_calls
+    assert any(
+        call[:2] == ["docker", "compose"] and call[-4:] == ["ps", "--all", "--format", "json"]
+        for call in calls
+    )
+    assert not any(
+        call[:2] == ["docker", "compose"] and any(step in call for step in ("run", "up", "exec"))
+        for call in calls
+    )
+
+
+@pytest.mark.parametrize(
+    "tag_alias_id",
+    [None, "sha256:" + "d" * 64],
+    ids=["tag-alias-absent", "tag-alias-wrong-digest"],
+)
+def test_status_uses_cached_digest_not_tag_alias_and_omits_unbuilt_app(
+    operator, monkeypatch, tag_alias_id
+):
+    demo, calls = operator
+    files = {
+        "PRL_TLS_CERT_FILE": "app-cert",
+        "PRL_TLS_KEY_FILE": "app-key",
+        "PRL_OPS_TLS_CERT_FILE": "ops-cert",
+        "PRL_OPS_TLS_KEY_FILE": "ops-key",
+        "PRL_GRAFANA_ADMIN_USER_FILE": "grafana-user",
+        "PRL_GRAFANA_ADMIN_PASSWORD_FILE": "grafana-password",
+    }
+    for name, filename in files.items():
+        path = demo.ROOT / filename
+        path.write_bytes(b"synthetic-credential")
+        monkeypatch.setenv(name, str(path))
+    monkeypatch.setenv("PRL_HTTPS_ORIGIN", "https://app.example.invalid:8443")
+    monkeypatch.setenv("PRL_OPS_ORIGIN", "https://ops.example.invalid:8443")
+    monkeypatch.setenv("PRL_OPS_CIDRS", "203.0.113.10/32")
+
+    instance = demo.Demo("https", "a" * 40, observability=True)
+    expected_reference = (
+        "grafana/loki:3.7.9@sha256:"
+        "0db216b630ae1f348a1584c67f3cead8b4c1fc839169a39501db664744158e28"
+    )
+    image_id = "sha256:" + "c" * 64
+    repo_digest = (
+        "grafana/loki@sha256:0db216b630ae1f348a1584c67f3cead8b4c1fc839169a39501db664744158e28"
+    )
+    app_reference = "prl-backend:task6-unbuilt"
+    monkeypatch.setattr(
+        instance,
+        "_configuration",
+        lambda services=(): {
+            "services": {
+                "api": {"image": app_reference},
+                "loki": {"image": expected_reference},
+            }
+        },
+    )
+    monkeypatch.setattr(instance, "compose", lambda *args, **kwargs: "")
+    inspected = []
+    listed = []
+
+    def local_images(args, timeout=180):
+        calls.append(args)
+        if args[:4] == ["docker", "image", "ls", "--quiet"]:
+            listed.append(args[-1])
+            if args[-1] == "grafana/loki:3.7.9":
+                return tag_alias_id or ""
+            if args[-1] == app_reference:
+                return ""
+        if args[:3] == ["docker", "image", "inspect"]:
+            inspected.append(args[-1])
+            if args[-1] == expected_reference:
+                return json.dumps({"Id": image_id, "RepoDigests": [repo_digest], "Labels": {}})
+            if args[-1] == tag_alias_id and tag_alias_id is not None:
+                return json.dumps(
+                    {
+                        "Id": tag_alias_id,
+                        "RepoDigests": ["grafana/loki@sha256:" + "d" * 64],
+                        "Labels": {},
+                    }
+                )
+        raise AssertionError("unexpected Docker command")
+
+    monkeypatch.setattr(demo, "run", local_images)
+    images = instance.images(omit_missing=True)
+
+    assert images == {"loki": {"id": image_id, "digests": [repo_digest]}}
+    assert inspected == [expected_reference]
+    assert listed == [app_reference]
+
+
+def test_failed_down_does_not_unlock_changed_configuration_identity(operator, monkeypatch):
+    demo, calls = operator
+    original = demo.run
+    assert demo.main(["up", "--overlay", "local"]) == 0
+
+    def fail_down(args, timeout=180):
+        if args[:2] == ["docker", "compose"] and args[-1:] == ["down"]:
+            calls.append(args)
+            raise demo.OperationFailed()
+        return original(args, timeout)
+
+    monkeypatch.setattr(demo, "run", fail_down)
+    assert demo.main(["down", "--overlay", "local"]) == 1
+    manifest_path = demo.ROOT / "build/deploy" / ("a" * 40) / "manifest.json"
+    failed = json.loads(manifest_path.read_text())
+    assert failed["verification"] == {"command": "down", "status": "failed"}
+    assert failed["deployment_state"] != "down"
+
+    monkeypatch.setenv("PRL_HTTP_PORT", "8081")
+    assert demo.main(["config", "--overlay", "local"]) == 1
+    unchanged = json.loads(manifest_path.read_text())
+    assert unchanged["configuration_sha256"] == failed["configuration_sha256"]
 
 
 def test_build_records_images_without_existing_containers(operator, monkeypatch):
@@ -423,6 +664,15 @@ def test_stale_images_fail_before_any_application_execution(operator, monkeypatc
     assert not any(step[0] in {"run", "up", "exec"} for step in compose_calls(calls))
     captured = capsys.readouterr()
     assert "private-password" not in captured.out + captured.err
+
+
+def test_operator_reads_worker_progress_from_direct_container_logs(operator):
+    demo, calls = operator
+
+    assert demo.main(["up", "--overlay", "local"]) == 0
+
+    assert ["docker", "logs", "--tail", "200", "b" * 64] in calls
+    assert not any(step[:1] == ["logs"] for step in compose_calls(calls))
 
 
 @pytest.mark.parametrize("dirty", [" M Dockerfile.backend", "?? private-secret-file"])

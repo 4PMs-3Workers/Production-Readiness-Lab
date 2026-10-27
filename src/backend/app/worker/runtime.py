@@ -2,12 +2,16 @@
 
 import asyncio
 from collections.abc import Callable
+from functools import partial
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.core.config import Settings
 from app.core.database import create_database_engine
+from app.observability.database import record_database_failure
+from app.observability.runtime import TelemetryRuntime, create_telemetry
+from app.observability.worker import WorkerObserver
 from app.worker.batch import BatchRunner
 from app.worker.models import FailureReason, WorkerIdentity, WorkerState
 from app.worker.polling import heartbeat, poll
@@ -60,17 +64,42 @@ async def run_worker(
     control = shutdown or Shutdown(settings.worker_grace_seconds)
     identity = WorkerIdentity()
     state = WorkerState(identity.worker_id)
-    reports = reporter or Reporter()
+    telemetry: TelemetryRuntime | None = None
+    observer: WorkerObserver | None = None
+    try:
+        telemetry = create_telemetry(settings, service="worker", stdout_enabled=False)
+    except Exception:
+        telemetry = None
+    if telemetry is not None:
+        try:
+            observer = WorkerObserver(settings, telemetry)
+        except Exception:
+            observer = None
+    reports = reporter or Reporter(observer=observer)
     reports.emit("starting", state)
     result = 1
     if control.stop.is_set():
         state.phase = "stopped"
         reports.emit("stopped", state)
         await reports.close(control.deadline)
+        close_deadline = control.deadline or asyncio.get_running_loop().time()
+        if observer is not None:
+            try:
+                await observer.close(close_deadline)
+            except Exception:
+                pass
+        if telemetry is not None:
+            try:
+                await telemetry.close(close_deadline)
+            except Exception:
+                pass
         return 0
     try:
         async with open_resources(
-            settings, engine_factory=engine_factory, cleanup_deadline=lambda: control.deadline
+            settings,
+            engine_factory=engine_factory,
+            cleanup_deadline=lambda: control.deadline,
+            telemetry=telemetry,
         ) as resources:
 
             async def process(
@@ -82,6 +111,12 @@ async def run_worker(
                     config,
                     request_id,
                     cleanup_deadline=lambda: control.deadline,
+                    span_factory=telemetry.span if telemetry is not None else None,
+                    failure_callback=(
+                        partial(record_database_failure, telemetry)
+                        if telemetry is not None
+                        else None
+                    ),
                 )
 
             runner = BatchRunner(
@@ -126,4 +161,15 @@ async def run_worker(
         state.phase = "stopped"
         reports.emit("stopped", state)
         await reports.close(control.deadline)
+        close_deadline = control.deadline or asyncio.get_running_loop().time()
+        if observer is not None:
+            try:
+                await observer.close(close_deadline)
+            except Exception:
+                pass
+        if telemetry is not None:
+            try:
+                await telemetry.close(close_deadline)
+            except Exception:
+                pass
     return result
