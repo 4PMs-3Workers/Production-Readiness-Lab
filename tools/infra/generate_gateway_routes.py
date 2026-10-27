@@ -16,7 +16,13 @@ OPENAPI = ROOT / "docs/api/openapi.yaml"
 OUTPUT = ROOT / "tools/deploy/nginx/route-map.conf"
 METHODS = ("get", "post", "put", "patch", "delete")
 TEMPLATE_PART = re.compile(r"(\{[A-Za-z_][A-Za-z0-9_]*\})")
-VALID_PATH = re.compile(r"/[A-Za-z0-9/_{}-]+\Z")
+VALID_PATH = re.compile(r"/[A-Za-z0-9/{}._~-]+\Z")
+ASCII_UNRESERVED = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+)
+PATH_SEPARATOR = r"(?:/|%2[fF])"
+PATH_PARAMETER = r"(?:(?!%2[fF])[^/?])+"
+QUERY_SUFFIX = r"(?:\?.*)?$"
 
 
 def business_routes(document: dict[str, Any]) -> list[tuple[str, str]]:
@@ -41,7 +47,24 @@ def business_routes(document: dict[str, Any]) -> list[tuple[str, str]]:
 
 def route_regex(path: str) -> str:
     parts = TEMPLATE_PART.split(path)
-    return "".join("[^/?]+" if TEMPLATE_PART.fullmatch(part) else re.escape(part) for part in parts)
+    fragments = []
+    for part in parts:
+        if TEMPLATE_PART.fullmatch(part):
+            fragments.append(PATH_PARAMETER)
+            continue
+        for char in part:
+            if char == "/":
+                fragments.append(PATH_SEPARATOR)
+                continue
+            if char not in ASCII_UNRESERVED:
+                raise ValueError(f"unsupported static path character: {char!r}")
+            encoded = f"{ord(char):02X}"
+            encoded = "".join(
+                f"[{digit.lower()}{digit}]" if digit in "ABCDEF" else digit
+                for digit in encoded
+            )
+            fragments.append(f"(?:{re.escape(char)}|%{encoded})")
+    return "".join(fragments)
 
 
 def map_block(
@@ -58,12 +81,12 @@ def map_block(
 
 def render(routes: list[tuple[str, str]]) -> str:
     route_rows = [
-        (f"~^{method}:{route_regex(path)}(?:/)?(?:\\?.*)?$", path)
+        (f"~^{method}:{route_regex(path)}(?:{PATH_SEPARATOR})?{QUERY_SUFFIX}", path)
         for method, path in routes
     ]
     location_rows = [
         (
-            f"~^{method}:(?:https?://[^/]+)?{route_regex(path)}(?:\\?.*)?$",
+            f"~^{method}:(?:https?://[^/]+)?{route_regex(path)}{QUERY_SUFFIX}",
             path,
         )
         for method, path in routes
@@ -71,7 +94,7 @@ def render(routes: list[tuple[str, str]]) -> str:
     unique_paths = sorted({path for _, path in routes})
     marker_rows = [(f"{path}:{path}", "1") for path in unique_paths]
     terminal_rows = [
-        (f"~^{method}:{route_regex(path)}/(?:\\?.*)?$", "1")
+        (f"~^{method}:{route_regex(path)}{PATH_SEPARATOR}{QUERY_SUFFIX}", "1")
         for method, path in routes
     ]
     redirect_rows = [

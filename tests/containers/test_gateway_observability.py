@@ -675,6 +675,78 @@ def test_classification_truth_table(
     assert "secret-error-class-canary" not in raw_logs
 
 
+@pytest.mark.parametrize(
+    ("path", "expected_status", "classification", "outcome", "error_class"),
+    [
+        ("/api/v%31/purposes", 200, "success", "success", "unknown"),
+        (
+            "/api/v1/%70urposes?prl_test=service_4xx",
+            400,
+            "service_failure",
+            "service_error",
+            "service",
+        ),
+        ("/api%2fv1%2F%70urposes", 200, "success", "success", "unknown"),
+        (
+            "/api%2Fv1%2fpurposes?prl_test=service",
+            503,
+            "service_failure",
+            "service_error",
+            "service",
+        ),
+    ],
+)
+def test_encoded_static_route_aliases_keep_canonical_attribution(
+    gateway, path, expected_status, classification, outcome, error_class
+):
+    client, _, base, env = gateway
+    query_separator = "&" if "?" in path else "?"
+    request_path = f"{path}{query_separator}private=encoded-route-canary"
+    response = client.get(request_path)
+    assert response.status_code == expected_status
+
+    record, raw_logs = wait_record(base, env, response.headers["x-request-id"])
+    assert record["route"] == "/api/v1/purposes"
+    assert record["upstream_identity"] == "api"
+    assert record["classification"] == classification
+    assert record["upstream_outcome"] == outcome
+    assert record["error_class"] == error_class
+    assert "encoded-route-canary" not in raw_logs
+    assert path.split("?", 1)[0] not in raw_logs
+    assert "path" not in record
+
+
+@pytest.mark.parametrize("parameter", ["report%3Farchive", "report%252Farchive"])
+def test_encoded_question_and_double_encoded_slash_remain_parameter_data(gateway, parameter):
+    client, _, base, env = gateway
+    response = client.get(f"/api/v1/appointments/{parameter}?private=encoded-parameter-canary")
+    assert response.status_code == 200
+
+    record, raw_logs = wait_record(base, env, response.headers["x-request-id"])
+    assert record["route"] == "/api/v1/appointments/{appointment_id}"
+    assert record["upstream_identity"] == "api"
+    assert record["classification"] == "success"
+    assert record["upstream_outcome"] == "success"
+    assert "encoded-parameter-canary" not in raw_logs
+    assert f"/api/v1/appointments/{parameter}" not in raw_logs
+    assert "path" not in record
+
+
+def test_encoded_slash_cannot_turn_one_segment_route_into_unknown_deeper_path(gateway):
+    client, _, base, env = gateway
+    response = client.get(
+        "/api/v1/appointments/record%2Funknown?private=encoded-depth-canary"
+    )
+    assert response.status_code == 200
+
+    record, raw_logs = wait_record(base, env, response.headers["x-request-id"])
+    assert record["route"] == "__unmatched__"
+    assert record["upstream_identity"] == "api"
+    assert record["classification"] == "out_of_scope"
+    assert "encoded-depth-canary" not in raw_logs
+    assert "/api/v1/appointments/record%2Funknown" not in raw_logs
+
+
 def test_upstream_read_timeout_is_a_safe_service_failure(gateway, tmp_path):
     client, _, base, env = gateway
     proxy = (ROOT / "tools/deploy/nginx/proxy.conf").read_text()
@@ -682,7 +754,9 @@ def test_upstream_read_timeout_is_a_safe_service_failure(gateway, tmp_path):
     proxy = proxy.replace("proxy_read_timeout 10s;", "proxy_read_timeout 250ms;", 1)
     reconfigure_nginx(gateway, tmp_path, proxy=proxy)
 
-    response = client.get("/api/v1/purposes?prl_test=upstream_timeout&private=timeout-canary")
+    response = client.get(
+        "/api%2fv1%2F%70urposes?prl_test=upstream_timeout&private=timeout-canary"
+    )
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "SERVICE_UNAVAILABLE"
     record, raw_logs = wait_record(base, env, response.headers["x-request-id"])
@@ -762,6 +836,35 @@ def test_malformed_published_request_is_local_input_400(gateway):
     assert headers["x-error-class"] == "input"
     assert "malformed-url-canary" not in raw_logs
     assert "malformed-header-canary" not in raw_logs
+
+
+@pytest.mark.parametrize("malformed_escape", ["%", "%2", "%GG"])
+def test_malformed_percent_target_is_rejected_without_forwarding(gateway, malformed_escape):
+    _, _, base, env = gateway
+    connection, port = open_gateway_connection(gateway)
+    target = f"/api/v1/purposes{malformed_escape}?private=malformed-percent-canary"
+    request = (
+        f"GET {target} HTTP/1.1\r\n"
+        f"Host: localhost:{port}\r\n"
+        "Connection: close\r\n\r\n"
+    )
+    try:
+        connection.sendall(request.encode())
+        raw = read_raw_http_response(connection)
+    finally:
+        connection.close()
+
+    status, headers, _ = parse_raw_http_response(raw)
+    assert status == 400
+    assert headers["x-error-class"] == "input"
+    assert target.encode() not in raw
+    record, raw_logs = wait_record(base, env, headers["x-request-id"])
+    assert record["status"] == 400
+    assert record["upstream_identity"] == "none"
+    assert record["upstream_outcome"] == "gateway_input"
+    assert "malformed-percent-canary" not in raw_logs
+    assert target.split("?", 1)[0] not in raw_logs
+    assert target not in raw_logs
 
 
 def test_incomplete_login_body_is_local_input_408(gateway, tmp_path):
@@ -1152,6 +1255,27 @@ def test_real_router_canonical_slash_redirect_is_excluded(real_backend_gateway):
     assert "canonical-slash-canary" not in raw_logs
 
 
+def test_real_router_encoded_trailing_slash_redirect_is_excluded(real_backend_gateway):
+    client, _, _, base, env, _ = real_backend_gateway
+    response = client.get(
+        "/api/v1/purposes%2f?private=encoded-canonical-slash-canary",
+        follow_redirects=False,
+    )
+    assert response.status_code == 307
+    assert response.headers["location"].endswith(
+        "/api/v1/purposes?private=encoded-canonical-slash-canary"
+    )
+    assert "x-prl-route" not in response.headers
+    assert "x-prl-outcome" not in response.headers
+    record, raw_logs = wait_record(base, env, response.headers["x-request-id"])
+    assert record["route"] == "/api/v1/purposes"
+    assert record["upstream_identity"] == "api"
+    assert record["upstream_outcome"] == "canonical_redirect"
+    assert record["classification"] == "excluded"
+    assert "encoded-canonical-slash-canary" not in raw_logs
+    assert "/api/v1/purposes%2f" not in raw_logs
+
+
 def test_generated_gateway_route_map_matches_business_openapi():
     result = subprocess.run(
         [sys.executable, "tools/infra/generate_gateway_routes.py", "--check"],
@@ -1161,6 +1285,28 @@ def test_generated_gateway_route_map_matches_business_openapi():
         timeout=20,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+    route_map = (ROOT / "tools/deploy/nginx/route-map.conf").read_text(encoding="utf-8")
+    assert route_map.count('map "$request_method:$request_uri"') == 2
+    assert "$request_method:$uri" not in route_map
+    assert "(?:p|%70)" in route_map
+    assert "(?:/|%2[fF])" in route_map
+    assert "(?:(?!%2[fF])[^/?])+" in route_map
+    assert r"(?:\?.*)?$" in route_map
+
+
+def test_route_regex_models_one_asgi_decode_without_path_normalization():
+    from tools.infra.generate_gateway_routes import QUERY_SUFFIX, VALID_PATH, route_regex
+
+    template = "/api/v1/z.name~/{item_id}"
+    assert VALID_PATH.fullmatch(template)
+    pattern = re.compile(f"^{route_regex(template)}{QUERY_SUFFIX}")
+    assert pattern.fullmatch("/api%2fv%31/%7a%2ename%7e/one%3Ftwo?private=canary")
+    assert pattern.fullmatch("/api%2Fv%31/%7A%2Ename%7E/one")
+    assert pattern.fullmatch("/api/v1/z.name~/one%252Ftwo")
+    assert pattern.fullmatch("/api/v1/z.name~/..")
+    assert not pattern.fullmatch("/api/v1/Z.name~/one")
+    assert not pattern.fullmatch("/api/v1/z.name~/one%2ftwo")
+    assert not pattern.fullmatch("/api//v1/z.name~/one")
 
 
 def test_notification_gateway_operations_use_finite_routes_and_redact_raw_values(

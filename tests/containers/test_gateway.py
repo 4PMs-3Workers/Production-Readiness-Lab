@@ -452,13 +452,32 @@ def test_real_gateway_generates_safe_error_when_api_stops(gateway):
     client, _, base, env = gateway
     run(*base, "stop", "--timeout", "5", "api", env=env)
     try:
-        response = client.get("/api/v1/probe?secret-query=hidden")
+        response = client.get("/api%2fv%31/%70urposes?secret-query=hidden")
         assert response.status_code == 503
         assert response.json()["error"]["code"] == "SERVICE_UNAVAILABLE"
         assert response.json()["error"]["request_id"] == response.headers["x-request-id"]
         assert response.headers["x-error-class"] == "service"
         assert response.headers["cache-control"] == "private, no-store"
-        assert "secret-query" not in run(*base, "logs", "--no-log-prefix", "gateway", env=env)
+        logs = run(*base, "logs", "--no-log-prefix", "gateway", env=env)
+        assert "secret-query" not in logs
+        records = []
+        for line in logs.splitlines():
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if (
+                isinstance(value, dict)
+                and value.get("request_id") == response.headers["x-request-id"]
+            ):
+                records.append(value)
+        assert len(records) == 1
+        record = records[0]
+        assert record["route"] == "/api/v1/purposes"
+        assert record["upstream_identity"] == "api"
+        assert record["upstream_outcome"] == "service_error"
+        assert record["classification"] == "service_failure"
+        assert "/api%2fv%31/%70urposes" not in logs
     finally:
         run(*base, "start", "api", env=env)
 
