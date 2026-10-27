@@ -12,10 +12,10 @@ ROOT = Path(__file__).resolve().parents[3]
 INFRA = ROOT / "tools/infra"
 LOKI_RULES = INFRA / "loki-rules/fake/gateway-sli.yml"
 GATEWAY_HEARTBEAT_FILTER = (
-    'andon()(sum(count_over_time('
+    "andon()(sum(count_over_time("
     '{service_name="gateway",deployment_environment_name="demo"}'
     '|jsonevent="event"|__error__=""|event="gateway.healthcheck"'
-    '|keepevent[1m]))>0)'
+    "|keepevent[1m]))>0)"
 )
 
 

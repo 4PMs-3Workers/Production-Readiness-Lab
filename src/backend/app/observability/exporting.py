@@ -488,10 +488,7 @@ def sanitize_log_attributes(
         if not isinstance(key, str) or key not in allowed:
             continue
         if key in {"request_id", "run_id", "worker_id", "current_run_id"}:
-            if (
-                isinstance(value, str)
-                and re.fullmatch(r"[A-Za-z0-9._-]{1,128}", value)
-            ):
+            if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9._-]{1,128}", value):
                 safe[key] = value
         elif key == "trace_id":
             if (
