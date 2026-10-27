@@ -866,6 +866,31 @@ def test_malformed_percent_target_is_rejected_without_forwarding(gateway, malfor
     assert target not in raw_logs
 
 
+def test_malformed_percent_query_is_rejected_without_forwarding(gateway):
+    _, _, base, env = gateway
+    connection, port = open_gateway_connection(gateway)
+    target = "/api/v1/purposes?private=malformed-query-percent-canary%GG"
+    request = f"GET {target} HTTP/1.1\r\nHost: localhost:{port}\r\nConnection: close\r\n\r\n"
+    try:
+        connection.sendall(request.encode())
+        raw = read_raw_http_response(connection)
+    finally:
+        connection.close()
+
+    status, headers, _ = parse_raw_http_response(raw)
+    assert status == 400
+    assert headers["x-error-class"] == "input"
+    assert b"malformed-query-percent-canary" not in raw
+    assert target.encode() not in raw
+    record, raw_logs = wait_record(base, env, headers["x-request-id"])
+    assert record["status"] == 400
+    assert record["upstream_identity"] == "none"
+    assert record["classification"] == "excluded"
+    assert record["error_class"] == "input"
+    assert "malformed-query-percent-canary" not in raw_logs
+    assert target not in raw_logs
+
+
 def test_incomplete_login_body_is_local_input_408(gateway, tmp_path):
     _, _, base, env = gateway
     nginx = (ROOT / "tools/deploy/nginx/nginx.conf").read_text()
