@@ -8,6 +8,7 @@ from alembic.config import Config
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.schema_lifecycle import migration_connection
 from app.models import User
 
 
@@ -22,7 +23,7 @@ async def test_profile_upgrade_preserves_existing_account_and_marks_new_fields_u
     mysql_engine,
 ):
     identifier = uuid4()
-    async with mysql_engine.begin() as connection:
+    async with migration_connection(mysql_engine) as connection:
         await connection.run_sync(
             lambda db: migrate(db, "20261016_1200_audit_reqid128", downgrade=True)
         )
@@ -63,7 +64,7 @@ async def test_profile_downgrade_refuses_to_discard_populated_fields(mysql_engin
         await db.commit()
         identifier = student.id
     with pytest.raises(RuntimeError, match="populated fields would be lost"):
-        async with mysql_engine.begin() as connection:
+        async with migration_connection(mysql_engine) as connection:
             await connection.run_sync(
                 lambda db: migrate(db, "20261016_1200_audit_reqid128", downgrade=True)
             )

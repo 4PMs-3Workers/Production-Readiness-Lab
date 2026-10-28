@@ -27,11 +27,11 @@ if str(_project_pkg_dir) not in sys.path:
 
 # ruff: noqa: E402 — app imports must come after sys.path manipulation above
 from alembic import context
-from sqlalchemy import Connection
+from sqlalchemy import Connection, text
 from sqlalchemy.engine import URL, make_url
 
 from app.core.database import create_database_engine
-from app.core.schema_lifecycle import migration_connection
+from app.core.schema_lifecycle import lock_name, migration_connection
 
 # Import the full model registry so that all 11 tables are registered on
 # Base.metadata before autogenerate or upgrade inspects it.
@@ -93,6 +93,12 @@ def _run_migrations_with_connection(connection: Connection) -> None:
 
     This is called via connection.run_sync() to bridge async/sync contexts.
     """
+    database = connection.execute(text("SELECT DATABASE()")).scalar_one()
+    owns_guard = connection.execute(
+        text("SELECT IS_USED_LOCK(:name) = CONNECTION_ID()"), {"name": lock_name(database)}
+    ).scalar_one()
+    if owns_guard != 1:
+        raise RuntimeError("Online migrations require the schema lifecycle guard")
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
@@ -126,7 +132,7 @@ def run_migrations_online() -> None:
     If config.attributes["connection"] is set, the caller has already opened a
     connection (e.g., a test fixture's async connection run via run_sync).  In
     that case we use that connection directly so the migration runs inside the
-    caller's session/schema context. Production callers must use migration_connection
+    caller's session/schema context. All online callers must use migration_connection
     to hold the schema lifecycle lock through the outer version-table commit.
 
     Otherwise we create a fresh async engine from DATABASE_URL and run it via

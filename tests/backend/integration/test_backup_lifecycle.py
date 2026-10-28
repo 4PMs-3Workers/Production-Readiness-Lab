@@ -1,6 +1,8 @@
 import asyncio
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from sqlalchemy import text
 
 from app.core.schema_lifecycle import (
@@ -11,6 +13,17 @@ from app.core.schema_lifecycle import (
 )
 
 pytestmark = pytest.mark.mysql
+
+
+async def test_programmatic_migration_refuses_unguarded_connection(mysql_engine):
+    def migrate(connection):
+        config = Config("alembic.ini")
+        config.attributes["connection"] = connection
+        command.upgrade(config, "head")
+
+    async with mysql_engine.begin() as connection:
+        with pytest.raises(RuntimeError, match="schema lifecycle guard"):
+            await connection.run_sync(migrate)
 
 
 async def test_schema_lifecycle_excludes_second_owner_but_not_ordinary_reads(mysql_engine):

@@ -30,6 +30,7 @@ from sqlalchemy.pool import NullPool
 
 from app.core.database import create_database_engine
 from app.core.passwords import PasswordPolicy, PasswordService
+from app.core.schema_lifecycle import migration_connection
 from app.factory import create_app
 from app.models import Purpose, ServiceHour, ServiceSetting, StaffPurpose, User
 from app.repositories import users
@@ -74,7 +75,7 @@ async def mysql_engine(request):
         )
         # Replace Base.metadata.create_all() with alembic upgrade head.
         # This exercises the full migration path on every integration test run.
-        async with engine.begin() as async_conn:
+        async with migration_connection(engine) as async_conn:
             await async_conn.run_sync(_run_alembic_upgrade)
         yield engine
     finally:
