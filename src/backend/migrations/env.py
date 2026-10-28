@@ -31,6 +31,7 @@ from sqlalchemy import Connection
 from sqlalchemy.engine import URL, make_url
 
 from app.core.database import create_database_engine
+from app.core.schema_lifecycle import migration_connection
 
 # Import the full model registry so that all 11 tables are registered on
 # Base.metadata before autogenerate or upgrade inspects it.
@@ -112,10 +113,11 @@ async def run_migrations_online_async() -> None:
     url = _database_url()
     connectable = create_database_engine(url)
 
-    async with connectable.connect() as connection:
-        await connection.run_sync(_run_migrations_with_connection)
-
-    await connectable.dispose()
+    try:
+        async with migration_connection(connectable) as connection:
+            await connection.run_sync(_run_migrations_with_connection)
+    finally:
+        await connectable.dispose()
 
 
 def run_migrations_online() -> None:
@@ -124,7 +126,8 @@ def run_migrations_online() -> None:
     If config.attributes["connection"] is set, the caller has already opened a
     connection (e.g., a test fixture's async connection run via run_sync).  In
     that case we use that connection directly so the migration runs inside the
-    caller's session/schema context.
+    caller's session/schema context. Production callers must use migration_connection
+    to hold the schema lifecycle lock through the outer version-table commit.
 
     Otherwise we create a fresh async engine from DATABASE_URL and run it via
     asyncio.run() to properly handle the async context.
