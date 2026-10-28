@@ -148,6 +148,32 @@ beforeEach(() => {
 });
 
 describe('proposal panel confirmations and authoritative reads', () => {
+  it('keeps keyboard focus inside confirmation after a dispatched CSRF rejection and refresh', async () => {
+    mock.services.createProposal.mockImplementationOnce(async (_id, _body, _key, options) => {
+      options.onDispatch();
+      throw new ApiError('INVALID_CSRF', 403);
+    });
+    const { onRefresh } = panel();
+    const controls = await reviewStaff();
+    const dialog = screen.getByRole('dialog');
+    const confirm = within(dialog).getByRole('button', { name: 'Xác nhận gửi đề xuất' });
+    const back = within(dialog).getByRole('button', { name: 'Quay lại' });
+    await controls.click(confirm);
+    await waitFor(() => expect(confirm).toBeEnabled());
+    expect(within(dialog).getByRole('alert')).toBeVisible();
+    expect(onRefresh).toHaveBeenCalled();
+    expect(mock.services.createProposal).toHaveBeenCalledTimes(1);
+    expect(proposalIntents.get(STAFF, 'STAFF', APPOINTMENT)).toBeNull();
+    expect(confirm).toHaveFocus();
+    await controls.tab({ shift: true });
+    expect(back).toHaveFocus();
+    await controls.tab();
+    expect(confirm).toHaveFocus();
+    await controls.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Xem lại đề xuất' })).toHaveFocus();
+  });
+
   it('lets a slow authorized read finish instead of aborting it on every polling interval', async () => {
     vi.useFakeTimers();
     let complete!: (value: ProposalHistoryPage) => void;
@@ -360,7 +386,7 @@ describe('proposal recovery through component lifecycle', () => {
     );
     panel();
     const retry = await screen.findByRole('button', { name: 'Thử lại thao tác đã gửi' });
-    expect(screen.queryByRole('button', { name: 'Thay thế đề xuất' })).toBeDisabled();
+    expect(await screen.findByRole('button', { name: 'Thay thế đề xuất' })).toBeDisabled();
     await controls.click(retry);
     await waitFor(() => expect(mock.services.createProposal).toHaveBeenCalledTimes(2));
     const second = mock.services.createProposal.mock.calls[1];
@@ -372,6 +398,7 @@ describe('proposal recovery through component lifecycle', () => {
   it('keeps a confirmed operation until a failed current-detail read succeeds and never resubmits it', async () => {
     const onRefresh = vi
       .fn()
+      .mockResolvedValueOnce(appointment)
       .mockRejectedValueOnce(new ApiError('NETWORK_ERROR'))
       .mockResolvedValue(appointment);
     panel(onRefresh);
@@ -387,7 +414,7 @@ describe('proposal recovery through component lifecycle', () => {
     await controls.click(screen.getByRole('button', { name: 'Làm mới đề xuất' }));
     await waitFor(() => expect(proposalIntents.get(STAFF, 'STAFF', APPOINTMENT)).toBeNull());
     expect(mock.services.createProposal).toHaveBeenCalledTimes(1);
-    expect(onRefresh).toHaveBeenCalledTimes(2);
+    expect(onRefresh).toHaveBeenCalledTimes(3);
   });
 
   it('requires a new explicit confirmation after a stale precondition rejection instead of silently rebasing', async () => {
@@ -474,7 +501,7 @@ describe('proposal recovery through component lifecycle', () => {
     expect(screen.queryByLabelText('Phục hồi thao tác đổi lịch')).not.toBeInTheDocument();
     await act(async () => resolveDecision({ id: PENDING, status: 'ACCEPTED' }));
     expect(await screen.findByText('Hiện không có đề xuất đang chờ phản hồi.')).toBeVisible();
-    expect(view.onRefresh).toHaveBeenCalledTimes(1);
+    expect(view.onRefresh).toHaveBeenCalledTimes(2);
     proposalIntents.bindAccount(STUDENT, 'STUDENT');
     expect(proposalIntents.get(STUDENT, 'STUDENT', APPOINTMENT)?.phase).toBe('unknown');
   });

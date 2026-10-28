@@ -30,6 +30,7 @@ export function ProposalConfirmation({
   }, []);
   useEffect(() => {
     if (busy) dialog.current?.focus();
+    else confirm.current?.focus();
   }, [busy]);
   function handleKey(event: KeyboardEvent<HTMLElement>) {
     if (event.key === 'Escape') {
@@ -45,6 +46,11 @@ export function ProposalConfirmation({
     }
     const first = controls[0];
     const last = controls[controls.length - 1];
+    if (!Array.from(controls).some((control) => control === document.activeElement)) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+      return;
+    }
     if (event.shiftKey && document.activeElement === first) {
       event.preventDefault();
       last.focus();

@@ -119,7 +119,10 @@ export function useProposals({
         if (
           forceDetail ||
           pendingIntent?.phase === 'confirmed' ||
-          (lastContext.current !== null && lastContext.current !== nextContext) ||
+          // The first history snapshot can already include an accepted change
+          // whose status matches the older detail. Synchronize before publishing
+          // its context so actions cannot combine fresh preconditions with old values.
+          lastContext.current !== nextContext ||
           data.history.context.appointmentStatus !== appointmentStatus.current
         )
           await onRefreshRef.current(signal);

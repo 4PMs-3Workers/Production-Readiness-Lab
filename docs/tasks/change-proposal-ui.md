@@ -139,29 +139,42 @@ Python 3.12.14, MySQL 8.4.11, Playwright Chromium. Browser E2E chạy timezone
 `America/Los_Angeles` để kiểm tra giờ nghiệp vụ Việt Nam độc lập browser.
 Dependencies cục bộ đã được đối chiếu với manifest/lockfile; không thay đổi pins.
 
-| Kiểm tra                         | Kết quả local                                                          |
-| -------------------------------- | ---------------------------------------------------------------------- |
-| Frontend format                  | Pass toàn bộ phạm vi của script `format:check`.                        |
-| Lint                             | Pass với ESLint/Next plugin đúng lockfile.                             |
-| Typecheck + production API build | Pass với Next.js 16.4.1.                                               |
-| Unit/component                   | **343 passed, 0 failed** / 34 files; `--maxWorkers=4`.                 |
-| Bộ mới cho #32                   | 37 service tests, 31 recovery/time tests, 17 component tests.          |
-| Harness Python                   | Black và Ruff pass.                                                    |
-| npm audit toàn lockfile          | **0 vulnerabilities**.                                                 |
-| Real API desktop/mobile E2E      | **74 passed, 0 failed, 0 skipped** (13,5 phút); gồm 14 ca mới cho #32. |
+| Kiểm tra                         | Kết quả local                                                                         |
+| -------------------------------- | ------------------------------------------------------------------------------------- |
+| Frontend format                  | Pass toàn bộ phạm vi của script `format:check`.                                       |
+| Lint                             | Pass với ESLint/Next plugin đúng lockfile.                                            |
+| Typecheck + production API build | Pass với Next.js 16.4.1.                                                              |
+| Unit/component                   | **349 passed, 0 failed** / 36 files; `--maxWorkers=4`.                                |
+| Bộ mới cho #32                   | 37 service tests, 31 recovery/time tests, 23 component tests.                         |
+| Harness Python                   | Black và Ruff pass.                                                                   |
+| npm audit toàn lockfile          | **0 vulnerabilities**.                                                                |
+| Real API desktop/mobile E2E      | Baseline trước sửa review: **74 passed, 0 failed, 0 skipped**; gồm 14 ca mới cho #32. |
 
-Lượt review source độc lập và audit acceptance không còn finding cần sửa sau
-các điều chỉnh. Kết quả local không thay GitHub CI hoặc approval của maintainer.
+Review PR ngày 26/10 phát hiện hai đường đi chưa được bộ test ban đầu bao phủ.
+Bản sửa đồng bộ chi tiết lịch ngay ở snapshot lịch sử đầu tiên trước khi mở
+thao tác, kể cả status vẫn là `UPCOMING`; lỗi tải chi tiết giữ panel ở trạng thái
+lỗi cho đến khi thử lại thành công. Khi confirmation hết busy, focus trở về nút
+xác nhận; Tab và Shift+Tab cũng được giữ trong hộp thoại khi focus ở container.
+Sáu regression tests mới tái hiện lỗi trên source cũ và pass sau sửa: hai portal
+với response ordering/giữ nguyên địa điểm, hai portal với lỗi tải chi tiết rồi
+thử lại, busy lifecycle và dispatched `INVALID_CSRF` với refresh thành công.
+Các test portal dùng `ApiProvider`, `ApiServices` và component thật với HTTP
+fetcher có kiểm soát; đây là component tests, không phải real-backend E2E.
+Lần chạy lại E2E local ngày 28/10 dừng trước test vì Windows Application Control
+chặn DLL `asyncmy`; không tính là pass hoặc skip. Kiểm tra real API cho bản sửa
+được giao cho GitHub CI trên đúng SHA head của PR.
+Kết quả local không thay GitHub CI hoặc approval của maintainer.
 
 Ảnh dùng hoàn toàn fixture giả, không chứa password, cookie, token hay nội dung
-tư vấn. Bộ ảnh được commit cùng source để reviewer mở được từ PR; báo cáo đầy đủ
-của Playwright tiếp tục là CI artifact. Bộ 14 ca mới cũng được chạy lại trên
-production build cuối. Issue vẫn chờ review/merge/nghiệm thu; reviewer đối chiếu
-CI trên đúng SHA head của PR.
+tư vấn. Theo yêu cầu review, ảnh minh chứng được giữ ngoài Git; vị trí xuất bản
+cho reviewer là phần ảnh nhúng trực tiếp trong mô tả
+[PR #41](https://github.com/4PMs-3Workers/Production-Readiness-Lab/pull/41), dùng
+GitHub attachments với caption ghi viewport và trạng thái. Phần upload attachment
+vẫn chờ hoàn tất vì công cụ trình duyệt dừng trước khi tải ảnh lên. Bản sao tám ảnh
+còn ở `build/issue32-review-screenshots/`; đường dẫn local không thay bằng chứng
+đã xuất bản. Không tham chiếu ảnh đã bỏ khỏi repository.
 
-| Trạng thái                                                      | Desktop                                                       | Mobile                                                       |
-| --------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------ |
-| Staff: đã thay đề xuất, lịch gốc còn giữ chỗ                    | [Ảnh](images/change-proposal-ui/staff-desktop.png)            | [Ảnh](images/change-proposal-ui/staff-mobile.png)            |
-| Sinh viên: đối chiếu lịch gốc và đề xuất đang chờ               | [Ảnh](images/change-proposal-ui/student-pending-desktop.png)  | [Ảnh](images/change-proposal-ui/student-pending-mobile.png)  |
-| Sinh viên: đã chấp nhận, giờ và địa điểm đã cập nhật            | [Ảnh](images/change-proposal-ui/student-accepted-desktop.png) | [Ảnh](images/change-proposal-ui/student-accepted-mobile.png) |
-| Worker: proposal hết hạn, appointment đã hủy trên trang đang mở | [Ảnh](images/change-proposal-ui/worker-expired-desktop.png)   | [Ảnh](images/change-proposal-ui/worker-expired-mobile.png)   |
+Bộ ảnh gồm bốn trạng thái, mỗi trạng thái có desktop và mobile: staff thay đề
+xuất, sinh viên xem đề xuất đang chờ, lịch đã chấp nhận thay đổi và worker xử lý
+hết hạn khi trang đang mở. Báo cáo Playwright giữ ảnh đính kèm trong CI artifact.
+Issue vẫn chờ review/merge/nghiệm thu; reviewer đối chiếu CI trên đúng SHA head.
