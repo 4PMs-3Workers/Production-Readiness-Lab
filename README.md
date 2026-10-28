@@ -46,6 +46,12 @@ Sinh viên và nhân viên xem hộp thư riêng tại `/notifications` và `/st
 Inbox phân trang, lọc thông báo chưa đọc và lưu trạng thái đọc qua API; quyền đọc/link lịch
 được xác minh theo session ở backend. Xem [hợp đồng hộp thư thông báo](docs/tasks/notification-inbox.md).
 
+Đề xuất đổi lịch được thao tác ngay trong `/staff/appointments/[id]` và
+`/appointments/[id]`: staff tạo/thay đề xuất; sinh viên xem lịch gốc, hạn phản hồi
+và xác nhận chấp nhận/từ chối. Thao tác chưa rõ kết quả có thể phục hồi sau reload
+trong cùng tab/tài khoản. Xem [giao diện đổi lịch](docs/tasks/change-proposal-ui.md)
+cho cách chạy, giới hạn storage và kiểm thử cùng worker.
+
 Chi tiết trạng thái, ràng buộc và giao dịch nằm trong [thiết kế cơ sở dữ liệu](docs/architecture/database-design.md).
 
 ## Công nghệ
@@ -143,6 +149,7 @@ Production-Readiness-Lab/
 | [Đặt lịch appointment](docs/tasks/appointment-booking.md)                       | API tạo lịch, xem chi tiết, idempotency và khôi phục khi mất phản hồi.             |
 | [Khả năng tiếp nhận của nhân viên](docs/tasks/staff-availability-management.md) | API nhu cầu tiếp nhận/khoảng không nhận, CSRF, khóa với booking và phục hồi retry. |
 | [Đề nghị đổi lịch](docs/tasks/appointment-change-proposals.md)                  | API staff/student, replay/precondition, migration và shared expiry transition.     |
+| [Giao diện đề xuất đổi lịch](docs/tasks/change-proposal-ui.md) | Issue #32: lịch sử/context, tạo/thay, quyết định, phục hồi reload và E2E thật. |
 | [Worker hết hạn đề nghị](docs/tasks/change-proposal-expiry-worker.md) | Lệnh chạy process riêng, heartbeat/backlog, shutdown và phục hồi sau crash. |
 | [Demo Docker Compose](docs/tasks/containerized-demo.md) | Tạo secret/env ngoài repo, build, migrate, seed opt-in, vận hành gateway và giữ volume. |
 | [Lịch sử và quản lý lịch hẹn](docs/tasks/student-appointment-management.md)     | API lịch sử, ngữ cảnh ngày đặt, hủy lịch và hành vi retry.                         |

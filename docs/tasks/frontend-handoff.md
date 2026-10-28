@@ -4,6 +4,12 @@
 > mặc định; đăng nhập, lịch sử, phân trang và hủy sử dụng backend thật. Xem
 > [frontend API integration](frontend-api-integration.md) cho cách chạy hiện tại.
 
+> Issue #32 bổ sung đề xuất đổi lịch ở chi tiết student/staff, lịch sử phân trang,
+> xác nhận quyết định và phục hồi thao tác qua reload. Xem
+> [bàn giao change proposal UI](change-proposal-ui.md) cho API, storage/account,
+> worker dependency và bằng chứng kiểm thử hiện tại. Các mốc mock dưới đây giữ
+> nguyên ngày và phạm vi lịch sử.
+
 Đối chiếu [issue #7](https://github.com/4PMs-3Workers/Production-Readiness-Lab/issues/7)
 ngày **15/10/2026**. Người dùng đã duyệt bước commit/push các thay đổi mốc 3–7.
 PR mới và việc upload ảnh vẫn chờ thực hiện; chưa xác nhận CI, approval hoặc merge

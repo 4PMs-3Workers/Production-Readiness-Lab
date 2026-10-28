@@ -14,6 +14,7 @@ import { ApiServices } from '@/services/api/client';
 import { ApiError } from '@/services/api/errors';
 import { BookingIntentStore } from '@/services/api/booking-intent';
 import { StaffChangeIntentStore } from '@/services/api/staff-change-intent';
+import { ProposalIntentStore } from '@/services/api/proposal-intent';
 import type { LoginCredentials, ServiceRequestOptions } from '@/services/contracts';
 import type { SessionUser } from '@/types/api';
 
@@ -25,6 +26,7 @@ interface ApiContextValue {
   services: ApiServices;
   intents: BookingIntentStore;
   staffChanges: StaffChangeIntentStore;
+  proposalIntents: ProposalIntentStore;
   session: Session;
   revision: number;
   refreshSession: () => Promise<void>;
@@ -43,6 +45,7 @@ export function ApiProvider({
   const [services] = useState(() => supplied ?? new ApiServices());
   const [intents] = useState(() => new BookingIntentStore());
   const [staffChanges] = useState(() => new StaffChangeIntentStore());
+  const [proposalIntents] = useState(() => new ProposalIntentStore());
   const [session, setSession] = useState<Session>({ status: 'loading' });
   const [revision, setRevision] = useState(0);
   const previousUser = useRef<SessionUser | null>(null);
@@ -53,9 +56,10 @@ export function ApiProvider({
       if (preserveUnknown) intents.suspendForSessionLoss();
       else intents.clear();
       staffChanges.clearAll();
+      proposalIntents.suspend();
       setRevision((value) => value + 1);
     },
-    [services, intents, staffChanges],
+    [services, intents, staffChanges, proposalIntents],
   );
   const acceptUser = useCallback(
     (user: SessionUser) => {
@@ -67,9 +71,12 @@ export function ApiProvider({
       )
         clearPrivate();
       previousUser.current = user;
+      if (user.role === 'STUDENT' || user.role === 'STAFF')
+        proposalIntents.bindAccount(user.id, user.role);
+      else proposalIntents.suspend();
       setSession({ status: 'authenticated', user });
     },
-    [clearPrivate, intents],
+    [clearPrivate, intents, proposalIntents],
   );
   const refreshSession = useCallback(async () => {
     services.clearSession();
@@ -109,8 +116,9 @@ export function ApiProvider({
       controller.abort();
       services.setInvalidSessionHandler();
       services.clearSession();
+      proposalIntents.suspend();
     };
-  }, [services, clearPrivate, acceptUser]);
+  }, [services, clearPrivate, acceptUser, proposalIntents]);
 
   // Verify identity when returning from another tab. Hide old private UI while checking.
   useEffect(() => {
@@ -159,7 +167,17 @@ export function ApiProvider({
   }
   return (
     <ApiContext.Provider
-      value={{ services, intents, staffChanges, session, revision, refreshSession, login, logout }}
+      value={{
+        services,
+        intents,
+        staffChanges,
+        proposalIntents,
+        session,
+        revision,
+        refreshSession,
+        login,
+        logout,
+      }}
     >
       {children}
     </ApiContext.Provider>
