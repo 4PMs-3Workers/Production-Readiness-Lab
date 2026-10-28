@@ -91,6 +91,8 @@ async def execute(argv: Sequence[str] | None) -> int:
                 foreign_keys_checked=verified["foreign_keys_checked"],
                 generated_columns_checked=verified["generated_columns_checked"],
                 utc_verified=verified["utc_verified"],
+                table_counts=verified["table_counts"],
+                schema_sha256=verified["schema_sha256"],
                 application_rehearsal_verified=False,
             )
         elif operation == "inspect":

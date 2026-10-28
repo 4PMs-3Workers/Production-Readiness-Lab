@@ -1,0 +1,59 @@
+name: MySQL recovery
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: ['feature/**', 'fixbug/**', 'hotfix/**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mysql-recovery-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  recovery:
+    name: Verified isolated application recovery
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CI: 'true'
+      NEXT_TELEMETRY_DISABLED: '1'
+      RUN_BACKUP_REHEARSAL: '1'
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install backend and rehearsal dependencies
+        run: |
+          python -m pip install -r requirements-dev.txt
+          python -m pip install -e .
+      - name: Require local Docker and Compose
+        run: |
+          docker info --format '{{.ServerVersion}}'
+          docker compose version
+      - name: Check recovery harness formatting and lint
+        run: |
+          python -m black --check tools/backup tests/recovery
+          python -m ruff check tools/backup tests/recovery
+      - name: Required real service recovery with zero skipped tests
+        run: |
+          python -m pytest tests/recovery -q --tb=short --junitxml=build/recovery-tests.xml
+          python - <<'PY'
+          from xml.etree import ElementTree
+          root = ElementTree.parse("build/recovery-tests.xml").getroot()
+          if sum(int(suite.get("skipped", "0")) for suite in root.iter("testsuite")):
+              raise SystemExit("Required recovery acceptance skipped")
+          PY
+      - name: Preserve sanitized recovery evidence only
+        uses: actions/upload-artifact@v7
+        with:
+          name: mysql-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/recovery-review/rehearsal.json
+          if-no-files-found: error
+          retention-days: 14
