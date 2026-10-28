@@ -31,5 +31,5 @@ async def test_capacity_failure_publishes_nothing_and_releases_source_locks(mysq
     with pytest.raises(BackupError) as error:
         await backup(config)
     assert error.value.reason == Reason.STORAGE
-    assert list(tmp_path.iterdir()) == []
+    assert [path.name for path in tmp_path.iterdir()] == [".operation.lock"]
     assert (await backup(replace(config, max_bytes=1000000))).state == "complete"

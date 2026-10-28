@@ -96,7 +96,13 @@ def _verify(
     expected = {"manifest.json", "COMPLETE"} | {
         f"{table.name}.jsonl" for table in manifest.source.tables
     }
-    if {path.name for path in directory.iterdir()} != expected:
+    actual = set()
+    with os.scandir(directory) as entries:
+        for entry in entries:
+            actual.add(entry.name)
+            if len(actual) > len(expected):
+                raise BackupError(Reason.INTEGRITY)
+    if actual != expected:
         raise BackupError(Reason.INTEGRITY)
     total = len(raw) + 64
     for table in manifest.source.tables:

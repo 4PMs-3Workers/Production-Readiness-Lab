@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from app.backup.config import BackupConfig, BackupError, Reason
+from app.backup.locking import operation_lock
 from app.backup.manifest import Manifest
 from app.backup.schema import open_source
 from app.backup.snapshot import consistent_snapshot, dump_tables, utc
@@ -14,6 +15,11 @@ from app.backup.storage import staging
 
 
 async def backup(config: BackupConfig) -> Manifest:
+    with operation_lock(config):
+        return await backup_locked(config)
+
+
+async def backup_locked(config: BackupConfig) -> Manifest:
     started = datetime.now(UTC)
     identity = "prl-backup-" + started.strftime("%Y%m%dT%H%M%SZ-") + uuid4().hex
     deadline = time.monotonic() + config.max_seconds

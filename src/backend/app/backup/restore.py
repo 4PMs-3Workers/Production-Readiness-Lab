@@ -9,12 +9,18 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.backup.config import BackupConfig, BackupError, Reason
 from app.backup.importing import create_tables, insert_rows
+from app.backup.locking import operation_lock
 from app.backup.storage import load_artifact
 from app.backup.target import empty_target
 from app.backup.verification import verify_database
 
 
 async def restore(config: BackupConfig, backup_id: str, target_database: str) -> dict:
+    with operation_lock(config):
+        return await restore_locked(config, backup_id, target_database)
+
+
+async def restore_locked(config: BackupConfig, backup_id: str, target_database: str) -> dict:
     deadline = time.monotonic() + config.max_seconds
     try:
         async with asyncio.timeout(config.max_seconds):
