@@ -67,8 +67,8 @@ async def empty_target(
                         count = (
                             await db.execute(
                                 text(
-                                f"SELECT COUNT(*) FROM information_schema.{catalog} "
-                                f"WHERE {field}=DATABASE()"
+                                    f"SELECT COUNT(*) FROM information_schema.{catalog} "
+                                    f"WHERE {field}=DATABASE()"
                                 )
                             )
                         ).scalar_one()

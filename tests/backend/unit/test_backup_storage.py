@@ -1,5 +1,6 @@
 import hashlib
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from tests.backend.unit.test_backup_manifest import sample_manifest
@@ -12,6 +13,14 @@ from app.backup.storage import load_artifact, staging, write_private
 def fixture_artifact(tmp_path):
     config = BackupConfig("mysql+asyncmy://x:private@host/prl", tmp_path, min_free_bytes=0)
     value = sample_manifest()
+    value["started_at"] = (
+        (datetime.now(UTC) - timedelta(seconds=1))
+        .isoformat(timespec="microseconds")
+        .replace("+00:00", "Z")
+    )
+    value["completed_at"] = (
+        datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    )
     for table in value["source"]["tables"]:
         row = (
             [value["source"]["revision"]]
@@ -75,3 +84,23 @@ def test_failed_or_overbudget_staging_never_appears_complete_and_keeps_other_pat
             owned.publish(value)
     assert other.is_dir() and not (tmp_path / value["backup_id"]).exists()
     assert not list(tmp_path.glob(".partial-*"))
+
+
+def test_completion_timestamp_includes_artifact_verification(tmp_path, monkeypatch):
+    from app.backup import storage
+    from app.backup.manifest import timestamp
+
+    config, value = fixture_artifact(tmp_path)
+    original = storage._verify
+    validated = []
+
+    def checked(*args, **kwargs):
+        result = original(*args, **kwargs)
+        validated.append(datetime.now(UTC))
+        return result
+
+    monkeypatch.setattr(storage, "_verify", checked)
+    with staging(config, value["backup_id"]) as owned:
+        populate(owned, value)
+        manifest = owned.publish(value)
+    assert timestamp(manifest.completed_at) >= validated[0]

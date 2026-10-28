@@ -6,6 +6,7 @@ import shutil
 import stat
 import time
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.backup.codec import MAX_RECORD_BYTES, decode_row
@@ -159,11 +160,27 @@ class Staging:
         write_private(self.path / "manifest.json", raw)
         write_private(self.path / "COMPLETE", hashlib.sha256(raw).hexdigest().encode())
         manifest = _verify(self.path, self.backup_id, self.config, deadline=deadline)
+        # Record completion after potentially expensive checksum/row verification.
+        value = manifest.model_dump(mode="json")
+        value["completed_at"] = (
+            datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
+        )
+        raw = manifest_bytes(value)
+        manifest = parse_manifest(raw)
+        capacity(self.root, len(raw) + 64, self.config.min_free_bytes)
+        write_private(self.path / "manifest.next", raw)
+        write_private(self.path / "COMPLETE.next", hashlib.sha256(raw).hexdigest().encode())
+        os.replace(self.path / "manifest.next", self.path / "manifest.json")
+        os.replace(self.path / "COMPLETE.next", self.path / "COMPLETE")
         sync_directory(self.path)
+        if deadline is not None and time.monotonic() >= deadline:
+            raise BackupError(Reason.TIMEOUT)
         os.rename(self.path, self.final)
         try:
             sync_directory(self.root)
-        except OSError:
+            if deadline is not None and time.monotonic() >= deadline:
+                raise BackupError(Reason.TIMEOUT)
+        except (OSError, BackupError):
             os.rename(self.final, self.path)
             raise
         self.published = True

@@ -4,6 +4,7 @@ import hashlib
 import re
 import time
 from collections import defaultdict
+from contextlib import aclosing
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -52,7 +53,9 @@ async def foreign_keys(db: AsyncConnection) -> int:
     return len(grouped)
 
 
-async def verify_database(db: AsyncConnection, manifest: Manifest, deadline: float) -> dict:
+async def verify_database(
+    db: AsyncConnection, manifest: Manifest, deadline: float, query_seconds: int = 30
+) -> dict:
     schema = await read_schema(db)
     if (schema.charset, schema.collation) != (manifest.source.charset, manifest.source.collation):
         raise BackupError(Reason.VALIDATION)
@@ -75,11 +78,12 @@ async def verify_database(db: AsyncConnection, manifest: Manifest, deadline: flo
         schema_hash.update(normalized_ddl(table.ddl).encode())
         generated += len(table.columns) - len(table.writable)
         digest, rows = hashlib.sha256(), 0
-        async for record in row_records(db, table):
-            if time.monotonic() >= deadline:
-                raise BackupError(Reason.TIMEOUT)
-            digest.update(record)
-            rows += 1
+        async with aclosing(row_records(db, table, query_seconds)) as records:
+            async for record in records:
+                if time.monotonic() >= deadline:
+                    raise BackupError(Reason.TIMEOUT)
+                digest.update(record)
+                rows += 1
         if (
             rows != manifest.files[table.name].rows
             or digest.hexdigest() != manifest.files[table.name].sha256

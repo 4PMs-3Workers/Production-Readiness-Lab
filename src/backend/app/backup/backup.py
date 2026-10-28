@@ -23,7 +23,12 @@ async def backup(config: BackupConfig) -> Manifest:
                 async with open_source(config) as (db, schema):
                     async with consistent_snapshot(db) as point:
                         files = await dump_tables(
-                            db, schema, owned.path, config.max_bytes, config.min_free_bytes
+                            db,
+                            schema,
+                            owned.path,
+                            config.max_bytes,
+                            config.min_free_bytes,
+                            config.query_seconds,
                         )
                 value = dict(
                     format="prl-mysql-jsonl",

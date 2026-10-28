@@ -28,7 +28,7 @@ async def restore(config: BackupConfig, backup_id: str, target_database: str) ->
                             db, manifest, config.store / backup_id, config.query_seconds, deadline
                         )
                         await db.execute(text("SET SESSION FOREIGN_KEY_CHECKS=1"))
-                        result = await verify_database(db, manifest, deadline)
+                        result = await verify_database(db, manifest, deadline, config.query_seconds)
                 finally:
                     try:
                         async with asyncio.timeout(5):
