@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.backup.backup import backup
-from app.backup.config import BackupError
+from app.backup.config import BackupError, Reason
 from app.backup.restore import restore
 
 pytestmark = pytest.mark.mysql
@@ -93,4 +93,44 @@ async def test_missing_native_backup_privilege_fails_without_publishing(
         assert not list(config.store.glob(".partial-*"))
     finally:
         async with mysql_engine.begin() as db:
+            await db.execute(text(f"DROP USER '{user}'@'%'"))
+
+
+async def test_backup_cannot_mistake_filtered_metadata_for_absent_triggers(
+    mysql_engine, recovery_config
+):
+    user = "backup_" + uuid4().hex[:20]
+    database = mysql_engine.url.database
+    async with mysql_engine.begin() as db:
+        await db.execute(text(f"CREATE USER '{user}'@'%' IDENTIFIED BY 'fictional-test-password'"))
+        await db.execute(text(f"GRANT SELECT ON `{database}`.* TO '{user}'@'%'"))
+        await db.execute(text(f"GRANT BACKUP_ADMIN ON *.* TO '{user}'@'%'"))
+    config = replace(
+        recovery_config,
+        database_url=mysql_engine.url.set(
+            username=user, password="fictional-test-password"
+        ).render_as_string(hide_password=False),
+    )
+    try:
+        with pytest.raises(BackupError) as error:
+            await backup(config)
+        assert error.value.reason == Reason.UNSUPPORTED
+        async with mysql_engine.begin() as db:
+            await db.execute(text(f"GRANT TRIGGER,EVENT ON `{database}`.* TO '{user}'@'%'"))
+            await db.execute(text(f"GRANT SHOW_ROUTINE ON *.* TO '{user}'@'%'"))
+        manifest = await backup(config)
+        async with mysql_engine.begin() as db:
+            await db.execute(
+                text(
+                    "CREATE TRIGGER unsupported_trigger BEFORE UPDATE ON users "
+                    "FOR EACH ROW SET NEW.name=NEW.name"
+                )
+            )
+        with pytest.raises(BackupError) as error:
+            await backup(config)
+        assert error.value.reason == Reason.UNSUPPORTED
+        assert [path.name for path in config.store.glob("prl-backup-*")] == [manifest.backup_id]
+    finally:
+        async with mysql_engine.begin() as db:
+            await db.execute(text("DROP TRIGGER IF EXISTS unsupported_trigger"))
             await db.execute(text(f"DROP USER '{user}'@'%'"))

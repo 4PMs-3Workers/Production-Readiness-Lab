@@ -377,6 +377,15 @@ def run(scratch: Path) -> dict:
         created = True
         stage("build_and_start_reviewed_source")
         source.start()
+        # Existing-volume onboarding must also work without bootstrap reexecution.
+        provision = (DEPLOY / "mysql/provision-backup.sh").read_text(encoding="utf-8")
+        for _ in range(2):
+            require_success(
+                source.compose(
+                    "exec", "-T", "mysql", "bash", "-s", input_text=provision, timeout=45
+                ),
+                "Explicit least-privilege backup identity provisioning failed",
+            )
         source_images = images(source)
         source.env["PRL_BACKEND_IMAGE_ID"] = source_images["api"]
         persisted = book(source)
@@ -415,8 +424,9 @@ def run(scratch: Path) -> dict:
         recovered.sql(
             f"CREATE DATABASE `{recovered.database}` "
             "CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
-            "GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,DROP,INDEX,REFERENCES "
+            "GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,DROP,INDEX,REFERENCES,TRIGGER,EVENT "
             f"ON `{recovered.database}`.* TO 'prl_migration'@'%';"
+            "GRANT SHOW_ROUTINE ON *.* TO 'prl_migration'@'%';"
         )
         stage("restore_and_verify")
         validation = recovered.operation(

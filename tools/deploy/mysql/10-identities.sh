@@ -27,8 +27,8 @@ create_identity prl_seed "$PRL_SEED_PASSWORD"
 if [ -n "${PRL_BACKUP_PASSWORD:-}" ]; then
     create_identity prl_backup "$PRL_BACKUP_PASSWORD"
     mysql_process_sql <<'SQL'
-GRANT SELECT ON prl.* TO 'prl_backup'@'%';
-GRANT BACKUP_ADMIN ON *.* TO 'prl_backup'@'%';
+GRANT SELECT, TRIGGER, EVENT ON prl.* TO 'prl_backup'@'%';
+GRANT BACKUP_ADMIN, SHOW_ROUTINE ON *.* TO 'prl_backup'@'%';
 SQL
 fi
 mysql_process_sql <<'SQL'

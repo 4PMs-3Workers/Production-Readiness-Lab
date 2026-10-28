@@ -646,6 +646,14 @@ Migration được rà soát FK/CHECK/UNIQUE, generated column, collation và ch
 
 Backup bao gồm schema, dữ liệu và phiên bản migration; ghi thời điểm backup và release tương ứng. Restore thử vào database riêng, đối chiếu lịch mẫu, số bản ghi, FK/CHECK/UNIQUE và quy ước UTC. RPO được đối chiếu từ thời điểm dữ liệu khôi phục; RTO được đo từ lúc bắt đầu xử lý phục hồi đến khi dịch vụ được xác minh hoạt động.
 
+Triển khai #36 dùng một InnoDB consistent read view dưới native backup lock và
+schema lifecycle guard chung với deploy; artifact JSONL/manifest/checksum được hoàn
+tất nguyên tử trên storage riêng. Restore chỉ nhận tên database khác đang rỗng và
+verify toàn bộ dữ liệu/schema trước khi chạy API/frontend/gateway/worker tách biệt.
+[Handoff](../tasks/mysql-backup-restore.md) và [runbook](../tasks/mysql-recovery-runbook.md)
+ghi lịch/retention, quyền, failure handling và evidence RPO range/RTO đến real smoke.
+Đây chưa phải live cutover, PITR, replication hoặc khả năng sống sót khi mất host.
+
 Máy chủ đơn có thể gián đoạn khi deploy. Zero downtime hoặc chịu lỗi toàn bộ máy chủ yêu cầu kiến trúc và bài nghiệm thu bổ sung.
 
 ### 9.5. Diễn tập sự cố

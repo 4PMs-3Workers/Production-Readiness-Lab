@@ -8,6 +8,7 @@ from tests.backend.integration.test_change_proposals import create, payload
 from tests.backend.integration.test_student_cancellation import seed
 from tests.backend.integration.test_student_profile_migration import migrate
 
+from app.core.schema_lifecycle import migration_connection
 from app.models import Appointment, ChangeProposal
 
 
@@ -29,7 +30,7 @@ async def test_upgrade_preserves_legacy_pending_history_without_inventing_keys(
         await db.flush()
         proposal_id = proposal.id
     engine = env.factory.kw["bind"]
-    async with engine.begin() as connection:
+    async with migration_connection(engine) as connection:
         await connection.run_sync(
             lambda db: migrate(db, "20261017_2350_student_profile", downgrade=True)
         )
@@ -55,7 +56,7 @@ async def test_receipt_cannot_be_downgraded_and_partial_metadata_is_rejected(
     first, _ = await create(env, identifier, payload(start), auth_settings)
     engine = env.factory.kw["bind"]
     with pytest.raises(RuntimeError, match="durable receipts"):
-        async with engine.begin() as connection:
+        async with migration_connection(engine) as connection:
             await connection.run_sync(
                 lambda db: migrate(db, "20261017_2350_student_profile", downgrade=True)
             )

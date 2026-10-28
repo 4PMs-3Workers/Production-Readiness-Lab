@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.backup.config import BackupConfig, BackupError, Reason, database_name, identifier
 from app.backup.manifest import Manifest
+from app.backup.schema import require_metadata_visibility
 from app.core.database import create_database_engine
 from app.core.schema_lifecycle import SchemaLifecycleBusy, schema_lifecycle
 
@@ -40,6 +41,7 @@ async def empty_target(
         async with engine.connect() as db:
             async with schema_lifecycle(db, config.lock_seconds):
                 async with asyncio.timeout(config.query_seconds):
+                    await require_metadata_visibility(db)
                     name, version, zone = (
                         await db.execute(text("SELECT DATABASE(), VERSION(), @@session.time_zone"))
                     ).one()

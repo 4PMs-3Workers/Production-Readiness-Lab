@@ -665,6 +665,15 @@ Seed bắt buộc tạo `service_settings(id = 1)` với múi giờ hợp lệ, 
 - Backup ghi thời điểm, phiên bản schema và release tương ứng. Restore vào database riêng, đối chiếu dữ liệu mẫu, FK/CHECK/UNIQUE và giờ UTC trước khi xác nhận khả năng phục hồi.
 - Mọi thay đổi schema cần migration có phiên bản và kế hoạch triển khai tương thích. Không dùng `create_all` để nâng cấp schema đang phục vụ người dùng.
 
+Backup/restore #36 dùng cùng schema lifecycle guard với Alembic online; caller
+programmatic phải giữ `migration_connection` đến sau version-table commit.
+Backup dùng native DDL protection và một read-only REPEATABLE READ snapshot cho
+tất cả bảng, gồm `alembic_version`; count/hash lấy từ snapshot, không đối chiếu live
+counts sau đó. Target phải có tên khác, rỗng và tương thích release/schema/UTC/
+charset. Native DDL, generated columns và mọi rows được verify trước success;
+restore lỗi giữ target để quarantine, không tự seed/downgrade/drop rồi thử lại.
+Xem [hợp đồng và evidence](../tasks/mysql-backup-restore.md).
+
 Khi mở lại thời gian không nhận, xóa bản ghi và giữ audit trong cùng transaction. Thời hạn giữ telemetry được quản lý riêng với dữ liệu nghiệp vụ.
 
 ## 9. Kiểm chứng thiết kế

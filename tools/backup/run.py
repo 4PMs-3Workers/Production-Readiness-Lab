@@ -146,7 +146,15 @@ def main() -> int:
         for report in reports:
             print(json.dumps(report, sort_keys=True, allow_nan=False), flush=True)
         return 0 if result.returncode == 0 else 1
-    except (JobFailure, OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired):
+    except (
+        JobFailure,
+        OSError,
+        ValueError,
+        KeyError,
+        TypeError,
+        AttributeError,
+        subprocess.TimeoutExpired,
+    ):
         print(json.dumps(dict(operation="scheduled", success=False, reason="HOST_JOB_FAILED")))
         return 1
     finally:

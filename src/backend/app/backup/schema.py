@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -53,6 +54,34 @@ class SourceSchema:
     collation: str
     database: str
     tables: tuple[TableSchema, ...]
+
+
+async def require_metadata_visibility(db: AsyncConnection) -> None:
+    """An empty filtered catalog is not evidence that unsupported objects are absent.
+
+    Support explicit direct grants. Refuse role-only or partially revoked grant
+    configurations rather than infer metadata visibility from an empty result.
+    """
+    database = (await db.execute(text("SELECT DATABASE()"))).scalar_one()
+    grants = (await db.execute(text("SHOW GRANTS FOR CURRENT_USER"))).scalars().all()
+    global_privileges: set[str] = set()
+    schema_privileges: set[str] = set()
+    for grant in grants:
+        if grant.startswith("REVOKE "):
+            raise BackupError(Reason.UNSUPPORTED)
+        match = re.match(r"GRANT (.+?) ON (.+?) TO ", grant)
+        if match is None:
+            continue
+        privileges = {value.strip() for value in match[1].split(",")}
+        if match[2] == "*.*":
+            global_privileges.update(privileges)
+        if match[2] == f"`{database}`.*":
+            schema_privileges.update(privileges)
+    visible = global_privileges | schema_privileges
+    if ("ALL PRIVILEGES" not in visible and not {"TRIGGER", "EVENT"} <= visible) or not (
+        {"ALL PRIVILEGES", "SELECT", "SHOW_ROUTINE"} & global_privileges
+    ):
+        raise BackupError(Reason.UNSUPPORTED)
 
 
 async def read_schema(db: AsyncConnection) -> SourceSchema:
@@ -173,6 +202,7 @@ async def open_source(config: BackupConfig) -> AsyncIterator[tuple[AsyncConnecti
                         )
                         await db.execute(text("LOCK INSTANCE FOR BACKUP"))
                         locked = True
+                        await require_metadata_visibility(db)
                         schema = await read_schema(db)
                         await db.rollback()
                     yield db, schema

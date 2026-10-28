@@ -499,6 +499,23 @@ Bằng chứng nghiệm thu gồm cấu hình môi trường, commit/image diges
 
 Cấu hình stack local/demo, các dashboard, bằng chứng nghiệm thu và giới hạn đã biết nằm trong [handoff observability](docs/tasks/observability-foundation.md). Dùng [runbook cảnh báo](docs/tasks/observability-runbook.md) cho truy vấn, TLS, redaction và quy trình recovery.
 
+## MySQL backup và recovery (Issue #36)
+
+Backup online MySQL 8.4/InnoDB giữ schema, dữ liệu và Alembic revision trong cùng
+snapshot, có manifest/checksum và completion nguyên tử. Restore bắt buộc database
+riêng rỗng, verify toàn bộ schema/rows/ràng buộc trước khi chạy smoke ứng dụng thật.
+Lịch Linux, retention giữ last success, status JSON, quyền và cấu hình external
+nằm trong [handoff backup/restore](docs/tasks/mysql-backup-restore.md) và
+[recovery runbook](docs/tasks/mysql-recovery-runbook.md).
+
+Diễn tập lặp lại trên checkout sạch: `python -m tools.backup.rehearsal` sau khi cài
+dependencies và chuẩn bị Docker/Compose local. Công cụ tạo source giả/target UUID
+riêng bằng môi trường #34, chạy real gateway login/read/book/cancel/replay/logout,
+đo RPO/RTO đến smoke pass và dọn đúng tài nguyên của bài giả. Không dùng đường này
+để cutover database thật. [Evidence lịch sử](docs/evidence/mysql-backup-restore/2026-10-28-rehearsal.json)
+và workflow `MySQL recovery` cung cấp kết quả kiểm chứng; payload backup/credentials
+không được publish.
+
 ## Đóng góp
 
 Nền tảng xác thực backend (Issue #5) cung cấp `POST /api/v1/auth/login`,

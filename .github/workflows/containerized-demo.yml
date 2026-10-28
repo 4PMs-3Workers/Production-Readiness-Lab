@@ -55,7 +55,7 @@ jobs:
       - name: Check workflow and Compose formatting
         run: >-
           npx --no-install prettier --check --ignore-path .prettierignore
-          .github/workflows/containerized-demo.yml tools/deploy/*.yaml
+          .github/workflows/containerized-demo.yml .github/workflows/mysql-recovery.yml tools/deploy/*.yaml
 
       - name: Confirm local Docker and Compose are available
         run: |
