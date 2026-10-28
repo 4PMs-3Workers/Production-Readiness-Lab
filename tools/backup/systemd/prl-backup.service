@@ -1,0 +1,25 @@
+[Unit]
+Description=Verified PRL MySQL backup and conservative retention
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/prl/backup-job.env
+WorkingDirectory=/opt/production-readiness-lab
+ExecStart=/usr/bin/python3 -m tools.backup.run
+# Includes backup, validation and retention; job cleanup is bounded separately.
+TimeoutStartSec=1400
+TimeoutStopSec=60
+MemoryMax=256M
+CPUQuota=50%
+TasksMax=64
+UMask=0077
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

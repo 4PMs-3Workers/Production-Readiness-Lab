@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily PRL backup schedule (override OnCalendar in a drop-in)
+
+[Timer]
+OnCalendar=*-*-* 02:00:00 UTC
+RandomizedDelaySec=5m
+Persistent=true
+Unit=prl-backup.service
+
+[Install]
+WantedBy=timers.target
