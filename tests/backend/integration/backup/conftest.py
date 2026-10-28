@@ -5,8 +5,11 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
+from tests.backend.integration.test_mysql_models import graph
 
 from app.backup.config import BackupConfig
+
+__all__ = ["graph"]
 
 
 @pytest_asyncio.fixture
