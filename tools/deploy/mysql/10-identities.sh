@@ -24,6 +24,13 @@ SQL
 create_identity prl_migration "$PRL_MIGRATION_PASSWORD"
 create_identity prl_runtime "$PRL_RUNTIME_PASSWORD"
 create_identity prl_seed "$PRL_SEED_PASSWORD"
+if [ -n "${PRL_BACKUP_PASSWORD:-}" ]; then
+    create_identity prl_backup "$PRL_BACKUP_PASSWORD"
+    mysql_process_sql <<'SQL'
+GRANT SELECT ON prl.* TO 'prl_backup'@'%';
+GRANT BACKUP_ADMIN ON *.* TO 'prl_backup'@'%';
+SQL
+fi
 mysql_process_sql <<'SQL'
 GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, INDEX, REFERENCES ON prl.* TO 'prl_migration'@'%';
 SQL
