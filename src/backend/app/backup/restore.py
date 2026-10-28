@@ -10,6 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.backup.config import BackupConfig, BackupError, Reason
 from app.backup.importing import create_tables, insert_rows
 from app.backup.locking import operation_lock
+from app.backup.snapshot import consistent_snapshot
 from app.backup.storage import load_artifact
 from app.backup.target import empty_target
 from app.backup.verification import verify_database
@@ -60,3 +61,14 @@ async def restore_locked(config: BackupConfig, backup_id: str, target_database: 
         raise BackupError(Reason.TIMEOUT) from None
     except OSError:
         raise BackupError(Reason.INTEGRITY) from None
+
+
+async def verify_restored(config: BackupConfig, backup_id: str, target_database: str) -> dict:
+    with operation_lock(config):
+        deadline = time.monotonic() + config.max_seconds
+        async with asyncio.timeout(config.max_seconds):
+            manifest = load_artifact(config, backup_id, deadline=deadline)
+            async with empty_target(config, manifest, target_database, require_empty=False) as db:
+                async with consistent_snapshot(db):
+                    result = await verify_database(db, manifest, deadline, config.query_seconds)
+            return dict(backup_id=backup_id, target_database=target_database, **result)

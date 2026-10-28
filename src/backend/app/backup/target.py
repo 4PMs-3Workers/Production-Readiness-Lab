@@ -16,7 +16,7 @@ from app.core.schema_lifecycle import SchemaLifecycleBusy, schema_lifecycle
 
 @asynccontextmanager
 async def empty_target(
-    config: BackupConfig, manifest: Manifest, target_database: str
+    config: BackupConfig, manifest: Manifest, target_database: str, *, require_empty: bool = True
 ) -> AsyncIterator[AsyncConnection]:
     identifier(target_database)
     # Supported rehearsal workflow always requires a distinct name, even on an
@@ -72,7 +72,7 @@ async def empty_target(
                                 )
                             )
                         ).scalar_one()
-                        if count:
+                        if require_empty and count:
                             raise BackupError(Reason.NONEMPTY)
                     await db.execute(text(f"SET SESSION lock_wait_timeout={config.lock_seconds}"))
                     await db.rollback()

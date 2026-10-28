@@ -20,7 +20,7 @@ async def create_tables(db: AsyncConnection, manifest: Manifest, query_seconds: 
         async with asyncio.timeout(query_seconds):
             # Validated single CREATE TABLE, including exact index/constraint and
             # generated-column definitions. Never interpolate row values into SQL.
-            await db.exec_driver_sql(table.ddl)
+            await db.exec_driver_sql(table.ddl, execution_options={"no_parameters": True})
     await db.commit()
 
 
