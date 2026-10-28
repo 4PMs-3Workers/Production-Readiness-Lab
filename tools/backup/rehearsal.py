@@ -26,6 +26,7 @@ from tests.containers.test_compose_acceptance import (
     one_volume,
     require_success,
 )
+from tools.backup.evidence import write_report
 from tools.backup.recovery_config import render
 
 FINGERPRINT = """
@@ -535,10 +536,7 @@ def main() -> int:
         with tempfile.TemporaryDirectory(prefix="prl-recovery-") as directory:
             report = run(Path(directory))
         destination = ROOT / "build/recovery-review/rehearsal.json"
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(
-            json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
+        write_report(report, destination)
         stage("accepted_report_saved")
         return 0
     except AcceptanceFailure as error:
