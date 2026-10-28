@@ -4,6 +4,7 @@ import hashlib
 import os
 import shutil
 import stat
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -75,8 +76,14 @@ def sync_directory(path: Path) -> None:
 
 
 def _verify(
-    directory: Path, backup_id: str, config: BackupConfig, *, compatible: bool = True
+    directory: Path,
+    backup_id: str,
+    config: BackupConfig,
+    *,
+    compatible: bool = True,
+    deadline: float | None = None,
 ) -> Manifest:
+    limit = time.monotonic() + config.max_seconds if deadline is None else deadline
     raw = _read(directory / "manifest.json", MAX_MANIFEST_BYTES)
     if _read(directory / "COMPLETE", 64) != hashlib.sha256(raw).hexdigest().encode():
         raise BackupError(Reason.INTEGRITY)
@@ -105,6 +112,8 @@ def _verify(
         descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
         with os.fdopen(descriptor, "rb") as source:
             while raw_row := source.readline(MAX_RECORD_BYTES + 1):
+                if time.monotonic() >= limit:
+                    raise BackupError(Reason.TIMEOUT)
                 row = decode_row(raw_row, len(table.columns))
                 if table.name == "alembic_version" and row != (manifest.source.revision,):
                     raise BackupError(Reason.INTEGRITY)
@@ -115,7 +124,9 @@ def _verify(
     return manifest
 
 
-def load_artifact(config: BackupConfig, backup_id: str, *, compatible: bool = True) -> Manifest:
+def load_artifact(
+    config: BackupConfig, backup_id: str, *, compatible: bool = True, deadline: float | None = None
+) -> Manifest:
     if not BACKUP_ID.fullmatch(backup_id):
         raise BackupError(Reason.INTEGRITY)
     root = store_root(config)
@@ -123,7 +134,7 @@ def load_artifact(config: BackupConfig, backup_id: str, *, compatible: bool = Tr
     if path.is_symlink() or not path.is_dir() or path.resolve().parent != root:
         raise BackupError(Reason.INTEGRITY)
     try:
-        return _verify(path, backup_id, config, compatible=compatible)
+        return _verify(path, backup_id, config, compatible=compatible, deadline=deadline)
     except OSError:
         raise BackupError(Reason.INTEGRITY) from None
 
@@ -142,12 +153,12 @@ class Staging:
             raise BackupError(Reason.STORAGE)
         self.path.mkdir(mode=0o700)
 
-    def publish(self, value: dict) -> Manifest:
+    def publish(self, value: dict, *, deadline: float | None = None) -> Manifest:
         raw = manifest_bytes(value)
         capacity(self.root, len(raw) + 64, self.config.min_free_bytes)
         write_private(self.path / "manifest.json", raw)
         write_private(self.path / "COMPLETE", hashlib.sha256(raw).hexdigest().encode())
-        manifest = _verify(self.path, self.backup_id, self.config)
+        manifest = _verify(self.path, self.backup_id, self.config, deadline=deadline)
         sync_directory(self.path)
         os.rename(self.path, self.final)
         try:

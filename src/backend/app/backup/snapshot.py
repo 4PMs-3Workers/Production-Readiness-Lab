@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from app.backup.codec import encode_row
 from app.backup.config import BackupError, Reason, identifier
 from app.backup.schema import SourceSchema, TableSchema
+from app.backup.storage import capacity
 
 
 def utc(value: datetime) -> str:
@@ -44,7 +45,11 @@ async def row_records(db: AsyncConnection, table: TableSchema) -> AsyncIterator[
 
 
 async def dump_tables(
-    db: AsyncConnection, schema: SourceSchema, directory: Path, max_bytes: int
+    db: AsyncConnection,
+    schema: SourceSchema,
+    directory: Path,
+    max_bytes: int,
+    min_free_bytes: int = 0,
 ) -> dict[str, dict]:
     result, total = {}, 0
     for table in schema.tables:
@@ -56,6 +61,7 @@ async def dump_tables(
                 total += len(record)
                 if total > max_bytes:
                     raise BackupError(Reason.STORAGE)
+                capacity(directory, len(record), min_free_bytes)
                 output.write(record)
                 digest.update(record)
                 size += len(record)
