@@ -27,6 +27,15 @@ Cơ sở MySQL: [backup lock](https://dev.mysql.com/doc/refman/8.4/en/lock-insta
 [consistent snapshot](https://dev.mysql.com/doc/refman/8.4/en/commit.html),
 [metadata privileges](https://dev.mysql.com/doc/refman/8.4/en/privileges-provided.html).
 
+Preflight diễn giải scope của direct grants theo `@@global.partial_revokes` trên
+server đang kết nối. Với mode `OFF`, `` `prl\_app`.* `` là grant cho database literal
+`prl_app`; với mode `ON`, `_` trong `` `prl_app`.* `` là literal. Literal scope ưu
+tiên hơn wildcard scope; công cụ không cộng quyền từ các pattern khác nhau để suy
+ra quyền metadata mà MySQL chưa cấp. Role-only, per-table grants và các `REVOKE`
+giới hạn quyền vẫn không đủ để xác nhận nhìn thấy toàn bộ metadata. Cấu hình grant
+trong [runbook](mysql-recovery-runbook.md) theo
+[quy tắc MySQL](https://dev.mysql.com/doc/refman/8.4/en/grant.html).
+
 ## Artifact và dữ liệu nhạy cảm
 
 Format `prl-mysql-jsonl`, version 1, gồm native `SHOW CREATE TABLE`, typed canonical
@@ -137,6 +146,16 @@ backup/restore/deadline; missing metadata privileges; cross-process overlap;
 retention age/count/last-success boundaries. Unit tests kiểm tra codec, manifest,
 private storage, CLI redaction, scheduler ownership và evidence allowlist/RPO math.
 
+Regression sau review ngày 2026-10-29 tạo account MySQL 8.4.11 với **chỉ** grant
+database được escape, `partial_revokes=OFF`. Source preflight và backup nhận đủ
+12 bảng; account không đọc được database sibling mà wildcard có thể khớp.
+Target preflight, restore và verify thành công với grant literal riêng, đồng thời
+mọi row/schema ở source vẫn khớp artifact. Các ca thiếu quyền, sai scope,
+unsupported trigger, literal/wildcard chồng lấn và target không rỗng vẫn bị từ chối;
+test kiểm tra lỗi target trước DDL không để lại table mới. Unit tests kiểm tra cả
+hai mode và giới hạn global/schema/table/role/revoked grants. Diễn tập Compose cũng
+cấp và kiểm tra literal grant trên target có `_` trước khi chạy application smoke.
+
 ```sh
 python -m black --check src/backend tests/backend tools/backup tests/recovery
 python -m ruff check src/backend tests/backend tools/backup tests/recovery
@@ -148,7 +167,7 @@ RUN_BACKUP_REHEARSAL=1 python -m pytest tests/recovery -q --tb=short
 
 Các CI cũ vẫn được giữ: backend/migrations, frontend mock/API, container business/
 telemetry/lifecycle và dependency security. Workflow recovery bổ sung một gate riêng.
-Kiểm tra local trước handoff: 899 unit tests và 79 MySQL tests thuộc backup/restore,
+Kiểm tra local ban đầu ngày 2026-10-28: 899 unit tests và 79 MySQL tests thuộc backup/restore,
 schema/migrations/models pass; hai proposal-replay migration tests cũng pass sau
 khi chuyển caller sang lifecycle guard. Black, Ruff, Pyright và formatting các
 workflow/Compose mới pass. Full backend và full service recovery tiếp tục được chạy

@@ -507,8 +507,9 @@ class LiveBusinessProbe:
         *,
         excluded_worker_id: str | None = None,
         expected_worker_id: str | None = None,
+        timeout_seconds: float = 45,
     ) -> tuple[WorkerProgress, WorkerProgress]:
-        deadline = time.monotonic() + 45
+        deadline = time.monotonic() + timeout_seconds
         baseline: WorkerProgress | None = None
         tracker = WorkerProgressTracker(excluded_worker_id=excluded_worker_id)
         while time.monotonic() < deadline:
@@ -965,6 +966,50 @@ def test_new_owner_scan_barrier_rejects_a_later_process_generation():
 
     with pytest.raises(AcceptanceFailure, match="worker process changed"):
         probe._wait_for_later_worker_scan(expected_worker_id=new_worker_id)
+
+
+@pytest.mark.parametrize(
+    "timeout_seconds,ready_after,succeeds", [(90, 61, True), (45, 61, False), (90, 91, False)]
+)
+def test_database_recovery_scan_barrier_covers_backoff_but_remains_bounded(
+    monkeypatch, timeout_seconds, ready_after, succeeds
+):
+    from tests.containers import test_observability_e2e as probe_module
+
+    now = [0.0]
+    old_worker_id, new_worker_id = "a" * 32, "b" * 32
+
+    def sleep(seconds):
+        now[0] += seconds
+
+    monkeypatch.setattr(
+        probe_module, "time", SimpleNamespace(monotonic=lambda: now[0], sleep=sleep)
+    )
+
+    class FakeStack:
+        scans = 0
+
+        def worker_log_output(self) -> str:
+            if now[0] < ready_after:
+                return _worker_scan_record(old_worker_id, 100)
+            self.scans += 1
+            return _worker_scan_record(new_worker_id, self.scans)
+
+    probe = object.__new__(LiveBusinessProbe)
+    probe.runtime = SimpleNamespace(stack=FakeStack())
+    if succeeds:
+        before, after = probe._wait_for_later_worker_scan(
+            excluded_worker_id=old_worker_id, timeout_seconds=timeout_seconds
+        )
+        assert before.worker_id == after.worker_id == new_worker_id
+        assert (before.successful_scans, after.successful_scans) == (1, 2)
+        assert now[0] == ready_after
+    else:
+        with pytest.raises(AcceptanceFailure, match="healthy scan baseline"):
+            probe._wait_for_later_worker_scan(
+                excluded_worker_id=old_worker_id, timeout_seconds=timeout_seconds
+            )
+        assert now[0] == timeout_seconds
 
 
 def _latest_worker_scan_observation(output: str) -> tuple[WorkerProgress, float] | None:

@@ -421,13 +421,26 @@ def run(scratch: Path) -> dict:
             recovered.compose("up", "-d", "--wait", "--wait-timeout", "180", "mysql", timeout=240),
             "Isolated recovery database startup failed",
         )
+        grant_mode = recovered.sql("SELECT @@global.partial_revokes;")
+        if grant_mode not in {"0", "1"}:
+            raise AcceptanceFailure("Recovery database grant mode could not be established")
+        grant_name = (
+            recovered.database.replace("_", r"\_") if grant_mode == "0" else recovered.database
+        )
         recovered.sql(
             f"CREATE DATABASE `{recovered.database}` "
             "CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
             "GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,DROP,INDEX,REFERENCES,TRIGGER,EVENT "
-            f"ON `{recovered.database}`.* TO 'prl_migration'@'%';"
+            f"ON `{grant_name}`.* TO 'prl_migration'@'%';"
             "GRANT SHOW_ROUTINE ON *.* TO 'prl_migration'@'%';"
         )
+        actual_grants = recovered.sql("SHOW GRANTS FOR 'prl_migration'@'%';")
+        if f" ON `{grant_name}`.* TO " not in actual_grants or (
+            grant_mode == "0" and f" ON `{recovered.database}`.* TO " in actual_grants
+        ):
+            raise AcceptanceFailure(
+                "Recovery requires the literal database grant without a wildcard workaround"
+            )
         stage("restore_and_verify")
         validation = recovered.operation(
             "restore", "--backup-id", backup["backup_id"], "--target-database", recovered.database

@@ -26,9 +26,8 @@ async def test_private_reads_enforce_query_budget_and_cleanup(booking_env, monke
     }
     repository, method, path = targets[endpoint]
     assert (await env.client.get(path)).status_code == 200
-    env.app.state.settings = env.app.state.settings.model_copy(
-        update={"db_query_timeout_seconds": 0.2}
-    )
+    normal_settings = env.app.state.settings
+    env.app.state.settings = normal_settings.model_copy(update={"db_query_timeout_seconds": 0.2})
     assert env.app.state.settings.request_timeout_seconds > 0.6
     original = getattr(repository, method)
 
@@ -53,9 +52,13 @@ async def test_private_reads_enforce_query_budget_and_cleanup(booking_env, monke
             assert not db.in_transaction()
             assert await db.scalar(text("SELECT 1")) == 1
             await db.rollback()
+            # Recovery uses the normal budget; only the injected slow read must
+            # satisfy the deliberately tight deadline on a shared CI runner.
+            env.app.state.settings = normal_settings
             recovered = await env.client.get(path)
             assert recovered.status_code == 200
             assert_private(recovered)
             assert not db.in_transaction()
         finally:
+            env.app.state.settings = normal_settings
             env.app.dependency_overrides.pop(get_db_session)

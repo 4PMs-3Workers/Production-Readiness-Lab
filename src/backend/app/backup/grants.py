@@ -12,22 +12,31 @@ def _schema_match(scope: str, database: str, partial_revokes: bool) -> tuple[boo
     if partial_revokes:
         # With partial_revokes enabled, schema names are literal, including '\'.
         return name == database, True
-    pattern, literal, index = [], True, 0
+    positions, literal, index = {0}, True, 0
     while index < len(name):
         char = name[index]
         if char == "\\" and index + 1 < len(name):
             index += 1
-            pattern.append(re.escape(name[index]))
+            char = name[index]
         elif char == "_":
-            pattern.append(".")
             literal = False
+            positions = {position + 1 for position in positions if position < len(database)}
+            index += 1
+            continue
         elif char == "%":
-            pattern.append(".*")
             literal = False
-        else:
-            pattern.append(re.escape(char))
+            positions = set(range(min(positions), len(database) + 1)) if positions else set()
+            index += 1
+            continue
+        positions = {
+            position + 1
+            for position in positions
+            if position < len(database) and database[position] == char
+        }
         index += 1
-    return re.fullmatch("".join(pattern), database, flags=re.DOTALL) is not None, literal
+    # At most len(name) * (len(database) + 1) transitions: repeated SQL wildcards
+    # must not become a backtracking regex inside the operation's event loop.
+    return len(database) in positions, literal
 
 
 def metadata_visible(database: str, grants: Sequence[str], *, partial_revokes: bool) -> bool:

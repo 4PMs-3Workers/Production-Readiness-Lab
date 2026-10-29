@@ -112,3 +112,17 @@ def test_overlapping_patterns_cannot_supply_split_privileges():
         [ROUTINES, grant("`prl%`.*", "ALL PRIVILEGES"), grant("`prl_%`.*")],
         partial_revokes=False,
     )
+
+
+@pytest.mark.parametrize(
+    "scope,database,expected",
+    [
+        ("`" + "%a" * 30 + "b`.*", "a" * 63 + "c", False),
+        ("`" + "%a" * 30 + "b`.*", "a" * 63 + "b", True),
+        ("`" + "%" * 64 + "`.*", "a" * 64, True),
+        ("`" + "_" * 64 + "`.*", "a" * 64, True),
+        ("`" + "_" * 64 + "`.*", "a" * 63, False),
+    ],
+)
+def test_maximum_length_wildcard_scopes_have_bounded_matching(scope, database, expected):
+    assert metadata_visible(database, [ROUTINES, grant(scope)], partial_revokes=False) is expected

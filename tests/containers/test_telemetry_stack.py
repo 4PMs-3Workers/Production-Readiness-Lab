@@ -7009,6 +7009,9 @@ def test_full_observability_stack_runtime_acceptance(tmp_path: Path) -> None:
         )
         recovery_scan_before, recovery_scan_after = business_probe._wait_for_later_worker_scan(
             excluded_worker_id=old_owner_progress.worker_id,
+            # Database outages can leave the worker in its bounded 60s backoff.
+            # Allow that wait and two real scans without restarting the owner.
+            timeout_seconds=90,
         )
         new_owner_worker_id = recovery_scan_before.worker_id
         stopped_scan_timestamp = _worker_metric_value(stopped_baseline, "last_successful_scan")

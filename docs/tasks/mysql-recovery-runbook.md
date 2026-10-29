@@ -20,6 +20,16 @@ trigger/event/routine hiện hữu. Các quyền metadata này cũng cho phép t
 tương ứng, nên đây là credential vận hành được giữ private, không cấp cho runtime.
 Không cấp INSERT/UPDATE/DELETE, FILE hay quyền user administration cho backup role.
 
+Với database có `_`, đọc `SELECT @@global.partial_revokes` trước khi cấp quyền.
+Khi giá trị là `OFF`/`0`, database-level grant cho tên literal `prl_app` dùng
+``ON `prl\_app`.*``; `_` không escape là wildcard có thể cấp quyền sang database
+khác. Khi `partial_revokes=ON`, dùng ``ON `prl_app`.*`` với tên literal, không thêm
+backslash. Quy tắc này chỉ áp dụng scope database `db.*`: tên database trong
+`CREATE DATABASE`, URL và các grant cho table cụ thể vẫn dùng identifier gốc.
+Preflight đọc mode từ chính server đang kết nối và nhận diện scope đã escape;
+không cần cấp thêm wildcard grant để backup hoặc restore chạy được. Xem
+[MySQL GRANT — Object Quoting Guidelines](https://dev.mysql.com/doc/refman/8.4/en/grant.html).
+
 Với volume **mới**, thêm `PRL_BACKUP_PASSWORD` vào external `db.env` trước lần bootstrap
 đầu tiên. Với volume đang có, entrypoint không chạy lại. Cấp/rotate account bằng tác
 vụ administrator rõ ràng, dùng script được review; nó chỉ thay quyền `prl_backup`:
@@ -190,10 +200,13 @@ recovery, project/port khác, cùng immutable application images và backup volu
 3. Qua socket administrator của **recovery MySQL**, tạo tên đích khác và rỗng, charset/
    collation khớp manifest. Cấp DDL/import và metadata privileges chỉ cho restore role:
 
+   Ví dụ dưới dùng `partial_revokes=OFF` mặc định của demo. Nếu server đang bật mode
+   này, bỏ backslash trước `_` trong scope của `GRANT`, giữ nguyên các tên khác.
+
    ```sh
    rdc exec -T mysql bash -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --protocol=socket -uroot --connect-timeout=5' <<'SQL'
    CREATE DATABASE prl_recovery_demo CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
-   GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,DROP,INDEX,REFERENCES,TRIGGER,EVENT ON prl_recovery_demo.* TO 'prl_migration'@'%';
+   GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,DROP,INDEX,REFERENCES,TRIGGER,EVENT ON `prl\_recovery\_demo`.* TO 'prl_migration'@'%';
    GRANT SHOW_ROUTINE ON *.* TO 'prl_migration'@'%';
    SQL
    rdc --profile backup run --rm --no-deps -T backup restore --backup-id <id> --target-database prl_recovery_demo
