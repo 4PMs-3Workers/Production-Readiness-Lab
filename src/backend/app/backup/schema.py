@@ -2,7 +2,6 @@
 
 import asyncio
 import hashlib
-import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -16,6 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.backup.config import BackupConfig, BackupError, Reason, identifier
+from app.backup.grants import metadata_visible
 from app.core.database import create_database_engine
 from app.core.schema_lifecycle import SchemaLifecycleBusy, schema_lifecycle
 from app.models import Base
@@ -62,24 +62,12 @@ async def require_metadata_visibility(db: AsyncConnection) -> None:
     Support explicit direct grants. Refuse role-only or partially revoked grant
     configurations rather than infer metadata visibility from an empty result.
     """
-    database = (await db.execute(text("SELECT DATABASE()"))).scalar_one()
+    database, partial_revokes = (
+        await db.execute(text("SELECT DATABASE(), @@global.partial_revokes"))
+    ).one()
     grants = (await db.execute(text("SHOW GRANTS FOR CURRENT_USER"))).scalars().all()
-    global_privileges: set[str] = set()
-    schema_privileges: set[str] = set()
-    for grant in grants:
-        if grant.startswith("REVOKE "):
-            raise BackupError(Reason.UNSUPPORTED)
-        match = re.match(r"GRANT (.+?) ON (.+?) TO ", grant)
-        if match is None:
-            continue
-        privileges = {value.strip() for value in match[1].split(",")}
-        if match[2] == "*.*":
-            global_privileges.update(privileges)
-        if match[2] == f"`{database}`.*":
-            schema_privileges.update(privileges)
-    visible = global_privileges | schema_privileges
-    if ("ALL PRIVILEGES" not in visible and not {"TRIGGER", "EVENT"} <= visible) or not (
-        {"ALL PRIVILEGES", "SELECT", "SHOW_ROUTINE"} & global_privileges
+    if partial_revokes not in (0, 1) or not metadata_visible(
+        database, grants, partial_revokes=bool(partial_revokes)
     ):
         raise BackupError(Reason.UNSUPPORTED)
 
