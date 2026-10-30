@@ -1,0 +1,100 @@
+{
+  "accepted": true,
+  "backup": {
+    "application_rehearsal_verified": false,
+    "artifact_integrity_verified": true,
+    "backup_id": "prl-backup-20261028T134940Z-8ffb40bb1832400ea297a8ac486d3f85",
+    "completed_at": "2026-10-28T13:49:41.165518Z",
+    "duration_seconds": 0.5302256100003433,
+    "image_id": "sha256:832979b4c8a3f025ac83b0798bc25fd7ab82b8768af3d9f4998030a9707f8f84",
+    "manifest_sha256": "037f9efa297198d110ce61d1e1d4e25366efcc9185be2705bf2a6793a6d4cfdc",
+    "migration_sha256": "f6197bb597153778209579fff954db724a0fb197ba1689f5904eefd495b9acf1",
+    "operation": "backup",
+    "schema_revision": "20261019_1200_proposal_replay",
+    "snapshot": {
+      "established_after": "2026-10-28T13:49:41.057173Z",
+      "established_before": "2026-10-28T13:49:41.054963Z"
+    },
+    "source_sha": "43f350ff470ea30025e0187e27249711c5a3b73d",
+    "success": true,
+    "table_count": 12,
+    "total_bytes": 27057,
+    "total_rows": 86
+  },
+  "commands": [
+    "compose build api frontend (source SHA labeled)",
+    "source: migrate; apply-grants; seed (fictional only)",
+    "app.backup backup",
+    "source: later identifiable booking; record incident",
+    "create separate empty recovery database",
+    "app.backup restore --backup-id <id> --target-database <isolated>",
+    "app.backup verify --backup-id <id> --target-database <isolated>",
+    "target: apply reviewed runtime grants; start api worker frontend gateway",
+    "target: login/history/detail/availability/book/replay/cancel/replay/logout",
+    "compare source fingerprints"
+  ],
+  "evidence_version": 1,
+  "pr_head_sha": null,
+  "recovered_images": {
+    "api": "sha256:832979b4c8a3f025ac83b0798bc25fd7ab82b8768af3d9f4998030a9707f8f84",
+    "frontend": "sha256:bd8777aaec55f853682554b7f30560e0929e086a85be7212aa00ab0868acd6cf",
+    "gateway": "sha256:c59d1f8b1e0e42da75be973424cd72e23f7f8adfb54e982f4d1cd0216a5a5576",
+    "mysql": "sha256:24989179f58856db763f418010c1169fecc944e3ec1ea7e921572d83eb070f70",
+    "worker": "sha256:832979b4c8a3f025ac83b0798bc25fd7ab82b8768af3d9f4998030a9707f8f84"
+  },
+  "smoke": {
+    "availability": true,
+    "book": true,
+    "book_replay": true,
+    "cancel": true,
+    "cancel_replay": true,
+    "detail": true,
+    "frontend": true,
+    "history": true,
+    "later_change_excluded": true,
+    "login": true,
+    "logout": true,
+    "side_effects_exact": true
+  },
+  "source_images": {
+    "api": "sha256:832979b4c8a3f025ac83b0798bc25fd7ab82b8768af3d9f4998030a9707f8f84",
+    "frontend": "sha256:bd8777aaec55f853682554b7f30560e0929e086a85be7212aa00ab0868acd6cf",
+    "gateway": "sha256:c59d1f8b1e0e42da75be973424cd72e23f7f8adfb54e982f4d1cd0216a5a5576",
+    "mysql": "sha256:24989179f58856db763f418010c1169fecc944e3ec1ea7e921572d83eb070f70",
+    "worker": "sha256:832979b4c8a3f025ac83b0798bc25fd7ab82b8768af3d9f4998030a9707f8f84"
+  },
+  "source_sha": "43f350ff470ea30025e0187e27249711c5a3b73d",
+  "source_unchanged": true,
+  "target_migrated": false,
+  "target_seeded": false,
+  "timing": {
+    "incident_at": "2026-10-28T13:49:44.571393Z",
+    "recovery_started_at": "2026-10-28T13:49:48.238444Z",
+    "rpo_observed_max_seconds": 3.51643,
+    "rpo_observed_min_seconds": 3.51422,
+    "rto_service_seconds": 91.06199999991804,
+    "smoke_passed_at": "2026-10-28T13:51:19.303281Z"
+  },
+  "validation": {
+    "foreign_keys_checked": 14,
+    "generated_columns_checked": 1,
+    "row_hashes_verified": true,
+    "schema_sha256": "575a65533dc1e6ae1e0055f0b847b1c6439fda6f79875ee571430bc5f8af1539",
+    "schema_verified": true,
+    "table_counts": {
+      "alembic_version": 1,
+      "appointments": 1,
+      "audit_events": 2,
+      "change_proposals": 1,
+      "notifications": 4,
+      "purposes": 5,
+      "service_hours": 10,
+      "service_settings": 1,
+      "sessions": 3,
+      "staff_purposes": 16,
+      "staff_unavailability": 0,
+      "users": 42
+    },
+    "utc_verified": true
+  }
+}

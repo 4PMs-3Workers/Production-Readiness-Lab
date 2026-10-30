@@ -45,6 +45,8 @@ include = [
     "tools/scripts/export_openapi.py",
     "tools/scripts/check_dependency_advisories.py",
     "tools/scripts/seed_demo.py",
+    "tools/backup",
+    "tests/recovery",
 ]
 extraPaths = ["src/backend"]
 venvPath = "."

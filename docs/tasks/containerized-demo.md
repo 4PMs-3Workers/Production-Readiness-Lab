@@ -318,3 +318,9 @@ nguyên đã xác minh thuộc project test và đối chiếu snapshot `prl-dem
 hoặc SLO. CI không push/publish images và không dùng credentials thật. Hệ thống này
 chưa có quy trình phát hành registry, backup/restore, HA, quan sát đa host, tải production
 hay diễn tập fault injection.
+
+Backup/restore được bổ sung riêng tại [Issue #36 handoff](mysql-backup-restore.md)
+và [recovery runbook](mysql-recovery-runbook.md), dùng lại images/services của tài
+liệu này. Profile operations không tự migrate/seed target được restore. Overlay
+recovery cung cấp project/database/subnet riêng để source và target cùng chạy;
+evidence cũ của #34 vẫn chỉ chứng minh phạm vi nghiệm thu ban đầu.

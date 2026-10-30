@@ -64,6 +64,7 @@ class WorkerObserver:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._lock = threading.RLock()
         self._start_time_unix_nano = time.time_ns()
+        self._last_snapshot_unix_nano = self._start_time_unix_nano
         self._last_counters = {name: 0 for name in _COUNTERS}
         self._heartbeat_timestamp: float | None = None
         self._last_successful_scan_timestamp: float | None = None
@@ -129,6 +130,10 @@ class WorkerObserver:
 
     def _build_latest_batches(self):
         with self._lock:
+            # Coarse wall clocks may return the same tick for the final snapshot.
+            # Preserve ordering so an older cumulative point cannot win a tie.
+            collected_at = max(time.time_ns(), self._last_snapshot_unix_nano + 1)
+            self._last_snapshot_unix_nano = collected_at
             snapshot = WorkerMetricSnapshot(
                 start_time_unix_nano=self._start_time_unix_nano,
                 started_timestamp_seconds=self._start_time_unix_nano / 1_000_000_000,
@@ -162,7 +167,7 @@ class WorkerObserver:
             environment=self.settings.environment,
             slot=self.slot,
             telemetry_metrics=self.telemetry.metrics,
-            time_unix_nano=time.time_ns(),
+            time_unix_nano=collected_at,
             max_metric_point_bytes=self.settings.telemetry_max_item_bytes,
             max_metric_points_per_batch=self.settings.telemetry_max_batch_size,
         )

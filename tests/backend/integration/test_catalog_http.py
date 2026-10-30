@@ -193,19 +193,30 @@ async def test_catalog_timeout_cancels_inflight_service_and_returns_promptly(
         finally:
             cleaned_up.set()
 
-    monkeypatch.setattr(catalog.catalog_service, "list_purposes", blocked)
-    monkeypatch.setattr(catalog.catalog_service, "list_staff", blocked)
+    # Warm the same ASGI route/dependency stack before measuring an in-flight
+    # service deadline. First-request lazy application setup is outside the
+    # middleware's timeout and can consume the whole CI scheduling allowance.
+    monkeypatch.setattr(
+        catalog.catalog_service, "list_purposes", lambda *args, **kwargs: _resolved(page())
+    )
+    monkeypatch.setattr(
+        catalog.catalog_service, "list_staff", lambda *args, **kwargs: _resolved(page())
+    )
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app, root_path=prefix),
         base_url="http://localhost:3000",
     ) as client:
         suffix = "?purpose_id=" + str(uuid4()) if path.endswith("staff") else ""
+        assert (await client.get(prefix + path + suffix)).status_code == 200
+        monkeypatch.setattr(catalog.catalog_service, "list_purposes", blocked)
+        monkeypatch.setattr(catalog.catalog_service, "list_staff", blocked)
         started = monotonic()
         response = await client.get(prefix + path + suffix)
+        elapsed = monotonic() - started
     assert entered.is_set()
     assert cleaned_up.is_set()
     assert response.status_code == 503
-    assert monotonic() - started < request_timeout_seconds + 0.5
+    assert elapsed < request_timeout_seconds + 0.5
     assert response.headers["Cache-Control"] == "private, no-store"
     assert response.headers["X-Error-Class"] == "service"
 

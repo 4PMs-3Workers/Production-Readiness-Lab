@@ -2,6 +2,12 @@
 
 Tài liệu này mô tả cấu hình local/demo chạy cùng host bằng Docker Compose và bằng chứng nghiệm thu. Xem [runbook](observability-runbook.md) để xử lý tín hiệu, cảnh báo, lỗi exporter, worker stall và khoảng trống telemetry; [thiết kế hệ thống](../architecture/system-design.md) mô tả topology và các giới hạn vận hành.
 
+[Backup/restore #36](mysql-backup-restore.md) cung cấp JSON status/outcomes đã sanitize
+(success/failure, identity/age/duration, artifact validation và rehearsal riêng).
+Core operations chạy không cần telemetry. Có thể tích hợp những tín hiệu đó sau;
+dashboard/alert hiện tại chưa được coi là monitor backup freshness hay xác nhận
+application restore. Evidence lịch sử bên dưới giữ nguyên phạm vi/source ban đầu.
+
 ## Thành phần và vận hành
 
 - Overlay chính: [`tools/deploy/compose.observability.yaml`](../../tools/deploy/compose.observability.yaml). Image/config được kiểm tra bằng [`tools/infra/check_telemetry.py`](../../tools/infra/check_telemetry.py) và khóa image [`tools/infra/images.lock.json`](../../tools/infra/images.lock.json).

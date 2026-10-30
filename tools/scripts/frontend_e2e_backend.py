@@ -28,6 +28,7 @@ from starlette.types import Message, Receive, Scope, Send
 from app.core.config import Settings
 from app.core.database import create_database_engine
 from app.core.passwords import PasswordPolicy, PasswordService
+from app.core.schema_lifecycle import migration_connection
 from app.factory import create_app
 from app.models import (
     Appointment,
@@ -122,7 +123,7 @@ async def prepare():
         FIXTURE.write_text(json.dumps(fixture), encoding="utf-8")
         engine = engine_for(fixture)
         try:
-            async with engine.begin() as db:
+            async with migration_connection(engine) as db:
                 await db.run_sync(migrate)
             passwords = await PasswordService.create(PasswordPolicy(), 2)
             encoded = await passwords.hash(PASSWORD)

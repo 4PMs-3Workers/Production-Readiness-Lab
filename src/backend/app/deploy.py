@@ -12,6 +12,7 @@ from sqlalchemy.engine import make_url
 
 from app.core.config import load_settings
 from app.core.database import create_database_engine
+from app.core.schema_lifecycle import migration_connection
 from app.worker.resources import open_resources
 
 
@@ -27,7 +28,7 @@ async def migrate() -> None:
     engine = create_database_engine(url, connect_args={"connect_timeout": 5}, hide_parameters=True)
     try:
         async with asyncio.timeout(120):
-            async with engine.begin() as connection:
+            async with migration_connection(engine) as connection:
 
                 def upgrade(sync_connection: Connection) -> None:
                     config = Config("alembic.ini")

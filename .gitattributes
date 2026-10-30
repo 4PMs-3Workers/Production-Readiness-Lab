@@ -19,3 +19,4 @@
 
 # Deployment scripts are executed inside Linux containers.
 /tools/deploy/** text eol=lf
+/tools/backup/** text eol=lf

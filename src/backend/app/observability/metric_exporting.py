@@ -177,7 +177,14 @@ class LatestMetricExportLane:
                 self._notify_queue_change()
                 self._export()
                 with self._condition:
-                    if self._closing or self._abort:
+                    # Close may arrive while an older snapshot is in flight.
+                    # Drain a newer pending observation once; an in-flight export
+                    # of the current state already satisfies close without a repeat.
+                    if (
+                        self._final_export_started
+                        or self._abort
+                        or (self._closing and not self._pending)
+                    ):
                         break
         except Exception:
             self._drop("invalid")

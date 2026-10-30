@@ -155,11 +155,45 @@ async def _wait_for_event(event, timeout=1.0):
 
 
 @pytest.mark.asyncio
-async def test_repeated_events_failed_scans_and_export_ticks_keep_durable_state():
+async def test_close_during_inflight_export_still_exports_final_current_snapshot():
+    from app.observability.metric_exporting import LatestMetricExportLane
+
+    exporter = RecordingExporter()
+    exporter.block = True
+    exporter.second_release.set()
+    current = "before"
+    lane = LatestMetricExportLane(
+        lambda: (_snapshot(current),),
+        exporter,
+        interval_seconds=0.01,
+        max_age_seconds=1.0,
+        network_timeout_seconds=0.1,
+    )
+    try:
+        lane.note_snapshot()
+        await _wait_for_event(exporter.entered)
+        current = "after"
+        lane.note_snapshot()
+        lane.request_close()
+        exporter.release.set()
+        assert await lane.close(asyncio.get_running_loop().time() + 1)
+        assert _snapshot_value(exporter.batches[-1]) == "after"
+    finally:
+        exporter.release.set()
+        exporter.second_release.set()
+        await lane.close(asyncio.get_running_loop().time() + 1)
+
+
+@pytest.mark.asyncio
+async def test_repeated_events_failed_scans_and_export_ticks_keep_durable_state(monkeypatch):
     settings = _settings(slot=3)
     telemetry = TelemetryRuntime(settings, "worker", stdout_enabled=False)
     exporter = RecordingExporter()
     base = datetime(2026, 10, 24, tzinfo=UTC)
+    # Deterministically exercise a host whose clock repeats a tick across exports.
+    monkeypatch.setattr(
+        "app.observability.worker.time.time_ns", lambda: int(base.timestamp() * 1e9)
+    )
     clock_value = 0
 
     def clock():

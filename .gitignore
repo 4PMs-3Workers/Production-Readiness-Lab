@@ -52,3 +52,9 @@ Thumbs.db
 
 # PR description template (for GitHub UI only, not part of repo)
 PR_DESCRIPTION.md
+
+# Private logical recovery payloads (publish sanitized evidence only).
+prl-backup-*/
+.partial-prl-backup-*/
+/backups/
+/backup-artifacts/

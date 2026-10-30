@@ -10,6 +10,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.schema_lifecycle import migration_connection
 from app.models import (
     Appointment,
     AuditEvent,
@@ -454,7 +455,7 @@ async def test_audit_request_id_migration_round_trip_and_safe_downgrade(mysql_en
         command.downgrade(cfg, "a1b2c3d4e5f6")
 
     with pytest.raises(RuntimeError, match="request_id.*longer than 100"):
-        async with mysql_engine.begin() as connection:
+        async with migration_connection(mysql_engine) as connection:
             await connection.run_sync(downgrade)
 
 
@@ -471,7 +472,7 @@ async def test_second_upgrade_head_is_idempotent(mysql_engine, graph):
         cfg.attributes["connection"] = connection
         command.upgrade(cfg, "head")
 
-    async with mysql_engine.begin() as async_conn:
+    async with migration_connection(mysql_engine) as async_conn:
         await async_conn.run_sync(run_upgrade)
 
     # Revision must be unchanged.

@@ -1,0 +1,24 @@
+# Add to compose.yaml + compose.local.yaml for an explicitly separate project.
+# Generate the matching nonsecret Nginx files with tools/backup/recovery_config.py.
+services:
+  api:
+    environment:
+      TRUSTED_GATEWAY_CIDRS: ${PRL_RECOVERY_GATEWAY_IP:?Set recovery gateway IP}/32
+    networks:
+      gateway_api:
+        ipv4_address: ${PRL_RECOVERY_API_IP:?Set recovery API IP}
+
+  gateway:
+    volumes:
+      - ${PRL_RECOVERY_NGINX_CONF:?Set generated Nginx config}:/etc/nginx/nginx.conf:ro
+      - ${PRL_RECOVERY_NGINX_ROUTES:?Set generated routes}:/etc/nginx/prl/routes.conf:ro
+    networks:
+      gateway_api:
+        ipv4_address: ${PRL_RECOVERY_GATEWAY_IP:?Set recovery gateway IP}
+
+networks:
+  gateway_api: !override
+    internal: true
+    ipam:
+      config:
+        - subnet: ${PRL_RECOVERY_SUBNET:?Set separate recovery subnet}

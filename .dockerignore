@@ -43,6 +43,10 @@
 **/test-results
 **/*.tsbuildinfo
 **/*.log
+**/prl-backup-*
+**/.partial-prl-backup-*
+**/backups
+**/backup-artifacts
 **/.superpowers
 **/.agents
 **/.codex

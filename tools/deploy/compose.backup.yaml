@@ -1,0 +1,38 @@
+# Explicit operations profile; no service here starts with the application.
+services:
+  backup:
+    image: prl-backend:${PRL_IMAGE_TAG:-local}
+    profiles: [backup]
+    entrypoint: [python, -m, app.backup]
+    command: [status]
+    init: true
+    user: '10001:10001'
+    read_only: true
+    tmpfs: ['/tmp:size=16m,mode=1777']
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 64
+    stop_grace_period: 20s
+    restart: 'no'
+    env_file:
+      - path: ${PRL_BACKUP_ENV_FILE:?Set external recovery env-file path}
+        format: raw
+    environment:
+      BACKUP_STORE: /backups
+      BACKUP_SOURCE_SHA: ${PRL_SOURCE_SHA:?Set reviewed backend source SHA}
+      BACKUP_IMAGE_ID: ${PRL_BACKEND_IMAGE_ID:?Set inspected backend image ID}
+    networks: [data]
+    volumes:
+      - backup_storage:/backups
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: '3' }
+
+volumes:
+  # Must be explicitly created, separate from mysql_data. Initial empty-volume
+  # ownership comes from the image's private /backups directory, UID10001.
+  backup_storage:
+    external: true
+    name: ${PRL_BACKUP_VOLUME:?Set a separate precreated backup volume}
