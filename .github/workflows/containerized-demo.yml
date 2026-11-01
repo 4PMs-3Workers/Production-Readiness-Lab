@@ -57,6 +57,9 @@ jobs:
           npx --no-install prettier --check --ignore-path .prettierignore
           .github/workflows/containerized-demo.yml .github/workflows/mysql-recovery.yml tools/deploy/*.yaml
 
+      - name: Check generated gateway routes before container acceptance
+        run: python tools/infra/generate_gateway_routes.py --check
+
       - name: Confirm local Docker and Compose are available
         run: |
           docker info --format '{{.ServerVersion}}'

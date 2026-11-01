@@ -99,3 +99,21 @@ Local Pyright/Ruff/Black pass,24unit/OpenAPI pass and6load deselected; frontend
 349tests and format/lint/typecheck/build pass, npm audit0. One unprivileged test
 process stalled and was interrupted; elevated repeat produced the cited result.
 All load evidence remains from c664a5d, not relabeled as post-CI reruns.
+
+U21: User supplied review__4_ asking for reviewable PR scope, interpretation of the
+first pool pair, next actions and a personal TC18/pool rerun. Codex added a README
+review map with narrow diff commands, classified attempt1 as count-only evidence,
+and documented backpressure/pool/timeout/transaction options and required gates.
+Source + official FastAPI/SQLAlchemy documentation show request-session reuse with
+sequential transactions, not evidence of two simultaneous connections/request.
+Added student-run commands preserving the tracked report plus oral-defense answers.
+No new experiment, production change, PR split or human execution is claimed; the
+PDF retains measured c664a5d data and CI outcomes on e90325b. Reflection remains the
+337-word draft pending the student's own experience/confirmation.
+
+U22: During the review__4_ revision, user reported the completed container check
+(37min):1failed/175passed, solely a stale generated gateway route map. Read the
+actual GitHub log, reproduced that test1fail, ran the existing route generator,
+and verified3targeted tests pass. Added an early generation check in the workflow,
+kept all container tests/zero-skip gates and timeouts. This synchronizes an export
+contract artifact; no new business behavior or pool setting is introduced.

@@ -160,3 +160,26 @@ persisted after its bursts. Transient queries and host/core contention remain op
 All three comparisons and two instrumentation corrections are retained, not just
 the final pass. See README and evidence/review-pool-summary.json for limits and
 raw source indices. Production code and all deadlines remain unchanged.
+
+## Review__4_ documentation follow-up
+
+README maps feature, validation config, CI/dependency and raw-evidence paths for
+review without rewriting history or splitting PR55. Attempt1 counts remain valid
+observations but not classified mechanism evidence. Pool options are proposed
+experiments with wait/hold and acceptance measurements, not production fixes.
+The shared request-session / two sequential transactions explanation is from code
+and official framework documentation; no new per-request connection-ID trace was
+executed. Student guide adds explicit TC18/pool commands and preserves canonical
+JSON on rerun. No tests or load measurements were rerun for documentation changes.
+Prior CI remains bound to e90325b (1774pass/6deselected/zero skipped), not relabeled
+as a run on the new documentation commit.
+
+## Container CI follow-up after e90325b
+
+Actual CI:1failed/175passed in2171.06s; failure was the deterministic generated-map
+check, not a failing Docker scenario. Exact failing test reproduced locally before
+generation; seven export entries added by tools/infra/generate_gateway_routes.py.
+Generator --check verifies31business operations; original test + URI/gateway unit
+contracts:3pass/0.66s. Workflow adds a fast generation check before Docker. Scope
+map includes the generated artifact and workflow. Full CI rerun remains a separate
+result; no local full Docker pass is claimed.

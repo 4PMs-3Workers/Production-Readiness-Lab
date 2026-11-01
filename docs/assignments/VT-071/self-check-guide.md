@@ -10,7 +10,47 @@ checkout/venv và MySQL test riêng; ghi lại command, output và quan sát th�
 3. TC13 và TC18: phân biệt receipt/status oracle với CSV/DB cardinality oracle.
 4. Đọc các mutant commit và log; nếu reproduce, chỉ helper trên nhánh thí nghiệm.
 5. Coverage với greenlet/thread và diff JSON; đọc cùng assertion/mutation.
-6. Load: xem error count và p95 success, so cả historical FAIL và latest PASS.
+6. Load: chạy pool5+5, đọc error count và p95 success; so với mọi lượt NullPool
+   FAIL/PASS, không dùng một lượt pass để kết luận đã sửa.
+
+## Hai lệnh tự kiểm chứng trước khi viết reflection
+
+Tự mở terminal ở repo, kích hoạt venv và đặt MYSQL_TEST_URL theo README (MySQL8.4
+test riêng). Lưu HEAD, thời điểm, lệnh, exit code và điều bạn quan sát được. Các
+lệnh dưới đây là hướng dẫn; chúng chưa phải evidence do bạn đã thực hiện.
+
+```powershell
+$studentRun = Join-Path (Get-Location) ('tmp/student-recheck/' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+New-Item -ItemType Directory -Force -Path $studentRun | Out-Null
+git rev-parse HEAD | Set-Content (Join-Path $studentRun 'head.txt')
+python -m pytest tests/backend/integration/test_appointment_export.py::test_export_source_cardinality_after_retry -q --require-mysql 2>&1 | Tee-Object -FilePath (Join-Path $studentRun 'tc18.txt')
+$studentTc18ExitCode = $LASTEXITCODE
+
+# The harness writes a tracked canonical JSON: preserve it before your run.
+$canonicalPoolReport = 'docs/assignments/VT-071/evidence/review-pool-production-performance.json'
+$savedPoolReport = Join-Path $studentRun 'original-pool-report.json'
+Copy-Item -LiteralPath $canonicalPoolReport -Destination $savedPoolReport
+$env:BT3_RUN_LOAD = '1'
+try {
+    python -m pytest 'tests/backend/integration/test_appointment_export_load_pool.py::test_export_pool_profile[production]' -q -s --require-mysql 2>&1 | Tee-Object -FilePath (Join-Path $studentRun 'pool.txt')
+    $studentPoolExitCode = $LASTEXITCODE
+    Copy-Item -LiteralPath $canonicalPoolReport -Destination (Join-Path $studentRun 'student-pool-report.json')
+} finally {
+    Copy-Item -LiteralPath $savedPoolReport -Destination $canonicalPoolReport
+    Remove-Item Env:BT3_RUN_LOAD -ErrorAction SilentlyContinue
+}
+@{ tc18 = $studentTc18ExitCode; pool = $studentPoolExitCode } | ConvertTo-Json | Set-Content (Join-Path $studentRun 'exit-codes.json')
+```
+
+TC18 trên code sạch kỳ vọng1pass; đọc assertion len(exported)==1, ID và COUNT DB.
+Pool test có thể fail acceptance trên máy bạn; giữ JSON/log và giải thích phase,
+stage/leaf exception, p95 success. Nếu setup/DB chưa chạy thì đó là lỗi setup, không
+phải kết quả tải hợp lệ. Kiểm tra timestamp của student-pool-report.json khớp lượt
+mới; nếu test không tới bước ghi report, bản copy có thể vẫn là evidence cũ.
+
+Ghi bằng lời của bạn: “Tôi chạy lúc..., HEAD..., TC18 trả..., pool có.../560 lỗi;
+tôi đọc assertion..., quan sát..., điều chưa rõ là...”. Chỉ dùng những chỗ bạn thật
+sự đã làm và nhìn thấy; kết quả của bạn có thể khác số302/560 trong báo cáo.
 
 ## Câu hỏi vấn đáp và ý chính
 
@@ -59,6 +99,13 @@ connection/query. Không tuyên bố chỉ cold-start hoặc warmup đã sửa l
 - Chứng minh lỗi pool bằng gì?302request cuối503ởauth; leaf có module sqlalchemy.exc
   và isinstance TimeoutError của SQLAlchemy; pool sampled checkout=10. Không chỉ
   nhìn tên TimeoutError vốn trùng với builtins.TimeoutError.
+- Vì sao ở auth? Đây là bước DB trước export;80request tranh tối đa10checkout,
+  request nào chờ quá0.5s có thể503 ngay trong auth nên chưa tới handler export.
+  Chưa từ đó suy ra SQL auth chậm hoặc có hai connection giữ đồng thời/request.
+- Cùng session có chỉ một checkout không? Không. Dependency được cache theo request,
+  auth và export dùng hai transaction tuần tự; commit/rollback trả connection rồi
+  transaction sau checkout lại.160kết nối NullPool/burst phù hợp hai lần acquire,
+  không chứng minh giữ hai connection đồng thời. Gộp transaction cần đo hold time.
 - Vì sao83NullPool503không chứng minh SELECT chậm? Interception ghi CancelledError
   tại rollback sau execute/Result.all/mapping; cả cleanup nằm trong read deadline1s.
 - Có chứng minh truy vấn mồ côi không? Chưa. Final snapshot sau burst không còn
@@ -66,6 +113,12 @@ connection/query. Không tuyên bố chỉ cold-start hoặc warmup đã sửa l
   sót query ngắn. Aborted_clients tăng83không tự chứng minh orphan accumulation.
 - Fetch nghĩa gì? AsyncSession.execute đã nhận/buffer hàng từ driver; Result.all
   chỉ lấy hàng đã đệm. Các timer bao gồm scheduling; không cộng các p95stage.
+- Vì sao không dùng lượt1 để kết luận cơ chế? Counts0/340 vẫn là quan sát thật,
+  nhưng thiếu leaf module/isinstance; tên TimeoutError không phân biệt pool queue
+  với deadline. Lượt2/3 có295/302pool timeout được xác minh; thứ tự chạy còn confound.
+- Hướng xử lý nào đã chọn? Chưa sửa production. Ưu tiên đo wait/hold và ramp tải,
+  rồi thử riêng admission limit, pool capacity, pool timeout hoặc transaction scope;
+  giữ mọi error/rejection trong gate. README nêu tradeoff/bằng chứng cho từng cách.
 
 ## Reflection của bạn
 

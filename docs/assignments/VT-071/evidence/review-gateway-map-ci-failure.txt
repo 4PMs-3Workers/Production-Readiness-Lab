@@ -1,0 +1,10 @@
+Source: https://github.com/4PMs-3Workers/Production-Readiness-Lab/actions/runs/41320035468/job/124888126503
+PR55 head: e90325bec702c9b44aad2469af9d73686a4ec767
+Actual CI excerpt; full logs retained by GitHub.
+2026-11-01T15:50:18.1835213Z __________ test_generated_gateway_route_map_matches_business_openapi ___________
+2026-11-01T15:50:18.1836910Z tests/containers/test_gateway_observability.py:1393: in test_generated_gateway_route_map_matches_business_openapi
+2026-11-01T15:50:18.1839375Z E   AssertionError: gateway route map is stale; run tools/infra/generate_gateway_routes.py
+2026-11-01T15:50:18.1841891Z E    +  where 1 = CompletedProcess(args=['/opt/hostedtoolcache/Python/3.12.15/x64/bin/python', 'tools/infra/generate_gateway_routes.py', '--check'], returncode=1, stdout='', stderr='gateway route map is stale; run tools/infra/generate_gateway_routes.py\n').returncode
+2026-11-01T15:50:18.1845124Z FAILED tests/containers/test_gateway_observability.py::test_generated_gateway_route_map_matches_business_openapi - AssertionError: gateway route map is stale; run tools/infra/generate_gateway_routes.py
+2026-11-01T15:50:18.1847755Z  +  where 1 = CompletedProcess(args=['/opt/hostedtoolcache/Python/3.12.15/x64/bin/python', 'tools/infra/generate_gateway_routes.py', '--check'], returncode=1, stdout='', stderr='gateway route map is stale; run tools/infra/generate_gateway_routes.py\n').returncode
+2026-11-01T15:50:18.1848973Z 1 failed, 175 passed in 2171.06s (0:36:11)

@@ -5,6 +5,36 @@ Baseline develop: `aa8c5b0be057754f9b3409c8699537d4aeb887b9` (2026-11-01).
 Submission: `codex/bt3-23001952-vt071`. No merge. Original red/green chain
 `687d9e0 -> a68d424 -> 4cfd6c6` and original logs are preserved.
 
+## Review map: feature, validation, CI/dependency and evidence
+
+PR55 is the combined assignment submission. The table below identifies the review
+surfaces; it does not constitute separate PRs or a reduction of the existing raw diff.
+
+| Surface | Paths / commits | Review focus |
+|---|---|---|
+| Export feature | Four files under app: api/appointments.py, repositories/appointments.py, schemas/appointments.py, services/appointment_export.py; docs/api/openapi.yaml; generated tools/deploy/nginx/route-map.conf | Route/auth/owner SQL/cap/CSV contract and finite gateway labels; booking.py remains baseline |
+| Functional tests | tests/backend/integration/test_appointment_export.py; unit/test_appointment_export.py; unit/test_openapi_export.py | AC oracles, real DB failure, TC13 vs TC18; UtcTimestamp fixture typing fixed in e90325b |
+| Validation tools/config | Three test_appointment_export_load*.py modules; tools/scripts/vt071_*.py; pyproject.toml | Opt-in load marker and greenlet/thread coverage tracking; these are test settings, not a production pool change |
+| CI/dependency repair | e90325b: .github/workflows/backend-models.yml, package.json, package-lock.json, related marker/type fixes; containerized-demo.yml early generated-route check | Required functional zero-skip gate; development-only minimatch11.0.1 fix; fail early on a stale artifact before Docker acceptance |
+| Report/evidence | docs/assignments/VT-071, especially evidence/ | Logs, all measured attempts, mutant metadata and analysis; not application code |
+
+Read the smaller diffs independently, from the official baseline:
+
+```powershell
+$base = 'aa8c5b0be057754f9b3409c8699537d4aeb887b9'
+git diff $base HEAD -- src/backend/app docs/api/openapi.yaml tools/deploy/nginx/route-map.conf tests/backend/integration/test_appointment_export.py tests/backend/unit/test_appointment_export.py tests/backend/unit/test_openapi_export.py
+git diff $base HEAD -- .github/workflows/backend-models.yml .github/workflows/containerized-demo.yml package.json package-lock.json pyproject.toml
+git diff --name-only $base HEAD -- docs/assignments/VT-071/evidence
+git show --stat e90325b
+```
+
+Raw evidence is retained in Git for the assignment's immutable links; readers can
+start with execution-notes.md and evidence/review-pool-summary.json rather than the
+per-request JSON. For team integration, the proposed packaging is a feature PR,
+a CI/dependency PR and a versioned evidence artifact with a checksum manifest.
+That packaging remains a follow-up before team merge; this map keeps the combined
+submission reviewable. PR55 has not been merged.
+
 ## Contract
 
 GET /api/v1/appointments/export[?status=CANCELLED]: owned STUDENT history, UTF-8 CSV,
@@ -157,6 +187,13 @@ Three sequential comparisons on one new MySQL process, with fresh schema per cas
 | 2: production -> null | 83 | 295 | Auth pool timeout verified; null rollback cancellations |
 | 3: production -> null | 0 | 302 | Observer excluded from process list; final protocol |
 
+Attempt1's two counts (null0, production340) are observations, not verified error
+classification. The auth stage and the name TimeoutError cannot distinguish a
+SQLAlchemy queue timeout from a built-in transaction deadline. Attempt1 lacks the
+leaf module/isinstance evidence added in attempt2; it is excluded from mechanism
+claims and from causal claims that one configuration improves the other. The
+295/302 classified pool failures in attempts2/3 support the pool-timeout finding.
+
 Final production errors per80:49,46,45,35,41,45,41. All302 are HTTP503 at auth,
 with leaf sqlalchemy.exc.TimeoutError (isinstance checked), before export runs.
 The sampled pool reaches10 checked-out connections; Threads_connected peaks11
@@ -193,6 +230,44 @@ Final load:1failed/1passed in23.90s; initial1failed/1passed23.55s; second2failed
 Load is opt-in. Functional recheck:41passed/2skipped in26.96s, recorded in
 review-pool-functional.txt.
 
+## Pool follow-up: choices and evidence required before a change
+
+Decision now: NFR-03 remains FAIL; no production setting is selected from these
+diagnostic runs. First measure checkout wait and connection hold time separately
+for auth/export, plus event-loop lag, MySQL CPU and query duration. Use a repeated
+concurrency ramp5/10/20/40/80 with independent sessions and randomized configuration
+order, on the same data/host protocol; retain unsuccessful and successful requests.
+
+| Candidate, not implemented | Tradeoff and required evidence |
+|---|---|
+| Bound admitted concurrency / backpressure | Compare queue/rejection rate, completed throughput and p95; account for rejected work, not only requests admitted to DB |
+| Increase bounded pool capacity | Check total across workers/replicas plus other DB clients against max_connections/headroom; show DB CPU/lock/latency and error rate remain acceptable |
+| Increase pool wait timeout | Queue wait consumes the existing1s transaction /3s request budgets; it may move failure to another deadline. Measure end-to-end latency and cleanup, not just disappearance of pool exceptions |
+| Reduce checkout count / transaction round trips | Trace checkout/checkin per request before changing transaction boundaries; verify auth/role/owner behavior and error/cleanup paths, with no shared session across concurrent requests |
+
+Source inspection matters for the last option: optional_auth and the route use
+get_db_session with default dependency caching, so the request reuses one session.
+Auth finishes its transaction before export starts a separate read_transaction.
+SQLAlchemy releases the connection at transaction end, then acquires for the next
+transaction. The observed160 new NullPool connections per successful80-request
+burst is consistent with two sequential acquisitions, not two connections held
+simultaneously per request. This is a code/framework inference, not a new per-request
+checkout-ID trace. Merging transactions might save checkout/round-trip overhead
+while increasing hold time; retain role/session-revocation semantics and release
+before CSV formatting. It is not a demonstrated fix.
+
+For each candidate, vary one factor, repeat cold/warm bursts and compare all HTTP
+errors, successful p95<=2.5s, scope/cardinality, auth/export wait/hold, cancellations
+and post-burst connections. Count backpressure rejections in the acceptance result;
+reducing admitted work alone does not satisfy the original80-request requirement.
+Apply only after team review and a reproducible improvement without weakened auth
+or recovery. TC18/TC13, role/scope and DB-fault recovery remain regression oracles.
+
+Framework references: [SQLAlchemy pool-limit diagnosis](https://docs.sqlalchemy.org/en/20/errors.html#error-3o7r),
+[session/transaction connection release](https://docs.sqlalchemy.org/en/20/orm/session_basics.html),
+[FastAPI dependency reuse](https://fastapi.tiangolo.com/tutorial/dependencies/sub-dependencies/#using-the-same-dependency-multiple-times).
+The application call path above was checked against the repository's pinned code.
+
 ## PR55 CI follow-up
 
 The models job stopped at seven Pyright errors: six datetime values supplied where
@@ -216,7 +291,21 @@ Load numbers above were measured at c664a5d; the later marker/type spelling chan
 do not represent a new performance measurement. review-pool-summary.json records
 that measured source SHA256. No functional/CI PASS overrides the open load FAIL.
 
-## Evidence and ownership
+### Container route-map follow-up
++
++The e90325b container workflow finished1failed/175passed: the generated gateway
++map was stale relative to the new export OpenAPI operation. Reproduced the exact
++test locally (1failed), regenerated tools/deploy/nginx/route-map.conf with the
++existing generator (seven added entries,31business operations), and reran the
++original failing test plus URI-regex/gateway contracts:3passed in0.66s. Static
++export precedes the parameterized appointment route in the generated finite map.
++The workflow now checks generation before Docker acceptance for earlier feedback;
++the original container test and zero-skip gate remain enabled. No timeout change.
++See evidence/review-gateway-map-ci-failure.txt, review-gateway-map-red.txt and
++review-gateway-map-green.txt. The new full container run is separate from the
++175passing tests on e90325b; local checks do not claim a fresh full Docker pass.
++
++## Evidence and ownership
 
 Read spec.md, plan-review.md (verbatim plan prompt), test-design.md, post-test-review.md,
 execution-notes.md, review-revision.md and ai-usage-log.md. Source and logs are runnable.
