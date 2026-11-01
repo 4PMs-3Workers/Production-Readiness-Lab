@@ -1,9 +1,11 @@
-Confidence của tôi tăng lên nhờ chuỗi bằng chứng có thể chạy lại, đặc biệt là kiểm thử với MySQL thật. So sánh chính xác ID trong CSV với dữ liệu đã commit có giá trị hơn việc chỉ nhìn HTTP 200. Thí nghiệm thay câu SQL bằng tên cột không tồn tại cũng cho thấy mock trả hàng hợp lý vẫn có thể che giấu sai lệch hợp đồng.
+Trong bài này, tôi sử dụng Codex để phân tích repository, sinh patch và thực thi kiểm thử trên MySQL thử nghiệm. Tôi chưa trực tiếp chạy các lệnh; evidence là log của quá trình được ủy quyền cho coding agent. Vì vậy, bản reflection này cần được tôi đọc hiểu và xác nhận trước khi nộp.
 
-Red phase chứng minh baseline chưa cung cấp hành vi export: đăng nhập và fixture hoạt động, nhưng yêu cầu bị xử lý như ID lịch hẹn và trả 422. Sau patch, cùng các yêu cầu nhận CSV đúng phạm vi. Điều này hỗ trợ correctness của slice đã chọn, không chứng minh mọi tình huống vận hành đều đúng.
+Điểm làm mức tin cậy tăng là oracle so chính xác ID và số dòng, thay vì chỉ kiểm tra HTTP 200. Red phase cho thấy export chưa tồn tại; green phase hỗ trợ correctness của slice đã chọn. Thí nghiệm SQL lỗi thật cũng cho thấy mock trả object hợp lý có thể che giấu sai hợp đồng database.
 
-Mutation làm retry trả 503 thay vì receipt 200, nên test đã phân biệt được implementation đúng với lỗi cố ý. Tuy nhiên, unique constraint vẫn tồn tại; tôi không diễn giải kết quả thành bằng chứng đã tạo lịch trùng. Coverage cũng chỉ là chỉ dấu bổ sung, cần đọc cùng assertions và risk coverage.
+Mutation gốc chỉ làm retry trả 503 trước khi kiểm tra CSV. Mutant bổ sung bỏ cả replay và unique index trong schema test đã tạo hai dòng CSV, khiến oracle cardinality thất bại. Hai kết quả bảo vệ những khía cạnh khác nhau. Mutant bỏ một role dependency còn sống vì dependency khác vẫn kiểm tra quyền, nên không thể diễn giải mọi survivor là test yếu.
 
-Kết quả tải làm confidence giảm ở khía cạnh reliability. Hai lần đo đều có 503 dù p95 tổng thấp hơn 2,5 giây. Tốc độ trả lỗi không thể thay thế khả năng phục vụ thành công. Chưa có evidence đủ để quy nguyên nhân cho CPU, connection pool hoặc timeout cụ thể.
+Coverage được cải thiện bằng cấu hình greenlet và kiểm tra cùng TC10, không sửa số liệu thủ công. Tuy nhiên, coverage đầy đủ vẫn không chứng minh mọi trạng thái hoặc lỗi tích hợp đều được kiểm tra.
 
-Kiểm thử tiếp theo có giá trị cao nhất là đo qua gateway với pool cấu hình như triển khai, nhiều phiên người dùng độc lập và telemetry theo từng giai đoạn. Tôi cũng cần nhóm xác nhận quyền export, cột dữ liệu và giới hạn dòng. Reflection này là bản AI hỗ trợ từ evidence; trách nhiệm đọc hiểu, xác nhận và giải thích khi vấn đáp vẫn thuộc về tôi.
+Lần tải mới không có lỗi, nhưng hai lần cũ có 503 vẫn là bằng chứng cần giữ. Chưa tái hiện exception cũ nên chưa biết vì sao lỗi biến mất; không thể kết luận warmup đã sửa nguyên nhân.
+
+Bước tiếp theo có giá trị là tự chạy lại các case quan trọng, giải thích từng assertion, rồi đo qua gateway với pool như triển khai và các phiên độc lập. Quyền export, cột dữ liệu và cap cũng cần nhóm xác nhận. Tôi chịu trách nhiệm hiểu và đánh giá phần AI hỗ trợ, thay vì lấy kết quả pass làm sự bảo đảm tuyệt đối.

@@ -47,3 +47,22 @@ Required gates still pending at review time: mutation, coverage, flaky experimen
    instance but impossible database interval; corrected after review (C4).
 3. Initial context-only role tests: status assertions did not prove real session
    boundary; supplemented after review (H2). Mock pass is not DB contract evidence.
+
+## Actual revision post-test review
+
+Input: current diff, review-green.txt (41 passed/36.32s), first cold/warm review run
+(560/560 status200). Same read-only coding agent, no human approval claimed.
+
+- Supported: CSV new cases first failed7/10 then passed; TC18 independently reaches
+  cardinality while TC13 retains200/original receipt; same-TC10 coverage comparison
+  supports greenlet/thread configuration.
+- Supported: test-only server wrappers use per-task ContextVar, re-raise errors,
+  record types/integer codes, never str(error), SQL, cookie/token or response body.
+- Small true concern: set-ID load assertion loses multiplicity. Fixed by requiring
+  exactly100 exported rows AND expected set; rerun retains actual count in samples.
+- Insufficient evidence: "warmup/instrumentation fixed historical503 root cause".
+  Reject: no real failure in new review runs, so no failing exception chain or
+  causal experiment. Two injected probes validate logging, not historical causality.
+
+Direct mutations were executed after this review; final outcomes come from logs,
+including the primary-role survivor, not the agent's prediction.

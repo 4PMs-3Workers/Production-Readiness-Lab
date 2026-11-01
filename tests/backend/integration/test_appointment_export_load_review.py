@@ -19,6 +19,7 @@ from time import perf_counter
 import httpx
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 from tests.backend.integration.test_appointment_export import PATH, rows, seed_history
 from tests.backend.integration.test_appointments_api import ORIGIN
 from tests.backend.integration.test_booking_context import sign_in
@@ -98,6 +99,35 @@ class DiagnosticApp:
 
 def p95(values):
     return sorted(values)[math.ceil(0.95 * len(values)) - 1] if values else None
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        TimeoutError("PRIVATE_DIAGNOSTIC_CANARY"),
+        OperationalError(
+            "PRIVATE_DIAGNOSTIC_CANARY", {}, Exception(1054, "PRIVATE_DIAGNOSTIC_CANARY")
+        ),
+    ],
+)
+async def test_server_diagnostics_omit_exception_messages(error):
+    """Deterministic probe validates the logger; it does not explain historical 503s."""
+    record = {"sample": "diagnostic-probe", "server_failures": []}
+    token = SAMPLE.set(record)
+
+    async def failure():
+        raise error
+
+    try:
+        with pytest.raises(type(error)):
+            await instrument("export", failure)()
+    finally:
+        SAMPLE.reset(token)
+    serialized = json.dumps(record)
+    assert "PRIVATE_DIAGNOSTIC_CANARY" not in serialized
+    assert record["server_failures"][0]["chain"][0]["exception_type"] == type(error).__name__
+    if isinstance(error, OperationalError):
+        assert any(item["db_code"] == 1054 for item in record["server_failures"][0]["chain"])
 
 
 async def test_export_cold_full_warmup_and_warm_bursts(availability_env, monkeypatch):

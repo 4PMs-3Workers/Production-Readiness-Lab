@@ -42,3 +42,23 @@ The student explicitly said they have not personally run commands, and requested
 Codex execution. Record this as delegated AI-assisted execution, not manual student
 execution. Responsibility for reviewing/owning the submitted work can coexist with
 delegation; the first-page commitment is retained exactly. Reflection remains a draft.
+
+## Observed revision results
+
+- CSV red7fail/10pass -> green41pass. Restored coverage41pass; regression1037pass.
+- Same-TC10 greenlet hypothesis confirmed; full export coverage34/34 and8/8;
+  diff executable lines50/50, arcs10/10. No manual metric editing.
+- New source+unique mutant reaches CSV count2 !=1. Owner/overflow/both-role guards
+  killed; primary-role-only survives because query guard still enforces STUDENT.
+- Final cold/warm load560/560 success; p95cold1.516s,warm1.316..1.527s. Historical
+  58/400 and246/400 errors remain; no failing chain reproduced, no causal fix claim.
+- Actual post-test reviewer found load set-ID oracle lost multiplicity; fixed exact
+  row count and reran. Two injected probes show diagnostic messages/SQL are omitted.
+- First mutant-runner attempt had an AST-selector/classifier issue, restored itself,
+  and is archived as attempt1. Corrected run supplies final outcomes and public SHAs.
+
+## Public experiment refs (never merge)
+
+- Original: https://github.com/4PMs-3Workers/Production-Readiness-Lab/tree/codex/bt3-23001952-vt071-mutation
+- New: https://github.com/4PMs-3Workers/Production-Readiness-Lab/tree/codex/bt3-23001952-vt071-mutants-verified
+- Exact immutable links/results: evidence/review-mutants.json and execution-notes.md.

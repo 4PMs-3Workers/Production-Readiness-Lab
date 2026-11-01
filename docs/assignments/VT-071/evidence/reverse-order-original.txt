@@ -1,0 +1,35 @@
+Collected nodes in normal order:
+tests/backend/integration/test_appointment_export.py::test_export_denies_missing_session_and_wrong_role[None-401]
+tests/backend/integration/test_appointment_export.py::test_export_denies_missing_session_and_wrong_role[STAFF-403]
+tests/backend/integration/test_appointment_export.py::test_export_denies_missing_session_and_wrong_role[ADMIN-403]
+tests/backend/integration/test_appointment_export.py::test_export_rejects_scope_and_invalid_query[student_id=00000000-0000-0000-0000-000000000001]
+tests/backend/integration/test_appointment_export.py::test_export_rejects_scope_and_invalid_query[page=1]
+tests/backend/integration/test_appointment_export.py::test_export_rejects_scope_and_invalid_query[page_size=20]
+tests/backend/integration/test_appointment_export.py::test_export_rejects_scope_and_invalid_query[status=unknown]
+tests/backend/integration/test_appointment_export.py::test_export_rejects_scope_and_invalid_query[status=UPCOMING&status=CANCELLED]
+tests/backend/integration/test_appointment_export.py::test_export_real_login_scope_contract_and_inactive_catalog
+tests/backend/integration/test_appointment_export.py::test_export_status_filter_and_empty_history
+tests/backend/integration/test_appointment_export.py::test_export_rejects_overflow_instead_of_truncation
+tests/backend/integration/test_appointment_export.py::test_mock_hides_real_database_contract_failure
+tests/backend/integration/test_appointment_export.py::test_booking_replay_after_cancellation_exports_one_source_row
+tests/backend/integration/test_appointment_export.py::test_export_without_real_session_is_denied
+tests/backend/integration/test_appointment_export.py::test_export_real_session_role_is_denied[STAFF]
+tests/backend/integration/test_appointment_export.py::test_export_real_session_role_is_denied[ADMIN]
+tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[=1+1-'=1+1]
+tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[ +SUM(A1)-' +SUM(A1)]
+tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[-1-'-1]
+tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[@X-'@X]
+tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[\t=1-'\t=1]
+tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[\r\n@X-'\r\n@X]
+tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[T\u01b0 v\u1ea5n, h\u1ecdc t\u1eadp-T\u01b0 v\u1ea5n, h\u1ecdc t\u1eadp]
+tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[a"b\nc-a"b\nc]
+tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[-]
+tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[None-]
+tests/backend/unit/test_appointment_export.py::test_export_timeout_is_sanitized
+tests/backend/unit/test_appointment_export.py::test_export_timestamp_does_not_depend_on_local_clock[2026-10-16T08:00:00+07:00]
+tests/backend/unit/test_appointment_export.py::test_export_timestamp_does_not_depend_on_local_clock[2026-10-15T20:00:00-05:00]
+Executed in reverse order:
+.............................                                            [100%]
+29 passed in 24.84s
+
+EXIT_CODE=0

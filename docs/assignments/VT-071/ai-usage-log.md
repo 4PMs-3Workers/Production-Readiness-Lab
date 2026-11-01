@@ -36,3 +36,29 @@ Two initially plausible but untrusted outputs: page-loop snapshot assumption and
 formatter's zero-duration fixture. Third limitation: role-context stub pass did not
 prove a MySQL-backed role session. Each was rejected, corrected or independently tested.
 The student must still validate proposed policy and personally understand the diff.
+
+## Revision after external review
+
+U12: User supplied external read-only review, then said they had not personally run
+commands and asked Codex execution. Codex clarified it would disclose delegated AI
+execution and retain a reflection draft, not invent manual student execution.
+
+U13: Same-TC10 default vs greenlet/thread experiment confirmed missing overflow line
+was measurement. Applied official configuration and diff executable-line report.
+No coverage metric edited manually.
+
+U14: Bare tab/CR/LF and full-width CSV cases captured7fail/10pass red, then small
+formatter patch and41pass green. Added TC18 cardinality beyond status assertion.
+
+U15: Actual agent review accepted supported CSV/coverage/safe logging findings,
+rejected historical503 root-cause claim as unproved, found lost row multiplicity in
+set-ID load oracle. Fixed count assertion, reran and preserved earlier review run.
+
+U16: Ran owner/overflow/role/source-plus-unique-test-schema mutants. First runner
+misclassified plain pytest asserts and selected two decorated functions; archived
+that harness error, fixed AST selection/classification, reran. Four killed, one
+redundant-role survivor; public experimental commits. All source restored.
+
+U17: Separated historical FAIL and new cold/warm PASS without causal claim; added
+diagnostic sanitizer probes, risk legend, verbatim plan prompt, direct filenames,
+self-check/oral guide and revised PDF. Human understanding/review remains unclaimed.

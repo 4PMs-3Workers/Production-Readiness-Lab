@@ -16,10 +16,10 @@ INFO  [alembic.runtime.migration] Running upgrade a1b2c3d4e5f6 -> 20261016_1200_
 INFO  [alembic.runtime.migration] Running upgrade 20261016_1200_audit_reqid128 -> 20261017_2350_student_profile, Add optional student profile fields without changing existing account data.
 INFO  [alembic.runtime.migration] Running upgrade 20261017_2350_student_profile -> 20261019_1200_proposal_replay, Persist proposal creation receipts and optimistic creation contexts.
 ---------------------------- Captured stdout call -----------------------------
-{"timestamp":"2026-11-01T10:06:25.475074Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","response_complete":true,"duration_seconds":0.5129053999989992,"route":"/api/v1/auth/login","request_id":"cda74cab4558955390f3f1383e1c11d5","method":"POST","status":200,"trace_id":"b0cda2340db6675cee33351f036f3109"}
-{"timestamp":"2026-11-01T10:06:25.508256Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","response_complete":true,"duration_seconds":0.03453879999869969,"route":"/api/v1/appointments/export","request_id":"9e57dd2e842ef10cffb8513f9e564a5d","method":"GET","status":200,"trace_id":"93a4a525c2dbb07733120f7c990ad2e1"}
+{"timestamp":"2026-11-01T10:08:24.742698Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","duration_seconds":0.3231028000009246,"method":"POST","response_complete":true,"trace_id":"dce56568192f9fa414693070f8dcc479","request_id":"09b404954913b7c89bb90c3234f25b20","route":"/api/v1/auth/login","status":200}
+{"timestamp":"2026-11-01T10:08:24.767013Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","duration_seconds":0.021458100003656,"method":"GET","response_complete":true,"trace_id":"bc99aacbbf2eb38aca131405530a0119","request_id":"eee2e2ac81c8bdb94f4b58f7d639f5fa","route":"/api/v1/appointments/export","status":200}
 =========================== short test summary info ===========================
 FAILED tests/backend/integration/test_appointment_export.py::test_export_real_login_scope_contract_and_inactive_catalog
-1 failed in 4.67s
+1 failed in 2.73s
 
 EXIT_CODE=1

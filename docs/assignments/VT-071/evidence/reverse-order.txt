@@ -15,12 +15,20 @@ tests/backend/integration/test_appointment_export.py::test_booking_replay_after_
 tests/backend/integration/test_appointment_export.py::test_export_without_real_session_is_denied
 tests/backend/integration/test_appointment_export.py::test_export_real_session_role_is_denied[STAFF]
 tests/backend/integration/test_appointment_export.py::test_export_real_session_role_is_denied[ADMIN]
+tests/backend/integration/test_appointment_export.py::test_export_source_cardinality_after_retry
 tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[=1+1-'=1+1]
 tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[ +SUM(A1)-' +SUM(A1)]
 tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[-1-'-1]
 tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[@X-'@X]
 tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[\t=1-'\t=1]
 tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[\r\n@X-'\r\n@X]
+tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[\tplain-'\tplain]
+tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[\rplain-'\rplain]
+tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[\nplain-'\nplain]
+tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[\uff1d1+1-'\uff1d1+1]
+tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[\uff0b1-'\uff0b1]
+tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[\uff0d1-'\uff0d1]
+tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[\uff20X-'\uff20X]
 tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[T\u01b0 v\u1ea5n, h\u1ecdc t\u1eadp-T\u01b0 v\u1ea5n, h\u1ecdc t\u1eadp]
 tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[a"b\nc-a"b\nc]
 tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[-]
@@ -29,7 +37,7 @@ tests/backend/unit/test_appointment_export.py::test_export_timeout_is_sanitized
 tests/backend/unit/test_appointment_export.py::test_export_timestamp_does_not_depend_on_local_clock[2026-10-16T08:00:00+07:00]
 tests/backend/unit/test_appointment_export.py::test_export_timestamp_does_not_depend_on_local_clock[2026-10-15T20:00:00-05:00]
 Executed in reverse order:
-.............................                                            [100%]
-29 passed in 24.84s
+.....................................                                    [100%]
+37 passed in 34.13s
 
 EXIT_CODE=0
