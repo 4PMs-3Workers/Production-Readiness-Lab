@@ -38,7 +38,10 @@ def render_csv(items: Sequence[AppointmentListItem]) -> str:
         row = []
         for column in CSV_COLUMNS:
             value = values[column]
-            if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@")):
+            if isinstance(value, str) and (
+                value.startswith(("\t", "\r", "\n"))
+                or value.lstrip().startswith(("=", "+", "-", "@", "＝", "＋", "－", "＠"))
+            ):
                 value = "'" + value
             row.append(value)
         writer.writerow(row)

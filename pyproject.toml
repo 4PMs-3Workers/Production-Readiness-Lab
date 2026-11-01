@@ -68,6 +68,11 @@ markers = [
 line-length = 100
 target-version = ["py311"]
 
+[tool.coverage.run]
+branch = true
+concurrency = ["greenlet", "thread"]
+core = "ctrace"
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"

@@ -1,0 +1,5712 @@
+{
+  "timestamp_utc": "2026-11-01T10:03:08.674774+00:00",
+  "platform": "Windows-11-10.0.26300-SP0",
+  "mysql": "8.4.13",
+  "concurrency": 80,
+  "owned_rows": 100,
+  "foreign_rows": 1,
+  "engine": "NullPool, READ COMMITTED",
+  "transport": "ASGI plus real MySQL TCP",
+  "sessions": "80 clients sharing one real student session; no session UPDATE on read",
+  "timeouts": {
+    "request": 3.0,
+    "db_query": 1.0
+  },
+  "cold_definition": "first 80-task burst after one serial request; not a restarted MySQL",
+  "instrumentation": "test-only wrappers in server auth/export; type/code, no error messages",
+  "bursts": [
+    {
+      "phase": "cold",
+      "samples": [
+        {
+          "sample": "cold-0",
+          "server_failures": [],
+          "auth_seconds": 0.25928189999831375,
+          "export_seconds": 0.2623380000004545,
+          "request_id": "fef0d8a4ca232d9f2265d4e0b96ee4fc",
+          "latency_seconds": 0.63290440000128,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-1",
+          "server_failures": [],
+          "auth_seconds": 0.26781479999772273,
+          "export_seconds": 0.25796919999993406,
+          "request_id": "1ae0271c3437c4b9905d3d2eeba37c03",
+          "latency_seconds": 0.6317852000065614,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-2",
+          "server_failures": [],
+          "auth_seconds": 0.26186349999625236,
+          "export_seconds": 0.2559140000084881,
+          "request_id": "bed28baf216e6f033fb1416762d7b895",
+          "latency_seconds": 0.6279670999938389,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-3",
+          "server_failures": [],
+          "auth_seconds": 0.25415210000937805,
+          "export_seconds": 0.2590554000053089,
+          "request_id": "23156a7c66b4c35b696e60e9641fa22e",
+          "latency_seconds": 0.625036800003727,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-4",
+          "server_failures": [],
+          "auth_seconds": 0.26154310000129044,
+          "export_seconds": 0.2544160999968881,
+          "request_id": "8aa30cddacacc22ce44549181ca70ac6",
+          "latency_seconds": 0.6250008000060916,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-5",
+          "server_failures": [],
+          "auth_seconds": 0.25828249999904074,
+          "export_seconds": 0.2572319000028074,
+          "request_id": "f9665f7dc3fc0dadd41ea805e45a1bd1",
+          "latency_seconds": 0.6236190999916289,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-6",
+          "server_failures": [],
+          "auth_seconds": 0.2599095000041416,
+          "export_seconds": 0.25550919999659527,
+          "request_id": "6e5946818097d78ecf7d19ae8a6d72c2",
+          "latency_seconds": 0.622368699987419,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-7",
+          "server_failures": [],
+          "auth_seconds": 0.25922359999094624,
+          "export_seconds": 0.2647149999975227,
+          "request_id": "5ebd04ab5eddce4bef11838c00643e5b",
+          "latency_seconds": 0.624996700003976,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-8",
+          "server_failures": [],
+          "auth_seconds": 0.25863270000263583,
+          "export_seconds": 0.26805830000375863,
+          "request_id": "6f1e235db08da94564a20c6c684032ee",
+          "latency_seconds": 0.9684118000004673,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-9",
+          "server_failures": [],
+          "auth_seconds": 0.2578327000082936,
+          "export_seconds": 0.2645636000088416,
+          "request_id": "30e54562cb6abad3ad09eccbc15b62bf",
+          "latency_seconds": 0.6223379000002751,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-10",
+          "server_failures": [],
+          "auth_seconds": 0.2580745000013849,
+          "export_seconds": 0.2674729999998817,
+          "request_id": "dba21b993fec4ed67b79359a6416d181",
+          "latency_seconds": 0.9660296000074595,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-11",
+          "server_failures": [],
+          "auth_seconds": 0.34368250000989065,
+          "export_seconds": 0.6595367999980226,
+          "request_id": "8162e46403337e1502c81ea0d3661671",
+          "latency_seconds": 1.1165293999947608,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-12",
+          "server_failures": [],
+          "auth_seconds": 0.3562861999962479,
+          "export_seconds": 0.6802016000001458,
+          "request_id": "b36a8b96299a25f07f0a15b51dd5be40",
+          "latency_seconds": 1.1322328000096604,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-13",
+          "server_failures": [],
+          "auth_seconds": 0.36833719999413006,
+          "export_seconds": 0.6988054999965243,
+          "request_id": "6459e23f0fb591dbcd3ae365b3754c55",
+          "latency_seconds": 1.1457785999955377,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-14",
+          "server_failures": [],
+          "auth_seconds": 0.3660719000035897,
+          "export_seconds": 0.6976186999963829,
+          "request_id": "58814760f78b0d80dd9a4537f78a993f",
+          "latency_seconds": 1.143612600004417,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-15",
+          "server_failures": [],
+          "auth_seconds": 0.3596518999984255,
+          "export_seconds": 0.6916510000010021,
+          "request_id": "0da86a45d81203b61c00a6c497a7c125",
+          "latency_seconds": 1.1334835000016028,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-16",
+          "server_failures": [],
+          "auth_seconds": 0.34604410000611097,
+          "export_seconds": 0.6782758000044851,
+          "request_id": "c060847971d0176f33045b975856f448",
+          "latency_seconds": 1.1239710999943782,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-17",
+          "server_failures": [],
+          "auth_seconds": 0.3562670000101207,
+          "export_seconds": 0.6923137999983737,
+          "request_id": "950359fc437774c5fceec8a6e2cadde8",
+          "latency_seconds": 1.1307907000009436,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-18",
+          "server_failures": [],
+          "auth_seconds": 0.35258770000655204,
+          "export_seconds": 0.6994654000009177,
+          "request_id": "3c85a23911d9040db51aab73d3500549",
+          "latency_seconds": 1.1333616000047186,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-19",
+          "server_failures": [],
+          "auth_seconds": 0.3521439000032842,
+          "export_seconds": 0.6937522000080207,
+          "request_id": "0f97f556642d3f83c2265eb9a9f102fc",
+          "latency_seconds": 1.128393999999389,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-20",
+          "server_failures": [],
+          "auth_seconds": 0.37658460000238847,
+          "export_seconds": 0.7138530999945942,
+          "request_id": "0a707c51590ca89323a6c2c1e4b3c142",
+          "latency_seconds": 1.1540429000015138,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-21",
+          "server_failures": [],
+          "auth_seconds": 0.34480429999530315,
+          "export_seconds": 0.6917979999998352,
+          "request_id": "859d9e091d1845fd532438bd1e64de14",
+          "latency_seconds": 1.1192842000018572,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-22",
+          "server_failures": [],
+          "auth_seconds": 0.3398237000074005,
+          "export_seconds": 0.6878001000004588,
+          "request_id": "7af6bbba0d72d3f69cbd0bf2a7b5adec",
+          "latency_seconds": 1.115567499989993,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-23",
+          "server_failures": [],
+          "auth_seconds": 0.33654489999753423,
+          "export_seconds": 0.6877856000064639,
+          "request_id": "04d677afd86c801afe129a3db1b04ad9",
+          "latency_seconds": 1.1131645999994362,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-24",
+          "server_failures": [],
+          "auth_seconds": 0.36793049999687355,
+          "export_seconds": 0.7116649000090547,
+          "request_id": "59e269a880604bc10b0b59413c1c3712",
+          "latency_seconds": 1.144741600000998,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-25",
+          "server_failures": [],
+          "auth_seconds": 0.3327288000000408,
+          "export_seconds": 0.6856693000008818,
+          "request_id": "c8dfebe0cc7d22ef7502f5d5e7ebf7cd",
+          "latency_seconds": 1.1090044000011403,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-26",
+          "server_failures": [],
+          "auth_seconds": 0.32894420000957325,
+          "export_seconds": 0.6850816999940434,
+          "request_id": "3520c54dd4bf84012d7448fc8cc15f8a",
+          "latency_seconds": 1.1064845000073547,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-27",
+          "server_failures": [],
+          "auth_seconds": 0.3323374000028707,
+          "export_seconds": 0.6885116999910679,
+          "request_id": "6da997cb6103cd2be60306972d3fb325",
+          "latency_seconds": 1.1078632999997353,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-28",
+          "server_failures": [],
+          "auth_seconds": 0.356387599997106,
+          "export_seconds": 0.7079341000062414,
+          "request_id": "d41526aa5bf9026db9da729ab81747ff",
+          "latency_seconds": 1.1327573000016855,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-29",
+          "server_failures": [],
+          "auth_seconds": 0.32751839999400545,
+          "export_seconds": 0.6856725999969058,
+          "request_id": "0cf583a75200fc6069544f00e0b6534a",
+          "latency_seconds": 1.1028702999901725,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-30",
+          "server_failures": [],
+          "auth_seconds": 0.3205722999991849,
+          "export_seconds": 0.6849548000027426,
+          "request_id": "ae3c12c89f908d4154682596d5f92288",
+          "latency_seconds": 1.099436100004823,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-31",
+          "server_failures": [],
+          "auth_seconds": 0.3197134000074584,
+          "export_seconds": 0.6794258000008995,
+          "request_id": "e6e0631a397aa1bedb3137996557e994",
+          "latency_seconds": 1.0967215999990003,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-32",
+          "server_failures": [],
+          "auth_seconds": 0.35321240000484977,
+          "export_seconds": 0.7102212000027066,
+          "request_id": "08b6896882ef7cd8abc5e50aa4e1e22a",
+          "latency_seconds": 1.1290579000051366,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-33",
+          "server_failures": [],
+          "auth_seconds": 0.3214340999984415,
+          "export_seconds": 0.6892212999955518,
+          "request_id": "0cdbbee3a92e622e9d6a180dceb6b6d3",
+          "latency_seconds": 1.097572400001809,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-34",
+          "server_failures": [],
+          "auth_seconds": 0.33468979998724535,
+          "export_seconds": 0.7044225999998162,
+          "request_id": "aff4232024c549bcb36580afbfd55f1f",
+          "latency_seconds": 1.1132335000002058,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-35",
+          "server_failures": [],
+          "auth_seconds": 0.30648800000199117,
+          "export_seconds": 0.6782783999951789,
+          "request_id": "996bd0e3573e7f17f634d1c2ce0d9921",
+          "latency_seconds": 1.0857203000050504,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-36",
+          "server_failures": [],
+          "auth_seconds": 0.33237350000126753,
+          "export_seconds": 0.7063659999985248,
+          "request_id": "5734f1499edc1dd6049ebfea967afb76",
+          "latency_seconds": 1.111627000005683,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-37",
+          "server_failures": [],
+          "auth_seconds": 0.30082109999784734,
+          "export_seconds": 0.6791329999978188,
+          "request_id": "02d47de2a0255e9f6acc4bfcc40825ea",
+          "latency_seconds": 1.0809580999921309,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-38",
+          "server_failures": [],
+          "auth_seconds": 0.2981929000088712,
+          "export_seconds": 0.6755371000035666,
+          "request_id": "4aa1d609c1d06555816f470056d08357",
+          "latency_seconds": 1.078415700001642,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-39",
+          "server_failures": [],
+          "auth_seconds": 0.2944700000080047,
+          "export_seconds": 0.6757073000044329,
+          "request_id": "bcde3654a442a07c0debe6aa6f39441e",
+          "latency_seconds": 1.0743881999951554,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-40",
+          "server_failures": [],
+          "auth_seconds": 0.3239934000011999,
+          "export_seconds": 0.7087305999884848,
+          "request_id": "8e9d6aa3c7a6c0a941efcdc15109d06c",
+          "latency_seconds": 1.1047496999963187,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-41",
+          "server_failures": [],
+          "auth_seconds": 0.28905049999593757,
+          "export_seconds": 0.6744185999996262,
+          "request_id": "af412804a4cf4b24067e82d6f8b627bc",
+          "latency_seconds": 1.0685427999997046,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-42",
+          "server_failures": [],
+          "auth_seconds": 0.2930588000017451,
+          "export_seconds": 0.6803432000015164,
+          "request_id": "b1e0c5ba2e95bd2f443426d012ecb198",
+          "latency_seconds": 1.0716545000032056,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-43",
+          "server_failures": [],
+          "auth_seconds": 0.28410420000727754,
+          "export_seconds": 0.6716493999992963,
+          "request_id": "0dc717023f8fc60331ede251093f8f1d",
+          "latency_seconds": 1.06369400001131,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-44",
+          "server_failures": [],
+          "auth_seconds": 0.31224090000614524,
+          "export_seconds": 0.7034004000015557,
+          "request_id": "3ddb46ebdac387018aec8499f26c13d0",
+          "latency_seconds": 1.0899692999955732,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-45",
+          "server_failures": [],
+          "auth_seconds": 0.3039429000054952,
+          "export_seconds": 0.6969726999959676,
+          "request_id": "4699d590c0f3efe08521fe51386ca2e6",
+          "latency_seconds": 1.0810338000010233,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-46",
+          "server_failures": [],
+          "auth_seconds": 0.2799570000061067,
+          "export_seconds": 0.6722720000107074,
+          "request_id": "8eda8e4d5badc33be390750fe2bcb560",
+          "latency_seconds": 1.0591702000092482,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-47",
+          "server_failures": [],
+          "auth_seconds": 0.2704939000104787,
+          "export_seconds": 0.6609218000085093,
+          "request_id": "65dfe46c36c36f34e8f554f66c6e69a1",
+          "latency_seconds": 1.0457172000024002,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-48",
+          "server_failures": [],
+          "auth_seconds": 0.30349399999249727,
+          "export_seconds": 0.7012810000014724,
+          "request_id": "92c49381895e9d867a805d5d6dd96125",
+          "latency_seconds": 1.0795741000038106,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-49",
+          "server_failures": [],
+          "auth_seconds": 0.2637793000030797,
+          "export_seconds": 0.6681059999973513,
+          "request_id": "d9dbf05e8e8593e39bc0bd972564dfc4",
+          "latency_seconds": 1.0452809999987949,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-50",
+          "server_failures": [],
+          "auth_seconds": 0.29773500000010245,
+          "export_seconds": 0.7001189000002341,
+          "request_id": "fa5783c2e1cc5a6285167fb00c01dfbd",
+          "latency_seconds": 1.0750808000011602,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-51",
+          "server_failures": [],
+          "auth_seconds": 0.31738780000887346,
+          "export_seconds": 0.7125071000045864,
+          "request_id": "812133b8fddcc70579bbfe6f181fdd2b",
+          "latency_seconds": 1.0945554000063566,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-52",
+          "server_failures": [],
+          "auth_seconds": 0.3167860999965342,
+          "export_seconds": 0.7151270000031218,
+          "request_id": "ea35b863f39a24965c702154dc6e3bd0",
+          "latency_seconds": 1.0947859999869252,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-53",
+          "server_failures": [],
+          "auth_seconds": 0.3110820000001695,
+          "export_seconds": 0.7111904000048526,
+          "request_id": "185c1db88793261c7ade2f046ffff9d9",
+          "latency_seconds": 1.0881324999936623,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-54",
+          "server_failures": [],
+          "auth_seconds": 0.30806809999921825,
+          "export_seconds": 0.7081948999984888,
+          "request_id": "c7bfd3890473a8a3d827cde63fb6b91d",
+          "latency_seconds": 1.082541299998411,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-55",
+          "server_failures": [],
+          "auth_seconds": 0.30575349999708124,
+          "export_seconds": 0.7102899000019534,
+          "request_id": "ec855f97a39a9a8ab255bd69cb156075",
+          "latency_seconds": 1.0814266999950632,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-56",
+          "server_failures": [],
+          "auth_seconds": 0.2765127000020584,
+          "export_seconds": 0.691035700001521,
+          "request_id": "ed590810d735a1c2d0ce35414ca860aa",
+          "latency_seconds": 1.0526470999902813,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-57",
+          "server_failures": [],
+          "auth_seconds": 0.25727630000619683,
+          "export_seconds": 0.6707719999976689,
+          "request_id": "cb058090e10dcb0452cbd4509fb7c821",
+          "latency_seconds": 1.0371569999988424,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-58",
+          "server_failures": [],
+          "auth_seconds": 0.2771800000045914,
+          "export_seconds": 0.6929641000024276,
+          "request_id": "d994cb2a509d0167695f040e24d8e1bb",
+          "latency_seconds": 1.0519026999972994,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-59",
+          "server_failures": [],
+          "auth_seconds": 0.2967767000081949,
+          "export_seconds": 0.7084642999980133,
+          "request_id": "c4d4a3454f311620831895977836961f",
+          "latency_seconds": 1.0725373000022955,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-60",
+          "server_failures": [],
+          "auth_seconds": 0.2929342999996152,
+          "export_seconds": 0.7057175999943865,
+          "request_id": "8bd96526f137125747ade015e6314bec",
+          "latency_seconds": 1.0693850999959977,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-61",
+          "server_failures": [],
+          "auth_seconds": 0.29059390000475105,
+          "export_seconds": 0.7032190999889281,
+          "request_id": "1376fc8765039adb4b941df2837c8f4e",
+          "latency_seconds": 1.066014299998642,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-62",
+          "server_failures": [],
+          "auth_seconds": 0.28358730000036303,
+          "export_seconds": 0.7055816000065533,
+          "request_id": "35d03d4d4c247a5e70e9475a2caba9b8",
+          "latency_seconds": 1.062372200001846,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-63",
+          "server_failures": [],
+          "auth_seconds": 0.28131269999721553,
+          "export_seconds": 0.7049113000102807,
+          "request_id": "11cf193626cd30841f77f0dc36b5690d",
+          "latency_seconds": 1.0597847000026377,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-64",
+          "server_failures": [],
+          "auth_seconds": 0.25879429999622516,
+          "export_seconds": 0.6850600000034319,
+          "request_id": "08b540590acd3050444c6c2fa41bcf9d",
+          "latency_seconds": 1.035460500002955,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-65",
+          "server_failures": [],
+          "auth_seconds": 0.2860633999953279,
+          "export_seconds": 0.7068692000029841,
+          "request_id": "109590dc9a0cbe4b041537a61c38efe6",
+          "latency_seconds": 1.0624109999916982,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-66",
+          "server_failures": [],
+          "auth_seconds": 0.27291410000179894,
+          "export_seconds": 0.7025196999893524,
+          "request_id": "5c4617c226bc84f2778a1a501041cbcb",
+          "latency_seconds": 1.0501799000048777,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-67",
+          "server_failures": [],
+          "auth_seconds": 0.27019860000291374,
+          "export_seconds": 0.7018880999967223,
+          "request_id": "2d775a6f46cf457ebf3d1b742f46fc3c",
+          "latency_seconds": 1.0471751000004588,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-68",
+          "server_failures": [],
+          "auth_seconds": 0.26138880000507925,
+          "export_seconds": 0.6943559000064852,
+          "request_id": "94771c03866ca868cf7536bcad885d38",
+          "latency_seconds": 1.0368490999971982,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-69",
+          "server_failures": [],
+          "auth_seconds": 0.26240050001069903,
+          "export_seconds": 0.7006447999883676,
+          "request_id": "0da575c8f8fd0a1503dc1de7c31087b4",
+          "latency_seconds": 1.0393490999995265,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-70",
+          "server_failures": [],
+          "auth_seconds": 0.2643586000049254,
+          "export_seconds": 0.7039304999925662,
+          "request_id": "c66dc68de08a05d044878deccbecd363",
+          "latency_seconds": 1.0425647999945795,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-71",
+          "server_failures": [],
+          "auth_seconds": 0.233727099999669,
+          "export_seconds": 0.6751720000029309,
+          "request_id": "7aaa6ddc4a4caa9af4ea719b24f85b8a",
+          "latency_seconds": 1.0136455000028946,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-72",
+          "server_failures": [],
+          "auth_seconds": 0.22300899999390822,
+          "export_seconds": 0.6716148999985307,
+          "request_id": "3cec5d09d398cf171e42776d79634f19",
+          "latency_seconds": 1.005801600011182,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-73",
+          "server_failures": [],
+          "auth_seconds": 0.22171119999256916,
+          "export_seconds": 0.667316999999457,
+          "request_id": "7e22a9797b4a549b7447db406ed3761e",
+          "latency_seconds": 1.0013027999957558,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-74",
+          "server_failures": [],
+          "auth_seconds": 0.22273649999988265,
+          "export_seconds": 0.6695235000079265,
+          "request_id": "62fbfe4a20c01388e5eb77f9cd75149d",
+          "latency_seconds": 1.0030888000037521,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-75",
+          "server_failures": [],
+          "auth_seconds": 0.21928250000928529,
+          "export_seconds": 0.6701061000057962,
+          "request_id": "10f74d024eb009c631b17ae1f0624ec4",
+          "latency_seconds": 0.9996796999912476,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-76",
+          "server_failures": [],
+          "auth_seconds": 0.21470189999672584,
+          "export_seconds": 0.6681294000009075,
+          "request_id": "09c2b1108b99db3cd76c819e685d9924",
+          "latency_seconds": 0.9943934000039008,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-77",
+          "server_failures": [],
+          "auth_seconds": 0.2086730000009993,
+          "export_seconds": 0.6685394999949494,
+          "request_id": "77a2b2458de22128e4b8bd538af57ecd",
+          "latency_seconds": 0.990017899996019,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-78",
+          "server_failures": [],
+          "auth_seconds": 0.22120660000655334,
+          "export_seconds": 0.6761948999919696,
+          "request_id": "ec155995ad5cb45e6302d3d4f9e1e770",
+          "latency_seconds": 0.9995277999987593,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "cold-79",
+          "server_failures": [],
+          "auth_seconds": 0.26023800000257324,
+          "export_seconds": 0.26144339999882504,
+          "request_id": "77a32acbbcbaf608d8094c315399e042",
+          "latency_seconds": 0.6355155000055674,
+          "status": 200,
+          "scope_ok": true
+        }
+      ],
+      "p95_all_seconds": 1.1334835000016028,
+      "p95_success_seconds": 1.1334835000016028,
+      "errors": 0,
+      "status_counts": {
+        "200": 80
+      },
+      "failure_stages": {},
+      "exception_types": {}
+    },
+    {
+      "phase": "warmup80",
+      "samples": [
+        {
+          "sample": "warmup80-0",
+          "server_failures": [],
+          "auth_seconds": 0.4875395999988541,
+          "export_seconds": 0.6204871999943862,
+          "request_id": "37730f9c4f6a9e866c496ee5ea22ec00",
+          "latency_seconds": 1.241893499987782,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-1",
+          "server_failures": [],
+          "auth_seconds": 0.4873171000072034,
+          "export_seconds": 0.6202593999914825,
+          "request_id": "66ebf49bc8a2cade65622f6a9b38cfd9",
+          "latency_seconds": 1.2389124000037555,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-2",
+          "server_failures": [],
+          "auth_seconds": 0.48382069999934174,
+          "export_seconds": 0.6262757000076817,
+          "request_id": "03a711747a2c42a80a79e27e9cb9e69c",
+          "latency_seconds": 1.2380443000001833,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-3",
+          "server_failures": [],
+          "auth_seconds": 0.48500059999059886,
+          "export_seconds": 0.6205265000025975,
+          "request_id": "9e5f8aaa363283ae1f20e9f77ba05aeb",
+          "latency_seconds": 1.2351810999971349,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-4",
+          "server_failures": [],
+          "auth_seconds": 0.48457660000713076,
+          "export_seconds": 0.6244364000012865,
+          "request_id": "a334920d12a4d865a7ad36d6b3e376c0",
+          "latency_seconds": 1.235086599990609,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-5",
+          "server_failures": [],
+          "auth_seconds": 0.4838580999930855,
+          "export_seconds": 0.6198223999963375,
+          "request_id": "9e7761d19bb6954e1f75b7793cec2602",
+          "latency_seconds": 1.2324555000086548,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-6",
+          "server_failures": [],
+          "auth_seconds": 0.48205560000496916,
+          "export_seconds": 0.6249610999948345,
+          "request_id": "7d8f939706c7f8363ae54eb31301ae3b",
+          "latency_seconds": 1.2317902999930084,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-7",
+          "server_failures": [],
+          "auth_seconds": 0.48111989999597427,
+          "export_seconds": 0.6257049999985611,
+          "request_id": "f9fec0f84432e8e899f654d728fcd654",
+          "latency_seconds": 1.2296760000026552,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-8",
+          "server_failures": [],
+          "auth_seconds": 0.479746700002579,
+          "export_seconds": 0.6265894999960437,
+          "request_id": "34bb6afe203a75c0fed9ad1db24ec567",
+          "latency_seconds": 1.2284231999947224,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-9",
+          "server_failures": [],
+          "auth_seconds": 0.4783595999906538,
+          "export_seconds": 0.6297186000010697,
+          "request_id": "ec77f7116c6f3a154591d877c9b3c145",
+          "latency_seconds": 1.226762400008738,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-10",
+          "server_failures": [],
+          "auth_seconds": 0.4772415000043111,
+          "export_seconds": 0.6267269999952987,
+          "request_id": "5f3ecc6623968cc56c4509383c13723f",
+          "latency_seconds": 1.2243951999989804,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-11",
+          "server_failures": [],
+          "auth_seconds": 0.47642889998678584,
+          "export_seconds": 0.629870499993558,
+          "request_id": "18a58ef790707ddf7d86d055401cceef",
+          "latency_seconds": 1.223632599998382,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-12",
+          "server_failures": [],
+          "auth_seconds": 0.4753365000069607,
+          "export_seconds": 0.6338268999970751,
+          "request_id": "e9b35d35e6b40ac4e979ffb9d023a6c3",
+          "latency_seconds": 1.22322030000214,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-13",
+          "server_failures": [],
+          "auth_seconds": 0.4745167000073707,
+          "export_seconds": 0.6327762000000803,
+          "request_id": "a2a0554dc3dcc136b16f99a2c0915b5b",
+          "latency_seconds": 1.2221337000082713,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-14",
+          "server_failures": [],
+          "auth_seconds": 0.47129129999666475,
+          "export_seconds": 0.6295342000084929,
+          "request_id": "9bc98ca075e8a67dcad9379839ef6429",
+          "latency_seconds": 1.217209800001001,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-15",
+          "server_failures": [],
+          "auth_seconds": 0.380147499992745,
+          "export_seconds": 0.6335069999913685,
+          "request_id": "236efca2fcd05adfa7556d329753a405",
+          "latency_seconds": 1.217677900000126,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-16",
+          "server_failures": [],
+          "auth_seconds": 0.3760716999968281,
+          "export_seconds": 0.6301957999967271,
+          "request_id": "657547e96f50f6cc84c484f18b497e4f",
+          "latency_seconds": 1.1220650999894133,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-17",
+          "server_failures": [],
+          "auth_seconds": 0.3763092000008328,
+          "export_seconds": 0.6340868999977829,
+          "request_id": "a19b6984666526af5bc514ee76fc5c55",
+          "latency_seconds": 1.1220401000027778,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-18",
+          "server_failures": [],
+          "auth_seconds": 0.37500320000981446,
+          "export_seconds": 0.6348418999987189,
+          "request_id": "b25688fb0580dce45832caa06ce090cb",
+          "latency_seconds": 1.1207727000000887,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-19",
+          "server_failures": [],
+          "auth_seconds": 0.3732319999980973,
+          "export_seconds": 0.6356360000063432,
+          "request_id": "e4aef91b6f3fc39b2eeec85521def377",
+          "latency_seconds": 1.1191649999964284,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-20",
+          "server_failures": [],
+          "auth_seconds": 0.37047989999700803,
+          "export_seconds": 0.6363974999985658,
+          "request_id": "99a4b138f3ed28bd1d8ffff19c7fed9c",
+          "latency_seconds": 1.116181700010202,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-21",
+          "server_failures": [],
+          "auth_seconds": 0.3643041000032099,
+          "export_seconds": 0.6383080999949016,
+          "request_id": "1f9da5e79b28209d58b80abc61520273",
+          "latency_seconds": 1.1108013999910327,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-22",
+          "server_failures": [],
+          "auth_seconds": 0.3624536999996053,
+          "export_seconds": 0.6391241999954218,
+          "request_id": "5b4d82ae1f5ee5d69f0e6fb9ddaa74f8",
+          "latency_seconds": 1.1078334999911021,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-23",
+          "server_failures": [],
+          "auth_seconds": 0.3613144000119064,
+          "export_seconds": 0.6398750000080327,
+          "request_id": "6cc37affaabbf2d8e11b12f439e4ead3",
+          "latency_seconds": 1.1067383999907179,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-24",
+          "server_failures": [],
+          "auth_seconds": 0.36036829999648035,
+          "export_seconds": 0.6408785999956308,
+          "request_id": "0e62b724dbbca45a425348dedec22ef7",
+          "latency_seconds": 1.1059338999912143,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-25",
+          "server_failures": [],
+          "auth_seconds": 0.3595649999915622,
+          "export_seconds": 0.6428313000069465,
+          "request_id": "d97cd683d06813575d714713b95429d8",
+          "latency_seconds": 1.105669199998374,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-26",
+          "server_failures": [],
+          "auth_seconds": 0.35492849998991005,
+          "export_seconds": 0.641930500001763,
+          "request_id": "4fad9d39a96444df89a9e0e211fe5528",
+          "latency_seconds": 1.1022156000108225,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-27",
+          "server_failures": [],
+          "auth_seconds": 0.3514378999971086,
+          "export_seconds": 0.6442887000011979,
+          "request_id": "f8da299f9be68d541312d1c4472e3e93",
+          "latency_seconds": 1.0977897999982815,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-28",
+          "server_failures": [],
+          "auth_seconds": 0.34987019999243785,
+          "export_seconds": 0.6453273000079207,
+          "request_id": "9ed4adfe1bbb29fa67411f744c2b256c",
+          "latency_seconds": 1.0954540000093402,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-29",
+          "server_failures": [],
+          "auth_seconds": 0.34668069999315776,
+          "export_seconds": 0.6464120999880834,
+          "request_id": "0d947177a7ae3a4ac1e8b426478dea7c",
+          "latency_seconds": 1.0923703000007663,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-30",
+          "server_failures": [],
+          "auth_seconds": 0.3456919000018388,
+          "export_seconds": 0.6493812999979127,
+          "request_id": "e8d6bbabd91c04d735061ebc158853b3",
+          "latency_seconds": 1.0907077000010759,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-31",
+          "server_failures": [],
+          "auth_seconds": 0.34255440000561066,
+          "export_seconds": 0.6472677999990992,
+          "request_id": "7e22ae657161cde343474e3306b46c94",
+          "latency_seconds": 1.0876788000023225,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-32",
+          "server_failures": [],
+          "auth_seconds": 0.341333600008511,
+          "export_seconds": 0.6481057000055443,
+          "request_id": "10b93ba32a265fc1cbf3b0426f846140",
+          "latency_seconds": 1.0862952000024961,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-33",
+          "server_failures": [],
+          "auth_seconds": 0.3393040000082692,
+          "export_seconds": 0.6509010000008857,
+          "request_id": "78ee1ef911e637e45221674c86b2f49f",
+          "latency_seconds": 1.0854658000025665,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-34",
+          "server_failures": [],
+          "auth_seconds": 0.3382234000018798,
+          "export_seconds": 0.6521543999988353,
+          "request_id": "25c8ab437331af6b46fa99f6ef372b97",
+          "latency_seconds": 1.0826509999897098,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-35",
+          "server_failures": [],
+          "auth_seconds": 0.337338199999067,
+          "export_seconds": 0.6528059999982361,
+          "request_id": "d03a3e4e1b75fd9d68d880dea226315e",
+          "latency_seconds": 1.0813628000032622,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-36",
+          "server_failures": [],
+          "auth_seconds": 0.33634300000267103,
+          "export_seconds": 0.6534854999918025,
+          "request_id": "95358a6188b8a306295e794d0ac2fdc7",
+          "latency_seconds": 1.080038500003866,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-37",
+          "server_failures": [],
+          "auth_seconds": 0.3348303999955533,
+          "export_seconds": 0.6540526999888243,
+          "request_id": "d742be1112535a7cb97b0bad6a2b2f57",
+          "latency_seconds": 1.0785323000018252,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-38",
+          "server_failures": [],
+          "auth_seconds": 0.3322702000004938,
+          "export_seconds": 0.6547144000069238,
+          "request_id": "cb52921caee434f0f688607b73a7f725",
+          "latency_seconds": 1.0762727999972412,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-39",
+          "server_failures": [],
+          "auth_seconds": 0.3307692000089446,
+          "export_seconds": 0.6564730999962194,
+          "request_id": "bbf1bc08ec06f94c50bac698c52c7f1a",
+          "latency_seconds": 1.0739108999987366,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-40",
+          "server_failures": [],
+          "auth_seconds": 0.3288309999916237,
+          "export_seconds": 0.6541511000104947,
+          "request_id": "646eee78a767c6a1eadd9b808917cf04",
+          "latency_seconds": 1.0709037999913562,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-41",
+          "server_failures": [],
+          "auth_seconds": 0.32788919999438804,
+          "export_seconds": 0.656288800004404,
+          "request_id": "0d9645e6f130f74c58ccf37c60ba2c7c",
+          "latency_seconds": 1.0695731000014348,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-42",
+          "server_failures": [],
+          "auth_seconds": 0.32553010000265203,
+          "export_seconds": 0.6565784999984317,
+          "request_id": "7e31a13a571f8620ad6cc22f55e716f9",
+          "latency_seconds": 1.0682271999976365,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-43",
+          "server_failures": [],
+          "auth_seconds": 0.3242811999953119,
+          "export_seconds": 0.6569133000011789,
+          "request_id": "90c29161f44d6a6798dc000cd048b5c5",
+          "latency_seconds": 1.0655772000027355,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-44",
+          "server_failures": [],
+          "auth_seconds": 0.32319870000355877,
+          "export_seconds": 0.6575407999916933,
+          "request_id": "e19a58ce727310de972bdb0d95ccbdb4",
+          "latency_seconds": 1.063850000005914,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-45",
+          "server_failures": [],
+          "auth_seconds": 0.3222058000101242,
+          "export_seconds": 0.6586430000024848,
+          "request_id": "8456af5cf0347b653aaa687815ce5b11",
+          "latency_seconds": 1.0624336999899242,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-46",
+          "server_failures": [],
+          "auth_seconds": 0.3213851999898907,
+          "export_seconds": 0.6595988999906695,
+          "request_id": "44eab4731592fd1f3bbbd72acba72e8e",
+          "latency_seconds": 1.0611731999961194,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-47",
+          "server_failures": [],
+          "auth_seconds": 0.3209952000033809,
+          "export_seconds": 0.6598047000006773,
+          "request_id": "9d8aec4e43cb0b4a5775c58e64d9d4e4",
+          "latency_seconds": 1.0603233000001637,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-48",
+          "server_failures": [],
+          "auth_seconds": 0.32011999998940155,
+          "export_seconds": 0.6606283000000985,
+          "request_id": "0dd58fa11266c7e36e59b87f524d50d0",
+          "latency_seconds": 1.0594399999972666,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-49",
+          "server_failures": [],
+          "auth_seconds": 0.319114099998842,
+          "export_seconds": 0.6613599999982398,
+          "request_id": "c853b184f44476700341befd91602254",
+          "latency_seconds": 1.0583207000017865,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-50",
+          "server_failures": [],
+          "auth_seconds": 0.3181339000002481,
+          "export_seconds": 0.6625805999938166,
+          "request_id": "0d4729f2a2e9ab9ef24198431a784985",
+          "latency_seconds": 1.0572135999973398,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-51",
+          "server_failures": [],
+          "auth_seconds": 0.31808369999635033,
+          "export_seconds": 0.6626317000045674,
+          "request_id": "9f541afb1b80d4ea26508c96259675e8",
+          "latency_seconds": 1.0560012000059942,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-52",
+          "server_failures": [],
+          "auth_seconds": 0.3161956999974791,
+          "export_seconds": 0.663145300000906,
+          "request_id": "6bae047a042e0b4373aa36355a7869a0",
+          "latency_seconds": 1.053996400005417,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-53",
+          "server_failures": [],
+          "auth_seconds": 0.31464119999145623,
+          "export_seconds": 0.6635423999978229,
+          "request_id": "310fbc2b5eb18417b407ca91f0358916",
+          "latency_seconds": 1.0521709000022383,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-54",
+          "server_failures": [],
+          "auth_seconds": 0.31210660000215285,
+          "export_seconds": 0.6640960999939125,
+          "request_id": "d88a2875e4c2b5f2f6c5300d02a13ded",
+          "latency_seconds": 1.0501209999929415,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-55",
+          "server_failures": [],
+          "auth_seconds": 0.30896280000160914,
+          "export_seconds": 0.6646744999889052,
+          "request_id": "2deda7322eaf3990f95771368b98cb89",
+          "latency_seconds": 1.046343899986823,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-56",
+          "server_failures": [],
+          "auth_seconds": 0.3061042000044836,
+          "export_seconds": 0.6653478000080213,
+          "request_id": "f499f5d4e220e38c0f498e948e60efa3",
+          "latency_seconds": 1.0430909999995492,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-57",
+          "server_failures": [],
+          "auth_seconds": 0.30705509999825153,
+          "export_seconds": 0.6620205999934115,
+          "request_id": "cc629f745cfe350d2c5d58efd033606d",
+          "latency_seconds": 1.039975299994694,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-58",
+          "server_failures": [],
+          "auth_seconds": 0.3055891999974847,
+          "export_seconds": 0.6630361999996239,
+          "request_id": "5de693118bad1046cda7f5259fb59c87",
+          "latency_seconds": 1.0370788000000175,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-59",
+          "server_failures": [],
+          "auth_seconds": 0.30400980000558775,
+          "export_seconds": 0.663696700008586,
+          "request_id": "d776fc64886f89ad904b0b10aaeba983",
+          "latency_seconds": 1.0353846999933012,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-60",
+          "server_failures": [],
+          "auth_seconds": 0.30269630000111647,
+          "export_seconds": 0.6643626000004588,
+          "request_id": "22cff263b4456b7dadb4b734ec8af734",
+          "latency_seconds": 1.0335114999907091,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-61",
+          "server_failures": [],
+          "auth_seconds": 0.30139259999850765,
+          "export_seconds": 0.6650778000039281,
+          "request_id": "b356eeca4f7eba8cc0aa5ef5901ebbca",
+          "latency_seconds": 1.0323797000019113,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-62",
+          "server_failures": [],
+          "auth_seconds": 0.30032520000531804,
+          "export_seconds": 0.665772599997581,
+          "request_id": "43be6d458b96f0cb4a241486d9d0ddb3",
+          "latency_seconds": 1.0310652000043774,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-63",
+          "server_failures": [],
+          "auth_seconds": 0.2981358000106411,
+          "export_seconds": 0.6664466000074754,
+          "request_id": "72924155e5d271d01626c4c676ed75e9",
+          "latency_seconds": 1.029783599995426,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-64",
+          "server_failures": [],
+          "auth_seconds": 0.29458750000048894,
+          "export_seconds": 0.668435400002636,
+          "request_id": "2817c00e92ac08b3b5bcd97b871fb4c9",
+          "latency_seconds": 1.0272529000067152,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-65",
+          "server_failures": [],
+          "auth_seconds": 0.29294210000080056,
+          "export_seconds": 0.6710674999922048,
+          "request_id": "7176380d7f4000f168a3e58c8c0caa35",
+          "latency_seconds": 1.023572600010084,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-66",
+          "server_failures": [],
+          "auth_seconds": 0.2898484000033932,
+          "export_seconds": 0.6663357999932487,
+          "request_id": "4fe60f06471f071319c7854d7b7020a8",
+          "latency_seconds": 1.0195287000096869,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-67",
+          "server_failures": [],
+          "auth_seconds": 0.29036749999795575,
+          "export_seconds": 0.667340800006059,
+          "request_id": "511a4e2817c75d8818e81fde7816e8dd",
+          "latency_seconds": 1.0183815000054892,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-68",
+          "server_failures": [],
+          "auth_seconds": 0.28725110000232235,
+          "export_seconds": 0.6716344000014942,
+          "request_id": "b94236600abdeae154aa7032c0994202",
+          "latency_seconds": 1.0172027000080561,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-69",
+          "server_failures": [],
+          "auth_seconds": 0.28693570000177715,
+          "export_seconds": 0.6710478000022704,
+          "request_id": "cd530678390cbd9aabd354ed132341e3",
+          "latency_seconds": 1.0153693999891402,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-70",
+          "server_failures": [],
+          "auth_seconds": 0.2846066000056453,
+          "export_seconds": 0.6723479999927804,
+          "request_id": "78895ace50f928a35e360dfaf46fbb27",
+          "latency_seconds": 1.0141622999944957,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-71",
+          "server_failures": [],
+          "auth_seconds": 0.28172230000200216,
+          "export_seconds": 0.6716772000072524,
+          "request_id": "5530fa3dc0e1e80547bdc7ebdddececf",
+          "latency_seconds": 1.0093594000063604,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-72",
+          "server_failures": [],
+          "auth_seconds": 0.2824403999984497,
+          "export_seconds": 0.6735696999967331,
+          "request_id": "1ce6efde8d68f4f551b7e7c8a756659a",
+          "latency_seconds": 1.0088646999938646,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-73",
+          "server_failures": [],
+          "auth_seconds": 0.27965739999490324,
+          "export_seconds": 0.6728427000052761,
+          "request_id": "f4dedd9478124ec35276eaa5560be274",
+          "latency_seconds": 1.006517799993162,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-74",
+          "server_failures": [],
+          "auth_seconds": 0.2797556000004988,
+          "export_seconds": 0.675520199991297,
+          "request_id": "9230f31671b86d10a8cc81512aad59aa",
+          "latency_seconds": 1.006141400008346,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-75",
+          "server_failures": [],
+          "auth_seconds": 0.2788460000010673,
+          "export_seconds": 0.6730059999972582,
+          "request_id": "969d7d34195b2950b1d8f37970f5290c",
+          "latency_seconds": 1.0038118999946164,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-76",
+          "server_failures": [],
+          "auth_seconds": 0.27780019999772776,
+          "export_seconds": 0.6787607000005664,
+          "request_id": "7ca434262c01ad31a94a0adc0c00bbe0",
+          "latency_seconds": 1.0039394999912474,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-77",
+          "server_failures": [],
+          "auth_seconds": 0.2769088000059128,
+          "export_seconds": 0.6743212000001222,
+          "request_id": "455b2befea9452ff6e470a82760a84d6",
+          "latency_seconds": 1.0010364000045229,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-78",
+          "server_failures": [],
+          "auth_seconds": 0.2751299000083236,
+          "export_seconds": 0.6754861999943387,
+          "request_id": "1b090accf85079a46481c807bfa5615f",
+          "latency_seconds": 0.9996571999945445,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warmup80-79",
+          "server_failures": [],
+          "auth_seconds": 0.48463839999749325,
+          "export_seconds": 0.6293877999996766,
+          "request_id": "1f09f0e71b7d505d955dbefb72600043",
+          "latency_seconds": 1.249737100006314,
+          "status": 200,
+          "scope_ok": true
+        }
+      ],
+      "p95_all_seconds": 1.2351810999971349,
+      "p95_success_seconds": 1.2351810999971349,
+      "errors": 0,
+      "status_counts": {
+        "200": 80
+      },
+      "failure_stages": {},
+      "exception_types": {}
+    },
+    {
+      "phase": "warm1",
+      "samples": [
+        {
+          "sample": "warm1-0",
+          "server_failures": [],
+          "auth_seconds": 0.45445799999288283,
+          "export_seconds": 0.629505999997491,
+          "request_id": "da8925e4b661fd9fa08376da2063c5d0",
+          "latency_seconds": 1.219165399990743,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-1",
+          "server_failures": [],
+          "auth_seconds": 0.4510316999949282,
+          "export_seconds": 0.6279227000050014,
+          "request_id": "0112c6c68f21e2eb5ca7dc41dfd2da52",
+          "latency_seconds": 1.2162222000042675,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-2",
+          "server_failures": [],
+          "auth_seconds": 0.4533627000055276,
+          "export_seconds": 0.6220283000002382,
+          "request_id": "b383f9984987649bd0a12371e97c6ccf",
+          "latency_seconds": 1.2137978000100702,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-3",
+          "server_failures": [],
+          "auth_seconds": 0.4504804000025615,
+          "export_seconds": 0.6266945999959717,
+          "request_id": "9798c487ab8557127ab97f081fcb8e44",
+          "latency_seconds": 1.2130586999992374,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-4",
+          "server_failures": [],
+          "auth_seconds": 0.45077770001080353,
+          "export_seconds": 0.6275023000052897,
+          "request_id": "3560be29349d7b4cc5c69abd3cfb2c29",
+          "latency_seconds": 1.2119756999891251,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-5",
+          "server_failures": [],
+          "auth_seconds": 0.45050319998699706,
+          "export_seconds": 0.6277626999944914,
+          "request_id": "c4914fcfe72a9078d4171e09f15d0233",
+          "latency_seconds": 1.2108130999986315,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-6",
+          "server_failures": [],
+          "auth_seconds": 0.44994690000021365,
+          "export_seconds": 0.6283851000043796,
+          "request_id": "6b0b22e7416c742a20161efdc8d453b6",
+          "latency_seconds": 1.2097553000057815,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-7",
+          "server_failures": [],
+          "auth_seconds": 0.4491612999991048,
+          "export_seconds": 0.6296775000082562,
+          "request_id": "885b5972513231362af6a94fdc3f72be",
+          "latency_seconds": 1.2084762000013143,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-8",
+          "server_failures": [],
+          "auth_seconds": 0.448499999998603,
+          "export_seconds": 0.6306897999893408,
+          "request_id": "5ff4e5daf410f90efc1a1b6d6442a7a1",
+          "latency_seconds": 1.207513100001961,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-9",
+          "server_failures": [],
+          "auth_seconds": 0.44788550000521354,
+          "export_seconds": 0.6314311999885831,
+          "request_id": "49902521b5e235f0496188e1cb884e3d",
+          "latency_seconds": 1.2082411000010325,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-10",
+          "server_failures": [],
+          "auth_seconds": 0.44713270000647753,
+          "export_seconds": 0.6344291999994311,
+          "request_id": "8ea32dca25558449401486cdab0b5a66",
+          "latency_seconds": 1.209675200007041,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-11",
+          "server_failures": [],
+          "auth_seconds": 0.4463017999951262,
+          "export_seconds": 0.6321154999895953,
+          "request_id": "21aa1bf79b398ff6a20ae5f5424dc8b1",
+          "latency_seconds": 1.206888800006709,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-12",
+          "server_failures": [],
+          "auth_seconds": 0.4452586999977939,
+          "export_seconds": 0.6349668999901041,
+          "request_id": "a6efc28a40eff55420f78ac1f65e8ebe",
+          "latency_seconds": 1.2075687999895308,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-13",
+          "server_failures": [],
+          "auth_seconds": 0.44429380001383834,
+          "export_seconds": 0.6357452000083867,
+          "request_id": "495c81b080d194b2d25d8730acaa1e42",
+          "latency_seconds": 1.2068547000089893,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-14",
+          "server_failures": [],
+          "auth_seconds": 0.44221559999277815,
+          "export_seconds": 0.6365076000074623,
+          "request_id": "317b39b4bebbfcea8e4525c0c48a26db",
+          "latency_seconds": 1.204980800001067,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-15",
+          "server_failures": [],
+          "auth_seconds": 0.440886500000488,
+          "export_seconds": 0.6372430000046734,
+          "request_id": "5c9935d545f6bdd5dab161a610768536",
+          "latency_seconds": 1.204074599998421,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-16",
+          "server_failures": [],
+          "auth_seconds": 0.4397889999963809,
+          "export_seconds": 0.6382639000075869,
+          "request_id": "10e271026a2e888efe34b0fcbdf447e3",
+          "latency_seconds": 1.203123700004653,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-17",
+          "server_failures": [],
+          "auth_seconds": 0.43574819999048486,
+          "export_seconds": 0.6390319999918574,
+          "request_id": "211cce51c886a71f424c39689574a2ad",
+          "latency_seconds": 1.2010690000024624,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-18",
+          "server_failures": [],
+          "auth_seconds": 0.4347691000002669,
+          "export_seconds": 0.6398162999976194,
+          "request_id": "c25b8b177a331bd502da1a1437e9cdd1",
+          "latency_seconds": 1.1975112999934936,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-19",
+          "server_failures": [],
+          "auth_seconds": 0.43388100000447594,
+          "export_seconds": 0.6404017000022577,
+          "request_id": "13932e721bc04d41a8c08ea239ced426",
+          "latency_seconds": 1.1962935000046855,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-20",
+          "server_failures": [],
+          "auth_seconds": 0.4328147999913199,
+          "export_seconds": 0.6406659000058426,
+          "request_id": "2524aa5be0c009eead41933a7f9a5ccc",
+          "latency_seconds": 1.1952307000028668,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-21",
+          "server_failures": [],
+          "auth_seconds": 0.43210849999741185,
+          "export_seconds": 0.6416775999969104,
+          "request_id": "6c580d335a9d17c149d2ed1b392e0522",
+          "latency_seconds": 1.193367700005183,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-22",
+          "server_failures": [],
+          "auth_seconds": 0.43077449999691453,
+          "export_seconds": 0.6424147999932757,
+          "request_id": "b31035bb9ee5334b1432773bb1fa30ce",
+          "latency_seconds": 1.1919792000117013,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-23",
+          "server_failures": [],
+          "auth_seconds": 0.4299357999989297,
+          "export_seconds": 0.6431841000012355,
+          "request_id": "ca532edb09fd2cc8f266aaf8ee3d4760",
+          "latency_seconds": 1.1905149999947753,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-24",
+          "server_failures": [],
+          "auth_seconds": 0.42881349999515805,
+          "export_seconds": 0.6454139999987092,
+          "request_id": "02c58ee78aba395fa25b0001b4f99ff9",
+          "latency_seconds": 1.189663199998904,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-25",
+          "server_failures": [],
+          "auth_seconds": 0.4287241999991238,
+          "export_seconds": 0.6456270000053337,
+          "request_id": "cca9c1846e15766b1fffa12b0bb21996",
+          "latency_seconds": 1.1884818999969866,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-26",
+          "server_failures": [],
+          "auth_seconds": 0.42612049999297597,
+          "export_seconds": 0.6432064999971772,
+          "request_id": "9ed0fd9525f4d84f28abdf1a7657804a",
+          "latency_seconds": 1.1856908999907319,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-27",
+          "server_failures": [],
+          "auth_seconds": 0.4262027999939164,
+          "export_seconds": 0.6465058000030695,
+          "request_id": "fa991c1b53c3979b4bcb5393bb0697ed",
+          "latency_seconds": 1.1858854000020074,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-28",
+          "server_failures": [],
+          "auth_seconds": 0.4249725999980001,
+          "export_seconds": 0.6497360000066692,
+          "request_id": "8deafaebc92a0e2c5ed21c553627f991",
+          "latency_seconds": 1.1857959000044502,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-29",
+          "server_failures": [],
+          "auth_seconds": 0.4236410000012256,
+          "export_seconds": 0.6469528000015998,
+          "request_id": "c843ac132981bc301927a2341cbe0dac",
+          "latency_seconds": 1.1832684999972116,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-30",
+          "server_failures": [],
+          "auth_seconds": 0.4223417999892263,
+          "export_seconds": 0.649825200001942,
+          "request_id": "d6ed1cbb26eb25d40200a37acdfdf4ce",
+          "latency_seconds": 1.1825051000050735,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-31",
+          "server_failures": [],
+          "auth_seconds": 0.42093279999971855,
+          "export_seconds": 0.6513376999937464,
+          "request_id": "38b0bdcde8e486140e8c34f752ad1636",
+          "latency_seconds": 1.1819392000033986,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-32",
+          "server_failures": [],
+          "auth_seconds": 0.4195398000010755,
+          "export_seconds": 0.6522149999946123,
+          "request_id": "e57ac038196d919539654a870a4241ac",
+          "latency_seconds": 1.1803597999969497,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-33",
+          "server_failures": [],
+          "auth_seconds": 0.41810110000369605,
+          "export_seconds": 0.6529767000029096,
+          "request_id": "da9f3c8f1727c515fea80dd7088c8d5c",
+          "latency_seconds": 1.1789138000021921,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-34",
+          "server_failures": [],
+          "auth_seconds": 0.4167289999895729,
+          "export_seconds": 0.6535227999993367,
+          "request_id": "e230a8b7d3164d04c225462862844c8e",
+          "latency_seconds": 1.177298199996585,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-35",
+          "server_failures": [],
+          "auth_seconds": 0.4160482999868691,
+          "export_seconds": 0.6552372000005562,
+          "request_id": "97340e9e0a5d99d03f31810d5add6466",
+          "latency_seconds": 1.1760279000009177,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-36",
+          "server_failures": [],
+          "auth_seconds": 0.41303029999835417,
+          "export_seconds": 0.6541414999956032,
+          "request_id": "04fb3acfa6dec9af875fa25c57a16aca",
+          "latency_seconds": 1.1731996000016807,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-37",
+          "server_failures": [],
+          "auth_seconds": 0.4118968999973731,
+          "export_seconds": 0.6554447999951662,
+          "request_id": "1ba5fbe6847d5767fba80b19f8eed5c8",
+          "latency_seconds": 1.1716566999966744,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-38",
+          "server_failures": [],
+          "auth_seconds": 0.4055769999977201,
+          "export_seconds": 0.6593278000073042,
+          "request_id": "4b753a4396e36b68a06c6738858c32eb",
+          "latency_seconds": 1.1694873999949777,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-39",
+          "server_failures": [],
+          "auth_seconds": 0.40999520001059864,
+          "export_seconds": 0.6621892999974079,
+          "request_id": "a28ab3f28341c0c917f668577d809241",
+          "latency_seconds": 1.1669306000112556,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-40",
+          "server_failures": [],
+          "auth_seconds": 0.30048410000745207,
+          "export_seconds": 0.6563554000022123,
+          "request_id": "7d5f28e2473107d2b2a0c2a5ea9f7dcf",
+          "latency_seconds": 1.1615457000007154,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-41",
+          "server_failures": [],
+          "auth_seconds": 0.2986438000079943,
+          "export_seconds": 0.659036199998809,
+          "request_id": "992a7ce1e08a08a9228ab6af02994247",
+          "latency_seconds": 1.0577311999950325,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-42",
+          "server_failures": [],
+          "auth_seconds": 0.29673830000683665,
+          "export_seconds": 0.6596914999972796,
+          "request_id": "d1d2828ae830d3772e5e3a564889c1d0",
+          "latency_seconds": 1.0552615000051446,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-43",
+          "server_failures": [],
+          "auth_seconds": 0.29478490000474267,
+          "export_seconds": 0.6614368999871658,
+          "request_id": "c0fc94533972aef4fc06181df224f099",
+          "latency_seconds": 1.0539239999925485,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-44",
+          "server_failures": [],
+          "auth_seconds": 0.2935453999962192,
+          "export_seconds": 0.6588407999952324,
+          "request_id": "a65a928281eb77c484527002382df8ec",
+          "latency_seconds": 1.0504912000033073,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-45",
+          "server_failures": [],
+          "auth_seconds": 0.29381560000183526,
+          "export_seconds": 0.6597201999975368,
+          "request_id": "d712e17afe19b2a62861320e3e9a1291",
+          "latency_seconds": 1.0491977000056067,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-46",
+          "server_failures": [],
+          "auth_seconds": 0.29311269999016076,
+          "export_seconds": 0.6618005999916932,
+          "request_id": "fc11a523e6ae0385950698b88bd05800",
+          "latency_seconds": 1.048532200002228,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-47",
+          "server_failures": [],
+          "auth_seconds": 0.29247870000835974,
+          "export_seconds": 0.6624850999942282,
+          "request_id": "8c345e3b6b1bb1113448fae935e8a372",
+          "latency_seconds": 1.0473528000002261,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-48",
+          "server_failures": [],
+          "auth_seconds": 0.2918290999950841,
+          "export_seconds": 0.6629581000015605,
+          "request_id": "d4e20122aad32acabe69b5b85dbf8258",
+          "latency_seconds": 1.0460058999888133,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-49",
+          "server_failures": [],
+          "auth_seconds": 0.29057639998791274,
+          "export_seconds": 0.6668039999931352,
+          "request_id": "cd1385f3a076e75329cfb944d9886d94",
+          "latency_seconds": 1.0451708999898983,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-50",
+          "server_failures": [],
+          "auth_seconds": 0.2896083999949042,
+          "export_seconds": 0.6622759999881964,
+          "request_id": "8f2fb6ed4ab093d9ed1dfcfdf0408d2d",
+          "latency_seconds": 1.0419147000066005,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-51",
+          "server_failures": [],
+          "auth_seconds": 0.2888756000029389,
+          "export_seconds": 0.6631104000116466,
+          "request_id": "cf3711d60c48ede95c0f320254807ac6",
+          "latency_seconds": 1.0406397000042489,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-52",
+          "server_failures": [],
+          "auth_seconds": 0.2887633000063943,
+          "export_seconds": 0.665093399991747,
+          "request_id": "5c6b9dceb1f12b33938a0845fafd970f",
+          "latency_seconds": 1.0398104000050807,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-53",
+          "server_failures": [],
+          "auth_seconds": 0.2879791000013938,
+          "export_seconds": 0.6656426999979885,
+          "request_id": "6b5164c57fc3b25d5cadb3542af29c74",
+          "latency_seconds": 1.0385721000056947,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-54",
+          "server_failures": [],
+          "auth_seconds": 0.2871618000062881,
+          "export_seconds": 0.6660758000070928,
+          "request_id": "b2c001c2d1d7cdc72cd0f1f1e2e02609",
+          "latency_seconds": 1.0372861999931047,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-55",
+          "server_failures": [],
+          "auth_seconds": 0.2860267000069143,
+          "export_seconds": 0.6683461000066018,
+          "request_id": "8e3fd1bec6a48ea187f12148be7a8748",
+          "latency_seconds": 1.0375154000066686,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-56",
+          "server_failures": [],
+          "auth_seconds": 0.28485450000152923,
+          "export_seconds": 0.6658218999946257,
+          "request_id": "ca587c40ad49b05afc6e396df5d381b1",
+          "latency_seconds": 1.0337884000036865,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-57",
+          "server_failures": [],
+          "auth_seconds": 0.28735909999522846,
+          "export_seconds": 0.6656274999986636,
+          "request_id": "c7cd931f3eaf4dd6779e0b2abfa7abce",
+          "latency_seconds": 1.034048099987558,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-58",
+          "server_failures": [],
+          "auth_seconds": 0.2838488999987021,
+          "export_seconds": 0.666264699990279,
+          "request_id": "233bc819d19111174d58417e880ff98f",
+          "latency_seconds": 1.0329387000092538,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-59",
+          "server_failures": [],
+          "auth_seconds": 0.28127090001362376,
+          "export_seconds": 0.6668009999993956,
+          "request_id": "ccf26b863746602642043125b590ed2f",
+          "latency_seconds": 1.028774100006558,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-60",
+          "server_failures": [],
+          "auth_seconds": 0.2794424000021536,
+          "export_seconds": 0.6674692999949912,
+          "request_id": "a14158a7eec873df915b240ea5572374",
+          "latency_seconds": 1.0269056999968598,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-61",
+          "server_failures": [],
+          "auth_seconds": 0.2784159000002546,
+          "export_seconds": 0.6680492000014056,
+          "request_id": "75dee1f7a680b1edaef1bb71089f1bae",
+          "latency_seconds": 1.0260381999978563,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-62",
+          "server_failures": [],
+          "auth_seconds": 0.27759990000049584,
+          "export_seconds": 0.6687087000027532,
+          "request_id": "d9efadc979227daa6422724fe7d6ff56",
+          "latency_seconds": 1.024976600005175,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-63",
+          "server_failures": [],
+          "auth_seconds": 0.27626739999686833,
+          "export_seconds": 0.6692078999913065,
+          "request_id": "abd93c6a30dac1d452822f59267501c5",
+          "latency_seconds": 1.0236568999971496,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-64",
+          "server_failures": [],
+          "auth_seconds": 0.2749446999951033,
+          "export_seconds": 0.6711803000071086,
+          "request_id": "ad2918d6cccda6d590b7fb4eb6c853c5",
+          "latency_seconds": 1.0223792000033427,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-65",
+          "server_failures": [],
+          "auth_seconds": 0.27388880000216886,
+          "export_seconds": 0.669113699987065,
+          "request_id": "70a526e3d67924ca4ba1fb3150fdf109",
+          "latency_seconds": 1.0198876000067685,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-66",
+          "server_failures": [],
+          "auth_seconds": 0.27279980000457726,
+          "export_seconds": 0.6714353999996092,
+          "request_id": "d8e9dd36ea94d021f68466f344c26db9",
+          "latency_seconds": 1.0191397999878973,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-67",
+          "server_failures": [],
+          "auth_seconds": 0.27179260000411887,
+          "export_seconds": 0.6728720999963116,
+          "request_id": "99e4881241c97d7afb4f754009b1576e",
+          "latency_seconds": 1.0179765000066254,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-68",
+          "server_failures": [],
+          "auth_seconds": 0.2707132000068668,
+          "export_seconds": 0.6753006999933859,
+          "request_id": "1221c49d065261a5856acd5a07c5bd7c",
+          "latency_seconds": 1.0166997000051197,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-69",
+          "server_failures": [],
+          "auth_seconds": 0.2695995999965817,
+          "export_seconds": 0.6773700000048848,
+          "request_id": "5381d99fe6f850d20e16014dc360e8a8",
+          "latency_seconds": 1.0155135999957565,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-70",
+          "server_failures": [],
+          "auth_seconds": 0.26869579999765847,
+          "export_seconds": 0.678879400002188,
+          "request_id": "c3f0078ce609a6c5fe000474c25381e6",
+          "latency_seconds": 1.0142506999982288,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-71",
+          "server_failures": [],
+          "auth_seconds": 0.2677507000043988,
+          "export_seconds": 0.6797976999951061,
+          "request_id": "fd2a1dc71404990119428af18b9f20c3",
+          "latency_seconds": 1.0129644999979064,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-72",
+          "server_failures": [],
+          "auth_seconds": 0.2669383999891579,
+          "export_seconds": 0.6805171000014525,
+          "request_id": "680ea2ea9aa65050d03bc008e7f8a657",
+          "latency_seconds": 1.0118419000064023,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-73",
+          "server_failures": [],
+          "auth_seconds": 0.266934899991611,
+          "export_seconds": 0.6826657999918098,
+          "request_id": "6ac697937fdc4cd42d35f75df2361b4b",
+          "latency_seconds": 1.0110857999970904,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-74",
+          "server_failures": [],
+          "auth_seconds": 0.2629421000019647,
+          "export_seconds": 0.6820015999983298,
+          "request_id": "3bb045f715bd9e344d23392bbac1f330",
+          "latency_seconds": 1.0081181999994442,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-75",
+          "server_failures": [],
+          "auth_seconds": 0.2641186000109883,
+          "export_seconds": 0.6883069000032265,
+          "request_id": "523a385fc3da1ddc89c872f32672d648",
+          "latency_seconds": 1.0083844999899156,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-76",
+          "server_failures": [],
+          "auth_seconds": 0.25913790000777226,
+          "export_seconds": 0.6837249000091106,
+          "request_id": "2ecfc5fb4c501dd7c371a28a0b979a5d",
+          "latency_seconds": 1.0034978999901796,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-77",
+          "server_failures": [],
+          "auth_seconds": 0.2562543999956688,
+          "export_seconds": 0.6842911999992793,
+          "request_id": "44a72be2c311a568432ed1ee94ac00e3",
+          "latency_seconds": 0.9992483000096399,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-78",
+          "server_failures": [],
+          "auth_seconds": 0.25637420000566635,
+          "export_seconds": 0.68375759999617,
+          "request_id": "bbd85781b46c01a6ce24f987602546ad",
+          "latency_seconds": 0.997787900007097,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm1-79",
+          "server_failures": [],
+          "auth_seconds": 0.44569059999776073,
+          "export_seconds": 0.6335265999950934,
+          "request_id": "caa1182e509c9959c971185736025bbb",
+          "latency_seconds": 1.2229442999960156,
+          "status": 200,
+          "scope_ok": true
+        }
+      ],
+      "p95_all_seconds": 1.2130586999992374,
+      "p95_success_seconds": 1.2130586999992374,
+      "errors": 0,
+      "status_counts": {
+        "200": 80
+      },
+      "failure_stages": {},
+      "exception_types": {}
+    },
+    {
+      "phase": "warm2",
+      "samples": [
+        {
+          "sample": "warm2-0",
+          "server_failures": [],
+          "auth_seconds": 0.4465100000088569,
+          "export_seconds": 0.6372227999963798,
+          "request_id": "9bb67aa706916624065675b2b1a61fce",
+          "latency_seconds": 1.216234399995301,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-1",
+          "server_failures": [],
+          "auth_seconds": 0.44297250000818167,
+          "export_seconds": 0.6355972000019392,
+          "request_id": "c8b4d511e95cbd0cd499ace4bf4906bd",
+          "latency_seconds": 1.2131177999981446,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-2",
+          "server_failures": [],
+          "auth_seconds": 0.4396621999912895,
+          "export_seconds": 0.644187800004147,
+          "request_id": "31d88e4b06ca4c025e43006ff2d69c2f",
+          "latency_seconds": 1.213137500002631,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-3",
+          "server_failures": [],
+          "auth_seconds": 0.4416605000005802,
+          "export_seconds": 0.641654799997923,
+          "request_id": "45a77876860a9157281f6b71a132cd05",
+          "latency_seconds": 1.2114754000067478,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-4",
+          "server_failures": [],
+          "auth_seconds": 0.4410769999958575,
+          "export_seconds": 0.6422234999918146,
+          "request_id": "586a2d03b14b6897189fb424de601ba8",
+          "latency_seconds": 1.210415199995623,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-5",
+          "server_failures": [],
+          "auth_seconds": 0.44053449999773875,
+          "export_seconds": 0.6426657999982126,
+          "request_id": "14685b4374b7f2b4c6926a2c84ecb4e9",
+          "latency_seconds": 1.2093334999954095,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-6",
+          "server_failures": [],
+          "auth_seconds": 0.43809199999668635,
+          "export_seconds": 0.6427789000008488,
+          "request_id": "54469eaac68f7f22fd0f28a09f175f31",
+          "latency_seconds": 1.2075765000045067,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-7",
+          "server_failures": [],
+          "auth_seconds": 0.4369437999994261,
+          "export_seconds": 0.6435595000075409,
+          "request_id": "7823d4072a8a473e493f6d9fd9e6d62e",
+          "latency_seconds": 1.204421700007515,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-8",
+          "server_failures": [],
+          "auth_seconds": 0.4359429000032833,
+          "export_seconds": 0.6457858999929158,
+          "request_id": "036b872a2aca476a42ed3faeed942a91",
+          "latency_seconds": 1.2036109000036959,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-9",
+          "server_failures": [],
+          "auth_seconds": 0.43507629999658093,
+          "export_seconds": 0.6434284999995725,
+          "request_id": "350b0b9d8843cfbb411076b3c6de0cdf",
+          "latency_seconds": 1.201196499998332,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-10",
+          "server_failures": [],
+          "auth_seconds": 0.43432330001087394,
+          "export_seconds": 0.6461425000015879,
+          "request_id": "626d15792bba4b0bb590e827547ae616",
+          "latency_seconds": 1.2004845999908866,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-11",
+          "server_failures": [],
+          "auth_seconds": 0.43419279999216087,
+          "export_seconds": 0.6475981999974465,
+          "request_id": "5a9666c50b4e2c92896f03401cf84ae4",
+          "latency_seconds": 1.1997199000034016,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-12",
+          "server_failures": [],
+          "auth_seconds": 0.4315924999973504,
+          "export_seconds": 0.6468190000014147,
+          "request_id": "a55b4978862e49d1c0be7c20c70338f3",
+          "latency_seconds": 1.1973455999977887,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-13",
+          "server_failures": [],
+          "auth_seconds": 0.43285409999953117,
+          "export_seconds": 0.6515360999910627,
+          "request_id": "2e484cc35ea908f200c751536cd42b98",
+          "latency_seconds": 1.2003134999977192,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-14",
+          "server_failures": [],
+          "auth_seconds": 0.4296944999950938,
+          "export_seconds": 0.6473628999956418,
+          "request_id": "0984dfbb0502beb244e1e48ca2fbaebd",
+          "latency_seconds": 1.1942012000072282,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-15",
+          "server_failures": [],
+          "auth_seconds": 0.4268901999894297,
+          "export_seconds": 0.6498016999976244,
+          "request_id": "7ec9cd66f7c1ec7ea029711fa08572a9",
+          "latency_seconds": 1.1932611000083853,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-16",
+          "server_failures": [],
+          "auth_seconds": 0.42780170000332873,
+          "export_seconds": 0.6521642000006977,
+          "request_id": "25e1c728ed539aa55091050f5fae90a4",
+          "latency_seconds": 1.194619000001694,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-17",
+          "server_failures": [],
+          "auth_seconds": 0.42672760000277776,
+          "export_seconds": 0.6476986999914516,
+          "request_id": "e3b6ed00b11603a640f26202750b8d2a",
+          "latency_seconds": 1.1907925000123214,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-18",
+          "server_failures": [],
+          "auth_seconds": 0.4259488999960013,
+          "export_seconds": 0.6520130999997491,
+          "request_id": "a5372aacbbbc2cda48ffc72de651cb37",
+          "latency_seconds": 1.1914162999892142,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-19",
+          "server_failures": [],
+          "auth_seconds": 0.4250735999958124,
+          "export_seconds": 0.6542877000028966,
+          "request_id": "945bad9cb9c703c03fa42dfcc2d5de25",
+          "latency_seconds": 1.1911897999962093,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-20",
+          "server_failures": [],
+          "auth_seconds": 0.42415009999240283,
+          "export_seconds": 0.6519075999967754,
+          "request_id": "971e2f06db53197586d041004471e5a2",
+          "latency_seconds": 1.1890923000028124,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-21",
+          "server_failures": [],
+          "auth_seconds": 0.42416889999003615,
+          "export_seconds": 0.6596207000111463,
+          "request_id": "c693157e3af36b5b74863b92e47b3c36",
+          "latency_seconds": 1.1909436999994796,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-22",
+          "server_failures": [],
+          "auth_seconds": 0.42106900000362657,
+          "export_seconds": 0.6590211000002455,
+          "request_id": "de7deffda534ac9b481ebec13fcee5d1",
+          "latency_seconds": 1.188524500001222,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-23",
+          "server_failures": [],
+          "auth_seconds": 0.41861510000308044,
+          "export_seconds": 0.6544509999948787,
+          "request_id": "1581505b992563b44fb4033b4562c760",
+          "latency_seconds": 1.184735400005593,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-24",
+          "server_failures": [],
+          "auth_seconds": 0.41123569999763276,
+          "export_seconds": 0.652190699998755,
+          "request_id": "d8c9b23239a7a3ae48a6b146e7df2814",
+          "latency_seconds": 1.1787907000107225,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-25",
+          "server_failures": [],
+          "auth_seconds": 0.4095040000102017,
+          "export_seconds": 0.6544090999959735,
+          "request_id": "e5c32804afb3561310847dc6c9f02d72",
+          "latency_seconds": 1.172923800011631,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-26",
+          "server_failures": [],
+          "auth_seconds": 0.40711909999663476,
+          "export_seconds": 0.6598295000003418,
+          "request_id": "87d3c6d587b3c09a498a6267d255e8e0",
+          "latency_seconds": 1.1730200999882072,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-27",
+          "server_failures": [],
+          "auth_seconds": 0.4064163000002736,
+          "export_seconds": 0.6598379999923054,
+          "request_id": "e4af0c15b7d445b4a1a2ee6d4a737dbe",
+          "latency_seconds": 1.1709018999972614,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-28",
+          "server_failures": [],
+          "auth_seconds": 0.40530529999523424,
+          "export_seconds": 0.6605992000113474,
+          "request_id": "fd4ebe1e383c6d0a1d80f60c520a3d06",
+          "latency_seconds": 1.1696605000033742,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-29",
+          "server_failures": [],
+          "auth_seconds": 0.4018454000033671,
+          "export_seconds": 0.6575124999944819,
+          "request_id": "65f533272795167c7e30f4dcf41923ca",
+          "latency_seconds": 1.1655893000133801,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-30",
+          "server_failures": [],
+          "auth_seconds": 0.40309310000156984,
+          "export_seconds": 0.6625102999969386,
+          "request_id": "8bb3dc5988ae07031d2a1f59f5a9a97f",
+          "latency_seconds": 1.1672149999940302,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-31",
+          "server_failures": [],
+          "auth_seconds": 0.40041000000201166,
+          "export_seconds": 0.6613292999973055,
+          "request_id": "660c3c34d9f4d5dbbe7a866e20f31b0b",
+          "latency_seconds": 1.1648420999990776,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-32",
+          "server_failures": [],
+          "auth_seconds": 0.402294500003336,
+          "export_seconds": 0.6651571999973385,
+          "request_id": "e9cbc63426ce764791a3697acae035bf",
+          "latency_seconds": 1.1657522000023164,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-33",
+          "server_failures": [],
+          "auth_seconds": 0.3971068999962881,
+          "export_seconds": 0.6661793999955989,
+          "request_id": "e3aaf48326cba0b2a1bfadc258c72e21",
+          "latency_seconds": 1.1630014999973355,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-34",
+          "server_failures": [],
+          "auth_seconds": 0.3955176000017673,
+          "export_seconds": 0.6624615000037011,
+          "request_id": "eb6f5afa4e48a3bb3cc6fae7ff86da4c",
+          "latency_seconds": 1.1591330000082962,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-35",
+          "server_failures": [],
+          "auth_seconds": 0.39422649999323767,
+          "export_seconds": 0.6628883999946993,
+          "request_id": "62b7c8e4dcf8bd3198e2d61e9bb109d9",
+          "latency_seconds": 1.1572234999912325,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-36",
+          "server_failures": [],
+          "auth_seconds": 0.3937934999994468,
+          "export_seconds": 0.6656966000009561,
+          "request_id": "e3cdc449cd2bb8264dbd30091c17b498",
+          "latency_seconds": 1.1567077999934554,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-37",
+          "server_failures": [],
+          "auth_seconds": 0.3938616999948863,
+          "export_seconds": 0.6673322000133339,
+          "request_id": "3fe4e7e3e4d1292957661d8372dd0927",
+          "latency_seconds": 1.156285699995351,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-38",
+          "server_failures": [],
+          "auth_seconds": 0.3909101000026567,
+          "export_seconds": 0.6663602000044193,
+          "request_id": "160d8bf1d828e7fe82f42898b19a75a3",
+          "latency_seconds": 1.1535636000044178,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-39",
+          "server_failures": [],
+          "auth_seconds": 0.3913665000000037,
+          "export_seconds": 0.6678684000071371,
+          "request_id": "1f69fcf72a3ccc0037909551863c44e5",
+          "latency_seconds": 1.1533748999936506,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-40",
+          "server_failures": [],
+          "auth_seconds": 0.3953763999888906,
+          "export_seconds": 0.6721729999990202,
+          "request_id": "ab3d8a26c84aaa19f7ef6f63c9d9d222",
+          "latency_seconds": 1.1572648000001209,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-41",
+          "server_failures": [],
+          "auth_seconds": 0.38916380000591744,
+          "export_seconds": 0.6683610999898519,
+          "request_id": "f8beb274e99eb73054abc60199ee9c87",
+          "latency_seconds": 1.1508431999973254,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-42",
+          "server_failures": [],
+          "auth_seconds": 0.3892312999960268,
+          "export_seconds": 0.6703367000009166,
+          "request_id": "4618aa571a442a6882aec1be69281f9f",
+          "latency_seconds": 1.152119299993501,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-43",
+          "server_failures": [],
+          "auth_seconds": 0.38822029999573715,
+          "export_seconds": 0.6713649000012083,
+          "request_id": "50de04fbff63d50d96a5738e18eb74b1",
+          "latency_seconds": 1.1502956000040285,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-44",
+          "server_failures": [],
+          "auth_seconds": 0.3839520000037737,
+          "export_seconds": 0.669246799996472,
+          "request_id": "5e0eaa74f10a2a9e5a1ccf8601cb5681",
+          "latency_seconds": 1.1453681999992114,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-45",
+          "server_failures": [],
+          "auth_seconds": 0.3813255000131903,
+          "export_seconds": 0.6699114999937592,
+          "request_id": "40bfb630fa1b01006c91faeb30a242a8",
+          "latency_seconds": 1.1451913000055356,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-46",
+          "server_failures": [],
+          "auth_seconds": 0.3832795000053011,
+          "export_seconds": 0.672918899988872,
+          "request_id": "c682f678a61b216891ec032100962b9c",
+          "latency_seconds": 1.1449965000065276,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-47",
+          "server_failures": [],
+          "auth_seconds": 0.38235279999207705,
+          "export_seconds": 0.6736651000101119,
+          "request_id": "66a6499068b0e60a98c3af0dbcbfa7a9",
+          "latency_seconds": 1.1440413000091212,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-48",
+          "server_failures": [],
+          "auth_seconds": 0.3827062000054866,
+          "export_seconds": 0.6731855999969412,
+          "request_id": "6586e3ed1466a0b7acc42c68a51fd39d",
+          "latency_seconds": 1.1430215000000317,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-49",
+          "server_failures": [],
+          "auth_seconds": 0.38193619999219663,
+          "export_seconds": 0.6771074999996927,
+          "request_id": "d12302a54666d3e2b530ea5f86f36bae",
+          "latency_seconds": 1.1428573000011966,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-50",
+          "server_failures": [],
+          "auth_seconds": 0.37878379999892786,
+          "export_seconds": 0.675455000004149,
+          "request_id": "0467745f66d0721a404d19209284b84e",
+          "latency_seconds": 1.140301500010537,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-51",
+          "server_failures": [],
+          "auth_seconds": 0.37998030000017025,
+          "export_seconds": 0.6741803000040818,
+          "request_id": "3f64996bf7a79d24ee4ec35e30101ce7",
+          "latency_seconds": 1.139153099997202,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-52",
+          "server_failures": [],
+          "auth_seconds": 0.37868939999316353,
+          "export_seconds": 0.6761765999981435,
+          "request_id": "190c7a2c0823bd57a1aeddc6e13f6acf",
+          "latency_seconds": 1.1383244000026025,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-53",
+          "server_failures": [],
+          "auth_seconds": 0.37906269999803044,
+          "export_seconds": 0.6770691999990959,
+          "request_id": "9ae0f17148ebc034b5e67634cda23dff",
+          "latency_seconds": 1.137594400002854,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-54",
+          "server_failures": [],
+          "auth_seconds": 0.376211399998283,
+          "export_seconds": 0.676515399987693,
+          "request_id": "19642112ffa89e676e9daa5bf11598e6",
+          "latency_seconds": 1.1354133999993792,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-55",
+          "server_failures": [],
+          "auth_seconds": 0.3764346999960253,
+          "export_seconds": 0.6778589000023203,
+          "request_id": "62bedd206ab2af150a9d85edb53fbc3e",
+          "latency_seconds": 1.1346766000060597,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-56",
+          "server_failures": [],
+          "auth_seconds": 0.3800967999995919,
+          "export_seconds": 0.678647099994123,
+          "request_id": "21d888c58fad0df10d9865c875f5b37f",
+          "latency_seconds": 1.1345102000050247,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-57",
+          "server_failures": [],
+          "auth_seconds": 0.37395230001129676,
+          "export_seconds": 0.6784915000025649,
+          "request_id": "2ba65fa72adda00c441446e6024d4787",
+          "latency_seconds": 1.131869299992104,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-58",
+          "server_failures": [],
+          "auth_seconds": 0.3759991000115406,
+          "export_seconds": 0.6770923000003677,
+          "request_id": "4b40ad101eb8025b52a11d808dbbfb42",
+          "latency_seconds": 1.130717200008803,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-59",
+          "server_failures": [],
+          "auth_seconds": 0.3768491999944672,
+          "export_seconds": 0.680313600008958,
+          "request_id": "14c2f5e83098bc38a98090ce15eefbb3",
+          "latency_seconds": 1.1309766000049422,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-60",
+          "server_failures": [],
+          "auth_seconds": 0.3742606000014348,
+          "export_seconds": 0.6796165000123437,
+          "request_id": "bd3524546e896930d4e0639c35fbb5e9",
+          "latency_seconds": 1.1284015999990515,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-61",
+          "server_failures": [],
+          "auth_seconds": 0.3742092999891611,
+          "export_seconds": 0.6835143000062089,
+          "request_id": "7b003a3af99e6a2970df5ac50aa202fb",
+          "latency_seconds": 1.1293722000118578,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-62",
+          "server_failures": [],
+          "auth_seconds": 0.3734498999983771,
+          "export_seconds": 0.6803163000004133,
+          "request_id": "2d248fbb6ba92bf7dad007dec18d30de",
+          "latency_seconds": 1.126868999999715,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-63",
+          "server_failures": [],
+          "auth_seconds": 0.37271500000497326,
+          "export_seconds": 0.6835112999979174,
+          "request_id": "7f0010ef15542c51de99fbd673574fe4",
+          "latency_seconds": 1.1269574000034481,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-64",
+          "server_failures": [],
+          "auth_seconds": 0.3719579999888083,
+          "export_seconds": 0.6855407999973977,
+          "request_id": "48c43d10876bb678d9b7d8fec56e84d9",
+          "latency_seconds": 1.12700429999677,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-65",
+          "server_failures": [],
+          "auth_seconds": 0.37116929999319836,
+          "export_seconds": 0.6833014999865554,
+          "request_id": "d1fec05b51aa47b632d24beaa5c62ea5",
+          "latency_seconds": 1.1245474000024842,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-66",
+          "server_failures": [],
+          "auth_seconds": 0.3697918999969261,
+          "export_seconds": 0.6848086999962106,
+          "request_id": "54d698b8392fd709aea5ebffca23b314",
+          "latency_seconds": 1.1246849000017392,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-67",
+          "server_failures": [],
+          "auth_seconds": 0.36739630000374746,
+          "export_seconds": 0.6874439000093844,
+          "request_id": "86916641506c05b7be64de66d40479b4",
+          "latency_seconds": 1.1222421999991639,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-68",
+          "server_failures": [],
+          "auth_seconds": 0.26196439999330323,
+          "export_seconds": 0.6874257999879774,
+          "request_id": "d0486c61f14dffe815c891fd2375d717",
+          "latency_seconds": 1.1213384000002407,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-69",
+          "server_failures": [],
+          "auth_seconds": 0.26085869999951683,
+          "export_seconds": 0.6883692000119481,
+          "request_id": "1396d32036692d59ff4aeace77b2f995",
+          "latency_seconds": 1.0148954999895068,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-70",
+          "server_failures": [],
+          "auth_seconds": 0.2578961999970488,
+          "export_seconds": 0.6880154999962542,
+          "request_id": "f3d78bc274c48c05d59a312d182eef97",
+          "latency_seconds": 1.011635999995633,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-71",
+          "server_failures": [],
+          "auth_seconds": 0.25821519999590237,
+          "export_seconds": 0.6889414999895962,
+          "request_id": "41c42bd06d91bacdc1437f7a2e95973e",
+          "latency_seconds": 1.011005299995304,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-72",
+          "server_failures": [],
+          "auth_seconds": 0.25793130000238307,
+          "export_seconds": 0.6890324999985751,
+          "request_id": "c1c28ef8330ea1ef43b2d5105d1b9370",
+          "latency_seconds": 1.0096743000030983,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-73",
+          "server_failures": [],
+          "auth_seconds": 0.2572924999985844,
+          "export_seconds": 0.6896835999941686,
+          "request_id": "ef9c42ae518872645928190fee584e71",
+          "latency_seconds": 1.0085788999858778,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-74",
+          "server_failures": [],
+          "auth_seconds": 0.25652130000526085,
+          "export_seconds": 0.6902374000055715,
+          "request_id": "80ad85c66cb014a1d63611921e929e37",
+          "latency_seconds": 1.00747089998913,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-75",
+          "server_failures": [],
+          "auth_seconds": 0.2568330999929458,
+          "export_seconds": 0.691290000002482,
+          "request_id": "77954b26979890148a29879aed106caa",
+          "latency_seconds": 1.0075371999992058,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-76",
+          "server_failures": [],
+          "auth_seconds": 0.2538803000061307,
+          "export_seconds": 0.690571799990721,
+          "request_id": "3ad8d194732733fd201746e01a81ab35",
+          "latency_seconds": 1.0044525999983307,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-77",
+          "server_failures": [],
+          "auth_seconds": 0.2552556000009645,
+          "export_seconds": 0.6919156000076327,
+          "request_id": "180052b865581532caf329ac80479ee6",
+          "latency_seconds": 1.0054495000076713,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-78",
+          "server_failures": [],
+          "auth_seconds": 0.25231730000814423,
+          "export_seconds": 0.6911914000083925,
+          "request_id": "be5b13649fe23368c208183b15859f5f",
+          "latency_seconds": 1.0026789999974426,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm2-79",
+          "server_failures": [],
+          "auth_seconds": 0.43935629999032244,
+          "export_seconds": 0.6506174999958603,
+          "request_id": "53f57b737d05c672e295ec3dc8d6dd15",
+          "latency_seconds": 1.2229879000078654,
+          "status": 200,
+          "scope_ok": true
+        }
+      ],
+      "p95_all_seconds": 1.2114754000067478,
+      "p95_success_seconds": 1.2114754000067478,
+      "errors": 0,
+      "status_counts": {
+        "200": 80
+      },
+      "failure_stages": {},
+      "exception_types": {}
+    },
+    {
+      "phase": "warm3",
+      "samples": [
+        {
+          "sample": "warm3-0",
+          "server_failures": [],
+          "auth_seconds": 0.318729099992197,
+          "export_seconds": 0.7525410999951418,
+          "request_id": "35f2ae61b9bcb083ebd77bb571a24b5c",
+          "latency_seconds": 1.208341300007305,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-1",
+          "server_failures": [],
+          "auth_seconds": 0.31322650000220165,
+          "export_seconds": 0.7497430000075838,
+          "request_id": "91841bee12825a5ff18af4dbc59dc9a2",
+          "latency_seconds": 1.200798300007591,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-2",
+          "server_failures": [],
+          "auth_seconds": 0.31288140000833664,
+          "export_seconds": 0.7422979999973904,
+          "request_id": "3a4cfaaa53fed402d0dc033b29ce4c2a",
+          "latency_seconds": 1.19637029999285,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-3",
+          "server_failures": [],
+          "auth_seconds": 0.3120591000042623,
+          "export_seconds": 0.7563459999946645,
+          "request_id": "81d8a7673db4dc8e3e4dddb53772f5c1",
+          "latency_seconds": 1.1971444999944651,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-4",
+          "server_failures": [],
+          "auth_seconds": 0.311206400001538,
+          "export_seconds": 0.7607422999863047,
+          "request_id": "5113fcef64777d16c210144c1110228e",
+          "latency_seconds": 1.197121100005461,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-5",
+          "server_failures": [],
+          "auth_seconds": 0.31020369999168906,
+          "export_seconds": 0.7524375000066357,
+          "request_id": "9b0860431cca02e027444467b8e9a7f2",
+          "latency_seconds": 1.1934731999936048,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-6",
+          "server_failures": [],
+          "auth_seconds": 0.3092390000092564,
+          "export_seconds": 0.7563404999964405,
+          "request_id": "e570817e77467451d9f62438a429c663",
+          "latency_seconds": 1.19281829999818,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-7",
+          "server_failures": [],
+          "auth_seconds": 0.3083766000054311,
+          "export_seconds": 0.7571888999955263,
+          "request_id": "f2a80eaef6c4f0a950085db9e3092ca9",
+          "latency_seconds": 1.1916999999957625,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-8",
+          "server_failures": [],
+          "auth_seconds": 0.30748859999584965,
+          "export_seconds": 0.7597287999960827,
+          "request_id": "86acd35829c4203762c262ec54afe93e",
+          "latency_seconds": 1.1918305999861332,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-9",
+          "server_failures": [],
+          "auth_seconds": 0.3064857999997912,
+          "export_seconds": 0.7607420999993337,
+          "request_id": "6c966365812b30fb1049debed97c78ec",
+          "latency_seconds": 1.191381700002239,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-10",
+          "server_failures": [],
+          "auth_seconds": 0.30535530000634026,
+          "export_seconds": 0.764113900004304,
+          "request_id": "42e6a4b76c09c1e9801b9fa71a943eb3",
+          "latency_seconds": 1.1906504000071436,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-11",
+          "server_failures": [],
+          "auth_seconds": 0.30490869999630377,
+          "export_seconds": 0.7642324000044027,
+          "request_id": "79a1456610eac454f2e5adef94564ba9",
+          "latency_seconds": 1.1893761000101222,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-12",
+          "server_failures": [],
+          "auth_seconds": 0.30274260000442155,
+          "export_seconds": 0.7617747999902349,
+          "request_id": "86898a05570dea07e716959b30422255",
+          "latency_seconds": 1.1866708000015933,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-13",
+          "server_failures": [],
+          "auth_seconds": 0.3016251000080956,
+          "export_seconds": 0.7647694000042975,
+          "request_id": "f6ada689f5b666082e41b957d71be04a",
+          "latency_seconds": 1.1870332999969833,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-14",
+          "server_failures": [],
+          "auth_seconds": 0.300859799986938,
+          "export_seconds": 0.7653071999957319,
+          "request_id": "43cccdd607d19645604748630d9616e0",
+          "latency_seconds": 1.1847445000021253,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-15",
+          "server_failures": [],
+          "auth_seconds": 0.29953950000344776,
+          "export_seconds": 0.7680290999996942,
+          "request_id": "2b52d1b882d0fc01f7227160288c3148",
+          "latency_seconds": 1.1835541000036756,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-16",
+          "server_failures": [],
+          "auth_seconds": 0.29880360000242945,
+          "export_seconds": 0.765395599999465,
+          "request_id": "fab6b1ea48757d27e0d12c708dbe43b0",
+          "latency_seconds": 1.1811211000022013,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-17",
+          "server_failures": [],
+          "auth_seconds": 0.30096220000996254,
+          "export_seconds": 0.7693372999929124,
+          "request_id": "092c7fa6679350084c729af5772acd22",
+          "latency_seconds": 1.1815054000035161,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-18",
+          "server_failures": [],
+          "auth_seconds": 0.2959975999983726,
+          "export_seconds": 0.7676593999931356,
+          "request_id": "1a7bd79c18e3805107590fcf42ab204e",
+          "latency_seconds": 1.1784776999993483,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-19",
+          "server_failures": [],
+          "auth_seconds": 0.2959700000064913,
+          "export_seconds": 0.76953949999006,
+          "request_id": "47a45ceeae90bcfb9bd2dbcf1ebc4c0f",
+          "latency_seconds": 1.1778017000033287,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-20",
+          "server_failures": [],
+          "auth_seconds": 0.293602000005194,
+          "export_seconds": 0.7684598999912851,
+          "request_id": "35614a34aec1a17896a2c0d6dff3235a",
+          "latency_seconds": 1.175708399998257,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-21",
+          "server_failures": [],
+          "auth_seconds": 0.29361960000824183,
+          "export_seconds": 0.7724097000027541,
+          "request_id": "d48fd5e345954b1a39bc18b089aff20a",
+          "latency_seconds": 1.1755907999904593,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-22",
+          "server_failures": [],
+          "auth_seconds": 0.29381020000437275,
+          "export_seconds": 0.772168800001964,
+          "request_id": "57565b2aca63457bfeeee342f4c79d17",
+          "latency_seconds": 1.1745113999932073,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-23",
+          "server_failures": [],
+          "auth_seconds": 0.2931190999952378,
+          "export_seconds": 0.7729687000100967,
+          "request_id": "53427754f4bf8bf5b6947608d6fbf0b7",
+          "latency_seconds": 1.1734614000015426,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-24",
+          "server_failures": [],
+          "auth_seconds": 0.2919879000110086,
+          "export_seconds": 0.7769649000110803,
+          "request_id": "5ab6e3277991d66e7c599327e8850b13",
+          "latency_seconds": 1.1732382000045618,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-25",
+          "server_failures": [],
+          "auth_seconds": 0.2911189000005834,
+          "export_seconds": 0.7731103999976767,
+          "request_id": "9890b68c2ce766b240fd2c93af9ffabf",
+          "latency_seconds": 1.1705918000079691,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-26",
+          "server_failures": [],
+          "auth_seconds": 0.2903998999972828,
+          "export_seconds": 0.7740415000007488,
+          "request_id": "1da4c7c01df0bf7cbe2318b88e8947d3",
+          "latency_seconds": 1.169537499998114,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-27",
+          "server_failures": [],
+          "auth_seconds": 0.28949919999286067,
+          "export_seconds": 0.7763214000005974,
+          "request_id": "c57d85342bdcfef487be12be4fada36c",
+          "latency_seconds": 1.1694353000057163,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-28",
+          "server_failures": [],
+          "auth_seconds": 0.28875639999751,
+          "export_seconds": 0.7771439999924041,
+          "request_id": "07cc9bbc2b3e1845eec18d0863940c43",
+          "latency_seconds": 1.168404299998656,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-29",
+          "server_failures": [],
+          "auth_seconds": 0.28785639999841806,
+          "export_seconds": 0.7780005999957211,
+          "request_id": "70fd3e510db09f21bf4e2ec4d9962247",
+          "latency_seconds": 1.1675220000033733,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-30",
+          "server_failures": [],
+          "auth_seconds": 0.28718049998860806,
+          "export_seconds": 0.7786556000064593,
+          "request_id": "869dc0cd9cbd5fe07f6cfbc28102cfee",
+          "latency_seconds": 1.166419400004088,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-31",
+          "server_failures": [],
+          "auth_seconds": 0.28657910000765696,
+          "export_seconds": 0.7793039999960456,
+          "request_id": "71e1131389b93d9f16d09e24f29e5f42",
+          "latency_seconds": 1.165640600011102,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-32",
+          "server_failures": [],
+          "auth_seconds": 0.28593340000952594,
+          "export_seconds": 0.7822578999912366,
+          "request_id": "297c5df731ce66b28c357058a773aded",
+          "latency_seconds": 1.1653357000031974,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-33",
+          "server_failures": [],
+          "auth_seconds": 0.28534420000505634,
+          "export_seconds": 0.779843800002709,
+          "request_id": "2971e36251a7f83a8b277435d4327e20",
+          "latency_seconds": 1.163267600000836,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-34",
+          "server_failures": [],
+          "auth_seconds": 0.2826115999923786,
+          "export_seconds": 0.7840888000064297,
+          "request_id": "c763bf6912de982f2898e943010962fc",
+          "latency_seconds": 1.1634093999891775,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-35",
+          "server_failures": [],
+          "auth_seconds": 0.28099810000276193,
+          "export_seconds": 0.7813263999996707,
+          "request_id": "7ee4ccf75c2ee978c658b4d8a91fa4ef",
+          "latency_seconds": 1.1589812000020174,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-36",
+          "server_failures": [],
+          "auth_seconds": 0.2797472999955062,
+          "export_seconds": 0.7843405000021448,
+          "request_id": "5e1f5267ee7d181e418720aa8ee99e70",
+          "latency_seconds": 1.1577947000041604,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-37",
+          "server_failures": [],
+          "auth_seconds": 0.278724499992677,
+          "export_seconds": 0.7851468000008026,
+          "request_id": "d97c6e7e5912d0460214f3fb40af7975",
+          "latency_seconds": 1.1564159999979893,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-38",
+          "server_failures": [],
+          "auth_seconds": 0.27748190000420436,
+          "export_seconds": 0.7875017000042135,
+          "request_id": "7d29d45f975cdbd89c7d9c0e8660be03",
+          "latency_seconds": 1.1557850999961374,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-39",
+          "server_failures": [],
+          "auth_seconds": 0.2771101000107592,
+          "export_seconds": 0.7877885000052629,
+          "request_id": "f87b22c7a892bcb90952b3c4f852c0e9",
+          "latency_seconds": 1.1543112000072142,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-40",
+          "server_failures": [],
+          "auth_seconds": 0.27482489999965765,
+          "export_seconds": 0.7853510999993887,
+          "request_id": "0388636bfcf8e3ef946ea2f990e8d090",
+          "latency_seconds": 1.1516394999925978,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-41",
+          "server_failures": [],
+          "auth_seconds": 0.2745141000050353,
+          "export_seconds": 0.7889762999984669,
+          "request_id": "17a9e806e360d6f73ce7f6150c7b0ba1",
+          "latency_seconds": 1.1515175999957137,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-42",
+          "server_failures": [],
+          "auth_seconds": 0.2735917999962112,
+          "export_seconds": 0.7913224999938393,
+          "request_id": "4fdbab5680efac562353d55920509373",
+          "latency_seconds": 1.1509666000056313,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-43",
+          "server_failures": [],
+          "auth_seconds": 0.2730310000042664,
+          "export_seconds": 0.7916606000071624,
+          "request_id": "332c8d3479647b0592d665a9ad1a9dfd",
+          "latency_seconds": 1.1506014000042342,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-44",
+          "server_failures": [],
+          "auth_seconds": 0.2727940999902785,
+          "export_seconds": 0.795038399999612,
+          "request_id": "1dfcf4ea98645da8e69370140477414c",
+          "latency_seconds": 1.1515212999947835,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-45",
+          "server_failures": [],
+          "auth_seconds": 0.26926149999781046,
+          "export_seconds": 0.7891863999975612,
+          "request_id": "f7cb739dcd1b1de07e45f18d74f339dc",
+          "latency_seconds": 1.145498999991105,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-46",
+          "server_failures": [],
+          "auth_seconds": 0.26904430000286084,
+          "export_seconds": 0.7926109999971231,
+          "request_id": "61ec44a9b6510b8af9f23cb047eda67d",
+          "latency_seconds": 1.147095399996033,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-47",
+          "server_failures": [],
+          "auth_seconds": 0.26857149999705143,
+          "export_seconds": 0.7927808999957051,
+          "request_id": "ff2a35c70c85bebef390380af7bafe97",
+          "latency_seconds": 1.1462315999960992,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-48",
+          "server_failures": [],
+          "auth_seconds": 0.2677442999993218,
+          "export_seconds": 0.7952457000064896,
+          "request_id": "bb0f54a358c63b2cf3a7520f292dc2d7",
+          "latency_seconds": 1.1457126000022981,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-49",
+          "server_failures": [],
+          "auth_seconds": 0.26682740000251215,
+          "export_seconds": 0.7977619000012055,
+          "request_id": "91ebda51d59cf4d84fee5763e660644a",
+          "latency_seconds": 1.1451653999974951,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-50",
+          "server_failures": [],
+          "auth_seconds": 0.2661978999967687,
+          "export_seconds": 0.7950646000099368,
+          "request_id": "214a4336e0e7e5947729357e7bff1cda",
+          "latency_seconds": 1.1431111999991117,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-51",
+          "server_failures": [],
+          "auth_seconds": 0.2662475999968592,
+          "export_seconds": 0.7968133999966085,
+          "request_id": "a5cf73cfdb1aa96badb298c4b19db1f8",
+          "latency_seconds": 1.1424514000100316,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-52",
+          "server_failures": [],
+          "auth_seconds": 0.2654999999940628,
+          "export_seconds": 0.7975335999944946,
+          "request_id": "fd6a3d387f9afa9986c3a2a99a0c6f79",
+          "latency_seconds": 1.141462200001115,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-53",
+          "server_failures": [],
+          "auth_seconds": 0.26452539999445435,
+          "export_seconds": 0.7982868000108283,
+          "request_id": "762f13280c350b59e5583444005a4ed7",
+          "latency_seconds": 1.1403386000019964,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-54",
+          "server_failures": [],
+          "auth_seconds": 0.26338760000362527,
+          "export_seconds": 0.7990891000081319,
+          "request_id": "9cc3268a1a1a20d514a7efcd25217018",
+          "latency_seconds": 1.13901139999507,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-55",
+          "server_failures": [],
+          "auth_seconds": 0.2623763000010513,
+          "export_seconds": 0.8014895000087563,
+          "request_id": "bd3d8cefd351d8b91f5dead1e18ecdf5",
+          "latency_seconds": 1.138163199997507,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-56",
+          "server_failures": [],
+          "auth_seconds": 0.25918610001099296,
+          "export_seconds": 0.7988014000002295,
+          "request_id": "c55586848e8b84703116b940d581e41d",
+          "latency_seconds": 1.13342690000718,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-57",
+          "server_failures": [],
+          "auth_seconds": 0.25840550000430085,
+          "export_seconds": 0.8011860999977216,
+          "request_id": "fe7ec9c705263618a32aef984dbb9c19",
+          "latency_seconds": 1.1325249999936204,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-58",
+          "server_failures": [],
+          "auth_seconds": 0.35930159999406897,
+          "export_seconds": 0.700483799999347,
+          "request_id": "d277fad65a6faa42ae1afb52d25248d0",
+          "latency_seconds": 1.1313852000021143,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-59",
+          "server_failures": [],
+          "auth_seconds": 0.3590789000008954,
+          "export_seconds": 0.7007885000057286,
+          "request_id": "ac26eb0ef9f89da22b95bd6c94e74a3b",
+          "latency_seconds": 1.130380000002333,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-60",
+          "server_failures": [],
+          "auth_seconds": 0.3593965999898501,
+          "export_seconds": 0.7017198999965331,
+          "request_id": "12e738de1547d9d427ee6d0e28ed7c6d",
+          "latency_seconds": 1.129619499988621,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-61",
+          "server_failures": [],
+          "auth_seconds": 0.3563490000087768,
+          "export_seconds": 0.7011407999962103,
+          "request_id": "870c8c7266fb098fa55ac418b2389cc3",
+          "latency_seconds": 1.1274915999965742,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-62",
+          "server_failures": [],
+          "auth_seconds": 0.3566145999939181,
+          "export_seconds": 0.7023053000011714,
+          "request_id": "8dbb924ef870aaa2d7c944f1288a14a6",
+          "latency_seconds": 1.126413899997715,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-63",
+          "server_failures": [],
+          "auth_seconds": 0.355682200010051,
+          "export_seconds": 0.7029403999913484,
+          "request_id": "737faaf552e6652b4b719cb2f76109d1",
+          "latency_seconds": 1.1252818999928422,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-64",
+          "server_failures": [],
+          "auth_seconds": 0.3549639999982901,
+          "export_seconds": 0.7037038999987999,
+          "request_id": "dce2a57f687da069034784a6d9d36823",
+          "latency_seconds": 1.124990299998899,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-65",
+          "server_failures": [],
+          "auth_seconds": 0.3540326000074856,
+          "export_seconds": 0.704406700009713,
+          "request_id": "17be54a3275f7609df1f24db60d17d5b",
+          "latency_seconds": 1.1239160999975866,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-66",
+          "server_failures": [],
+          "auth_seconds": 0.35311699999147095,
+          "export_seconds": 0.7064764999959152,
+          "request_id": "277914d81178e09afbd6ec7fe4a05fe0",
+          "latency_seconds": 1.1228363999980502,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-67",
+          "server_failures": [],
+          "auth_seconds": 0.3523776999936672,
+          "export_seconds": 0.7072767999925418,
+          "request_id": "d84b1ba2c4a9b4498f0ab9f2535fcf4c",
+          "latency_seconds": 1.121658700008993,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-68",
+          "server_failures": [],
+          "auth_seconds": 0.35152679999009706,
+          "export_seconds": 0.7094302000041353,
+          "request_id": "525379f01814b5903b5b5d9631c3f203",
+          "latency_seconds": 1.1212520000117365,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-69",
+          "server_failures": [],
+          "auth_seconds": 0.3514681999949971,
+          "export_seconds": 0.7096305000013672,
+          "request_id": "a26b9aec8e84f305bd5433d2bfd6d453",
+          "latency_seconds": 1.1201325000001816,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-70",
+          "server_failures": [],
+          "auth_seconds": 0.34908130000985693,
+          "export_seconds": 0.7072504999960074,
+          "request_id": "81f97b0886e67a105bd56906a44ee4be",
+          "latency_seconds": 1.1174909000110347,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-71",
+          "server_failures": [],
+          "auth_seconds": 0.34865139999601524,
+          "export_seconds": 0.7103421000065282,
+          "request_id": "7bd904532f21a543d1981aa233767096",
+          "latency_seconds": 1.1176747999998042,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-72",
+          "server_failures": [],
+          "auth_seconds": 0.3476007999997819,
+          "export_seconds": 0.7108606999972835,
+          "request_id": "d3588159e34c480d8885449e6df88202",
+          "latency_seconds": 1.1163066000008257,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-73",
+          "server_failures": [],
+          "auth_seconds": 0.3465044000040507,
+          "export_seconds": 0.7115079000068363,
+          "request_id": "2f22df154c0dee62b943c782ba888840",
+          "latency_seconds": 1.1150174000067636,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-74",
+          "server_failures": [],
+          "auth_seconds": 0.34559950001130346,
+          "export_seconds": 0.7121361999888904,
+          "request_id": "ec5ece0a41d8eb0f8d36678284b5dd9d",
+          "latency_seconds": 1.1134875999996439,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-75",
+          "server_failures": [],
+          "auth_seconds": 0.3444613999890862,
+          "export_seconds": 0.717227199987974,
+          "request_id": "4d0b6e9feb7fb155f7eac8a373c78125",
+          "latency_seconds": 1.1132833000010578,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-76",
+          "server_failures": [],
+          "auth_seconds": 0.34380260000762064,
+          "export_seconds": 0.7117467999923974,
+          "request_id": "e0deb03219346e719b7b8f10a3e6693e",
+          "latency_seconds": 1.110297500010347,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-77",
+          "server_failures": [],
+          "auth_seconds": 0.34181170001102146,
+          "export_seconds": 0.7125175999972271,
+          "request_id": "10fbb0458c2f3787738283b537cb0ccf",
+          "latency_seconds": 1.1073804999905406,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-78",
+          "server_failures": [],
+          "auth_seconds": 0.33935330000531394,
+          "export_seconds": 0.7172212000004947,
+          "request_id": "5b6e49a9eaf8e6c2cc1715ffa6c2f8ca",
+          "latency_seconds": 1.1065653999976348,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm3-79",
+          "server_failures": [],
+          "auth_seconds": 0.3227660999982618,
+          "export_seconds": 0.748711899999762,
+          "request_id": "babaf2d1fbb6e098cf3ad36ebf0a108b",
+          "latency_seconds": 1.2128057999943849,
+          "status": 200,
+          "scope_ok": true
+        }
+      ],
+      "p95_all_seconds": 1.197121100005461,
+      "p95_success_seconds": 1.197121100005461,
+      "errors": 0,
+      "status_counts": {
+        "200": 80
+      },
+      "failure_stages": {},
+      "exception_types": {}
+    },
+    {
+      "phase": "warm4",
+      "samples": [
+        {
+          "sample": "warm4-0",
+          "server_failures": [],
+          "auth_seconds": 0.34460179999587126,
+          "export_seconds": 0.7815650999982608,
+          "request_id": "09ee5ec6635ce6e1add01f3dac00df26",
+          "latency_seconds": 1.26434349999181,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-1",
+          "server_failures": [],
+          "auth_seconds": 0.3403130000078818,
+          "export_seconds": 0.7787037000089185,
+          "request_id": "5554350ed066d18d11292514efa4722b",
+          "latency_seconds": 1.2590687000047183,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-2",
+          "server_failures": [],
+          "auth_seconds": 0.3364313000056427,
+          "export_seconds": 0.7784369000000879,
+          "request_id": "9560ff3038052adc52bb47f14070fa66",
+          "latency_seconds": 1.254799300004379,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-3",
+          "server_failures": [],
+          "auth_seconds": 0.3392390999943018,
+          "export_seconds": 0.7832281000009971,
+          "request_id": "fdb30da165ca64503651e0b4b8341784",
+          "latency_seconds": 1.2570240999921225,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-4",
+          "server_failures": [],
+          "auth_seconds": 0.336370100005297,
+          "export_seconds": 0.7823341999901459,
+          "request_id": "d326b1579f246597e61d12423a842da2",
+          "latency_seconds": 1.2547836999874562,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-5",
+          "server_failures": [],
+          "auth_seconds": 0.3371186000003945,
+          "export_seconds": 0.7845885999995517,
+          "request_id": "a0b204fddf989945b6406688c2dadfe0",
+          "latency_seconds": 1.254303900001105,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-6",
+          "server_failures": [],
+          "auth_seconds": 0.3369038999953773,
+          "export_seconds": 0.7847542999952566,
+          "request_id": "a2642002bc4c7481db17c5e5812d3d10",
+          "latency_seconds": 1.2530908000044292,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-7",
+          "server_failures": [],
+          "auth_seconds": 0.3327819999976782,
+          "export_seconds": 0.7771541999973124,
+          "request_id": "aa6990e332817dd38e28cef23b739cf8",
+          "latency_seconds": 1.248069299996132,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-8",
+          "server_failures": [],
+          "auth_seconds": 0.33279090000723954,
+          "export_seconds": 0.7822940999903949,
+          "request_id": "dde16190c61dc4515df8525e6606e9a3",
+          "latency_seconds": 1.248613200004911,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-9",
+          "server_failures": [],
+          "auth_seconds": 0.33334589999867603,
+          "export_seconds": 0.7907383999990998,
+          "request_id": "63968abdc4ace838b8e553d41f4c2fe3",
+          "latency_seconds": 1.2500500000023749,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-10",
+          "server_failures": [],
+          "auth_seconds": 0.3308302000077674,
+          "export_seconds": 0.7861062000010861,
+          "request_id": "156f26917addcfac6b88cc50bd661e22",
+          "latency_seconds": 1.246741299997666,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-11",
+          "server_failures": [],
+          "auth_seconds": 0.33080659998813644,
+          "export_seconds": 0.7961134999932256,
+          "request_id": "ab9c60330dea5758cf128aa02003554e",
+          "latency_seconds": 1.2519193999905838,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-12",
+          "server_failures": [],
+          "auth_seconds": 0.3298688999930164,
+          "export_seconds": 0.7876136999984737,
+          "request_id": "59cd1b05a2cc0c62ae32000e81e65fb8",
+          "latency_seconds": 1.244438199995784,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-13",
+          "server_failures": [],
+          "auth_seconds": 0.32953590000397526,
+          "export_seconds": 0.7924387999955798,
+          "request_id": "a70977ad6aaf046bd92dc06f41266355",
+          "latency_seconds": 1.24696390000463,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-14",
+          "server_failures": [],
+          "auth_seconds": 0.3272641000075964,
+          "export_seconds": 0.7853296999965096,
+          "request_id": "25f7b072c807a83dd10b55491542e504",
+          "latency_seconds": 1.2405201999936253,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-15",
+          "server_failures": [],
+          "auth_seconds": 0.3270769999944605,
+          "export_seconds": 0.7902049000113038,
+          "request_id": "d2e7fee36aca2523ecb0d9380882b826",
+          "latency_seconds": 1.2423420999984955,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-16",
+          "server_failures": [],
+          "auth_seconds": 0.32684559999324847,
+          "export_seconds": 0.7933687000040663,
+          "request_id": "a58d3c5af343238a3d002b8b8cc89c33",
+          "latency_seconds": 1.2450498999969568,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-17",
+          "server_failures": [],
+          "auth_seconds": 0.32603450000169687,
+          "export_seconds": 0.7944898999994621,
+          "request_id": "c38d0cde440f9d63cc8b748a9d3c43b9",
+          "latency_seconds": 1.2441381999960868,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-18",
+          "server_failures": [],
+          "auth_seconds": 0.3231683000049088,
+          "export_seconds": 0.7879600000014761,
+          "request_id": "04bd191e3fe15e25add475c054353eb7",
+          "latency_seconds": 1.236229900008766,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-19",
+          "server_failures": [],
+          "auth_seconds": 0.32577699999092147,
+          "export_seconds": 0.8016218000120716,
+          "request_id": "c2ed4f8d5e969a8b4eca60e779656a9d",
+          "latency_seconds": 1.2443766000069445,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-20",
+          "server_failures": [],
+          "auth_seconds": 0.3215684000024339,
+          "export_seconds": 0.79911949999223,
+          "request_id": "90766bc2a43ecf6e4753750ce47ffabd",
+          "latency_seconds": 1.2411833000078332,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-21",
+          "server_failures": [],
+          "auth_seconds": 0.3224820000032196,
+          "export_seconds": 0.7940338999906089,
+          "request_id": "bd2d9fbc1575f4bcb655e25d8d2fd6c6",
+          "latency_seconds": 1.2384782000008272,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-22",
+          "server_failures": [],
+          "auth_seconds": 0.316634900009376,
+          "export_seconds": 0.7945628000015859,
+          "request_id": "c7e51422a4b4d674c14106b5a0940392",
+          "latency_seconds": 1.2342099999950733,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-23",
+          "server_failures": [],
+          "auth_seconds": 0.317435499993735,
+          "export_seconds": 0.8017806999996537,
+          "request_id": "f3addd7f444284680c7294bf40c0484c",
+          "latency_seconds": 1.235415400005877,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-24",
+          "server_failures": [],
+          "auth_seconds": 0.3123578999948222,
+          "export_seconds": 0.7991630000033183,
+          "request_id": "c773fa75e77484486ee8005febe1105c",
+          "latency_seconds": 1.2318606999906478,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-25",
+          "server_failures": [],
+          "auth_seconds": 0.31512659999134485,
+          "export_seconds": 0.8078138999990188,
+          "request_id": "4d08c8b511831fa82a210de1f90308d1",
+          "latency_seconds": 1.2327955999935511,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-26",
+          "server_failures": [],
+          "auth_seconds": 0.3098462999914773,
+          "export_seconds": 0.7980266999948071,
+          "request_id": "891bfa98f85763019d405d1536b696ce",
+          "latency_seconds": 1.2260263000061968,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-27",
+          "server_failures": [],
+          "auth_seconds": 0.3102581999992253,
+          "export_seconds": 0.8035768999980064,
+          "request_id": "ce35599c5d8bf8114656d89073d453a7",
+          "latency_seconds": 1.226874100000714,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-28",
+          "server_failures": [],
+          "auth_seconds": 0.30714189998980146,
+          "export_seconds": 0.8033714000048349,
+          "request_id": "25ed76cda3987c6830ceacd589c50fdf",
+          "latency_seconds": 1.224678099999437,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-29",
+          "server_failures": [],
+          "auth_seconds": 0.30758810001134407,
+          "export_seconds": 0.8048345999995945,
+          "request_id": "798b4ec11f0774110b7c2d2342102daf",
+          "latency_seconds": 1.2239842000126373,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-30",
+          "server_failures": [],
+          "auth_seconds": 0.3045568999950774,
+          "export_seconds": 0.8011975999979768,
+          "request_id": "b0452ce369c49b1843f70cc241f55c39",
+          "latency_seconds": 1.2208932999928948,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-31",
+          "server_failures": [],
+          "auth_seconds": 0.30893790000118315,
+          "export_seconds": 0.8155722000083188,
+          "request_id": "2f8aef29e24ea716b3dc316fde495be5",
+          "latency_seconds": 1.225954500012449,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-32",
+          "server_failures": [],
+          "auth_seconds": 0.30623009998816997,
+          "export_seconds": 0.8084737000026507,
+          "request_id": "fcebe585fa190d2c22a5b6430203a1e3",
+          "latency_seconds": 1.2209050999954343,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-33",
+          "server_failures": [],
+          "auth_seconds": 0.302464600012172,
+          "export_seconds": 0.8051617000019178,
+          "request_id": "6eb0e664e73073bc54284ee0ece77f24",
+          "latency_seconds": 1.2178170999977738,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-34",
+          "server_failures": [],
+          "auth_seconds": 0.30144599999766797,
+          "export_seconds": 0.8118134999967879,
+          "request_id": "b5d7ce79c303429563c4a69164dac6e0",
+          "latency_seconds": 1.2182296999963,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-35",
+          "server_failures": [],
+          "auth_seconds": 0.3039507999928901,
+          "export_seconds": 0.8089534000027925,
+          "request_id": "628d0af118477124f258cadee6af58bd",
+          "latency_seconds": 1.2170710999926087,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-36",
+          "server_failures": [],
+          "auth_seconds": 0.2980787999986205,
+          "export_seconds": 0.8074711000081152,
+          "request_id": "f77a5ff75b221bcdd65501e189bb6e3d",
+          "latency_seconds": 1.2135815999936312,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-37",
+          "server_failures": [],
+          "auth_seconds": 0.3005393999919761,
+          "export_seconds": 0.8112087999907089,
+          "request_id": "02547487d11daec0fe1af8e34469b7ca",
+          "latency_seconds": 1.2145632000028854,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-38",
+          "server_failures": [],
+          "auth_seconds": 0.29695810000703204,
+          "export_seconds": 0.8114639999985229,
+          "request_id": "e6077528a8b4a0f10790a40d1c0323ae",
+          "latency_seconds": 1.2112787999940338,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-39",
+          "server_failures": [],
+          "auth_seconds": 0.3011383000120986,
+          "export_seconds": 0.8233900000050198,
+          "request_id": "c41ae63146d087297247c2763c46716c",
+          "latency_seconds": 1.2161685000028228,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-40",
+          "server_failures": [],
+          "auth_seconds": 0.2961312999977963,
+          "export_seconds": 0.8137431999930413,
+          "request_id": "5f554a75e89e707622e6b85148c9a7ff",
+          "latency_seconds": 1.210317999997642,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-41",
+          "server_failures": [],
+          "auth_seconds": 0.2959421999985352,
+          "export_seconds": 0.8137274000036996,
+          "request_id": "3301cce8ef32cde09b4c0b62e7f2279d",
+          "latency_seconds": 1.2091568000032566,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-42",
+          "server_failures": [],
+          "auth_seconds": 0.2934628000075463,
+          "export_seconds": 0.8243193999951473,
+          "request_id": "fffda9eb4e25d03aa2c148b9cf4dcda2",
+          "latency_seconds": 1.210578500002157,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-43",
+          "server_failures": [],
+          "auth_seconds": 0.2930878999904962,
+          "export_seconds": 0.8164107999909902,
+          "request_id": "64961d5b2f799e94ffee912b09c32fa6",
+          "latency_seconds": 1.207467500003986,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-44",
+          "server_failures": [],
+          "auth_seconds": 0.2898042000015266,
+          "export_seconds": 0.8163733999972465,
+          "request_id": "6bb39ad57516c5a7dca265008fd7d3c8",
+          "latency_seconds": 1.2034300999948755,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-45",
+          "server_failures": [],
+          "auth_seconds": 0.2904313000035472,
+          "export_seconds": 0.8125897999998415,
+          "request_id": "8d61bdfcecb9f5a1d04dd52e89af69cc",
+          "latency_seconds": 1.2010577000037301,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-46",
+          "server_failures": [],
+          "auth_seconds": 0.2895319999952335,
+          "export_seconds": 0.8179214999981923,
+          "request_id": "959805c7c3728b7720d390379ce8c397",
+          "latency_seconds": 1.2014554000052158,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-47",
+          "server_failures": [],
+          "auth_seconds": 0.28863330000604037,
+          "export_seconds": 0.8156823000026634,
+          "request_id": "7f4b3b23a93b6d3739c4406e994de741",
+          "latency_seconds": 1.1992330999928527,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-48",
+          "server_failures": [],
+          "auth_seconds": 0.28788190000341274,
+          "export_seconds": 0.8212427999969805,
+          "request_id": "4e16a34d2d03107ed2fcb3aae7cfbc82",
+          "latency_seconds": 1.1996441000082996,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-49",
+          "server_failures": [],
+          "auth_seconds": 0.2880278999946313,
+          "export_seconds": 0.8269864000030793,
+          "request_id": "db36e4ec1a569de5bad0d80f13dd1887",
+          "latency_seconds": 1.199930700007826,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-50",
+          "server_failures": [],
+          "auth_seconds": 0.2857436000049347,
+          "export_seconds": 0.8221671000064816,
+          "request_id": "aa6b901d255f218c92c9405ce9ced590",
+          "latency_seconds": 1.197025500005111,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-51",
+          "server_failures": [],
+          "auth_seconds": 0.2872493000031682,
+          "export_seconds": 0.8277280000038445,
+          "request_id": "a35604c19bc880ef50c2b434554616e5",
+          "latency_seconds": 1.1977349000080721,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-52",
+          "server_failures": [],
+          "auth_seconds": 0.28481620000093244,
+          "export_seconds": 0.8218438000039896,
+          "request_id": "eef0342edd10f4e610d0913e4f101fc6",
+          "latency_seconds": 1.1942800999968313,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-53",
+          "server_failures": [],
+          "auth_seconds": 0.28495509999629576,
+          "export_seconds": 0.821507799992105,
+          "request_id": "60e2913cd0cb0fdb1a6ebf880ef76ff1",
+          "latency_seconds": 1.1931077000044752,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-54",
+          "server_failures": [],
+          "auth_seconds": 0.28256799999508075,
+          "export_seconds": 0.8241437999968184,
+          "request_id": "49dd3d392b29f8597610bc7c591a8365",
+          "latency_seconds": 1.1923065000009956,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-55",
+          "server_failures": [],
+          "auth_seconds": 0.2812994999985676,
+          "export_seconds": 0.8278896999981953,
+          "request_id": "c133a775f47ed51911396221bd8e9231",
+          "latency_seconds": 1.1907355000003008,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-56",
+          "server_failures": [],
+          "auth_seconds": 0.2801488999975845,
+          "export_seconds": 0.8256256000022404,
+          "request_id": "3fc444f136827ece636d1ac26dc99d9a",
+          "latency_seconds": 1.188000900001498,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-57",
+          "server_failures": [],
+          "auth_seconds": 0.2791416999971261,
+          "export_seconds": 0.8299024000007194,
+          "request_id": "d42fa448b22ee7dd4adafe6cb0f3de9c",
+          "latency_seconds": 1.18781050000689,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-58",
+          "server_failures": [],
+          "auth_seconds": 0.2782470999954967,
+          "export_seconds": 0.8322468999976991,
+          "request_id": "e9ca00da30bcf7af4a4a9eca6e7fc851",
+          "latency_seconds": 1.1870091000018874,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-59",
+          "server_failures": [],
+          "auth_seconds": 0.28038260000175796,
+          "export_seconds": 0.8232079000008525,
+          "request_id": "69a8aafd3968cba6a13283a961094630",
+          "latency_seconds": 1.1839431000116747,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-60",
+          "server_failures": [],
+          "auth_seconds": 0.2795390000101179,
+          "export_seconds": 0.8261943999968935,
+          "request_id": "6d65259d7603b87401a32a60956d25a7",
+          "latency_seconds": 1.1832511999964481,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-61",
+          "server_failures": [],
+          "auth_seconds": 0.27873489999910817,
+          "export_seconds": 0.8283417000056943,
+          "request_id": "170659c58c4d0ad1d1b36a220c0f72a3",
+          "latency_seconds": 1.1825786999979755,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-62",
+          "server_failures": [],
+          "auth_seconds": 0.2770823000028031,
+          "export_seconds": 0.8292680000013206,
+          "request_id": "37be5bf33d8cf64cf058fdeb89dbb9dd",
+          "latency_seconds": 1.1812972000043374,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-63",
+          "server_failures": [],
+          "auth_seconds": 0.2760902000009082,
+          "export_seconds": 0.8315858000132721,
+          "request_id": "ef89e086e2cbcad3d641f2eace5b2abc",
+          "latency_seconds": 1.1799459000030765,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-64",
+          "server_failures": [],
+          "auth_seconds": 0.2736217000056058,
+          "export_seconds": 0.829048600004171,
+          "request_id": "f9b919b8aedcbdd9ed7067328597b055",
+          "latency_seconds": 1.1778166000003694,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-65",
+          "server_failures": [],
+          "auth_seconds": 0.27287559999967925,
+          "export_seconds": 0.8313984999986133,
+          "request_id": "79496b35400f69a992b30a1c4466a464",
+          "latency_seconds": 1.1753074000007473,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-66",
+          "server_failures": [],
+          "auth_seconds": 0.2719402000075206,
+          "export_seconds": 0.8320781999937026,
+          "request_id": "58580f08eefce3a3e0217f4d690fc94e",
+          "latency_seconds": 1.1742429000005359,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-67",
+          "server_failures": [],
+          "auth_seconds": 0.27101670000411104,
+          "export_seconds": 0.8368974000040907,
+          "request_id": "0dfe473d460e32507e8681d77af350e9",
+          "latency_seconds": 1.1753441999899223,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-68",
+          "server_failures": [],
+          "auth_seconds": 0.2707153999945149,
+          "export_seconds": 0.8331127999990713,
+          "request_id": "133733fceffcfe47bfd548588e5a9310",
+          "latency_seconds": 1.172341100013,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-69",
+          "server_failures": [],
+          "auth_seconds": 0.2684021000022767,
+          "export_seconds": 0.8399257999990368,
+          "request_id": "38fa115ce4af42380194e61a91db8466",
+          "latency_seconds": 1.1737236000044504,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-70",
+          "server_failures": [],
+          "auth_seconds": 0.26804140000604093,
+          "export_seconds": 0.8305889000039315,
+          "request_id": "b0b1dd7d340d448eec9dc36ab4c55e62",
+          "latency_seconds": 1.168033199995989,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-71",
+          "server_failures": [],
+          "auth_seconds": 0.26727799999935087,
+          "export_seconds": 0.8468382999999449,
+          "request_id": "673d572e6dc7f9fb57735085c2f9616a",
+          "latency_seconds": 1.1730868000013288,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-72",
+          "server_failures": [],
+          "auth_seconds": 0.2663516000029631,
+          "export_seconds": 0.834548700004234,
+          "request_id": "c3ac1ffdea478576b0ce0f26daf0b260",
+          "latency_seconds": 1.1676109999971231,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-73",
+          "server_failures": [],
+          "auth_seconds": 0.26521599999978207,
+          "export_seconds": 0.836975700003677,
+          "request_id": "2cd90d95283a34657cb348bb29c64218",
+          "latency_seconds": 1.1669386000139639,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-74",
+          "server_failures": [],
+          "auth_seconds": 0.26456369999505114,
+          "export_seconds": 0.8394642000057502,
+          "request_id": "86ad5ddea2f06673e07db6c710f2dbeb",
+          "latency_seconds": 1.165934799995739,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-75",
+          "server_failures": [],
+          "auth_seconds": 0.2650310999888461,
+          "export_seconds": 0.8480591000115965,
+          "request_id": "2e272a2c7a437fd2579014a2a7ab66ed",
+          "latency_seconds": 1.167156099996646,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-76",
+          "server_failures": [],
+          "auth_seconds": 0.2617886000080034,
+          "export_seconds": 0.8415339999919524,
+          "request_id": "f90ee1c4edfbe5de570e9d8bae976674",
+          "latency_seconds": 1.163441899989266,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-77",
+          "server_failures": [],
+          "auth_seconds": 0.26076600000669714,
+          "export_seconds": 0.8361505000066245,
+          "request_id": "1c1bb2cdc696c0fee5f7a365357ba02e",
+          "latency_seconds": 1.16019929999311,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-78",
+          "server_failures": [],
+          "auth_seconds": 0.26074769999831915,
+          "export_seconds": 0.8376245999970706,
+          "request_id": "3188d0f7ac906bb2c659cc178ab8e6ed",
+          "latency_seconds": 1.1594674000079976,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm4-79",
+          "server_failures": [],
+          "auth_seconds": 0.33451420000346843,
+          "export_seconds": 0.7870125000044936,
+          "request_id": "10b1988296f6b01cf9d7b70672cc7259",
+          "latency_seconds": 1.2659887000045273,
+          "status": 200,
+          "scope_ok": true
+        }
+      ],
+      "p95_all_seconds": 1.254799300004379,
+      "p95_success_seconds": 1.254799300004379,
+      "errors": 0,
+      "status_counts": {
+        "200": 80
+      },
+      "failure_stages": {},
+      "exception_types": {}
+    },
+    {
+      "phase": "warm5",
+      "samples": [
+        {
+          "sample": "warm5-0",
+          "server_failures": [],
+          "auth_seconds": 0.3342658999899868,
+          "export_seconds": 0.7446314999979222,
+          "request_id": "ec306f6d174d40695768f4d909d4ad0a",
+          "latency_seconds": 1.2421990000002552,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-1",
+          "server_failures": [],
+          "auth_seconds": 0.3341580999986036,
+          "export_seconds": 0.7443228999909479,
+          "request_id": "abfc871686fad7cd727099e04f16c92d",
+          "latency_seconds": 1.2400999999954365,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-2",
+          "server_failures": [],
+          "auth_seconds": 0.3312059000018053,
+          "export_seconds": 0.7510124999971595,
+          "request_id": "c63dfd975f76ca615b73de685aa7ba1e",
+          "latency_seconds": 1.239521399998921,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-3",
+          "server_failures": [],
+          "auth_seconds": 0.33090980000270065,
+          "export_seconds": 0.7457916999992449,
+          "request_id": "9dd80fd353cac556374889d4d65ce8d9",
+          "latency_seconds": 1.2364153999951668,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-4",
+          "server_failures": [],
+          "auth_seconds": 0.32960760001151357,
+          "export_seconds": 0.7470885000075214,
+          "request_id": "de03cbb3eb23b814f2033416b0b784a4",
+          "latency_seconds": 1.2349821000098018,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-5",
+          "server_failures": [],
+          "auth_seconds": 0.32882019999669865,
+          "export_seconds": 0.7499065000010887,
+          "request_id": "18fdc3eaf2c50c6ce5d7d7a8f1cc112b",
+          "latency_seconds": 1.2342975999927148,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-6",
+          "server_failures": [],
+          "auth_seconds": 0.32783460000064224,
+          "export_seconds": 0.7507636999944225,
+          "request_id": "e39b22126b58e397408fd51c865ca255",
+          "latency_seconds": 1.2332612000027439,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-7",
+          "server_failures": [],
+          "auth_seconds": 0.32715640000242274,
+          "export_seconds": 0.7522679999965476,
+          "request_id": "47eac2d0858bf9d38365e2410812b087",
+          "latency_seconds": 1.2320338999998057,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-8",
+          "server_failures": [],
+          "auth_seconds": 0.3243310000107158,
+          "export_seconds": 0.7530031000060262,
+          "request_id": "f64de891b0d9d416ab9adba87a119caf",
+          "latency_seconds": 1.2307899000006728,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-9",
+          "server_failures": [],
+          "auth_seconds": 0.3231778000044869,
+          "export_seconds": 0.7536497999972198,
+          "request_id": "c7ba24251b676337e724fef1d3b7da8a",
+          "latency_seconds": 1.2274613000045065,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-10",
+          "server_failures": [],
+          "auth_seconds": 0.32199840000248514,
+          "export_seconds": 0.7566320999903837,
+          "request_id": "bcba90b46dce96eabefa7fbedda37925",
+          "latency_seconds": 1.225910399996792,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-11",
+          "server_failures": [],
+          "auth_seconds": 0.32089589998940937,
+          "export_seconds": 0.7584460000070976,
+          "request_id": "d2cad586537839e00004245ce9407412",
+          "latency_seconds": 1.2245868000027258,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-12",
+          "server_failures": [],
+          "auth_seconds": 0.3213671000121394,
+          "export_seconds": 0.7654098000057274,
+          "request_id": "e2dc68b398acf8dfd66e4776dc85bf41",
+          "latency_seconds": 1.2254648999951314,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-13",
+          "server_failures": [],
+          "auth_seconds": 0.31903800000145566,
+          "export_seconds": 0.7594777000049362,
+          "request_id": "a1344f5212bc3ec9b3bd9a4d950b5ee9",
+          "latency_seconds": 1.2217486999870744,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-14",
+          "server_failures": [],
+          "auth_seconds": 0.31671450000430923,
+          "export_seconds": 0.7625739999930374,
+          "request_id": "6ac2b0a7a6b06af69ca9d204d03dfb74",
+          "latency_seconds": 1.2205751000001328,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-15",
+          "server_failures": [],
+          "auth_seconds": 0.31703510000079405,
+          "export_seconds": 0.7629384000028949,
+          "request_id": "13fc63db2d42ea93c772f85da8c8ae23",
+          "latency_seconds": 1.219736600003671,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-16",
+          "server_failures": [],
+          "auth_seconds": 0.3160242999874754,
+          "export_seconds": 0.7656355999934021,
+          "request_id": "045d08a476caf005fc445a5b6098ef8e",
+          "latency_seconds": 1.2197880000021541,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-17",
+          "server_failures": [],
+          "auth_seconds": 0.31513689999701455,
+          "export_seconds": 0.7662274000031175,
+          "request_id": "a91785e068b9905b19e6d295cd40e9a5",
+          "latency_seconds": 1.218676599994069,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-18",
+          "server_failures": [],
+          "auth_seconds": 0.3118112999945879,
+          "export_seconds": 0.7672997999907238,
+          "request_id": "9c22271d10fa1478f4eeca50c828ae01",
+          "latency_seconds": 1.2176277999969898,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-19",
+          "server_failures": [],
+          "auth_seconds": 0.31113630000618286,
+          "export_seconds": 0.7682606000016676,
+          "request_id": "01c8560f5695447a4b28f8aa05045604",
+          "latency_seconds": 1.2139614000043366,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-20",
+          "server_failures": [],
+          "auth_seconds": 0.31049229999189265,
+          "export_seconds": 0.7695428000006359,
+          "request_id": "f83bec78bbf7856bc8273b4fff11c147",
+          "latency_seconds": 1.2131713999988278,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-21",
+          "server_failures": [],
+          "auth_seconds": 0.3097129999950994,
+          "export_seconds": 0.7707943000132218,
+          "request_id": "de9024835ba9c3191fdb5ca364c80a8d",
+          "latency_seconds": 1.2123198000044795,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-22",
+          "server_failures": [],
+          "auth_seconds": 0.3089283999870531,
+          "export_seconds": 0.7714975000126287,
+          "request_id": "661e9ef3adfe988a34d4ac20689984d7",
+          "latency_seconds": 1.2112216999958036,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-23",
+          "server_failures": [],
+          "auth_seconds": 0.308145400005742,
+          "export_seconds": 0.7722575000079814,
+          "request_id": "a60a04c07735e1430436866d50bcb6a7",
+          "latency_seconds": 1.210077399999136,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-24",
+          "server_failures": [],
+          "auth_seconds": 0.30738169999676757,
+          "export_seconds": 0.7729376000061166,
+          "request_id": "373bf0b1d9376e6a51e4da21854c60b1",
+          "latency_seconds": 1.2089731999876676,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-25",
+          "server_failures": [],
+          "auth_seconds": 0.3088184999942314,
+          "export_seconds": 0.7790028000017628,
+          "request_id": "5119030a64c2c2d49fb404897af99980",
+          "latency_seconds": 1.2098474000085844,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-26",
+          "server_failures": [],
+          "auth_seconds": 0.3056570000044303,
+          "export_seconds": 0.7764502999925753,
+          "request_id": "25fdbba69986ee0c13916d07eb2c9f6c",
+          "latency_seconds": 1.2072246999887284,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-27",
+          "server_failures": [],
+          "auth_seconds": 0.3030604000086896,
+          "export_seconds": 0.7736283999984153,
+          "request_id": "3cc6e50a479babe5257e58a5098c210f",
+          "latency_seconds": 1.204660800009151,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-28",
+          "server_failures": [],
+          "auth_seconds": 0.30184929999813903,
+          "export_seconds": 0.7736146999959601,
+          "request_id": "502d30196d6bab3b754d6ef4331e97c0",
+          "latency_seconds": 1.2030087999883108,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-29",
+          "server_failures": [],
+          "auth_seconds": 0.30202999999164604,
+          "export_seconds": 0.7791330000036396,
+          "request_id": "2ff9c2dd9c02b4b775a7316c1949ec6f",
+          "latency_seconds": 1.202361400006339,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-30",
+          "server_failures": [],
+          "auth_seconds": 0.29956769999989774,
+          "export_seconds": 0.7759812000003876,
+          "request_id": "6497a876421aceed25b6e2cabd26fcf1",
+          "latency_seconds": 1.1994829000032041,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-31",
+          "server_failures": [],
+          "auth_seconds": 0.29928340000333264,
+          "export_seconds": 0.7805590999923879,
+          "request_id": "51b08563384d8ea31054d1cb49eefcc6",
+          "latency_seconds": 1.199193499996909,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-32",
+          "server_failures": [],
+          "auth_seconds": 0.2984357999957865,
+          "export_seconds": 0.7813923000067007,
+          "request_id": "1d0f9924a0777ffc345b08ee0c092c8d",
+          "latency_seconds": 1.1979388000036124,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-33",
+          "server_failures": [],
+          "auth_seconds": 0.2974248000100488,
+          "export_seconds": 0.7822302999993553,
+          "request_id": "ee9bc56e94787d1f428fca6b3139eb9e",
+          "latency_seconds": 1.1973151999991387,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-34",
+          "server_failures": [],
+          "auth_seconds": 0.29503990001103375,
+          "export_seconds": 0.7828732999914791,
+          "request_id": "f0f259dda9b51b64158c6d27ddafceca",
+          "latency_seconds": 1.1962575000070501,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-35",
+          "server_failures": [],
+          "auth_seconds": 0.2932499000016833,
+          "export_seconds": 0.7837097000010544,
+          "request_id": "d2b4d2aeab6af660720ee89eb67dcc5e",
+          "latency_seconds": 1.1928122999961488,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-36",
+          "server_failures": [],
+          "auth_seconds": 0.29224329999124166,
+          "export_seconds": 0.7872379000036744,
+          "request_id": "1d5769fc35d00f82a60be44053b29e45",
+          "latency_seconds": 1.1920626999926753,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-37",
+          "server_failures": [],
+          "auth_seconds": 0.2912715999991633,
+          "export_seconds": 0.7845203000033507,
+          "request_id": "c73ea3afa98858a4c7fba4672be06eaf",
+          "latency_seconds": 1.1897739999985788,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-38",
+          "server_failures": [],
+          "auth_seconds": 0.2905853999982355,
+          "export_seconds": 0.7873426000005566,
+          "request_id": "bcb62f5fb827360646ef2f615eb476f0",
+          "latency_seconds": 1.1892587000038475,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-39",
+          "server_failures": [],
+          "auth_seconds": 0.2898609999974724,
+          "export_seconds": 0.7886519000021508,
+          "request_id": "56dd0dd71df8c375e44af038a16584b3",
+          "latency_seconds": 1.1881251000013435,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-40",
+          "server_failures": [],
+          "auth_seconds": 0.2871002000028966,
+          "export_seconds": 0.7894167000049492,
+          "request_id": "60e63dfa66b26e0ffed07ecf6be60d59",
+          "latency_seconds": 1.185126800002763,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-41",
+          "server_failures": [],
+          "auth_seconds": 0.28625170000304934,
+          "export_seconds": 0.7909414000023389,
+          "request_id": "cdf11951ebc7fa48edd34293aef34118",
+          "latency_seconds": 1.1840822999947704,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-42",
+          "server_failures": [],
+          "auth_seconds": 0.2849317000072915,
+          "export_seconds": 0.7917799999995623,
+          "request_id": "4cdf796568a164759d3f5f3aec5ff841",
+          "latency_seconds": 1.1831286999949953,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-43",
+          "server_failures": [],
+          "auth_seconds": 0.2844699999986915,
+          "export_seconds": 0.7934985000028973,
+          "request_id": "0d6ec285a3f5afacc6c63fb73e114761",
+          "latency_seconds": 1.1828540999995312,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-44",
+          "server_failures": [],
+          "auth_seconds": 0.2816652999899816,
+          "export_seconds": 0.7926129000115907,
+          "request_id": "bfd610c39942807eafe16cc8efbdc39a",
+          "latency_seconds": 1.1804150000098161,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-45",
+          "server_failures": [],
+          "auth_seconds": 0.2804675999941537,
+          "export_seconds": 0.7950992999976734,
+          "request_id": "c68dc635772a4dc919171703d8a060b4",
+          "latency_seconds": 1.1789739000087138,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-46",
+          "server_failures": [],
+          "auth_seconds": 0.279385399990133,
+          "export_seconds": 0.7960484000068391,
+          "request_id": "596236938fac99f8f5835d856a35cdb4",
+          "latency_seconds": 1.17753200000152,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-47",
+          "server_failures": [],
+          "auth_seconds": 0.2781867999874521,
+          "export_seconds": 0.7969471999967936,
+          "request_id": "26c70bc6294aceccac91967995f71bae",
+          "latency_seconds": 1.1764552000095136,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-48",
+          "server_failures": [],
+          "auth_seconds": 0.2772185000067111,
+          "export_seconds": 0.7977691999985836,
+          "request_id": "05301a5015366568d2a96963ab43abe9",
+          "latency_seconds": 1.1751255999988643,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-49",
+          "server_failures": [],
+          "auth_seconds": 0.28028099999937695,
+          "export_seconds": 0.7992404000106035,
+          "request_id": "6b768f8a194cc35c77460190cf720eb1",
+          "latency_seconds": 1.1754535000072792,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-50",
+          "server_failures": [],
+          "auth_seconds": 0.2739285999996355,
+          "export_seconds": 0.7985574999911478,
+          "request_id": "99b3baf2aa37dd659f9ac2a076be4b94",
+          "latency_seconds": 1.1721348999999464,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-51",
+          "server_failures": [],
+          "auth_seconds": 0.27278949999890756,
+          "export_seconds": 0.8043378000002122,
+          "request_id": "390a1e5cbdd2c0ba966fbe3262e6420c",
+          "latency_seconds": 1.1720367999951122,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-52",
+          "server_failures": [],
+          "auth_seconds": 0.271604000008665,
+          "export_seconds": 0.800670299999183,
+          "request_id": "2bd917c91ad1960c5a4a0864cb5f27f1",
+          "latency_seconds": 1.1692933000013,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-53",
+          "server_failures": [],
+          "auth_seconds": 0.2713127000024542,
+          "export_seconds": 0.797782499997993,
+          "request_id": "a0014821fe7f5fb3aa810e8f97a1ca9e",
+          "latency_seconds": 1.1670077000017045,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-54",
+          "server_failures": [],
+          "auth_seconds": 0.27041189999727067,
+          "export_seconds": 0.8057429000036791,
+          "request_id": "26f44bef37907d872722c2c9b88ce92f",
+          "latency_seconds": 1.1678183999902103,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-55",
+          "server_failures": [],
+          "auth_seconds": 0.27020540001103655,
+          "export_seconds": 0.8077766000060365,
+          "request_id": "12015fde9753c793d1952c1bed5c2f57",
+          "latency_seconds": 1.1670279000099981,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-56",
+          "server_failures": [],
+          "auth_seconds": 0.26950460000080056,
+          "export_seconds": 0.8005195000005187,
+          "request_id": "af87b54d4c55b885e247ec160119a76f",
+          "latency_seconds": 1.1639302000112366,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-57",
+          "server_failures": [],
+          "auth_seconds": 0.268947600008687,
+          "export_seconds": 0.8041821000078926,
+          "request_id": "3b9c9cd65e6a68d2f825c15b0f288757",
+          "latency_seconds": 1.1633564000076149,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-58",
+          "server_failures": [],
+          "auth_seconds": 0.28225689999817405,
+          "export_seconds": 0.8224272999941604,
+          "request_id": "a738f53e70c1062bc26bc24768838ece",
+          "latency_seconds": 1.1697478999994928,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-59",
+          "server_failures": [],
+          "auth_seconds": 0.26634879999619443,
+          "export_seconds": 0.80715130000317,
+          "request_id": "5b59a2166679a3776cefed33de29feb3",
+          "latency_seconds": 1.1610673000104725,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-60",
+          "server_failures": [],
+          "auth_seconds": 0.2692232999979751,
+          "export_seconds": 0.8035297999886097,
+          "request_id": "e9f697bbe71b6d9b3e027bd799715f1b",
+          "latency_seconds": 1.1597724000021117,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-61",
+          "server_failures": [],
+          "auth_seconds": 0.267862900000182,
+          "export_seconds": 0.8051757999928668,
+          "request_id": "55b1af4ba4212cb1fc5421484892ffdf",
+          "latency_seconds": 1.1584462000027997,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-62",
+          "server_failures": [],
+          "auth_seconds": 0.26525219999894034,
+          "export_seconds": 0.8040911999996752,
+          "request_id": "43afc94a251fddb55f2942e4879e1821",
+          "latency_seconds": 1.1544338000094285,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-63",
+          "server_failures": [],
+          "auth_seconds": 0.2652708000096027,
+          "export_seconds": 0.8060733999882359,
+          "request_id": "b64e0d154d65f758ff6f2074d7753bf7",
+          "latency_seconds": 1.1541539000027115,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-64",
+          "server_failures": [],
+          "auth_seconds": 0.2647144000075059,
+          "export_seconds": 0.806927400000859,
+          "request_id": "0b196e5296214cd35593d50976c19151",
+          "latency_seconds": 1.1533505999977933,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-65",
+          "server_failures": [],
+          "auth_seconds": 0.26408839999930933,
+          "export_seconds": 0.8118739999918034,
+          "request_id": "052480332234c0c829b2e29c6e6c33a9",
+          "latency_seconds": 1.1530516000057105,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-66",
+          "server_failures": [],
+          "auth_seconds": 0.26398620000691153,
+          "export_seconds": 0.8160334999993211,
+          "request_id": "db024d742cf4bca2b57a0c9cd26c6c1d",
+          "latency_seconds": 1.152109799993923,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-67",
+          "server_failures": [],
+          "auth_seconds": 0.26107030001003295,
+          "export_seconds": 0.807438900010311,
+          "request_id": "55f290112dbc53d9f899bdf5012c5d05",
+          "latency_seconds": 1.1493737999990117,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-68",
+          "server_failures": [],
+          "auth_seconds": 0.2599402000050759,
+          "export_seconds": 0.8173690999974497,
+          "request_id": "a958e90f0e7876bbfa489f2e4ac1d509",
+          "latency_seconds": 1.1486866000050213,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-69",
+          "server_failures": [],
+          "auth_seconds": 0.258916799997678,
+          "export_seconds": 0.8207320999936201,
+          "request_id": "bb07b65d589b16d42a2fc66f10520908",
+          "latency_seconds": 1.1472472000023117,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-70",
+          "server_failures": [],
+          "auth_seconds": 0.2578634000092279,
+          "export_seconds": 0.8174624999955995,
+          "request_id": "341f0dd460c7130fb562077dde59cbbd",
+          "latency_seconds": 1.1449842000001809,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-71",
+          "server_failures": [],
+          "auth_seconds": 0.2576095000113128,
+          "export_seconds": 0.82949550000194,
+          "request_id": "32d0e71298ce95b0b5e9471a46b1fefa",
+          "latency_seconds": 1.1472288999939337,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-72",
+          "server_failures": [],
+          "auth_seconds": 0.25668939999013674,
+          "export_seconds": 0.8239038000028813,
+          "request_id": "fce83f43236e80961b2a8b2ea7fc0bde",
+          "latency_seconds": 1.1438228000042727,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-73",
+          "server_failures": [],
+          "auth_seconds": 0.2558084000047529,
+          "export_seconds": 0.82557440000528,
+          "request_id": "2e592c0ab6f2998096554914e8ee7617",
+          "latency_seconds": 1.143061900002067,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-74",
+          "server_failures": [],
+          "auth_seconds": 0.2549777999956859,
+          "export_seconds": 0.8293530999944778,
+          "request_id": "3b00409eebc4a5cb3497ef8b80c69249",
+          "latency_seconds": 1.143114999998943,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-75",
+          "server_failures": [],
+          "auth_seconds": 0.2543176999897696,
+          "export_seconds": 0.8304986000002827,
+          "request_id": "c9f095b76044bb26b98fb79ada67f45d",
+          "latency_seconds": 1.1421444000006886,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-76",
+          "server_failures": [],
+          "auth_seconds": 0.2536742999946,
+          "export_seconds": 0.8345107999921311,
+          "request_id": "a68529df7db214dbe6026a00f409a7ec",
+          "latency_seconds": 1.1410533000016585,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-77",
+          "server_failures": [],
+          "auth_seconds": 0.2527282999944873,
+          "export_seconds": 0.8356234999955632,
+          "request_id": "93d22ecfd7c27a399e361fc5840b4245",
+          "latency_seconds": 1.1400766000006115,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-78",
+          "server_failures": [],
+          "auth_seconds": 0.25162060000002384,
+          "export_seconds": 0.8386377999995602,
+          "request_id": "70cbf32676d64c5c30551b97049d99c1",
+          "latency_seconds": 1.1399940999981482,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "sample": "warm5-79",
+          "server_failures": [],
+          "auth_seconds": 0.3308497999969404,
+          "export_seconds": 0.7493438999954378,
+          "request_id": "2a45dafcec297ff0f6980a461c87b570",
+          "latency_seconds": 1.2481530000077328,
+          "status": 200,
+          "scope_ok": true
+        }
+      ],
+      "p95_all_seconds": 1.2364153999951668,
+      "p95_success_seconds": 1.2364153999951668,
+      "errors": 0,
+      "status_counts": {
+        "200": 80
+      },
+      "failure_stages": {},
+      "exception_types": {}
+    }
+  ],
+  "cold_gate": true,
+  "warm_gate": true
+}

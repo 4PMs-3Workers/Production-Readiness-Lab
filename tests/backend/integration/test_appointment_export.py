@@ -287,3 +287,35 @@ async def test_export_real_session_role_is_denied(availability_env, role):
     assert response.json()["error"]["code"] == "FORBIDDEN_ROLE"
     assert "content-disposition" not in response.headers
     assert_private(response, error_class="input")
+
+
+async def test_export_source_cardinality_after_retry(booking_env):
+    """TC18: independent CSV/DB cardinality oracle, beyond the existing status oracle."""
+    env, _, starts_at = booking_env
+    await sign_in(env)
+    csrf = env.client.cookies.get("prl_csrf")
+    payload = {
+        "purpose_id": str(env.purpose_id),
+        "staff_id": str(env.staff_id),
+        "starts_at": starts_at.isoformat(),
+    }
+    headers = {
+        "Origin": ORIGIN,
+        "X-CSRF-Token": csrf,
+        "Idempotency-Key": "vt071-cardinality-retry",
+    }
+    first = await env.client.post("/api/v1/appointments", json=payload, headers=headers)
+    assert first.status_code == 201, first.text
+    cancelled = await env.client.post(
+        f"/api/v1/appointments/{first.json()['id']}/cancel", json={}, headers=headers
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    retry = await env.client.post("/api/v1/appointments", json=payload, headers=headers)
+    # TC13 separately requires 200 and the original receipt. This oracle permits a
+    # create response so a deliberate guard+schema mutation reaches the CSV assertion.
+    assert retry.status_code in {200, 201}, retry.text
+    exported = rows(await env.client.get(PATH))
+    assert len(exported) == 1, f"Expected one source row, got {len(exported)} CSV rows"
+    assert exported[0]["id"] == first.json()["id"]
+    async with env.factory() as db:
+        assert await db.scalar(select(func.count()).select_from(Appointment)) == 1

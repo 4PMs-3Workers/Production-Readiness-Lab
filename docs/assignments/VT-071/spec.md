@@ -16,6 +16,8 @@ của sinh viên khác hoặc nhận dữ liệu nội bộ không thuộc hợp
 - AC-01: Given STUDENT có phiên hợp lệ, when GET /api/v1/appointments/export,
   then nhận CSV UTF-8, attachment appointments.csv, private/no-store, cột allowlist
   cố định, timestamp UTC và thứ tự starts_at DESC, id DESC; chuỗi công thức được prefix '.
+  Sub-assertions: AC01a access/download headers (TC01); AC01b cột/thứ tự/UTC (TC01,11,17);
+  AC01c quoting và prefix formula/control đầu ô (TC11,15). Đây là ba oracle của một AC.
 - AC-02: Given thiếu/không có phiên hoặc role STAFF/ADMIN, when export,
   then 401 hoặc 403 tương ứng; không trả CSV hoặc dữ liệu lịch hẹn.
 - AC-03: Given dữ liệu của nhiều sinh viên, when export (có thể lọc status hợp lệ),
@@ -27,6 +29,8 @@ của sinh viên khác hoặc nhận dữ liệu nội bộ không thuộc hợp
 - AC-05: Given create booking rồi retry cùng key/payload (kể cả sau cancellation),
   when đọc export, then receipt được replay, DB và CSV chỉ có một lịch tương ứng.
   Đây là invariant của nguồn dữ liệu, không phải guard mới cho GET.
+  AC-05 thuộc spec export vì xuất đúng phạm vi vẫn có thể sai nội dung khi dữ liệu
+  nguồn bị nhân bản bởi retry; booking giữ uniqueness và export phản ánh cardinality.
 
 ## Constraints and invariant
 

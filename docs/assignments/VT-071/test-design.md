@@ -61,6 +61,7 @@ data dimensions in D6, tested with distinct known IDs and foreign canary fields.
 | TC15 | AC01/R3 | unit | =,+,-,@ after whitespace; ordinary/empty/null | apostrophe prefix only hazardous text | P1 |
 | TC16 | AC04/R4 | service harness | deterministic DB TimeoutError | sanitized 503 | P1 |
 | TC17 | AC01/R3 | unit | equivalent +07/-05 instants | exact same UTC timestamps | P1 |
+| TC18 | AC05/R5 | real HTTP/DB | create/cancel/retry; independent cardinality oracle | exactly one CSV/DB row even beyond status check | P0 |
 
 Setup creates unique schema per test, migrates it, and teardown drops only owned schema.
 No production URL. Fixed semantic data/UUIDs; dynamic booking date uses DB clock in
