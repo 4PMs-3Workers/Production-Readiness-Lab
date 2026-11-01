@@ -1,0 +1,108 @@
+........FFFFF.                                                           [100%]
+================================== FAILURES ===================================
+_________ test_export_real_login_scope_contract_and_inactive_catalog __________
+tests\backend\integration\test_appointment_export.py:103: in test_export_real_login_scope_contract_and_inactive_catalog
+    exported = rows(response)
+               ^^^^^^^^^^^^^^
+tests\backend\integration\test_appointment_export.py:31: in rows
+    assert response.status_code == 200, response.text
+E   AssertionError: {"error":{"code":"VALIDATION_ERROR","message":"Invalid request","request_id":"38ec390b97d67c7c0ca7ed21d722ec57"}}
+E   assert 422 == 200
+E    +  where 422 = <Response [422 Unprocessable Entity]>.status_code
+---------------------------- Captured stderr setup ----------------------------
+INFO  [alembic.runtime.migration] Context impl MySQLImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> a1b2c3d4e5f6, Initial schema — all 11 application tables.
+INFO  [alembic.runtime.migration] Running upgrade a1b2c3d4e5f6 -> 20261016_1200_audit_reqid128, Expand audit request IDs to match the gateway contract.
+INFO  [alembic.runtime.migration] Running upgrade 20261016_1200_audit_reqid128 -> 20261017_2350_student_profile, Add optional student profile fields without changing existing account data.
+INFO  [alembic.runtime.migration] Running upgrade 20261017_2350_student_profile -> 20261019_1200_proposal_replay, Persist proposal creation receipts and optimistic creation contexts.
+---------------------------- Captured stdout call -----------------------------
+{"timestamp":"2026-11-01T09:16:41.363668Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","duration_seconds":0.3204091000079643,"request_id":"7372b1aa2fd6e1d829242d3affa450c1","status":200,"route":"/api/v1/auth/login","response_complete":true,"trace_id":"6cb9cb5de4e1462f2c291941bc2cc80e","method":"POST"}
+{"timestamp":"2026-11-01T09:16:41.388683Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","duration_seconds":0.017958899989025667,"request_id":"38ec390b97d67c7c0ca7ed21d722ec57","status":422,"route":"/api/v1/appointments/{appointment_id}","error_code":"http_4xx","response_complete":true,"trace_id":"fefc8dc42de6678d4a75eb24baa9d146","method":"GET"}
+_________________ test_export_status_filter_and_empty_history _________________
+tests\backend\integration\test_appointment_export.py:121: in test_export_status_filter_and_empty_history
+    assert rows(await env.client.get(PATH)) == []
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\backend\integration\test_appointment_export.py:31: in rows
+    assert response.status_code == 200, response.text
+E   AssertionError: {"error":{"code":"VALIDATION_ERROR","message":"Invalid request","request_id":"22ca204ab91d9523b1eabfef4450a6d3"}}
+E   assert 422 == 200
+E    +  where 422 = <Response [422 Unprocessable Entity]>.status_code
+---------------------------- Captured stderr setup ----------------------------
+INFO  [alembic.runtime.migration] Context impl MySQLImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> a1b2c3d4e5f6, Initial schema — all 11 application tables.
+INFO  [alembic.runtime.migration] Running upgrade a1b2c3d4e5f6 -> 20261016_1200_audit_reqid128, Expand audit request IDs to match the gateway contract.
+INFO  [alembic.runtime.migration] Running upgrade 20261016_1200_audit_reqid128 -> 20261017_2350_student_profile, Add optional student profile fields without changing existing account data.
+INFO  [alembic.runtime.migration] Running upgrade 20261017_2350_student_profile -> 20261019_1200_proposal_replay, Persist proposal creation receipts and optimistic creation contexts.
+---------------------------- Captured stdout call -----------------------------
+{"timestamp":"2026-11-01T09:16:44.261788Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","duration_seconds":0.2677294000022812,"request_id":"088ba412cbdcf106af5804b14e035b78","status":200,"route":"/api/v1/auth/login","response_complete":true,"trace_id":"27774969bfcf090e3f98351267e36cd3","method":"POST"}
+{"timestamp":"2026-11-01T09:16:44.279919Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","duration_seconds":0.011786600007326342,"request_id":"22ca204ab91d9523b1eabfef4450a6d3","status":422,"route":"/api/v1/appointments/{appointment_id}","error_code":"http_4xx","response_complete":true,"trace_id":"df7ffd427c1bb1349465c1c717cc1d67","method":"GET"}
+_____________ test_export_rejects_overflow_instead_of_truncation ______________
+tests\backend\integration\test_appointment_export.py:133: in test_export_rejects_overflow_instead_of_truncation
+    assert len(rows(await env.client.get(PATH))) == 1000
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\backend\integration\test_appointment_export.py:31: in rows
+    assert response.status_code == 200, response.text
+E   AssertionError: {"error":{"code":"VALIDATION_ERROR","message":"Invalid request","request_id":"693cade4d573ec59999244c9a07d3bdd"}}
+E   assert 422 == 200
+E    +  where 422 = <Response [422 Unprocessable Entity]>.status_code
+---------------------------- Captured stderr setup ----------------------------
+INFO  [alembic.runtime.migration] Context impl MySQLImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> a1b2c3d4e5f6, Initial schema — all 11 application tables.
+INFO  [alembic.runtime.migration] Running upgrade a1b2c3d4e5f6 -> 20261016_1200_audit_reqid128, Expand audit request IDs to match the gateway contract.
+INFO  [alembic.runtime.migration] Running upgrade 20261016_1200_audit_reqid128 -> 20261017_2350_student_profile, Add optional student profile fields without changing existing account data.
+INFO  [alembic.runtime.migration] Running upgrade 20261017_2350_student_profile -> 20261019_1200_proposal_replay, Persist proposal creation receipts and optimistic creation contexts.
+---------------------------- Captured stdout call -----------------------------
+{"timestamp":"2026-11-01T09:16:47.949654Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","duration_seconds":0.2776393999956781,"request_id":"b4abf2aea9c084d435bffcc3028955b0","status":200,"route":"/api/v1/auth/login","response_complete":true,"trace_id":"4c38d918d90c97619fffe0880c5af41b","method":"POST"}
+{"timestamp":"2026-11-01T09:16:47.962606Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","duration_seconds":0.011503300003823824,"request_id":"693cade4d573ec59999244c9a07d3bdd","status":422,"route":"/api/v1/appointments/{appointment_id}","error_code":"http_4xx","response_complete":true,"trace_id":"7e6bc407c368d50567c0829d2bd9c5fa","method":"GET"}
+_______________ test_mock_hides_real_database_contract_failure ________________
+tests\backend\integration\test_appointment_export.py:155: in test_mock_hides_real_database_contract_failure
+    assert len(rows(await env.client.get(PATH))) == 3
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\backend\integration\test_appointment_export.py:31: in rows
+    assert response.status_code == 200, response.text
+E   AssertionError: {"error":{"code":"VALIDATION_ERROR","message":"Invalid request","request_id":"eed4f73135f2b7444cb63a8c908e3a03"}}
+E   assert 422 == 200
+E    +  where 422 = <Response [422 Unprocessable Entity]>.status_code
+---------------------------- Captured stderr setup ----------------------------
+INFO  [alembic.runtime.migration] Context impl MySQLImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> a1b2c3d4e5f6, Initial schema — all 11 application tables.
+INFO  [alembic.runtime.migration] Running upgrade a1b2c3d4e5f6 -> 20261016_1200_audit_reqid128, Expand audit request IDs to match the gateway contract.
+INFO  [alembic.runtime.migration] Running upgrade 20261016_1200_audit_reqid128 -> 20261017_2350_student_profile, Add optional student profile fields without changing existing account data.
+INFO  [alembic.runtime.migration] Running upgrade 20261017_2350_student_profile -> 20261019_1200_proposal_replay, Persist proposal creation receipts and optimistic creation contexts.
+---------------------------- Captured stdout call -----------------------------
+{"timestamp":"2026-11-01T09:16:50.816261Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","duration_seconds":0.3354596999997739,"request_id":"9706c958199caa41fb7a8facd3c160a7","status":200,"route":"/api/v1/auth/login","response_complete":true,"trace_id":"6b25a1449d8fae2bc8fbafd1869e7392","method":"POST"}
+{"timestamp":"2026-11-01T09:16:50.832576Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","duration_seconds":0.015389000007417053,"request_id":"eed4f73135f2b7444cb63a8c908e3a03","status":422,"route":"/api/v1/appointments/{appointment_id}","error_code":"http_4xx","response_complete":true,"trace_id":"ee5a6e668d005db49921417ce930692b","method":"GET"}
+________ test_booking_replay_after_cancellation_exports_one_source_row ________
+tests\backend\integration\test_appointment_export.py:207: in test_booking_replay_after_cancellation_exports_one_source_row
+    exported = rows(await env.client.get(PATH))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\backend\integration\test_appointment_export.py:31: in rows
+    assert response.status_code == 200, response.text
+E   AssertionError: {"error":{"code":"VALIDATION_ERROR","message":"Invalid request","request_id":"3ef936ed2e087fb813fdb9af979f05e7"}}
+E   assert 422 == 200
+E    +  where 422 = <Response [422 Unprocessable Entity]>.status_code
+---------------------------- Captured stderr setup ----------------------------
+INFO  [alembic.runtime.migration] Context impl MySQLImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> a1b2c3d4e5f6, Initial schema — all 11 application tables.
+INFO  [alembic.runtime.migration] Running upgrade a1b2c3d4e5f6 -> 20261016_1200_audit_reqid128, Expand audit request IDs to match the gateway contract.
+INFO  [alembic.runtime.migration] Running upgrade 20261016_1200_audit_reqid128 -> 20261017_2350_student_profile, Add optional student profile fields without changing existing account data.
+INFO  [alembic.runtime.migration] Running upgrade 20261017_2350_student_profile -> 20261019_1200_proposal_replay, Persist proposal creation receipts and optimistic creation contexts.
+---------------------------- Captured stdout call -----------------------------
+{"timestamp":"2026-11-01T09:16:53.508464Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","duration_seconds":0.29815039999084547,"request_id":"c5b07149cee11b0e1474d513443c2bad","status":200,"route":"/api/v1/auth/login","response_complete":true,"trace_id":"f6fb7588f02772ef67101475590b6a6d","method":"POST"}
+{"timestamp":"2026-11-01T09:16:53.594901Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","duration_seconds":0.08395909999671858,"request_id":"4f53ab9b5e09aef839c9028c2cb028cd","status":201,"route":"/api/v1/appointments","response_complete":true,"trace_id":"a8ac3c3396928e7cb8f3e99358898214","method":"POST"}
+{"timestamp":"2026-11-01T09:16:53.633901Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","duration_seconds":0.03885660000378266,"request_id":"5f73dfe184e6de848f0fe294f4b03382","status":200,"route":"/api/v1/appointments/{appointment_id}/cancel","response_complete":true,"trace_id":"76d4ccf51c113c681aa4f43a29fb5287","method":"POST"}
+{"timestamp":"2026-11-01T09:16:53.658149Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","duration_seconds":0.018157099999370985,"request_id":"37a08e028a164e243ecc469b902af1da","status":200,"route":"/api/v1/appointments","response_complete":true,"trace_id":"283764cc8c573024c513cbc449316243","method":"POST"}
+{"timestamp":"2026-11-01T09:16:53.671719Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","duration_seconds":0.01292920000560116,"request_id":"3ef936ed2e087fb813fdb9af979f05e7","status":422,"route":"/api/v1/appointments/{appointment_id}","error_code":"http_4xx","response_complete":true,"trace_id":"530544bbfe756fb0470c54cf357e637d","method":"GET"}
+=========================== short test summary info ===========================
+FAILED tests/backend/integration/test_appointment_export.py::test_export_real_login_scope_contract_and_inactive_catalog
+FAILED tests/backend/integration/test_appointment_export.py::test_export_status_filter_and_empty_history
+FAILED tests/backend/integration/test_appointment_export.py::test_export_rejects_overflow_instead_of_truncation
+FAILED tests/backend/integration/test_appointment_export.py::test_mock_hides_real_database_contract_failure
+FAILED tests/backend/integration/test_appointment_export.py::test_booking_replay_after_cancellation_exports_one_source_row
+5 failed, 9 passed in 24.47s
+EXIT_CODE=1
