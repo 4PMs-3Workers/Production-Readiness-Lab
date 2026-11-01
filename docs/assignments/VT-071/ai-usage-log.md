@@ -89,3 +89,13 @@ row extraction/mapping. CPU/lag and server status are observations, not causal p
 of slow SQL, orphan accumulation or a production fix. Functional checks and PDF
 render QA are recorded separately. Execution remains delegated; no student manual
 execution, understanding or personal confirmation has been invented.
+
+U20: User reported three failing CI checks on PR55 at c664a5d. Read actual job logs:
+seven Pyright errors and minimatch10.2.6 advisory (same security finding on push/PR).
+Wrapped fixture timestamps in UtcTimestamp and made engine_factory explicit; added
+load marker with functional-CI exclusion while retaining --require-mysql/no-skip
+policy. Applied upstream minimatch11.0.1 override and npm-generated lock, no waiver.
+Local Pyright/Ruff/Black pass,24unit/OpenAPI pass and6load deselected; frontend
+349tests and format/lint/typecheck/build pass, npm audit0. One unprivileged test
+process stalled and was interrupted; elevated repeat produced the cited result.
+All load evidence remains from c664a5d, not relabeled as post-CI reruns.

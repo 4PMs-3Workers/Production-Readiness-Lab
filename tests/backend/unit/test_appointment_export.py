@@ -17,6 +17,7 @@ from tests.backend.integration.test_appointments_api import (
 from app.factory import create_app
 from app.repositories import appointments
 from app.schemas.appointments import AppointmentListItem
+from app.schemas.common import UtcTimestamp
 
 
 @pytest.mark.parametrize(
@@ -53,11 +54,11 @@ def test_csv_text_and_formula_contract(value, expected):
         purpose_name="Tư vấn",
         staff_id=UUID(int=3),
         staff_name="Cố vấn",
-        starts_at=instant,
-        ends_at=instant + timedelta(minutes=30),
+        starts_at=UtcTimestamp(instant),
+        ends_at=UtcTimestamp(instant + timedelta(minutes=30)),
         duration_minutes=30,
         status="UPCOMING",
-        created_at=instant,
+        created_at=UtcTimestamp(instant),
         location=value,
     )
     parsed = list(csv.DictReader(io.StringIO(render_csv([item]))))
@@ -106,11 +107,11 @@ def test_export_timestamp_does_not_depend_on_local_clock(timestamp):
         purpose_name="Tư vấn",
         staff_id=UUID(int=3),
         staff_name="Cố vấn",
-        starts_at=instant,
-        ends_at=instant + timedelta(minutes=30),
+        starts_at=UtcTimestamp(instant),
+        ends_at=UtcTimestamp(instant + timedelta(minutes=30)),
         duration_minutes=30,
         status="UPCOMING",
-        created_at=instant,
+        created_at=UtcTimestamp(instant),
         location=None,
     )
     parsed = list(csv.DictReader(io.StringIO(render_csv([item]))))

@@ -268,5 +268,7 @@
     "passed": 41,
     "skipped_opt_in_load": 2,
     "seconds": 26.96
-  }
+  },
+  "measured_source_commit": "c664a5de9ad6eb3d2b085c3438f49cfc714cfb3b",
+  "later_ci_changes": "load markers and explicit factory keyword; no new load measurement"
 }

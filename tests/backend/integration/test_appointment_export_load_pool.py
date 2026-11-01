@@ -39,7 +39,10 @@ from app.core.database import create_database_engine
 from app.factory import create_app
 from app.services import appointment_export, auth
 
-pytestmark = pytest.mark.skipif(os.getenv("BT3_RUN_LOAD") != "1", reason="BT3_RUN_LOAD=1 required")
+pytestmark = [
+    pytest.mark.load,
+    pytest.mark.skipif(os.getenv("BT3_RUN_LOAD") != "1", reason="BT3_RUN_LOAD=1 required"),
+]
 STAGE = ContextVar("vt071_pool_stage", default=None)
 PHASES = ["cold", "warmup80", "warm1", "warm2", "warm3", "warm4", "warm5"]
 TIMINGS = ["connect_checkout", "execute_buffered", "fetch_buffered", "map", "rollback", "format"]
@@ -213,8 +216,10 @@ async def test_export_pool_profile(availability_env, mysql_engine, monkeypatch, 
     def null_factory(url, *, connect_args, **_pool_options):
         return create_database_engine(url, connect_args=connect_args, poolclass=NullPool)
 
-    application = create_app(
-        settings, **({"engine_factory": null_factory} if pool_mode == "null" else {})
+    application = (
+        create_app(settings, engine_factory=null_factory)
+        if pool_mode == "null"
+        else create_app(settings)
     )
     monitor = create_database_engine(mysql_engine.url.set(database=None), poolclass=NullPool)
     install_profiling(monkeypatch)

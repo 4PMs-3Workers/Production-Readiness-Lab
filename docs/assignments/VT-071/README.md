@@ -193,6 +193,29 @@ Final load:1failed/1passed in23.90s; initial1failed/1passed23.55s; second2failed
 Load is opt-in. Functional recheck:41passed/2skipped in26.96s, recorded in
 review-pool-functional.txt.
 
+## PR55 CI follow-up
+
+The models job stopped at seven Pyright errors: six datetime values supplied where
+UtcTimestamp wrappers are declared, plus an ambiguous **dict passed to create_app.
+Fixtures now construct UtcTimestamp explicitly, and the load app uses an explicit
+engine_factory keyword only for null mode. No production behavior changed.
+
+Three diagnostic modules carry the registered load marker. Functional CI selects
+`-m "not load" --require-mysql`; the existing zero-skipped assertion remains intact.
+All six opt-in instances are deselected, rather than weakening the required MySQL
+gate. A local selection check reports24passed/6deselected, zero skips (7.16s).
+
+Both security jobs found new GHSA-g3hv-75wg-m249 in dev-only minimatch10.2.6. The
+upstream patched release is11.0.1; root npm override + regenerated lock select that
+release without an advisory exception. npm12.2.0 clean install and audit report0
+vulnerabilities. Frontend format/lint/typecheck/build pass;36files/349tests pass.
+Pyright0errors and Black check308files / Ruff pass. Raw local CI evidence and the
+original GitHub failure excerpts use the review-ci-* prefix.
+
+Load numbers above were measured at c664a5d; the later marker/type spelling changes
+do not represent a new performance measurement. review-pool-summary.json records
+that measured source SHA256. No functional/CI PASS overrides the open load FAIL.
+
 ## Evidence and ownership
 
 Read spec.md, plan-review.md (verbatim plan prompt), test-design.md, post-test-review.md,

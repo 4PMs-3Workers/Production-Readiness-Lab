@@ -19,9 +19,12 @@ from tests.backend.integration.test_appointment_export import PATH, rows, seed_h
 from tests.backend.integration.test_appointments_api import ORIGIN
 from tests.backend.integration.test_booking_context import sign_in
 
-pytestmark = pytest.mark.skipif(
-    os.getenv("BT3_RUN_LOAD") != "1", reason="Opt in with BT3_RUN_LOAD=1 (80-task experiment)"
-)
+pytestmark = [
+    pytest.mark.load,
+    pytest.mark.skipif(
+        os.getenv("BT3_RUN_LOAD") != "1", reason="Opt in with BT3_RUN_LOAD=1 (80-task experiment)"
+    ),
+]
 
 
 async def test_export_80_tasks_five_rounds(availability_env):

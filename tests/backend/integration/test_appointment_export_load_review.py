@@ -26,7 +26,10 @@ from tests.backend.integration.test_booking_context import sign_in
 
 from app.services import appointment_export, auth
 
-pytestmark = pytest.mark.skipif(os.getenv("BT3_RUN_LOAD") != "1", reason="BT3_RUN_LOAD=1 required")
+pytestmark = [
+    pytest.mark.load,
+    pytest.mark.skipif(os.getenv("BT3_RUN_LOAD") != "1", reason="BT3_RUN_LOAD=1 required"),
+]
 SAMPLE: ContextVar[dict | None] = ContextVar("vt071_sample", default=None)
 
 
