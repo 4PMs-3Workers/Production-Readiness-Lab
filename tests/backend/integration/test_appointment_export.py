@@ -272,3 +272,18 @@ async def test_export_without_real_session_is_denied(availability_env):
     assert response.status_code == 401
     assert "content-disposition" not in response.headers
     assert_private(response, error_class="input")
+
+
+@pytest.mark.parametrize("role", ["STAFF", "ADMIN"])
+async def test_export_real_session_role_is_denied(availability_env, role):
+    """Close the post-test review gap: real login/session, not a role-context stub."""
+    env = availability_env
+    async with env.factory.begin() as db:
+        account = await db.get(User, env.student_id)
+        account.role = role
+    await sign_in(env)
+    response = await env.client.get(PATH)
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "FORBIDDEN_ROLE"
+    assert "content-disposition" not in response.headers
+    assert_private(response, error_class="input")
