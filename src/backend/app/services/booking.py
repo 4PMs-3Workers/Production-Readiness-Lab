@@ -108,7 +108,7 @@ def _resolve_replay(
         return None
     if row.creation_request_hash != expected_hash:
         raise _idempotency_conflict()
-    return None
+    return _receipt(row), True
 
 
 async def _read_committed_key(
