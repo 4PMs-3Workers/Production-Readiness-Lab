@@ -1,0 +1,35 @@
+{
+  "checked_date": "2026-11-01",
+  "timezone": "Asia/Bangkok",
+  "baseline": "aa8c5b0be057754f9b3409c8699537d4aeb887b9",
+  "default_branch": "develop",
+  "repository": "https://github.com/4PMs-3Workers/Production-Readiness-Lab",
+  "branch": "codex/bt3-23001952-vt071",
+  "red_commit": "687d9e0efbdf8a65754e65172ad52b98b7848385",
+  "green_commit": "a68d4249b626e16a9b09e6018c857ee13a340f0a",
+  "temporary_local_mutation_commit": "a500f24b0aea8ac249251dfd30f534ffaa53a867",
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.12.14 (main, Aug 25 2026, 14:01:42) [MSC v.1944 64 bit (AMD64)]",
+  "logical_cpus": 16,
+  "processor": "AMD64 Family 26 Model 96 Stepping 0, AuthenticAMD",
+  "versions": {
+    "pytest": "9.0.3",
+    "fastapi": "0.143.0",
+    "SQLAlchemy": "2.0.44",
+    "asyncmy": "0.2.16",
+    "coverage": "7.17.0"
+  },
+  "slides": [
+    {
+      "file": "Lecture_06_AI_Assisted_Software_Development_and_Vibe_Coding_v3.pptx",
+      "sha256": "87c5d74c4eeb31d2b06da3047966134aa34d5a71ee0107a65a6f0e1bcca4a178"
+    },
+    {
+      "file": "Lecture_07_Software_Testing_and_Quality_Engineering.pptx",
+      "sha256": "a2cbd5b09d15d68ea31d25315b7ce1085ea7c1cf675c648fb49517e4052be083"
+    }
+  ],
+  "database": "MySQL Community Server 8.4.13; fresh local datadir, 127.0.0.1:3371; isolated migrated schema per test",
+  "fixture_engine": "NullPool, READ COMMITTED, UTF-8, UTC; migrations through 20261019_1200_proposal_replay",
+  "transport": "ASGI HTTP in process; actual MySQL over loopback TCP"
+}

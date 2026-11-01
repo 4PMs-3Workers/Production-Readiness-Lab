@@ -84,3 +84,28 @@ async def test_export_timeout_is_sanitized(auth_settings, monkeypatch):
     assert "PRIVATE" not in response.text
     assert "content-disposition" not in response.headers
     assert_private(response, error_class="service")
+
+
+@pytest.mark.parametrize("timestamp", ["2026-10-16T08:00:00+07:00", "2026-10-15T20:00:00-05:00"])
+def test_export_timestamp_does_not_depend_on_local_clock(timestamp):
+    """TC17: equivalent instants produce UTC text without relying on machine timezone."""
+    from app.services.appointment_export import render_csv
+
+    instant = datetime.fromisoformat(timestamp)
+    item = AppointmentListItem(
+        id=UUID(int=1),
+        purpose_id=UUID(int=2),
+        purpose_code="FIXED",
+        purpose_name="Tư vấn",
+        staff_id=UUID(int=3),
+        staff_name="Cố vấn",
+        starts_at=instant,
+        ends_at=instant + timedelta(minutes=30),
+        duration_minutes=30,
+        status="UPCOMING",
+        created_at=instant,
+        location=None,
+    )
+    parsed = list(csv.DictReader(io.StringIO(render_csv([item]))))
+    assert parsed[0]["starts_at"] == "2026-10-16T01:00:00Z"
+    assert parsed[0]["ends_at"] == "2026-10-16T01:30:00Z"

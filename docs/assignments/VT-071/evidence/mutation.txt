@@ -1,0 +1,24 @@
+F                                                                        [100%]
+================================== FAILURES ===================================
+________ test_booking_replay_after_cancellation_exports_one_source_row ________
+tests\backend\integration\test_appointment_export.py:261: in test_booking_replay_after_cancellation_exports_one_source_row
+    assert replay.status_code == 200, replay.text
+E   AssertionError: {"error":{"code":"SERVICE_UNAVAILABLE","message":"Service temporarily unavailable","request_id":"66e5d5322926f300391694743b2ea959"}}
+E   assert 503 == 200
+E    +  where 503 = <Response [503 Service Unavailable]>.status_code
+---------------------------- Captured stderr setup ----------------------------
+INFO  [alembic.runtime.migration] Context impl MySQLImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> a1b2c3d4e5f6, Initial schema — all 11 application tables.
+INFO  [alembic.runtime.migration] Running upgrade a1b2c3d4e5f6 -> 20261016_1200_audit_reqid128, Expand audit request IDs to match the gateway contract.
+INFO  [alembic.runtime.migration] Running upgrade 20261016_1200_audit_reqid128 -> 20261017_2350_student_profile, Add optional student profile fields without changing existing account data.
+INFO  [alembic.runtime.migration] Running upgrade 20261017_2350_student_profile -> 20261019_1200_proposal_replay, Persist proposal creation receipts and optimistic creation contexts.
+---------------------------- Captured stdout call -----------------------------
+{"timestamp":"2026-11-01T09:22:06.433152Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","route":"/api/v1/auth/login","duration_seconds":0.29218499999842606,"trace_id":"8ceee9be21a818dab04519aec70323e0","method":"POST","status":200,"request_id":"028393ab81c720dfdb132ad5ce35205a","response_complete":true}
+{"timestamp":"2026-11-01T09:22:06.520484Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","route":"/api/v1/appointments","duration_seconds":0.0820957000105409,"trace_id":"6e903a6f16307741b9308746d1cf66e1","method":"POST","status":201,"request_id":"ca11603fc3bc21f7a50a21db6e571126","response_complete":true}
+{"timestamp":"2026-11-01T09:22:06.563216Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","route":"/api/v1/appointments/{appointment_id}/cancel","duration_seconds":0.040182699987781234,"trace_id":"2ca78df9f7d3c9dd6c732682d809569f","method":"POST","status":200,"request_id":"94c33b95294eaa911bcaba63dea0eae8","response_complete":true}
+{"timestamp":"2026-11-01T09:22:06.617235Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","route":"/api/v1/appointments","error_code":"http_5xx","duration_seconds":0.0529610999947181,"trace_id":"cebc4b9d1932ad744f8815b15ef08ecd","method":"POST","status":503,"request_id":"66e5d5322926f300391694743b2ea959","response_complete":true}
+=========================== short test summary info ===========================
+FAILED tests/backend/integration/test_appointment_export.py::test_booking_replay_after_cancellation_exports_one_source_row
+1 failed in 3.66s
+EXIT_CODE=1

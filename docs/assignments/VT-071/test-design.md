@@ -60,6 +60,7 @@ data dimensions in D6, tested with distinct known IDs and foreign canary fields.
 | TC14 | AC02/R2 | real session boundary | actual no cookie | 401 | P0 |
 | TC15 | AC01/R3 | unit | =,+,-,@ after whitespace; ordinary/empty/null | apostrophe prefix only hazardous text | P1 |
 | TC16 | AC04/R4 | service harness | deterministic DB TimeoutError | sanitized 503 | P1 |
+| TC17 | AC01/R3 | unit | equivalent +07/-05 instants | exact same UTC timestamps | P1 |
 
 Setup creates unique schema per test, migrates it, and teardown drops only owned schema.
 No production URL. Fixed semantic data/UUIDs; dynamic booking date uses DB clock in

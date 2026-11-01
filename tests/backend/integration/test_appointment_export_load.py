@@ -6,6 +6,7 @@ import math
 import os
 import platform
 import sys
+from collections import Counter
 from datetime import UTC, datetime
 from importlib.metadata import version
 from pathlib import Path
@@ -63,6 +64,8 @@ async def test_export_80_tasks_five_rounds(availability_env):
             async def download(client, barrier=barrier):
                 await barrier.wait()
                 started = perf_counter()
+                response = None
+                duration = None
                 try:
                     response = await client.get(PATH)
                     duration = perf_counter() - started
@@ -75,7 +78,15 @@ async def test_export_80_tasks_five_rounds(availability_env):
                     }
                 except Exception as error:
                     return {
-                        "latency_seconds": perf_counter() - started,
+                        "latency_seconds": (
+                            duration if duration is not None else perf_counter() - started
+                        ),
+                        "status": response.status_code if response is not None else None,
+                        "error_code": (
+                            response.json().get("error", {}).get("code")
+                            if response is not None and response.status_code >= 400
+                            else None
+                        ),
                         "error": type(error).__name__,
                         "scope_ok": False,
                     }
@@ -85,6 +96,9 @@ async def test_export_80_tasks_five_rounds(availability_env):
                 asyncio.gather(*(download(client) for client in clients)), timeout=30
             )
             latencies = sorted(sample["latency_seconds"] for sample in samples)
+            successes = sorted(
+                sample["latency_seconds"] for sample in samples if sample["scope_ok"]
+            )
             measurements["rounds"].append(
                 {
                     "round": round_number,
@@ -92,6 +106,10 @@ async def test_export_80_tasks_five_rounds(availability_env):
                     "wall_seconds": perf_counter() - started,
                     "p50_seconds": latencies[math.ceil(0.50 * 80) - 1],
                     "p95_seconds": latencies[math.ceil(0.95 * 80) - 1],
+                    "p95_success_seconds": (
+                        successes[math.ceil(0.95 * len(successes)) - 1] if successes else None
+                    ),
+                    "status_counts": dict(Counter(str(sample.get("status")) for sample in samples)),
                     "max_seconds": latencies[-1],
                     "errors": sum(not sample["scope_ok"] for sample in samples),
                 }

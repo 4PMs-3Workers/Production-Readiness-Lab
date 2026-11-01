@@ -1,0 +1,9 @@
+Confidence của tôi tăng lên nhờ chuỗi bằng chứng có thể chạy lại, đặc biệt là kiểm thử với MySQL thật. So sánh chính xác ID trong CSV với dữ liệu đã commit có giá trị hơn việc chỉ nhìn HTTP 200. Thí nghiệm thay câu SQL bằng tên cột không tồn tại cũng cho thấy mock trả hàng hợp lý vẫn có thể che giấu sai lệch hợp đồng.
+
+Red phase chứng minh baseline chưa cung cấp hành vi export: đăng nhập và fixture hoạt động, nhưng yêu cầu bị xử lý như ID lịch hẹn và trả 422. Sau patch, cùng các yêu cầu nhận CSV đúng phạm vi. Điều này hỗ trợ correctness của slice đã chọn, không chứng minh mọi tình huống vận hành đều đúng.
+
+Mutation làm retry trả 503 thay vì receipt 200, nên test đã phân biệt được implementation đúng với lỗi cố ý. Tuy nhiên, unique constraint vẫn tồn tại; tôi không diễn giải kết quả thành bằng chứng đã tạo lịch trùng. Coverage cũng chỉ là chỉ dấu bổ sung, cần đọc cùng assertions và risk coverage.
+
+Kết quả tải làm confidence giảm ở khía cạnh reliability. Hai lần đo đều có 503 dù p95 tổng thấp hơn 2,5 giây. Tốc độ trả lỗi không thể thay thế khả năng phục vụ thành công. Chưa có evidence đủ để quy nguyên nhân cho CPU, connection pool hoặc timeout cụ thể.
+
+Kiểm thử tiếp theo có giá trị cao nhất là đo qua gateway với pool cấu hình như triển khai, nhiều phiên người dùng độc lập và telemetry theo từng giai đoạn. Tôi cũng cần nhóm xác nhận quyền export, cột dữ liệu và giới hạn dòng. Reflection này là bản AI hỗ trợ từ evidence; trách nhiệm đọc hiểu, xác nhận và giải thích khi vấn đáp vẫn thuộc về tôi.
