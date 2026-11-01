@@ -1,0 +1,24 @@
+{
+  "submission_source_commit": "fd4e2edf2837a4b7f6e3b2e147d15f21a4ad1227",
+  "experimental_branch": "codex/bt3-23001952-vt071-mutants-review",
+  "experimental_restored_head": "c9386622157ecb4141121f4cf7425f645b9c522e",
+  "mutants": [
+    {
+      "mutant": "owner",
+      "commit": "2da74df896976ecf89f174f1d87d71711f4430e8",
+      "test": "test_export_real_login_scope_contract_and_inactive_catalog",
+      "expected": "KILLED",
+      "observed": "KILLED",
+      "exit_code": 1
+    },
+    {
+      "mutant": "overflow",
+      "commit": "49d3b4d2717cd0e4c60257bd3da485003a1124ed",
+      "test": "test_export_rejects_overflow_instead_of_truncation",
+      "expected": "KILLED",
+      "observed": "EXECUTION_ERROR",
+      "exit_code": 1
+    }
+  ],
+  "submission_restore_diff": ""
+}

@@ -5,8 +5,10 @@ drops an index only in the UUID-named schema created by the test fixture; the fi
 test source and production schema never contain that DDL.
 """
 
+import ast
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -19,7 +21,7 @@ API = "src/backend/app/api/appointments.py"
 EXPORT = "src/backend/app/services/appointment_export.py"
 TEST = "tests/backend/integration/test_appointment_export.py"
 FILES = [SOURCE, REPO, API, EXPORT, TEST]
-BRANCH = "codex/bt3-23001952-vt071-mutants-review"
+BRANCH = "codex/bt3-23001952-vt071-mutants-verified"
 
 
 def git(*args):
@@ -31,11 +33,14 @@ def git(*args):
 def replace_in_function(name, function, old, new):
     path = ROOT / name
     original = path.read_text(encoding="utf-8")
-    start = original.index("async def " + function + "(")
-    next_function = original.find("\n\nasync def ", start + 1)
-    next_sync = original.find("\n\ndef ", start + 1)
-    ends = [value for value in [next_function, next_sync] if value != -1]
-    end = min(ends) if ends else len(original)
+    node = next(
+        node
+        for node in ast.parse(original).body
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == function
+    )
+    lines = original.splitlines(keepends=True)
+    start = sum(len(line) for line in lines[: node.lineno - 1])
+    end = sum(len(line) for line in lines[: node.end_lineno])
     segment = original[start:end]
     assert segment.count(old) == 1, (name, function, old)
     path.write_text(original[:start] + segment.replace(old, new) + original[end:], encoding="utf-8")
@@ -151,7 +156,8 @@ def main():
                 if run.returncode == 0
                 else (
                     "KILLED"
-                    if run.returncode == 1 and "AssertionError" in log
+                    if run.returncode == 1
+                    and ("AssertionError" in log or re.search(r"^E\s+assert\s", log, re.MULTILINE))
                     else "EXECUTION_ERROR"
                 )
             )

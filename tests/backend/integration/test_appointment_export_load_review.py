@@ -156,7 +156,12 @@ async def test_export_cold_full_warmup_and_warm_bursts(availability_env, monkeyp
                     record.update(
                         latency_seconds=perf_counter() - started, status=response.status_code
                     )
-                    record["scope_ok"] = {row["id"] for row in rows(response)} == expected
+                    exported = rows(response)
+                    record["exported_count"] = len(exported)
+                    record["scope_ok"] = (
+                        len(exported) == len(expected)
+                        and {row["id"] for row in exported} == expected
+                    )
                 except Exception as error:
                     record.setdefault("latency_seconds", perf_counter() - started)
                     record["status"] = response.status_code if response is not None else None
