@@ -32,7 +32,7 @@ Original baseline and red/green evidence remain unchanged and preserved.
   No per-read session update was found. Do not invent a shared-session write lock.
 - The original mutation stopped at 503 != 200 before CSV cardinality. Keep that
   limited conclusion; add separate evidence rather than rewriting old results.
-- Earlier 503s took roughly 1.7-2.0s. Replace wording "fast errors" with the precise
+- Archived sample audit: 503 latencies span 1.418-1.947s (initial 1.418-1.619s; diagnostic 1.511-1.947s). Replace wording "fast errors" with the precise
   statement that a latency percentile mixing success and failure cannot establish
   successful capacity. Cold-start/resource hypotheses still require diagnostics.
 

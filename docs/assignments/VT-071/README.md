@@ -80,7 +80,7 @@ means first full burst, not restarted MySQL/empty OS cache. Every successful CSV
 must have exactly100 rows AND expected ID set.
 
 Latest:0/560 errors; first p95=1.516s; warm p95=1.316..1.527s. Latest local run PASS.
-Historical runs remain FAIL (58/400 and246/400), with503 latency roughly1.7-2.0s.
+Historical runs remain FAIL (58/400 and246/400), with503 latency 1.418..1.947s across archived samples.
 A percentile mixing failures and successes is not successful capacity. Root cause
 of historical503s has not been reproduced or proved fixed.
 

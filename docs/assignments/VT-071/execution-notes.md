@@ -67,7 +67,7 @@ ASGI app + real MySQL8.4.13 TCP; Windows11/Python3.12.14,16logical CPUs, NullPoo
 READ COMMITTED, request/query deadlines3/1s. 80clients share one real STUDENT session;
 100owned+1foreign row. Session read is SELECT only, no per-request UPDATE.
 Historical runs:58/400 and246/400 failures; p95all1.611..2.053s; failed responses
-roughly1.7-2.0s. A mixed percentile does not measure successful capacity. Original
+1.418..1.947s across archived samples. A mixed percentile does not measure successful capacity. Original
 logs lacked exception class, so earlier503 root cause is not known.
 Current: serial request -> first80burst ('cold') -> full80warmup -> five warm bursts.
 Cold is not a database restart/empty cache. Record count100 AND exact ID set.
