@@ -76,3 +76,16 @@ the observed failure to read-transaction deadline expiry but does not isolate de
 CPU/connection/query causes. Original PASS/FAIL records were retained; production
 code, harness and deadlines are unchanged. Reflection draft was updated to reflect
 this observation without claiming student manual execution.
+
+U19: User supplied review__2_ highlighting NullPool vs deployment defaults and asked
+for pool/CPU/MySQL metrics and sub-stage timing. Codex built a separate opt-in test
+harness using default create_app (5+5/0.5s) and a matched NullPool variant, preserving
+all historical harnesses. First comparison:0null/340production errors. Added exact
+auth leaf module/type check, reversed order:295production/83null errors. Corrected
+process snapshots to omit observer itself; final302production/0null errors. Both
+pre-correction comparisons remain archived. Two later runs establish pool timeout
+at auth; the83 null failures were canceled while awaiting rollback after execute/
+row extraction/mapping. CPU/lag and server status are observations, not causal proof
+of slow SQL, orphan accumulation or a production fix. Functional checks and PDF
+render QA are recorded separately. Execution remains delegated; no student manual
+execution, understanding or personal confirmation has been invented.

@@ -131,6 +131,68 @@ byte-for-byte. No production code, timeout or harness changed; no broad function
 rerun was needed for this documentation/evidence clarification. Performance remains
 an open FAIL gate; do not interpret the preceding local PASS as a demonstrated fix.
 
+
+## Deployment-default pool comparison and sub-stage profiling
+
+```powershell
+$env:BT3_RUN_LOAD = '1'
+python -m pytest tests/backend/integration/test_appointment_export_load_pool.py -q -s --require-mysql
+Remove-Item Env:BT3_RUN_LOAD
+```
+
+New diagnostic harness uses a second app on the fixture-owned migrated UUID schema.
+Production mode calls create_app(settings) without replacing engine_factory: actual
+AsyncAdaptedQueuePool size5 + overflow5, queue timeout0.5s, connect1s, read1s, request3s.
+Null mode changes only the factory to NullPool and keeps the same connect1s budget.
+Earlier fixture used connect5s; this new protocol cannot be called the unchanged old
+harness. Profiling explicitly checks out a connection inside read_transaction;
+test-only wrappers time checkout, execute+buffered wire fetch, Result.all extraction,
+mapping, rollback and CSV formatting. No production code/deadline/dependency changed.
+
+Three sequential comparisons on one new MySQL process, with fresh schema per case:
+
+| Attempt/order | NullPool errors/560 | Production errors/560 | Note |
+|---|---:|---:|---|
+| 1: null -> production | 0 | 340 | Auth503; exact leaf type not yet logged |
+| 2: production -> null | 83 | 295 | Auth pool timeout verified; null rollback cancellations |
+| 3: production -> null | 0 | 302 | Observer excluded from process list; final protocol |
+
+Final production errors per80:49,46,45,35,41,45,41. All302 are HTTP503 at auth,
+with leaf sqlalchemy.exc.TimeoutError (isinstance checked), before export runs.
+The sampled pool reaches10 checked-out connections; Threads_connected peaks11
+including the observer. This establishes queue timeout for those requests under
+the configured0.5s limit; it does not prove a server-side SQL bottleneck. Successful
+request p95 spans0.625..0.881s, which cannot compensate for302 failed requests.
+
+In attempt2, all83 NullPool failures have ServiceUnavailable -> TimeoutError ->
+CancelledError in export, and the intercepted cancellation is specifically at
+transaction.rollback after execute, Result.all and mapping completed; format did
+not start. Aborted_clients increases0->83 over that NullPool run. This locates the
+cancellation await, not a slow SELECT or orphan-query root cause. Per-phase p95
+event-loop lag reaches0.821s. Wall timers include scheduling and rollback's1s
+transaction deadline; per-stage p95 values must not be added together.
+
+Monitor samples nominally every250ms plus before/after bursts: global running/
+connected threads, connections, aborted clients, uptime, sanitized process ID/
+command/time/state and Windows all-core CPU mean. Query text, user, host, tokens and
+error messages are omitted. Attempts1/2 include the monitor's own query in the
+process list; attempt3 explicitly excludes CONNECTION_ID(). After each final burst,
+only five idle pool connections remain for production, none for null; no active
+owned-schema query persists in these snapshots. Transient orphans can be missed by
+delayed sampling. No growing-query mechanism is established or ruled out.
+
+Final all-core CPU means span11.3..29.4% (production),17.1..18.6% (null); this is not
+per-core or mysqld CPU profiling. Same-host ASGI transport, shared session, scheduling
+and sequential order remain limitations. No production fix, throughput improvement
+or stable80-request acceptance is claimed. Pool capacity/backpressure and query
+deadline are distinct observed failure paths; the performance gate remains FAIL.
+
+Raw JSON/logs for all attempts, final source SHA256, order and metric limitations:
+evidence/review-pool-summary.json, review-pool*-performance.json, review-pool*-load.txt.
+Final load:1failed/1passed in23.90s; initial1failed/1passed23.55s; second2failed24.22s.
+Load is opt-in. Functional recheck:41passed/2skipped in26.96s, recorded in
+review-pool-functional.txt.
+
 ## Evidence and ownership
 
 Read spec.md, plan-review.md (verbatim plan prompt), test-design.md, post-test-review.md,

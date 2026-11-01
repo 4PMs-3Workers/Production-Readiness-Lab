@@ -143,7 +143,20 @@ actual immutable final commit rather than trying to embed a self-hash here.
 
 Actual plan prompt is preserved verbatim in plan-review.md. Actual post-test review
 and the multiplicity correction are in post-test-review.md/ai-usage-log.md. Student
-said they have not run commands; execution is attributed to Codex. Reflection is339
+said they have not run commands; execution is attributed to Codex. Reflection is337
 words and remains a draft. First-page commitment is retained; responsibility to
 understand/review AI-assisted work is distinct from claiming manual command execution.
 No force push/merge. Human/team review and stakeholder validation remain outstanding.
+
+## Production-default pool diagnostic follow-up
+
+New opt-in test_appointment_export_load_pool.py exercises the default app factory
+(5+5/0.5s) and NullPool under the same diagnostic protocol, connect/query/request1/1/3s.
+Final302/560production503 are verified SQLAlchemy pool timeouts at auth; sampled
+checked-out count reaches10. NullPool final0/560, but attempt2 had83/560 cancellation
+failures at rollback after buffered SELECT/mapping. Aborted_clients rose83. Nominal
+250ms process snapshots exclude observer in final protocol; no active owned query
+persisted after its bursts. Transient queries and host/core contention remain open.
+All three comparisons and two instrumentation corrections are retained, not just
+the final pass. See README and evidence/review-pool-summary.json for limits and
+raw source indices. Production code and all deadlines remain unchanged.

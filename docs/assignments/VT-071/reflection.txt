@@ -6,6 +6,6 @@ Mutation gốc chỉ làm retry trả 503 trước khi kiểm tra CSV. Mutant b�
 
 Coverage được cải thiện bằng cấu hình greenlet và kiểm tra cùng TC10, không sửa số liệu thủ công. Tuy nhiên, coverage đầy đủ vẫn không chứng minh mọi trạng thái hoặc lỗi tích hợp đều được kiểm tra.
 
-Một lượt tải pass không chứng minh lỗi đã sửa. Sau khi khởi động MySQL mới, cùng harness lại có 503 ở cả burst warm; log ghi TimeoutError tại export. Cơ chế deadline hết đã rõ hơn, nhưng nguyên nhân sâu CPU hay database chưa được tách.
+Một lượt tải pass không chứng minh lỗi đã sửa. Đo bổ sung ghi nhận hai cơ chế: pool 5+5 hết thời gian chờ ở auth, còn NullPool có lượt bị hủy tại rollback sau khi đọc dữ liệu. Snapshot chưa chứng minh truy vấn mồ côi; timer còn chịu scheduling.
 
-Bước tiếp theo có giá trị là tự chạy lại các case quan trọng, giải thích từng assertion, rồi đo qua gateway với pool như triển khai và các phiên độc lập. Quyền export, cột dữ liệu và cap cũng cần nhóm xác nhận. Tôi chịu trách nhiệm hiểu và đánh giá phần AI hỗ trợ, thay vì lấy kết quả pass làm sự bảo đảm tuyệt đối.
+Bước tiếp theo có giá trị là tự chạy các case quan trọng và giải thích từng assertion, rồi đo qua gateway với các phiên độc lập. Quyền export, cột dữ liệu và cap cần nhóm xác nhận. Tôi chịu trách nhiệm hiểu và đánh giá phần AI hỗ trợ, thay vì lấy kết quả pass làm sự bảo đảm tuyệt đối.

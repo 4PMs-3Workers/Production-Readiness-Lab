@@ -28,8 +28,8 @@ checkout/venv và MySQL test riêng; ghi lại command, output và quan sát th�
   guard bị test bắt200 !=403; không bịa test để giết bảo vệ dư thừa.
 - Coverage vì sao bỏ sót dòng? So sánh cùng TC10 xác nhận cần trackinggreenlet/thread
   cho SQLAlchemy asyncio. 100% không chứng minh mọi combination/state.
-- Latest load pass có sửa503 không? Chưa chứng minh. Không tái hiện lỗi nên không có
-  exception chain cũ; cold/resource/deadline vẫn là hypotheses.
+- Latest load pass có sửa503 không? Không. Lỗi đã tái hiện; read deadline và pool
+  queue timeout là hai cơ chế quan sát được, chưa có production fix.
 - CSV prefix bảo đảm mọi Excel workflow? Chỉ test text/parse contract; chưa test
   client thực hoặc save/reopen.
 
@@ -50,6 +50,22 @@ checkout/venv và MySQL test riêng; ghi lại command, output và quan sát th�
 Thêm câu tải: lần xác nhận sau MySQL startup có276/560503, kể cả warm. Log xác nhận
 deadline read_transaction tại export đã hết, chưa phân biệt nguyên nhân sâu CPU/
 connection/query. Không tuyên bố chỉ cold-start hoặc warmup đã sửa lỗi.
+
+## Pool, deadline và cơ chế tải
+
+- NullPool khác5+5 thế nào? NullPool tạo kết nối mỗi lần acquire, không giới hạn
+  đồng thời bằng hàng đợi pool;80request ở đây dùng cả auth lẫn export, quan sát
+ 160kết nối mới/burst khi thành công. Pool5+5 có tối đa10checkout và queue0.5s.
+- Chứng minh lỗi pool bằng gì?302request cuối503ởauth; leaf có module sqlalchemy.exc
+  và isinstance TimeoutError của SQLAlchemy; pool sampled checkout=10. Không chỉ
+  nhìn tên TimeoutError vốn trùng với builtins.TimeoutError.
+- Vì sao83NullPool503không chứng minh SELECT chậm? Interception ghi CancelledError
+  tại rollback sau execute/Result.all/mapping; cả cleanup nằm trong read deadline1s.
+- Có chứng minh truy vấn mồ côi không? Chưa. Final snapshot sau burst không còn
+  active owned queries, nhưng monitor nominal250ms bị event-loop lag nên có thể bỏ
+  sót query ngắn. Aborted_clients tăng83không tự chứng minh orphan accumulation.
+- Fetch nghĩa gì? AsyncSession.execute đã nhận/buffer hàng từ driver; Result.all
+  chỉ lấy hàng đã đệm. Các timer bao gồm scheduling; không cộng các p95stage.
 
 ## Reflection của bạn
 

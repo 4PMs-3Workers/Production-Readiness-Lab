@@ -70,3 +70,13 @@ A fresh MySQL process (preflight uptime12s) plus unchanged review harness produc
 TimeoutError,CancelledError; no DB integer code. The1s read deadline expired; deeper
 CPU/connection/query causality is not isolated. New logs/JSON are separate and the
 previous report restored byte-for-byte. No code/harness/deadline changed.
+
+## Deployment pool and finer timing
+
+Follow-up actually measured factory defaults5+5/0.5s, not just proposed it. Confirmed
+295/560 then302/560 auth pool queue timeouts; initial340/560auth errors lacked exact
+leaf-type instrumentation. NullPool comparisons0/560,83/560,0/560, with83 cancellations
+located at rollback and Aborted_clients+83. These are two distinct failure paths.
+Final process snapshots exclude observer and show no persistent active owned query;
+nominal250ms sampling cannot rule out transient orphans. README and pool summary
+record order, all attempts, metrics and limits; performance remains open FAIL.
