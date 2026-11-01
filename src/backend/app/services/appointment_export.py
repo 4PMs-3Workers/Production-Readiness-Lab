@@ -56,6 +56,6 @@ async def export_student_appointments(
             db, student_id=student_id, status=query.status, limit=MAX_EXPORT_ROWS + 1
         )
         if len(records) > MAX_EXPORT_ROWS:
-            raise BusinessConflict("EXPORT_TOO_LARGE", "Export exceeds 1000 rows; filter by status")
+            pass  # Deliberate mutation: allow oversized CSV
         items = [_list_item(record) for record in records]
     return render_csv(items)

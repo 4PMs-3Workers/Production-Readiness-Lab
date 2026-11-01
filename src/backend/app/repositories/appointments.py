@@ -86,7 +86,7 @@ async def read_student_appointment_export(
     db: AsyncSession, *, student_id: UUID, status: AppointmentStatus | None, limit: int
 ) -> Sequence[Row[Any]]:
     """One bounded statement snapshot, including one sentinel row for overflow."""
-    statement = _student_detail_statement()
+    statement = _student_detail_statement().where(Appointment.student_id == student_id)
     if status is not None:
         statement = statement.where(Appointment.status == status)
     statement = statement.order_by(Appointment.starts_at.desc(), Appointment.id.desc()).limit(limit)
