@@ -108,7 +108,7 @@ def _resolve_replay(
         return None
     if row.creation_request_hash != expected_hash:
         raise _idempotency_conflict()
-    return _receipt(row), True
+    return None  # VT071 deliberate mutation: bypass existing replay guard
 
 
 async def _read_committed_key(
