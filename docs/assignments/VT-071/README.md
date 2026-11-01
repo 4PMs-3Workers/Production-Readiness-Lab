@@ -54,6 +54,22 @@ Replay + unique index omitted only inside fixture-owned UUID test schema -> TC18
 reaches CSV and fails "Expected one source row, got 2 CSV rows". Production schema
 unchanged. Original and new mutant commits are not ancestors of submission.
 
+M5 (`604c0e7`) adds six setup lines inside the test: imports, verification of the
+fixture-owned schema name, and `ALTER TABLE ... DROP INDEX`. The existing TC18
+assertions are unchanged; this setup-only edit is part of the mutant commit.
+
+The mutant commits are sequential: each restores the preceding bug before applying
+the next. Compare each mutant to clean source `81552d3`, not only to its parent:
+
+```powershell
+$clean = '81552d3c85075f6ebb1583178b52264163450d35'
+git diff $clean 72e05f70a281c022983ca075525ea71ed4aaeba9 -- src/backend/app
+git diff $clean 604c0e7e6743b0305503348e5f87d408881a4170 -- src/backend/app/services/booking.py tests/backend/integration/test_appointment_export.py
+```
+
+This clean experiment reference differs from the official assignment baseline
+`aa8c5b0`; the assignment baseline is unchanged.
+
 Reproduce on clean checkout with dedicated MYSQL_TEST_URL:
 
 ```powershell
@@ -79,17 +95,41 @@ serial request -> first80-task burst -> full80 warmup -> five warm bursts. Cold 
 means first full burst, not restarted MySQL/empty OS cache. Every successful CSV
 must have exactly100 rows AND expected ID set.
 
-Latest:0/560 errors; first p95=1.516s; warm p95=1.316..1.527s. Latest local run PASS.
+Review run at60fb77a:0/560 errors; first p95=1.516s; warm p95=1.316..1.527s (local PASS).
 Historical runs remain FAIL (58/400 and246/400), with503 latency 1.418..1.947s across archived samples.
 A percentile mixing failures and successes is not successful capacity. Root cause
-of historical503s has not been reproduced or proved fixed.
+of historical503s was not proved fixed; the confirmation below reproduces503.
 
 Test-only server wrappers capture auth/export stage, exception class chain, integer
 DB code, timing/requestID; never exception messages/SQL/cookies/tokens. Two injected
 probes verify sanitization/code capture, not old503 causality. Latest real requests
-all pass, so server failure chains are empty. Session read has no UPDATE per request.
-CPU/pool/deadline/cold-start explanations remain hypotheses. Gateway/TLS/browser,
+all passed in that run, so its server failure chains are empty. Session read has no UPDATE per request.
+Underlying CPU/pool/cold-start explanations remain unproved. Gateway/TLS/browser,
 80distinct sessions, max1000rows under load and real spreadsheet clients unverified.
+
+## Same-harness confirmation after MySQL startup: FAIL
+
+Started a new MySQL8.4.13 process, verified preflight uptime12s, then ran the identical
+review harness (Git blob recorded in evidence/review-restart-metadata.json). The
+fixture creates a fresh migrated schema on every invocation, including earlier runs;
+that by itself is not a new condition. Migration/seed/login/one serial request still
+precede the first80-task burst, so this is not an empty-cache experiment.
+
+Result:276/560 HTTP503. Errors per80: cold68, warmup3, warm1=0, warm2=44, warm3=1,
+warm4=80, warm5=80. Last p95all=2.527s; successful-only p95 is null when all80fail.
+Real failing chains occur in export: ServiceUnavailable -> TimeoutError ->
+CancelledError; DB code is null. This confirms export read-transaction deadline
+expiry under the unchanged1s budget, not its deeper CPU/connection/query cause.
+Warm errors refute an explanation limited to the first burst. Harness differences
+prevent direct causal comparison with the original two failing runs; restarting
+alone has not been established as the cause by this one confirmation.
+
+The acceptance test fails as intended (1failed,2diagnostic probes passed/19.40s).
+Separate logs: review-restart-server.txt, review-restart-preflight.txt,
+review-restart-load.txt and review-restart-performance.json. Earlier JSON was restored
+byte-for-byte. No production code, timeout or harness changed; no broad functional
+rerun was needed for this documentation/evidence clarification. Performance remains
+an open FAIL gate; do not interpret the preceding local PASS as a demonstrated fix.
 
 ## Evidence and ownership
 

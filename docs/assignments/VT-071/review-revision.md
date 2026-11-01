@@ -50,7 +50,7 @@ delegation; the first-page commitment is retained exactly. Reflection remains a 
   diff executable lines50/50, arcs10/10. No manual metric editing.
 - New source+unique mutant reaches CSV count2 !=1. Owner/overflow/both-role guards
   killed; primary-role-only survives because query guard still enforces STUDENT.
-- Final cold/warm load560/560 success; p95cold1.516s,warm1.316..1.527s. Historical
+- Review load before restart confirmation:560/560 success; p95cold1.516s,warm1.316..1.527s. Historical
   58/400 and246/400 errors remain; no failing chain reproduced, no causal fix claim.
 - Actual post-test reviewer found load set-ID oracle lost multiplicity; fixed exact
   row count and reran. Two injected probes show diagnostic messages/SQL are omitted.
@@ -62,3 +62,11 @@ delegation; the first-page commitment is retained exactly. Reflection remains a 
 - Original: https://github.com/4PMs-3Workers/Production-Readiness-Lab/tree/codex/bt3-23001952-vt071-mutation
 - New: https://github.com/4PMs-3Workers/Production-Readiness-Lab/tree/codex/bt3-23001952-vt071-mutants-verified
 - Exact immutable links/results: evidence/review-mutants.json and execution-notes.md.
+
+## Subsequent same-harness startup confirmation
+
+A fresh MySQL process (preflight uptime12s) plus unchanged review harness produced
+276/560503, including warm failures. Export-stage chains contain ServiceUnavailable,
+TimeoutError,CancelledError; no DB integer code. The1s read deadline expired; deeper
+CPU/connection/query causality is not isolated. New logs/JSON are separate and the
+previous report restored byte-for-byte. No code/harness/deadline changed.

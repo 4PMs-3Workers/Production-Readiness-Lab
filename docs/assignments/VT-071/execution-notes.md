@@ -58,6 +58,10 @@ protection. Bypassing both guards is detected; do not report a simplistic mutati
 Source+unique mutant drops only the named index in the fixture-owned UUID schema,
 validated before DDL. It reaches TC18's CSV count oracle. This is counterfactual;
 production schema is unchanged. TC13 still checks exact200/original receipt.
+M5 commit604c0e7 adds six setup lines to the test; its cardinality assertions stay
+unchanged. Because mutant commits are sequential, use git diff81552d3 <mutant>
+to inspect one mutation against clean experiment source, rather than only its parent.
+The official assignment baseline remains aa8c5b0.
 Original and all new mutant commits are not ancestors of submission. booking.py
 blob still equals baseline; final tests contain no schema-dropping mutation.
 
@@ -82,14 +86,34 @@ Cold is not a database restart/empty cache. Record count100 AND exact ID set.
 | warm4 | 1.527 | 0 | {} |
 | warm5 | 1.379 | 0 | {} |
 
-Latest local560/560 success, PASS for recorded fixture. Historical failures are not
-explained or proven fixed. Empty real failure chains mean no causal CPU/pool/deadline
+The60fb77a review run had560/560 success, PASS for its recorded fixture. Historical failures are not
+explained or proven fixed. Empty real failure chains in that review run meant no causal CPU/pool/deadline
 conclusion. Test-only server wrappers record auth/export stage, type chain, integer
 DB code, timing/requestID, never exception messages/SQL/cookies/tokens. Two injected
 probes verify sanitization/code1054/TimeoutError capture; they are not historical
 failure evidence. Before-cardinality and final review load runs are both retained.
 Not proved: gateway/TLS/browser,80distinct sessions, max1000rows under load, real
 spreadsheet import/save/reopen, production reliability, stakeholder permission policy.
+
+### Same-harness confirmation after a fresh MySQL process
+
+The 560/560 PASS above describes the60fb77a review run, not a causal improvement.
+Subsequent confirmation used the identical harness after a new MySQL process start
+(preflight uptime12s), plus a fresh fixture schema. All earlier invocations also
+created fresh schemas. Migration/seed/login/serial warmup still precede the burst.
+
+Observed276/560 HTTP503; failures per burst68,3,0,44,1,80,80. Every real failure
+is logged at export with ServiceUnavailable/TimeoutError/CancelledError chain,
+no integer DB error code. The unchanged1s read_transaction deadline expired;
+CPU vs connection vs query vs rollback timing is not isolated by these wrappers.
+Both cold and warm gates FAIL; warm5 p95all2.527s, p95success null. This rules out
+a claim that only the first burst is vulnerable, but does not prove startup alone
+caused the failures. Same review harness permits a clearer replication; comparison
+against the older, different harness is not a controlled causal improvement study.
+
+Evidence: review-restart-{server,preflight,load,performance,metadata} files. Result:
+1failed/2probe-pass in19.40s. Earlier review-performance.json restored byte-for-byte.
+Performance verdict remains open FAIL; no code/deadline was modified to force pass.
 
 ## Flaky risks and traceability
 
@@ -109,7 +133,7 @@ Files below are relative to tests/backend, with executable callable names in sou
 | AC03/R1,R2 |05-08|integration/test_appointment_export.py|RED ->PASS;owner mutant killed|
 | AC04/R2,R4 |09,10,12,16|integration/test_appointment_export.py;unit/test_appointment_export.py|PASS;overflow mutant killed;coverage omission resolved|
 | AC05/R5 |13,18|integration/test_appointment_export.py|PASS;replay-only and replay+test-unique killed;restoredPASS|
-| NFR/R6 |LOAD|integration/test_appointment_export_load_review.py|historicalFAIL,currentPASS,causalityunproved|
+| NFR/R6 |LOAD|integration/test_appointment_export_load_review.py|historicalFAIL,reviewPASS,restartFAIL;causalityunproved|
 
 Exact new source base81552d3 and all mutant commit hashes are in review-mutants.json;
 final evidence commit contains restored source/tests and this record. PDF cites that
@@ -119,7 +143,7 @@ actual immutable final commit rather than trying to embed a self-hash here.
 
 Actual plan prompt is preserved verbatim in plan-review.md. Actual post-test review
 and the multiplicity correction are in post-test-review.md/ai-usage-log.md. Student
-said they have not run commands; execution is attributed to Codex. Reflection is332
+said they have not run commands; execution is attributed to Codex. Reflection is339
 words and remains a draft. First-page commitment is retained; responsibility to
 understand/review AI-assisted work is distinct from claiming manual command execution.
 No force push/merge. Human/team review and stakeholder validation remain outstanding.

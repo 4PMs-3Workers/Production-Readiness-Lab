@@ -33,6 +33,24 @@ checkout/venv và MySQL test riêng; ghi lại command, output và quan sát th�
 - CSV prefix bảo đảm mọi Excel workflow? Chỉ test text/parse contract; chưa test
   client thực hoặc save/reopen.
 
+## Trả lời rõ năm điểm trọng tâm
+
+1. Route: static export phải match trước route UUID; UUID validation failure không
+   làm FastAPI tự thử route kế tiếp. Khi M3 dùng require_auth, dependency query vẫn
+   gọi require_student -> role check -> FORBIDDEN_ROLE403; handler chưa được chạy.
+2. Snapshot: READ COMMITTED tạo snapshot theo statement, không giữ nguyên qua cả
+   page loop. LIMIT1001 là sentinel để fail closed khi quá cap1000, không truncate.
+3. DB contract: TC12 cho MySQL thực thi SQL cố ý sai cột; fake object pass không
+   xác minh query/schema/UUID-time adapters.503 sanitized rồi recovery là oracle.
+4. Hai oracle: TC13 yêu cầu200+receipt gốc; TC18 cho phép200/201 để tiến tới count=1.
+   M5 thêm6dòng setup test để bỏ index trong schema riêng, assertions không đổi.
+5. Coverage: cùng TC10/source, default tracer bỏ raise56 còn greenlet/thread ghi
+   nhận; config tracking khắc phục phép đo, không làm code đúng hơn bằng số100%.
+
+Thêm câu tải: lần xác nhận sau MySQL startup có276/560503, kể cả warm. Log xác nhận
+deadline read_transaction tại export đã hết, chưa phân biệt nguyên nhân sâu CPU/
+connection/query. Không tuyên bố chỉ cold-start hoặc warmup đã sửa lỗi.
+
 ## Reflection của bạn
 
 Sau khi tự chạy, ghi một điều khiến bạn hiểu khác trước và điểm còn chưa rõ. Viết

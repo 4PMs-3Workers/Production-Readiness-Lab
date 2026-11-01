@@ -62,3 +62,17 @@ redundant-role survivor; public experimental commits. All source restored.
 U17: Separated historical FAIL and new cold/warm PASS without causal claim; added
 diagnostic sanitizer probes, risk legend, verbatim plan prompt, direct filenames,
 self-check/oral guide and revised PDF. Human understanding/review remains unclaimed.
+
+U18: External review requested explicit disclosure of M5 test-setup edits and how
+to inspect sequential mutant commits. Verified604c0e7 vs clean81552d3: six setup
+lines added; assertions unchanged. Added clean-reference Git diff commands.
+Requested a same-harness load confirmation after a new local MySQL process start;
+saved startup/uptime and separate data, preserving every earlier run. Delegated
+execution and the personal reflection's unconfirmed status remain disclosed.
+
+U18 outcome: same harness after startup failed276/560requests at export with
+ServiceUnavailable/TimeoutError/CancelledError, including warm bursts. This narrows
+the observed failure to read-transaction deadline expiry but does not isolate deeper
+CPU/connection/query causes. Original PASS/FAIL records were retained; production
+code, harness and deadlines are unchanged. Reflection draft was updated to reflect
+this observation without claiming student manual execution.
