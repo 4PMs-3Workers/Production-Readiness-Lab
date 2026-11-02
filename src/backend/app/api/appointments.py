@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.catalog_errors import catalog_error
-from app.dependencies.auth import require_csrf
+from app.dependencies.auth import require_auth, require_csrf
 from app.dependencies.catalog import reject_duplicate_catalog_query, require_student
 from app.dependencies.database import get_db_session
 from app.domain.auth import AuthContext
@@ -229,7 +229,7 @@ async def list_appointments(
 async def export_appointments(
     request: Request,
     query: Annotated[AppointmentExportQuery, Query()],
-    context: Annotated[AuthContext, Depends(require_student)],
+    context: Annotated[AuthContext, Depends(require_auth)],
     _query_guard: Annotated[None, Depends(reject_duplicate_catalog_query)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> Response:
