@@ -230,10 +230,8 @@ async def export_appointments(
     request: Request,
     query: Annotated[AppointmentExportQuery, Query()],
     context: Annotated[AuthContext, Depends(require_auth)],
-    _query_guard: Annotated[None, Depends(reject_duplicate_catalog_query)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> Response:
-    del _query_guard
     content = await appointment_export.export_student_appointments(
         db, query, student_id=context.user_id, settings=request.app.state.settings
     )
