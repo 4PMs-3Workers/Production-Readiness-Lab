@@ -4,7 +4,6 @@
   "executor": "Student (self-reported manual terminal execution)",
   "verification": "Codex read supplied terminal output and local artifacts; no test/load rerun for this collection",
   "source_commit": "15526cbac4b48ae8c6f2430e8cd50931fb78872b",
-  "student_branch": "codex/student-recheck-20261102-083514",
   "functional": {
     "passed": 41,
     "seconds": 45.39,
@@ -18,7 +17,7 @@
   "coverage_tests": {
     "passed": 41,
     "seconds": 69.38,
-    "source": "student-pasted terminal output; JSON independently checked"
+    "source": "student-pasted terminal output; saved coverage JSON cross-checked by Codex without rerunning tests"
   },
   "service_coverage": {
     "covered_lines": 34,
@@ -90,7 +89,9 @@
     "source_restore_diff": "",
     "published_experiment_branch": "codex/bt3-23001952-vt071-student-mutants-20261102",
     "restored_experiment_head": "721ffc04cf51fb80ed9a9312b2a7ffdc66392995",
-    "not_ancestors_of_submission": true
+    "not_ancestors_of_submission": true,
+    "local_experiment_branch": "codex/bt3-23001952-vt071-mutants-verified",
+    "published_experiment_branch_url": "https://github.com/4PMs-3Workers/Production-Readiness-Lab/tree/codex/bt3-23001952-vt071-student-mutants-20261102"
   },
   "pool": {
     "timestamp_utc": "2026-11-02T01:44:45.297421+00:00",
@@ -172,11 +173,24 @@
     "source": "student-pasted terminal output; not independently rerun"
   },
   "limits": [
-    "Single student load run; no causal improvement comparison to Codex302/560",
+    "Single student load run; same host/MySQL as Codex302/560, not an independent environment or causal improvement comparison",
     "No claim student reran historical red phase, original M0, NullPool, reverse order, full backend, frontend, Docker or PDF generation",
     "Original plan/code/review and earlier experiments remain attributed to Codex",
     "No claim of full manual code review or independently authored implementation; reflection is AI-assisted editing of verified execution observations."
   ],
   "raw_archive": "raw-evidence.zip",
-  "manifest": "manifest.json"
+  "manifest": "manifest.json",
+  "student_local_branch": "codex/student-recheck-20261102-083514",
+  "student_local_branch_scope": "local checkout only; not pushed",
+  "source_commit_url": "https://github.com/4PMs-3Workers/Production-Readiness-Lab/commit/15526cbac4b48ae8c6f2430e8cd50931fb78872b",
+  "published_submission_branch": "codex/bt3-23001952-vt071",
+  "published_submission_branch_url": "https://github.com/4PMs-3Workers/Production-Readiness-Lab/tree/codex/bt3-23001952-vt071",
+  "replication_design": {
+    "environment": "same Windows host and same local MySQL installation/endpoint as the earlier Codex run",
+    "within_each_load_run": "80 clients share one real authenticated session",
+    "between_fixture_runs": "fresh login and fixture-owned UUID schema; not one persistent cookie across all runs",
+    "interpretation": "same-environment repeat; not independent-environment validation or a causal before/after fix comparison"
+  },
+  "student_diff_review_status": "not reported; guide prepared by AI does not establish student review",
+  "student_diff_review_guide": "../../student-diff-review-guide.md"
 }

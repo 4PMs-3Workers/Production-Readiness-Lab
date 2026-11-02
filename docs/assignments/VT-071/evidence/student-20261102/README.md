@@ -3,7 +3,8 @@
 Người thực thi: sinh viên, theo terminal output gửi trong chat. Codex đối chiếu
 file trên máy, đóng gói và biên tập báo cáo; không chạy lại các test để thay thế
 lần thực hành này. Source15526cbac4b48ae8c6f2430e8cd50931fb78872b, branch local
-codex/student-recheck-20261102-083514, Windows/MySQL8.4 riêng.
+codex/student-recheck-20261102-083514. Hai lượt dùng cùng host Windows và cùng
+MySQL8.4 local; mỗi fixture tạo schema UUID riêng.
 
 | Kiểm chứng | Kết quả | Nguồn |
 |---|---|---|
@@ -34,6 +35,24 @@ TimeoutError của SQLAlchemy được logger xác nhận. Mọi response thành
 100rows và exact owned ID set. Pool_size5/max_overflow5, queue0.5s,
 connect/read/request budgets1/1/3s. NFR-03 vẫnFAIL. Đây là một lượt mới, không phải
 một phép đo cải thiện so với Codex302/560; không đổi setting/code để ép PASS.
+Đây là phép lặp trên cùng môi trường, không phải xác nhận chéo bằng môi trường
+độc lập. Trong mỗi lượt,80client chung một phiên đăng nhập thật; fixture của lượt
+khác đăng nhập mới và tạo schema UUID mới, không tái dùng một cookie qua mọi lượt.
+
+### Tên nhánh và đường dẫn tra cứu
+
+| Tên nhánh | Phạm vi | Dùng để tra cứu |
+|---|---|---|
+| `codex/student-recheck-20261102-083514` | Local, chưa push | Bản sinh viên thực hành tại source [15526cb](https://github.com/4PMs-3Workers/Production-Readiness-Lab/commit/15526cbac4b48ae8c6f2430e8cd50931fb78872b); không tạo link GitHub cho tên local |
+| `codex/bt3-23001952-vt071-mutants-verified` | Tên local do mutation helper tạo | Tên gốc còn trong metadata thô, không phải nhánh công khai để bấm vào |
+| `codex/bt3-23001952-vt071-student-mutants-20261102` | Nhánh thí nghiệm đã công bố | [Mở nhánh công khai](https://github.com/4PMs-3Workers/Production-Readiness-Lab/tree/codex/bt3-23001952-vt071-student-mutants-20261102), gồm các commit mutant và commit restore |
+
+[mutants.json](mutants.json) là bản chỉ mục đã chuẩn hóa tên nhánh công khai;
+`local_experimental_branch` giữ tên local ban đầu. [summary.json](summary.json)
+dùng `student_local_branch` và ghi rõ phạm vi local, kèm link source và nhánh đã
+công bố. Bản gốc `mutants/review-mutants.json` bên trong ZIP vẫn giữ nguyên tên
+local và bytes tại thời điểm chạy; manifest kiểm tra bản thô đó, không phải chỉ mục
+được chuẩn hóa. Commit IDs, kết quả test và raw archive không thay đổi.
 
 ### Mutation của lần sinh viên chạy
 
@@ -72,7 +91,10 @@ Người học đã tự chạy41tests, TC18, coverage, mutation helper và pool
 rồi kiểm tra OpenAPI/gateway. Chưa có bằng chứng họ tự chạy historical red/M0,
 NullPool, reverse order, full backend, frontend, Docker hoặc dựng PDF. Các log ban
 đầu, thiết kế/patch/review và PDF vẫn ghi AI hỗ trợ. Reflection được biên tập dựa
-trên việc đã làm; không tự nhận đã review thủ công toàn bộ code hoặc có team approval.
+trên việc đã làm. Review diff của sinh viên chưa được xác nhận: xem
+[hướng dẫn đọc4file production](../../student-diff-review-guide.md). Checklist của
+hướng dẫn để trống; tài liệu AI chuẩn bị không thay thế việc người học tự đọc.
+Review nhóm và tách PR vẫn là bước trước khi merge.
 
 CI của source15526cb đã completed/success ở cả6workflow events, theo GitHub API
 đối chiếu ngày02/11: [snapshot](ci-source-15526cb.json). Không gán trạng thái đó cho

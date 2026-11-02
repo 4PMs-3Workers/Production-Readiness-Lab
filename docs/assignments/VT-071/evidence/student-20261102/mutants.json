@@ -1,6 +1,6 @@
 {
   "submission_source_commit": "15526cbac4b48ae8c6f2430e8cd50931fb78872b",
-  "experimental_branch": "codex/bt3-23001952-vt071-mutants-verified",
+  "experimental_branch": "codex/bt3-23001952-vt071-student-mutants-20261102",
   "experimental_restored_head": "721ffc04cf51fb80ed9a9312b2a7ffdc66392995",
   "mutants": [
     {
@@ -44,5 +44,11 @@
       "exit_code": 1
     }
   ],
-  "submission_restore_diff": ""
+  "submission_restore_diff": "",
+  "experimental_branch_scope": "published remote branch",
+  "experimental_branch_url": "https://github.com/4PMs-3Workers/Production-Readiness-Lab/tree/codex/bt3-23001952-vt071-student-mutants-20261102",
+  "local_experimental_branch": "codex/bt3-23001952-vt071-mutants-verified",
+  "local_experimental_branch_scope": "helper-created local name; not a published navigation target",
+  "metadata_role": "Navigation metadata normalized after execution; commit IDs and outcomes unchanged",
+  "original_metadata_archive_path": "raw-evidence.zip:mutants/review-mutants.json"
 }

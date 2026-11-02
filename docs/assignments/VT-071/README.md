@@ -35,6 +35,10 @@ a CI/dependency PR and a versioned evidence artifact with a checksum manifest.
 That packaging remains a follow-up before team merge; this map keeps the combined
 submission reviewable. PR55 has not been merged.
 
+For the student's own review, [the four-file reading guide](student-diff-review-guide.md)
+uses the fixed diff `aa8c5b0..15526cb` (118 additions,2 deletions under src/).
+It is an AI-prepared aid; the student has not reported completing this code review.
+
 ## Contract
 
 GET /api/v1/appointments/export[?status=CANCELLED]: owned STUDENT history, UTF-8 CSV,
@@ -316,10 +320,16 @@ New mutant commits are on a separate student-mutants-20261102 experiment branch.
 Their production-pool run is a new FAIL:312/560HTTP503, all verified auth pool queue
 timeouts. Errors per80:49,45,45,42,41,45,45; successful p95 range0.619..0.834s.
 The prior Codex302/560 and all older runs remain separate. No setting/code changed;
-this is not a before/after improvement experiment and NFR-03 remainsFAIL.
+this is a same-environment repeat, not independent-environment validation or a
+before/after improvement experiment; NFR-03 remainsFAIL. Both runs use the same
+Windows host and local MySQL. Each fixture has a new UUID schema and fresh login;
+within a run,80clients share one authenticated session.
 
 See [student execution ledger](evidence/student-20261102/README.md), summary/manifest,
 and the compressed raw-evidence.zip (19files,~164KiB instead of~1.95MiB expanded).
+The ledger maps local-only checkout/helper branch names to the published student
+mutant branch; normalized JSON links to that public ref. Original metadata inside
+the ZIP retains its local name and original checksum.
 The ZIP preserves raw bytes; a small UTF-8 excerpt is provided for the UTF-16 terminal
 logs. Codex collected/verified the student's data without rerunning their tests.
 CI for source15526cb is verified successful in the source snapshot; evidence/doc

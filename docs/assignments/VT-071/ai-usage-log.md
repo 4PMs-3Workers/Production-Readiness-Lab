@@ -132,3 +132,15 @@ new results, not a relabeling of earlier Codex evidence. New mutation commits ar
 kept on a separately published experiment branch; submission source stays clean.
 The earlier statement that the student has not run commands describes the earlier
 stage only. Manual code authorship, full code review or group approval are not claimed.
+
+
+U25: User reported ambiguous branch labels and final wording. Codex normalized
+the standalone mutant navigation metadata to the published student experiment
+branch, retained the original local name explicitly, and labeled the student
+checkout as local-only. Raw ZIP bytes and manifest hashes remain unchanged.
+Documented302vs312 as repeats on the same Windows/MySQL environment, with one
+shared session within each run but fresh login/UUID schema across fixtures.
+Prepared an AI-authored four-file production-diff reading guide and blank checklist;
+no student code-review completion or subjective reflection has been invented.
+Reworded the PDF footer neutrally. Reflection stays327words; PR split remains a
+team-integration follow-up. No runtime/test/config change, new test or load rerun.

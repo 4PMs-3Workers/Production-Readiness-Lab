@@ -198,3 +198,15 @@ Raw19files are compressed with a checksum manifest under evidence/student-202611
 Student mutant commits remain on a separate restored experimental branch, never
 merged. The original code/test/evidence chain is unchanged. Source15526cb CI now
 verified successful; current documentation does not claim new test execution.
+
+
+## Final metadata and wording follow-up
+
+Published mutant ref and local-only checkout/helper refs are now explicit in the
+student ledger and standalone JSON. The raw ZIP retains its original metadata and
+all original bytes/checksums.302and312are same-environment repetitions, not an
+independent-environment validation. Each load fixture logs in afresh and owns its
+UUID schema;80clients share a session within each run. A source-pinned four-file
+diff guide is prepared for the student's own review, which remains not reported.
+Reflection is unchanged. This update changes documentation/navigation only;
+no code/config/tests, raw measurement, test run, PR split or merge is claimed.
