@@ -117,3 +117,18 @@ actual GitHub log, reproduced that test1fail, ran the existing route generator,
 and verified3targeted tests pass. Added an early generation check in the workflow,
 kept all container tests/zero-skip gates and timeouts. This synchronizes an export
 contract artifact; no new business behavior or pool setting is introduced.
+
+U23: Student asked for complete command instructions. Codex inspected installed
+Python/MySQL/tools and wrote a local step-by-step guide using a separate clone,
+fresh venv, real DB tests, coverage, mutation and load. Instructions are not an
+execution claim. Fifteen PowerShell code blocks were syntax-parsed only.
+
+U24: Student actually ran the guide and supplied terminal output. Codex then read
+local captured files, raw pool/coverage JSON and mutant logs, verified counts and
+source restoration, compressed19rawfiles with checksum manifest, and prepared
+AI-assisted factual reflection. No tests/load were rerun by Codex in this update.
+Student41pass/TC18pass/coverage50of50/4kills1survivor and pool312of560FAIL are their
+new results, not a relabeling of earlier Codex evidence. New mutation commits are
+kept on a separately published experiment branch; submission source stays clean.
+The earlier statement that the student has not run commands describes the earlier
+stage only. Manual code authorship, full code review or group approval are not claimed.

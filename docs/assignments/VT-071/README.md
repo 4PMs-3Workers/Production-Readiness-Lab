@@ -292,24 +292,47 @@ do not represent a new performance measurement. review-pool-summary.json records
 that measured source SHA256. No functional/CI PASS overrides the open load FAIL.
 
 ### Container route-map follow-up
-+
-+The e90325b container workflow finished1failed/175passed: the generated gateway
-+map was stale relative to the new export OpenAPI operation. Reproduced the exact
-+test locally (1failed), regenerated tools/deploy/nginx/route-map.conf with the
-+existing generator (seven added entries,31business operations), and reran the
-+original failing test plus URI-regex/gateway contracts:3passed in0.66s. Static
-+export precedes the parameterized appointment route in the generated finite map.
-+The workflow now checks generation before Docker acceptance for earlier feedback;
-+the original container test and zero-skip gate remain enabled. No timeout change.
-+See evidence/review-gateway-map-ci-failure.txt, review-gateway-map-red.txt and
-+review-gateway-map-green.txt. The new full container run is separate from the
-+175passing tests on e90325b; local checks do not claim a fresh full Docker pass.
-+
-+## Evidence and ownership
+
+The e90325b container workflow finished1failed/175passed: the generated gateway
+map was stale relative to the new export OpenAPI operation. Reproduced the exact
+test locally (1failed), regenerated tools/deploy/nginx/route-map.conf with the
+existing generator (seven added entries,31business operations), and reran the
+original failing test plus URI-regex/gateway contracts:3passed in0.66s. Static
+export precedes the parameterized appointment route in the generated finite map.
+The workflow now checks generation before Docker acceptance for earlier feedback;
+the original container test and zero-skip gate remain enabled. No timeout change.
+See evidence/review-gateway-map-ci-failure.txt, review-gateway-map-red.txt and
+review-gateway-map-green.txt. The new full container run is separate from the
+175passing tests on e90325b; local checks do not claim a fresh full Docker pass.
+
+## Student self-check on02/11/2026
+
+The student supplied terminal output and a local recheck copy at source15526cb.
+Verified captured functional41pass/45.39s and TC18 1pass/4.09s; coverage service
+34/34lines,8/8arcs and diff50/50lines,10/10arcs. Their mutation helper produced
+4kills/1survivor, with restored source and no mutant ancestor of the source branch.
+New mutant commits are on a separate student-mutants-20261102 experiment branch.
+
+Their production-pool run is a new FAIL:312/560HTTP503, all verified auth pool queue
+timeouts. Errors per80:49,45,45,42,41,45,45; successful p95 range0.619..0.834s.
+The prior Codex302/560 and all older runs remain separate. No setting/code changed;
+this is not a before/after improvement experiment and NFR-03 remainsFAIL.
+
+See [student execution ledger](evidence/student-20261102/README.md), summary/manifest,
+and the compressed raw-evidence.zip (19files,~164KiB instead of~1.95MiB expanded).
+The ZIP preserves raw bytes; a small UTF-8 excerpt is provided for the UTF-16 terminal
+logs. Codex collected/verified the student's data without rerunning their tests.
+CI for source15526cb is verified successful in the source snapshot; evidence/doc
+updates do not constitute a new code/CI execution. Earlier code/design/AI attribution
+is retained; the old blanket statement that the student has not run commands is superseded.
+
+## Evidence and ownership
 
 Read spec.md, plan-review.md (verbatim plan prompt), test-design.md, post-test-review.md,
 execution-notes.md, review-revision.md and ai-usage-log.md. Source and logs are runnable.
-The student explicitly said they have not personally run commands; execution was
-delegated to Codex. Reflection remains an AI-assisted draft, not a manual-execution
-claim. self-check-guide.md provides rerun and oral-defense preparation. No force
+Earlier execution was delegated to Codex. On02/11/2026 the student personally ran
+41tests, TC18, coverage, mutation and production-pool load; local artifacts were
+cross-checked. Reflection now records that observed execution, with AI-assisted
+editing, rather than saying the student has never run commands. Full manual code
+review and team approval are not inferred. self-check-guide.md supports further practice. No force
 push or merge performed.

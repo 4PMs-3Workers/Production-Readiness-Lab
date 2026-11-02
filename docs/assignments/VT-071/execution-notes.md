@@ -2,7 +2,9 @@
 
 Original baseline: aa8c5b0be057754f9b3409c8699537d4aeb887b9 (develop), checked2026-11-01.
 Original submission 4cfd6c6 remains in history; original red/green/load logs preserved.
-All execution below was delegated to Codex, not manually performed by the student.
+Historical execution through U22 was delegated to Codex. The separately dated
+02/11 student self-check below records their own terminal execution; earlier logs
+are not retroactively reassigned.
 
 ## Test-first and final verification
 
@@ -142,9 +144,9 @@ actual immutable final commit rather than trying to embed a self-hash here.
 ## AI disclosure and ownership
 
 Actual plan prompt is preserved verbatim in plan-review.md. Actual post-test review
-and the multiplicity correction are in post-test-review.md/ai-usage-log.md. Student
-said they have not run commands; execution is attributed to Codex. Reflection is337
-words and remains a draft. First-page commitment is retained; responsibility to
+and the multiplicity correction are in post-test-review.md/ai-usage-log.md. Before02/11 the student said they had not run commands; those historical logs
+remain attributed to Codex. The later student self-check supersedes that current
+status; reflection is now AI-assisted editing of their observed execution. First-page commitment is retained; responsibility to
 understand/review AI-assisted work is distinct from claiming manual command execution.
 No force push/merge. Human/team review and stakeholder validation remain outstanding.
 
@@ -183,3 +185,16 @@ Generator --check verifies31business operations; original test + URI/gateway uni
 contracts:3pass/0.66s. Workflow adds a fast generation check before Docker. Scope
 map includes the generated artifact and workflow. Full CI rerun remains a separate
 result; no local full Docker pass is claimed.
+
+## Student self-check on02/11/2026 — new execution attribution
+
+The student supplied captured logs from a separate copy at source15526cb. Codex
+read the files and verified41pass/45.39s, TC18 1pass/4.09s, service34/34lines/8arcs,
+diff50/50lines/10arcs,4killed/1survived mutants and source restoration. Coverage
+run41pass/69.38s is from the student's pasted terminal; coverage JSON was checked.
+New load312/560503 all at auth with SQLAlchemy pool TimeoutError; phase errors
+49,45,45,42,41,45,45. No causal improvement or production fix is claimed.
+Raw19files are compressed with a checksum manifest under evidence/student-20261102.
+Student mutant commits remain on a separate restored experimental branch, never
+merged. The original code/test/evidence chain is unchanged. Source15526cb CI now
+verified successful; current documentation does not claim new test execution.

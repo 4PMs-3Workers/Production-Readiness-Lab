@@ -41,7 +41,8 @@ Original baseline and red/green evidence remain unchanged and preserved.
 The student explicitly said they have not personally run commands, and requested
 Codex execution. Record this as delegated AI-assisted execution, not manual student
 execution. Responsibility for reviewing/owning the submitted work can coexist with
-delegation; the first-page commitment is retained exactly. Reflection remains a draft.
+delegation; the first-page commitment is retained exactly. At that earlier stage reflection remained a draft; the02/11 student self-check
+now supplies genuine execution observations for an updated AI-assisted reflection.
 
 ## Observed revision results
 
@@ -80,3 +81,12 @@ located at rollback and Aborted_clients+83. These are two distinct failure paths
 Final process snapshots exclude observer and show no persistent active owned query;
 nominal250ms sampling cannot rule out transient orphans. README and pool summary
 record order, all attempts, metrics and limits; performance remains open FAIL.
+
+## Student execution now provided
+
+The02/11student self-check resolves the lack of any personal command execution:
+41functional/OpenAPI pass, TC18 pass, coverage50/50 and four killed/one survived
+mutants, plus312/560auth pool timeouts. Earlier Codex302/560 remains separate and
+NFR-03 remainsFAIL. Full code-review/group approval is not inferred. New raw data
+is compressed with manifest rather than expanding another large per-request diff.
+See evidence/student-20261102/README.md for source and attribution.

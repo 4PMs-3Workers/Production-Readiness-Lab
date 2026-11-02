@@ -1,7 +1,8 @@
 # Tự chạy và chuẩn bị vấn đáp - BT3 VT-071
 
-Log hiện có là Codex thực thi theo yêu cầu của bạn. Theo README để chạy lại bằng
-checkout/venv và MySQL test riêng; ghi lại command, output và quan sát thực tế.
+Log ban đầu do Codex thực thi. Ngày02/11/2026, người học đã tự chạy41tests, TC18,
+coverage, mutation và pool5+5; bằng chứng riêng nằm ở evidence/student-20261102.
+Các lệnh dưới vẫn là hướng dẫn tái hiện; lưu rõ ai chạy, command/output/thời điểm.
 
 ## Lần chạy tối thiểu
 
@@ -122,6 +123,6 @@ connection/query. Không tuyên bố chỉ cold-start hoặc warmup đã sửa l
 
 ## Reflection của bạn
 
-Sau khi tự chạy, ghi một điều khiến bạn hiểu khác trước và điểm còn chưa rõ. Viết
-250-350 từ bằng giọng của bạn. Bản AI draft ghi đúng việc ủy quyền cho Codex; không
-đổi thành tuyên bố tự tay chạy nếu chưa thực hiện.
+Reflection đã được cập nhật từ lần tự chạy02/11, có AI hỗ trợ biên tập. Khi chạy
+thêm, ghi điều quan sát/hiểu thêm và điều còn chưa rõ; giữ250-350từ, phân biệt phần
+AI làm với những lệnh bạn thật sự đã thực hiện.
