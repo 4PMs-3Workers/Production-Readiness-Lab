@@ -292,6 +292,12 @@ async def test_export_real_session_role_is_denied(availability_env, role):
 async def test_export_source_cardinality_after_retry(booking_env):
     """TC18: independent CSV/DB cardinality oracle, beyond the existing status oracle."""
     env, _, starts_at = booking_env
+    from re import fullmatch
+    from sqlalchemy import text
+    schema = env.factory.kw["bind"].url.database
+    assert fullmatch(r"prl_models_test_[a-f0-9]{32}", schema)
+    async with env.factory.begin() as db:
+        await db.execute(text("ALTER TABLE appointments DROP INDEX uq_appointments_creation_request"))
     await sign_in(env)
     csrf = env.client.cookies.get("prl_csrf")
     payload = {
