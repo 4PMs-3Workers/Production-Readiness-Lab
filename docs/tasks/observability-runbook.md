@@ -110,7 +110,7 @@ prl:worker:backlog_max_fresh
 prl:worker:backlog_oldest_overdue_max_fresh
 ```
 
-For gateway source events in Loki, start with `{service_name="gateway",deployment_environment_name="demo"}`. Filter genuine healthchecks with `| json event="event" | __error__ = "" | event="gateway.healthcheck"`; business requests use `event="gateway.request"`. Compare the embedded producer UTC timestamp with the ingestion timestamp after a Collector restart. A recently ingested old source event is not fresh recovery evidence. The five dashboards are **API errors**, **DB / pool**, **Gateway SLI**, **Telemetry loss**, and **Worker progress / backlog**.
+For gateway source events in Loki, start with `{service_name="gateway",deployment_environment_name="demo"}`. Filter genuine healthchecks with `| json event="event" | __error__ = "" | event="gateway.healthcheck"`; business requests use `event="gateway.request"`. Compare the embedded producer UTC timestamp with the ingestion timestamp after a Collector restart. A recently ingested old source event is not fresh recovery evidence. The six dashboards are **API errors**, **DB / pool**, **Gateway SLI**, **Telemetry loss**, **Worker progress / backlog**, and **Backup health**.
 
 ## Redaction and exporter failures
 

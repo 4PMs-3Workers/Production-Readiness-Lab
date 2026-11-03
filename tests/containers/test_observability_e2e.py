@@ -1581,7 +1581,7 @@ def verify_stale_gateway_event(runtime: Any, event: dict[str, object]) -> dict[s
 def capture_dashboard_screenshots(
     runtime: Any, *, evidence_root: Path | None = None
 ) -> dict[str, object]:
-    """Capture the five live Grafana dashboards through fixture-only browser TLS."""
+    """Capture the configured live Grafana dashboards through fixture-only browser TLS."""
     from tests.containers.test_telemetry_stack import OPS_PROBE_DASHBOARD_UIDS
 
     node = shutil.which("node")
@@ -1694,11 +1694,14 @@ const dir = process.env.TASK8_SCREENSHOT_DIR;
     try:
         result = json.loads(completed.stdout)
         rows = result["results"]
-        if len(rows) != 5 or {row["uid"] for row in rows} != OPS_PROBE_DASHBOARD_UIDS:
+        if (
+            len(rows) != len(OPS_PROBE_DASHBOARD_UIDS)
+            or {row["uid"] for row in rows} != OPS_PROBE_DASHBOARD_UIDS
+        ):
             raise ValueError
     except (KeyError, TypeError, ValueError, json.JSONDecodeError):
         raise AcceptanceFailure(
-            "The Grafana screenshot run did not cover exactly five dashboards"
+            "The Grafana screenshot run did not cover every configured dashboard"
         ) from None
     screenshots = []
     for row in rows:
@@ -1838,8 +1841,9 @@ def test_dashboard_screenshots_use_browser_resolver_for_metadata_and_pages(tmp_p
     assert {path.rsplit("/", 1)[-1] for path in requested_paths if path.startswith("/api/")} == (
         OPS_PROBE_DASHBOARD_UIDS
     )
-    assert sum(path.startswith("/d/") for path in requested_paths) == 5
-    assert len(authorization_matches) == 10 and all(authorization_matches)
+    assert sum(path.startswith("/d/") for path in requested_paths) == len(OPS_PROBE_DASHBOARD_UIDS)
+    assert len(authorization_matches) == 2 * len(OPS_PROBE_DASHBOARD_UIDS)
+    assert all(authorization_matches)
     assert foreign_authorization_present and not any(foreign_authorization_present)
     screenshots = result["screenshots"]
     assert isinstance(screenshots, list)

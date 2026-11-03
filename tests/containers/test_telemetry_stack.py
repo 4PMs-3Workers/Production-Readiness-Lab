@@ -2979,6 +2979,7 @@ class FullStackRuntime:
             "tempo-self",
             "grafana-self",
             "alertmanager-self",
+            "backup-monitor",
         }
         observed = []
 
@@ -4136,6 +4137,7 @@ def test_full_stack_helper_deadlines_cap_runtime_and_keep_default_limits(
         "tempo-self",
         "grafana-self",
         "alertmanager-self",
+        "backup-monitor",
     )
 
     class FakeStack:
