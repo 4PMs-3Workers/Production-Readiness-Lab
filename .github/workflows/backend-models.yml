@@ -1,6 +1,14 @@
 name: Backend models
 
 on:
+  workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+      pr_head_sha:
+        default: ''
+        type: string
   pull_request:
     branches: [develop, main]
   push:
@@ -31,6 +39,9 @@ jobs:
       DATABASE_URL: mysql+asyncmy://root:test-only-password@127.0.0.1:3306/prl_ci_migrations
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
@@ -48,6 +59,10 @@ jobs:
       - run: npm install --global pyright@1.1.407
       - run: .venv/bin/python -m black --check src/backend tests/backend tools/scripts/export_openapi.py tools/scripts/seed_demo.py tools/backup
       - run: .venv/bin/python -m ruff check src/backend tests/backend tools/scripts/export_openapi.py tools/scripts/seed_demo.py tools/backup
+      - name: Release tooling quality checks
+        run: |
+          .venv/bin/python -m black --check tools/deploy/release*.py tests/backend/unit/test_release*.py tests/release
+          .venv/bin/python -m ruff check tools/deploy/release*.py tests/backend/unit/test_release*.py tests/release
       - run: pyright
 
       # --- Migration smoke tests ---

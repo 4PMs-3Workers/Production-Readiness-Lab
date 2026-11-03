@@ -47,6 +47,12 @@ include = [
     "tools/scripts/seed_demo.py",
     "tools/backup",
     "tests/recovery",
+    "tools/deploy/release.py",
+    "tools/deploy/release_manifest.py",
+    "tools/deploy/release_images.py",
+    "tools/deploy/release_trust.py",
+    "tools/deploy/release_retention.py",
+    "tests/release",
 ]
 extraPaths = ["src/backend"]
 venvPath = "."

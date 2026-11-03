@@ -1,0 +1,294 @@
+name: Immutable application release
+
+on:
+  pull_request:
+    branches: [develop, main]
+  workflow_dispatch:
+    inputs:
+      overlay:
+        type: choice
+        options: [local, https]
+        default: local
+      observability:
+        type: boolean
+        default: false
+      previous_stable:
+        description: Previous stable release manifest by digest; empty only for explicit bootstrap
+        type: string
+      bootstrap:
+        description: First release only; no previous stable baseline
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: release-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.identity.outputs.sha }}
+      pr_head: ${{ steps.identity.outputs.pr_head }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - name: Establish exact source and reviewed merge identity
+        id: identity
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          mkdir -p build/release
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            python -m tools.deploy.release source --trusted --output build/release/source.json
+          else
+            python -m tools.deploy.release source --output build/release/source.json
+          fi
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          value = json.loads(Path('build/release/source.json').read_text())
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('sha=' + value['source_sha'] + '\n')
+              output.write('pr_head=' + (value['pr_head_sha'] or '') + '\n')
+          PY
+      - uses: actions/upload-artifact@v7
+        id: upload
+        with:
+          name: release-source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/release/source.json
+          if-no-files-found: error
+          retention-days: 2
+
+  backend:
+    if: github.event_name == 'workflow_dispatch'
+    needs: source
+    uses: ./.github/workflows/backend-models.yml
+    with:
+      source_sha: ${{ needs.source.outputs.sha }}
+      pr_head_sha: ${{ needs.source.outputs.pr_head }}
+  frontend:
+    if: github.event_name == 'workflow_dispatch'
+    needs: source
+    uses: ./.github/workflows/frontend.yml
+    with:
+      source_sha: ${{ needs.source.outputs.sha }}
+      pr_head_sha: ${{ needs.source.outputs.pr_head }}
+  security:
+    if: github.event_name == 'workflow_dispatch'
+    needs: source
+    uses: ./.github/workflows/dependency-security.yml
+    with:
+      source_sha: ${{ needs.source.outputs.sha }}
+  containers:
+    if: github.event_name == 'workflow_dispatch'
+    needs: source
+    uses: ./.github/workflows/containerized-demo.yml
+    with:
+      source_sha: ${{ needs.source.outputs.sha }}
+      pr_head_sha: ${{ needs.source.outputs.pr_head }}
+  recovery:
+    if: github.event_name == 'workflow_dispatch'
+    needs: source
+    uses: ./.github/workflows/mysql-recovery.yml
+    with:
+      source_sha: ${{ needs.source.outputs.sha }}
+      pr_head_sha: ${{ needs.source.outputs.pr_head }}
+
+  candidate:
+    needs: [source, backend, frontend, security, containers, recovery]
+    if: >-
+      always() && needs.source.result == 'success' &&
+      (github.event_name == 'pull_request' ||
+      (needs.backend.result == 'success' && needs.frontend.result == 'success' &&
+      needs.security.result == 'success' && needs.containers.result == 'success' &&
+      needs.recovery.result == 'success'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      RELEASE_SPEC: build/release/candidate.json
+      RELEASE_PROOF: build/release/candidate-proof.json
+      RELEASE_STAGE: candidate
+      RELEASE_LAB_REPOSITORY: 127.0.0.1:5000/prl
+      RELEASE_OVERLAY: ${{ inputs.overlay || 'local' }}
+      RELEASE_OBSERVABILITY: ${{ inputs.observability || false }}
+      PREVIOUS_STABLE: ${{ inputs.previous_stable }}
+      RELEASE_BOOTSTRAP: ${{ github.event_name == 'pull_request' || inputs.bootstrap }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/release-tools
+      - uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.source.outputs.artifact_id }}
+          path: build/release
+          merge-multiple: true
+      - name: Build OCI candidates once
+        env:
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: |
+          docker buildx create --name prl-release-builder --driver docker-container --use
+          docker buildx build --platform linux/amd64 --provenance=false --sbom=false \
+            --build-arg "PRL_SOURCE_SHA=$SOURCE_SHA" -f Dockerfile.backend \
+            --output type=oci,dest=build/release/backend.tar .
+          docker buildx build --platform linux/amd64 --provenance=false --sbom=false \
+            --build-arg "PRL_SOURCE_SHA=$SOURCE_SHA" -f Dockerfile.frontend \
+            --output type=oci,dest=build/release/frontend.tar .
+          if [ "$RELEASE_OBSERVABILITY" = true ]; then
+            docker buildx build --platform linux/amd64 --provenance=false --sbom=false \
+              --build-arg "PRL_SOURCE_SHA=$SOURCE_SHA" -f tools/infra/collector.Dockerfile \
+              --output type=oci,dest=build/release/collector.tar .
+          fi
+      - name: Bind archives to source and public configuration
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from tools.deploy.release import candidate
+          from tools.deploy.release_manifest import Provenance, read, write
+          write(Path(os.environ['RELEASE_SPEC']), candidate(
+              Path('build/release'), 'ghcr.io/' + os.environ['GITHUB_REPOSITORY'].lower(),
+              read(Path('build/release/source.json'), Provenance),
+              overlay=os.environ['RELEASE_OVERLAY'],
+              observability=os.environ['RELEASE_OBSERVABILITY'] == 'true',
+              previous_stable=os.environ['PREVIOUS_STABLE'] or None,
+              bootstrap=os.environ['RELEASE_BOOTSTRAP'] == 'true',
+          ))
+          PY
+      - name: Import exact OCI bytes into the loopback registry
+        run: |
+          docker run -d --name prl-release-registry -p 127.0.0.1:5000:5000 registry:2.8.3
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:5000/v2/ >/dev/null; then break; fi
+            sleep 1
+          done
+          python -m tools.deploy.release --plain-http copy "$RELEASE_SPEC" \
+            --directory build/release --repository "$RELEASE_LAB_REPOSITORY"
+      - name: Required real candidate acceptance
+        run: |
+          python -m pytest tests/release -q --tb=short --junitxml=build/release-tests.xml
+          python - <<'PY'
+          from xml.etree import ElementTree
+          root = ElementTree.parse('build/release-tests.xml').getroot()
+          assert not sum(int(s.get('skipped', '0')) for s in root.iter('testsuite'))
+          PY
+      - uses: actions/upload-artifact@v7
+        id: upload
+        with:
+          name: release-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            build/release/*.tar
+            build/release/candidate.json
+            build/release/candidate-proof.json
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 2
+      - name: Remove only the run-owned lab registry
+        if: always()
+        run: |
+          docker rm -f prl-release-registry
+          docker buildx rm prl-release-builder
+
+  publish:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/develop'
+    needs: [source, backend, frontend, security, containers, recovery, candidate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: release-publish
+    env:
+      RELEASE_SPEC: build/release/candidate.json
+      RELEASE_PROOF: build/release/published-proof.json
+      RELEASE_STAGE: published
+      REGISTRY_AUTH_FILE: /tmp/prl-release-auth.json
+      RETENTION_ROOTS: ${{ vars.RELEASE_RETENTION_ROOTS || '{"format_version":1,"releases":[]}' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/release-tools
+      - uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.candidate.outputs.artifact_id }}
+          path: build/release
+          merge-multiple: true
+      - name: Recheck trust before accessing the registry credential
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python -m tools.deploy.release source --trusted --output build/release/publish-source.json
+      - name: Authenticate only on the trusted publishing runner
+        env:
+          REGISTRY_USERNAME: ${{ vars.RELEASE_REGISTRY_USERNAME }}
+          REGISTRY_TOKEN: ${{ secrets.RELEASE_REGISTRY_TOKEN }}
+        run: |
+          test -n "$REGISTRY_USERNAME"
+          test -n "$REGISTRY_TOKEN"
+          printf '%s' "$REGISTRY_TOKEN" | oras login --registry-config "$REGISTRY_AUTH_FILE" \
+            --username "$REGISTRY_USERNAME" --password-stdin ghcr.io
+          chmod 600 "$REGISTRY_AUTH_FILE"
+          mkdir -p "$HOME/.docker"
+          cp "$REGISTRY_AUTH_FILE" "$HOME/.docker/config.json"
+      - name: Publish exact tested images; never rebuild
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          python -m tools.deploy.release copy "$RELEASE_SPEC" --directory build/release
+          --proof build/release/candidate-proof.json
+      - name: Pull published digests into the clean daemon and verify Compose consumption
+        run: |
+          python -m pytest tests/release -q --tb=short --junitxml=build/published-tests.xml
+          python - <<'PY'
+          from xml.etree import ElementTree
+          root = ElementTree.parse('build/published-tests.xml').getroot()
+          assert not sum(int(s.get('skipped', '0')) for s in root.iter('testsuite'))
+          PY
+      - name: Commit the release manifest last; never mark stable
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from tools.deploy.release_manifest import read, write
+          from tools.deploy.release_retention import Roots
+          from tools.deploy.release_manifest import parse
+          write(Path('build/release/retention.json'), parse(os.environ['RETENTION_ROOTS'].encode(), Roots))
+          PY
+          python -m tools.deploy.release publish --spec "$RELEASE_SPEC" --directory build/release \
+            --candidate-proof build/release/candidate-proof.json --published-proof "$RELEASE_PROOF" \
+            --roots build/release/retention.json --repository "ghcr.io/${GITHUB_REPOSITORY,,}/releases" \
+            --candidate-artifact-id "${{ needs.candidate.outputs.artifact_id }}" \
+            --checks backend containers frontend recovery security --output build/release/reference.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: published-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            build/release/reference.txt
+            build/release/candidate.json
+            build/release/candidate-proof.json
+            build/release/published-proof.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Remove runner credentials
+        if: always()
+        run: |
+          rm -f "$REGISTRY_AUTH_FILE" "$HOME/.docker/config.json"

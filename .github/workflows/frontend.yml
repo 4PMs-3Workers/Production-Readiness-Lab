@@ -1,6 +1,14 @@
 name: Frontend
 
 on:
+  workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+      pr_head_sha:
+        default: ''
+        type: string
   pull_request:
     branches: [develop, main]
   push:
@@ -10,7 +18,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: frontend-${{ github.ref }}
+  group: frontend-${{ inputs.source_sha && github.run_id || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -24,6 +32,9 @@ jobs:
       NEXT_PUBLIC_APP_MODE: mock
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
@@ -84,6 +95,9 @@ jobs:
       PYTHONPATH: src/backend
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc

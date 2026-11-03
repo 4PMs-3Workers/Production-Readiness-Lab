@@ -1,6 +1,14 @@
 name: Dependency security
 
 on:
+  workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+      pr_head_sha:
+        default: ''
+        type: string
   pull_request:
   push:
 
@@ -13,6 +21,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+          persist-credentials: false
 
       - uses: actions/setup-node@v7
         with:
