@@ -379,6 +379,7 @@ def record_job_finish(
     config: BackupConfig,
     *,
     operation: Literal["backup", "scheduled"],
+    started_at: datetime | None = None,
     finished_at: datetime,
     success: bool,
     reason: Reason | None,
@@ -390,30 +391,76 @@ def record_job_finish(
         state = _current_or_initial(config, finished_at)
 
         def update(current):
-            started_at = current.last_job_started_at
-            if (
-                current.last_job_operation != operation
-                or started_at is None
-                or current.last_job_finished_at is not None
-            ):
-                started_at = finished_at - timedelta(seconds=max(0.0, duration_seconds))
             completed_backup = (
                 backup_completed_at is not None and artifact_integrity_verified is True
             )
+            latest_verified_backup_at = current.last_verified_backup_at
+            if completed_backup and (
+                latest_verified_backup_at is None or backup_completed_at > latest_verified_backup_at
+            ):
+                latest_verified_backup_at = backup_completed_at
+            stale_job = (
+                started_at is not None
+                and current.last_job_started_at is not None
+                and current.last_job_started_at > started_at
+            )
+            stale_scheduled_run = (
+                operation == "scheduled"
+                and started_at is not None
+                and current.last_scheduled_job_started_at is not None
+                and current.last_scheduled_job_started_at > started_at
+            )
+            if stale_scheduled_run:
+                return current.model_copy(
+                    update=dict(
+                        updated_at=max(current.updated_at, finished_at),
+                        last_verified_backup_at=latest_verified_backup_at,
+                        artifact_integrity_verified=(
+                            True if completed_backup else current.artifact_integrity_verified
+                        ),
+                    )
+                )
+            if stale_job:
+                updates = dict(
+                    updated_at=max(current.updated_at, finished_at),
+                    last_verified_backup_at=latest_verified_backup_at,
+                    artifact_integrity_verified=(
+                        True if completed_backup else current.artifact_integrity_verified
+                    ),
+                )
+                if operation == "scheduled":
+                    updates.update(
+                        last_scheduled_job_finished_at=finished_at,
+                        last_scheduled_job_result="success" if success else "failure",
+                        last_scheduled_job_duration_seconds=max(0.0, duration_seconds),
+                        scheduled_job_failure_pending=not success,
+                    )
+                return current.model_copy(update=updates)
+            job_started_at = current.last_job_started_at
+            if (
+                current.last_job_operation != operation
+                or job_started_at is None
+                or current.last_job_finished_at is not None
+            ):
+                job_started_at = (
+                    started_at
+                    or job_started_at
+                    or (finished_at - timedelta(seconds=max(0.0, duration_seconds)))
+                )
             scheduled_started_at = (
-                started_at if operation == "scheduled" else current.last_scheduled_job_started_at
+                job_started_at
+                if operation == "scheduled"
+                else current.last_scheduled_job_started_at
             )
             return current.model_copy(
                 update=dict(
                     updated_at=finished_at,
-                    last_verified_backup_at=(
-                        backup_completed_at if completed_backup else current.last_verified_backup_at
-                    ),
+                    last_verified_backup_at=latest_verified_backup_at,
                     artifact_integrity_verified=(
                         True if completed_backup else current.artifact_integrity_verified
                     ),
                     last_job_operation=operation,
-                    last_job_started_at=started_at,
+                    last_job_started_at=job_started_at,
                     last_job_finished_at=finished_at,
                     last_job_result="success" if success else "failure",
                     last_job_reason=None if success else (reason or Reason.DATABASE),

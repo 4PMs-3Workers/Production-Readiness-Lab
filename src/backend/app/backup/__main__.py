@@ -186,6 +186,7 @@ async def execute(argv: Sequence[str] | None) -> int:
             record_job_finish(
                 config,
                 operation=monitor_operation,
+                started_at=monitor_started_at,
                 finished_at=datetime.now(UTC),
                 success=monitor_success,
                 reason=monitor_reason,

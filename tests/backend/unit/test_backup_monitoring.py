@@ -314,6 +314,76 @@ def test_job_start_reloads_state_after_initial_scan_before_updating(tmp_path, mo
     assert state.last_job_started_at == started
 
 
+def test_late_job_finish_does_not_complete_a_newer_run(tmp_path):
+    config, _ = fixture_artifact(tmp_path)
+    now = datetime.now(UTC)
+    old_started = now - timedelta(seconds=3)
+    new_started = now - timedelta(seconds=1)
+    old_finished = now - timedelta(milliseconds=500)
+    write_state(
+        tmp_path / ".prl-monitoring-state.json",
+        make_state().model_copy(update={"scheduled_job_failure_pending": True}),
+    )
+    record_job_start(config, operation="scheduled", started_at=old_started)
+    record_job_start(config, operation="scheduled", started_at=new_started)
+
+    record_job_finish(
+        config,
+        operation="scheduled",
+        started_at=old_started,
+        finished_at=old_finished,
+        success=True,
+        reason=None,
+        duration_seconds=2.5,
+        backup_completed_at=old_finished,
+        artifact_integrity_verified=True,
+    )
+
+    state = read_state(tmp_path / ".prl-monitoring-state.json")
+    assert state is not None
+    assert state.last_job_started_at == new_started
+    assert state.last_job_finished_at is None
+    assert state.last_job_result is None
+    assert state.scheduled_job_failure_pending is True
+    assert state.last_verified_backup_at == old_finished
+
+
+def test_scheduled_finish_updates_schedule_after_a_newer_manual_start(tmp_path):
+    config, _ = fixture_artifact(tmp_path)
+    now = datetime.now(UTC)
+    scheduled_started = now - timedelta(seconds=3)
+    manual_started = now - timedelta(seconds=1)
+    scheduled_finished = now - timedelta(milliseconds=500)
+    write_state(
+        tmp_path / ".prl-monitoring-state.json",
+        make_state().model_copy(update={"scheduled_job_failure_pending": True}),
+    )
+    record_job_start(config, operation="scheduled", started_at=scheduled_started)
+    record_job_start(config, operation="backup", started_at=manual_started)
+
+    record_job_finish(
+        config,
+        operation="scheduled",
+        started_at=scheduled_started,
+        finished_at=scheduled_finished,
+        success=True,
+        reason=None,
+        duration_seconds=2.5,
+        backup_completed_at=scheduled_finished,
+        artifact_integrity_verified=True,
+    )
+
+    state = read_state(tmp_path / ".prl-monitoring-state.json")
+    assert state is not None
+    assert state.last_job_operation == "backup"
+    assert state.last_job_started_at == manual_started
+    assert state.last_job_finished_at is None
+    assert state.last_scheduled_job_started_at == scheduled_started
+    assert state.last_scheduled_job_finished_at == scheduled_finished
+    assert state.last_scheduled_job_result == "success"
+    assert state.scheduled_job_failure_pending is False
+
+
 def test_monitor_init_preserves_state_written_during_initial_scan(tmp_path, monkeypatch):
     from app.backup import __main__ as backup_cli
     from app.backup import monitoring
