@@ -633,7 +633,7 @@ tests:
               store: backup-storage
               severity: warning
             exp_annotations:
-              summary: No scheduled backup has started within the expected schedule and completion window.
+              summary: No scheduled backup has started within the expected schedule and grace window.
               runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#backup-job-missing
     promql_expr_test:
       - expr: prl_backup_remote_copy_state{state="success"}
