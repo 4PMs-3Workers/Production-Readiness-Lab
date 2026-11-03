@@ -7,18 +7,29 @@ import json
 import logging
 import time
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import NoReturn
 
 from app.backup.backup import backup, backup_locked
 from app.backup.config import BackupError, Reason, load_config
 from app.backup.locking import operation_lock
 from app.backup.manifest import Manifest
+from app.backup.monitoring import STATE_FILENAME, collect_initial_state, write_state
 from app.backup.restore import restore, verify_restored
 from app.backup.retention import retain, retain_locked, status
 from app.backup.storage import load_artifact
 from app.core.publishing import CLEANUP_TIMEOUT_SECONDS, Publisher
 
-COMMANDS = ("backup", "restore", "verify", "inspect", "status", "retain", "scheduled")
+COMMANDS = (
+    "backup",
+    "restore",
+    "verify",
+    "inspect",
+    "status",
+    "retain",
+    "scheduled",
+    "monitor-init",
+)
 
 
 class Parser(argparse.ArgumentParser):
@@ -100,6 +111,10 @@ async def execute(argv: Sequence[str] | None) -> int:
                 result = summary(load_artifact(config, args.backup_id, compatible=False), config)
         elif operation == "status":
             result = status(config)
+        elif operation == "monitor-init":
+            state = collect_initial_state(config, now=datetime.now(UTC))
+            write_state(config.store / STATE_FILENAME, state)
+            result = dict(state_schema_version=state.schema_version, initialized=True)
         elif operation == "retain":
             retention = retain(config)
             result = dict(
