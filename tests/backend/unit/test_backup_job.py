@@ -1,6 +1,10 @@
 import json
+import os
 import subprocess
+from pathlib import Path
+from types import SimpleNamespace
 
+from tests.containers.test_compose_acceptance import ComposeAcceptance
 from tools.backup import run
 
 
@@ -60,6 +64,36 @@ def test_monitor_initialization_identifies_host_failure_stage_without_raw_output
         "reason": "HOST_JOB_FAILED",
         "stage": "container_job",
     }
+
+
+def test_compose_acceptance_writes_host_job_compatible_secret_files(tmp_path, monkeypatch):
+    stack = SimpleNamespace(
+        scratch=tmp_path,
+        origin="http://localhost:8080",
+        db_passwords={role: "private" for role in ("root", "migration", "runtime", "seed")},
+        seed_passwords={role: "private" for role in ("ADMIN", "STAFF", "STUDENT")},
+    )
+    original_chmod = Path.chmod
+    protected = []
+
+    def record_chmod(path, mode):
+        protected.append((path, mode))
+        original_chmod(path, mode)
+
+    monkeypatch.setattr(Path, "chmod", record_chmod)
+    previous_umask = os.umask(0o022)
+    try:
+        env_files = ComposeAcceptance._write_env_files(stack)
+    finally:
+        os.umask(previous_umask)
+
+    assert len(env_files) == 4
+    assert {(str(path.resolve()), mode) for path, mode in protected} == {
+        (file_name, 0o600) for file_name in env_files.values()
+    }
+    for file_name in env_files.values():
+        if os.name != "nt":
+            assert os.stat(file_name).st_mode & 0o077 == 0
 
 
 def test_runner_initialization_uses_validated_backup_image(monkeypatch, capsys):
