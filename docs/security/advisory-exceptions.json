@@ -10,6 +10,16 @@
       "owner": "repository-maintainers",
       "expires_at": "2026-11-18T23:59:59+07:00",
       "evidence": "The locked development lint chain resolves braces 3.0.3. The advisory has no fixed braces release at plan time, so this exception is limited to the exact development package version."
+    },
+    {
+      "ecosystem": "npm",
+      "advisory": "GHSA-g3hv-75wg-m249",
+      "package": "minimatch",
+      "version": "10.2.6",
+      "scope": "development",
+      "owner": "repository-maintainers",
+      "expires_at": "2026-11-18T23:59:59+07:00",
+      "evidence": "The locked ESLint development chain (@eslint/config-array, @typescript-eslint/typescript-estree, eslint) resolves minimatch 10.2.6. The first patched release is 11.0.1, outside those ^10 dependency ranges. This exception covers only the exact development version while upstream dependency updates are evaluated."
     }
   ]
 }
