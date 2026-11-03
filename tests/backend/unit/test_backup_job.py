@@ -67,3 +67,37 @@ def test_runner_initialization_uses_validated_backup_image(monkeypatch, capsys):
     assert run.main(initialize_monitor_state=True) == 0
     assert configured and invoked[0][-1] == "monitor-init"
     assert json.loads(capsys.readouterr().out)["operation"] == "monitor-init"
+
+
+def test_monitor_initialization_reports_only_allowlisted_child_failure_reason(
+    monkeypatch, capsys
+):
+    monkeypatch.setattr(run, "configuration", lambda env: (["docker", "compose"], 30))
+    monkeypatch.setattr(run, "remove_owned", lambda *args: None)
+    monkeypatch.setattr(
+        run,
+        "invoke",
+        lambda args, env, timeout=10: subprocess.CompletedProcess(
+            args,
+            1,
+            json.dumps(
+                {
+                    "operation": "monitor-init",
+                    "success": False,
+                    "reason": "STORAGE_UNAVAILABLE_OR_CAPACITY_EXCEEDED",
+                }
+            )
+            + "\n",
+            "private mount detail",
+        ),
+    )
+
+    assert run.main(initialize_monitor_state=True) == 1
+
+    output = capsys.readouterr().out
+    assert json.loads(output) == {
+        "operation": "monitor-init",
+        "success": False,
+        "reason": "STORAGE_UNAVAILABLE_OR_CAPACITY_EXCEEDED",
+    }
+    assert "private" not in output

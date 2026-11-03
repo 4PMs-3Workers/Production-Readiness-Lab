@@ -34,6 +34,12 @@ SAFE_REPORT_KEYS = {
     "state_schema_version",
     "initialized",
 }
+SAFE_FAILURE_REASONS = {
+    "CONFIGURATION_INVALID",
+    "STORAGE_UNAVAILABLE_OR_CAPACITY_EXCEEDED",
+    "DATABASE_OPERATION_FAILED",
+    "OPERATION_DEADLINE_EXCEEDED",
+}
 
 
 class JobFailure(Exception):
@@ -142,6 +148,18 @@ def main(*, initialize_monitor_state: bool = False) -> int:
             raise JobFailure()
         reports = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
         if initialize_monitor_state:
+            if (
+                result.returncode != 0
+                and len(reports) == 1
+                and reports[0] == {
+                    "operation": "monitor-init",
+                    "success": False,
+                    "reason": reports[0].get("reason"),
+                }
+                and reports[0]["reason"] in SAFE_FAILURE_REASONS
+            ):
+                print(json.dumps(reports[0], sort_keys=True), flush=True)
+                return 1
             if (
                 result.returncode != 0
                 or len(reports) != 1
