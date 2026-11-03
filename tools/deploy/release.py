@@ -26,7 +26,7 @@ from tools.deploy.release_manifest import (
     write,
 )
 from tools.deploy.release_retention import Roots, check_roots
-from tools.deploy.release_trust import provenance
+from tools.deploy.release_trust import provenance, require_clean_source
 
 
 def candidate(
@@ -39,6 +39,7 @@ def candidate(
     previous_stable: str | None,
     bootstrap: bool,
 ) -> Spec:
+    require_clean_source(source.source_sha)
     RegistryPath(repository=repository)
     names = ["backend", "frontend"] + (["collector"] if observability else [])
     images = {

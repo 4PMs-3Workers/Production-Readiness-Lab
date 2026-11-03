@@ -66,8 +66,16 @@ def approved_merge(repository: str, source: str) -> tuple[int, str]:
     raise ReleaseError("source-not-reviewed")
 
 
+def require_clean_source(expected_sha: str) -> None:
+    if command(["git", "rev-parse", "HEAD"]).decode().strip() != expected_sha or command(
+        ["git", "status", "--porcelain", "--untracked-files=all"]
+    ):
+        raise ReleaseError("source-checkout-mismatch")
+
+
 def provenance(*, trusted: bool) -> Provenance:
     source = command(["git", "rev-parse", "HEAD"]).decode().strip()
+    require_clean_source(source)
     data = {
         "repository": os.environ["GITHUB_REPOSITORY"],
         "source_sha": source,

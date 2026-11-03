@@ -2,7 +2,7 @@
 
 import pytest
 from tools.deploy.release_manifest import ReleaseError
-from tools.deploy.release_trust import approved_merge, provenance
+from tools.deploy.release_trust import approved_merge, provenance, require_clean_source
 
 
 def reviewed_pr():
@@ -60,6 +60,21 @@ def test_pr_or_arbitrary_ref_cannot_enter_trusted_path(monkeypatch, ref, event):
         "GITHUB_WORKFLOW_REF": "owner/repo/.github/workflows/release.yml@" + ref,
     }.items():
         monkeypatch.setenv(name, value)
-    monkeypatch.setattr("tools.deploy.release_trust.command", lambda *args: b"a" * 40)
+    monkeypatch.setattr(
+        "tools.deploy.release_trust.command",
+        lambda args: b"" if "status" in args else b"a" * 40,
+    )
     with pytest.raises(ReleaseError, match="untrusted-source"):
         provenance(trusted=True)
+
+
+@pytest.mark.parametrize(
+    "status,head",
+    [(b" M Dockerfile.backend", b"a" * 40), (b"?? payload", b"a" * 40), (b"", b"b" * 40)],
+)
+def test_dirty_or_changed_checkout_cannot_claim_the_expected_source(monkeypatch, status, head):
+    monkeypatch.setattr(
+        "tools.deploy.release_trust.command", lambda args: status if "status" in args else head
+    )
+    with pytest.raises(ReleaseError, match="source-checkout-mismatch"):
+        require_clean_source("a" * 40)
