@@ -139,6 +139,10 @@ Production-Readiness-Lab/
 
 ## Tài liệu
 
+Issue #44: [Immutable application releases](docs/tasks/immutable-releases.md) mô tả
+candidate OCI, manifest có phiên bản, publish từ source đã review, consumer theo digest
+và retention. Deployment/stable promotion/rollback thuộc issue #45.
+
 | Tài liệu                                                                        | Nội dung                                                                           |
 | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | [Thiết kế hệ thống](docs/architecture/system-design.md)                         | Kiến trúc, luồng nghiệp vụ, bảo mật, observability, triển khai và phục hồi.        |
