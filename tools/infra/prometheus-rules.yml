@@ -299,7 +299,7 @@ groups:
           (
             time()
             - (
-              prl_backup_scheduled_job_last_finished_timestamp_seconds
+              prl_backup_scheduled_job_last_started_timestamp_seconds
               or on(environment, store) prl_backup_monitor_initialized_timestamp_seconds
             )
           )

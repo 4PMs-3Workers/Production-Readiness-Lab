@@ -444,6 +444,9 @@ def test_backup_job_missing_and_incomplete_use_distinct_detection_windows():
         "prl_backup_monitor_schedule_interval_seconds + " "prl_backup_monitor_job_grace_seconds"
     ) in missing
     assert "prl_backup_monitor_job_runtime_seconds" not in missing
+    missing_window = missing.split(" > on(environment, store)", 1)[0]
+    assert "prl_backup_scheduled_job_last_started_timestamp_seconds" in missing_window
+    assert "prl_backup_scheduled_job_last_finished_timestamp_seconds" not in missing_window
     assert "prl_backup_monitor_job_runtime_seconds" in incomplete
     assert "prl_backup_monitor_job_grace_seconds" in incomplete
 

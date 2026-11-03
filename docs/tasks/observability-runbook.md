@@ -146,7 +146,7 @@ The Task 8 business/outage acceptance repeats authenticated student and staff fl
 
 ## Backup job missing
 
-`BackupJobMissing` means no scheduled run started within one configured schedule interval plus grace. Runtime is not added to this window; an in-flight start suppresses this alert while `BackupJobIncomplete` owns the missing-final-report condition, which waits for runtime plus grace. Confirm that the systemd timer/drop-in and monitor schedule interval agree.
+`BackupJobMissing` means no scheduled run started within one configured schedule interval plus grace since the latest scheduled start (or monitor initialization before the first start). Runtime is not added to this window; an in-flight start suppresses this alert while `BackupJobIncomplete` owns the missing-final-report condition, which waits for runtime plus grace. Confirm that the systemd timer/drop-in and monitor schedule interval agree.
 
 ## Backup monitor configuration
 

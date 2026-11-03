@@ -481,6 +481,10 @@ tests:
         values: "1+0x8"
       - series: 'prl_backup_monitor_initialized_timestamp_seconds{environment="demo",store="backup-storage"}'
         values: "1+0x8"
+      - series: 'prl_backup_scheduled_job_last_started_timestamp_seconds{environment="demo",store="backup-storage"}'
+        values: "1+0x8"
+      - series: 'prl_backup_scheduled_job_last_finished_timestamp_seconds{environment="demo",store="backup-storage"}'
+        values: "10+0x8"
       - series: 'prl_backup_monitor_schedule_interval_seconds{environment="demo",store="backup-storage"}'
         values: "30+0x8"
       - series: 'prl_backup_monitor_job_runtime_seconds{environment="demo",store="backup-storage"}'
