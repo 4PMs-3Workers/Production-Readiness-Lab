@@ -72,10 +72,15 @@ assertion giữ nguyên. Không áp diff mutant vào nhánh nộp.
 
 - [x] Đã đọc diff bốn file production.
 - [x] Đã trả lời xong bộ câu hỏi vấn đáp.
+- [x] Đã ghi nhận xét cá nhân về từng file, điều đã hiểu và điểm còn chưa chắc.
+- [x] Đã nêu quyết định: đồng ý với cách triển khai, cần kiểm tra/xử lý thêm hiệu năng trước merge.
 
-Nguồn: xác nhận trực tiếp trong chat ngày03/11/2026: “đã đọc diff và trloi xg, sửa vào báo cáo đi”.
-Hai mục trên ghi nhận hoạt động người học đã xác nhận; không bổ sung biên bản
-chấm vấn đáp, lời giải cá nhân hoặc kết quả chạy test mới.
+Nguồn: xác nhận trực tiếp của người học ngày03/11/2026 về việc đọc diff
+và hoàn tất phần trả lời câu hỏi vấn đáp; được ghi lại bằng văn phong báo cáo.
+Nhận xét do người học cung cấp được lưu tại
+[ghi chú review diff cá nhân](student-diff-review-notes.md): vai trò bốn file,
+sentinel1001, lo ngại503 khi tải80 và quyết định trước merge. Đây là ý kiến
+review cá nhân; không bổ sung biên bản chấm vấn đáp hoặc kết quả chạy test mới.
 
 Review cá nhân này không phải team approval. PR55 hiện vẫn gộp chức năng,
 CI/dependency và evidence; kế hoạch tách trước team merge còn giữ trong README.

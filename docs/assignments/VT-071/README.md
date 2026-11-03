@@ -40,6 +40,9 @@ uses the fixed diff `aa8c5b0..15526cb` (118 additions,2 deletions under src/).
 The guide was AI-prepared. On03/11/2026 the student confirmed reading the
 four-file production diff and completing the oral-preparation questions. The src/
 diff to4695035 is identical to the tested15526cb source.
+[Student-authored review notes](student-diff-review-notes.md) record seven observations
+and the decision: agree with the implementation approach, but investigate/remediate
+performance further before accepting merge.
 
 ## Contract
 

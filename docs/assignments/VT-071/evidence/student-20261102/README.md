@@ -95,7 +95,10 @@ trên việc đã làm. Ngày03/11/2026, sinh viên xác nhận đã đọc diff
 production và trả lời xong bộ câu hỏi vấn đáp; xem
 [checklist đã xác nhận](../../student-diff-review-guide.md). Đây là cập nhật
 xác nhận hoạt động đọc/trả lời, không phải một lượt test hoặc chấm vấn đáp mới.
-Review nhóm và tách PR vẫn là bước trước khi merge.
+Người học đã cung cấp [bảy nhận xét review cá nhân](../../student-diff-review-notes.md)
+về bốn file, sentinel1001 và lo ngại tải503; đồng ý với cách triển khai nhưng muốn
+kiểm tra/xử lý thêm hiệu năng trước merge. Review nhóm và tách PR vẫn là bước
+trước khi merge.
 
 CI của source15526cb đã completed/success ở cả6workflow events, theo GitHub API
 đối chiếu ngày02/11: [snapshot](ci-source-15526cb.json). Không gán trạng thái đó cho

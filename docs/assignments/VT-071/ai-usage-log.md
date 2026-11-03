@@ -151,9 +151,29 @@ verified all63unique PDF link targets (79annotations), including45file paths in
 remote pinned Git trees. These local study/audit files did not change the report,
 submission source, earlier measurements or student completion status.
 
-U27: On03/11/2026 the student explicitly confirmed in chat: “đã đọc diff và trloi xg, sửa vào báo cáo đi”. Codex updated the four-file diff checklist, execution ledger,
+U27: On03/11/2026 the student directly confirmed completion of the four-file
+production diff reading and oral-preparation answers. Codex updated the checklist, execution ledger,
 summary metadata, reflection and PDF to record that confirmation. The reflection
 adds only the reported reading/answering activity; no individual answers, feelings,
 assessment score, new test execution or team approval are invented. Earlier
 “not reported” entries describe the status before this confirmation. Raw ZIP and
 its original manifest are unchanged; production code/tests/config remain unchanged.
+
+
+U28: User supplied review__9_ recommending personal review notes, more reflection
+headroom and formal wording in public documents. Codex replaced the informal chat
+quotation with a factual attribution summary, preserving the confirmation date
+and scope. Shortened reflection347to330words without changing its observations.
+Rechecked the four linked GitHub Actions runs: all completed/success at15526cb.
+Prepared a blank personal-review template outside the submission and requested
+the student's own notes; no individual answers or acceptance decision invented.
+No runtime/test/config change, new test/load run, team approval or merge.
+
+
+U29: The student supplied seven personal review statements on03/11/2026: roles
+of the four files, learning the1001sentinel, remaining uncertainty about80-way
+load/503, and agreement with the approach conditional on further performance
+work before accepting merge. Codex preserved their wording in a separate review
+note, linked it from the report/checklist/ledger and recorded the decision in
+summary metadata. Notes are student-authored; formatting and technical context
+are AI-assisted. No new test, subjective statement or merge approval invented.

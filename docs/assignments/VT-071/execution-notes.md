@@ -222,3 +222,23 @@ Reflection includes that reported activity, with AI editing still declared.
 This supersedes the earlier pending-review status; it does not relabel historical
 AI experiments or introduce new test/load output. Team review/PR separation remain
 before merge. No production/test/config change or raw evidence modification.
+
+
+## Review__9_ wording and link verification
+
+The public confirmation now uses a formal attribution summary rather than an
+informal verbatim chat quote. Student-confirmed scope/date are unchanged.
+Reflection is shortened to330words, retaining all measured results and limits.
+The four PDF-linked Actions runs were rechecked through the GitHub connector:
+Backend models, Frontend, Containerized demo and MySQL recovery all completed
+successfully at source15526cb. This does not assign those runs to the newer
+documentation commit. Raw evidence/archive/manifest remain byte-identical.
+
+
+## Personal review notes supplied on03/11/2026
+
+student-diff-review-notes.md preserves seven student-authored statements about
+the four production files,1001sentinel, unresolved80-concurrency503 and the
+conditional pre-merge decision. The report now links these notes. The student
+agrees with the approach but wants further performance checks/remediation before
+accepting merge; this does not change NFR-03 or imply team approval/new execution.

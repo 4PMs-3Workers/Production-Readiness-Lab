@@ -197,9 +197,14 @@
   "student_review_confirmation": {
     "confirmation_date_local": "2026-11-03",
     "timezone": "Asia/Bangkok",
-    "source": "direct student message in this chat",
-    "verbatim_message": "đã đọc diff và trloi xg, sửa vào báo cáo đi",
+    "source": "direct student confirmation and seven personal review statements supplied in this conversation",
     "scope": "four-file production diff aa8c5b0..4695035 under src/; same production source as15526cb; oral-preparation questions completed",
-    "attribution": "student-confirmed activity; not a separately observed oral examination or new test execution"
-  }
+    "attribution": "student-confirmed activity; not a separately observed oral examination or new test execution",
+    "statement_summary": "Student confirmed reading the four-file production diff and finishing the oral-preparation questions.",
+    "personal_notes_date_local": "2026-11-03",
+    "personal_notes_path": "../../student-diff-review-notes.md",
+    "review_decision": "Agrees with the implementation approach; requests further performance verification and remediation before accepting merge.",
+    "personal_notes_attribution": "Seven student-authored statements; Codex formatted them and retained their wording."
+  },
+  "student_diff_review_notes": "../../student-diff-review-notes.md"
 }
