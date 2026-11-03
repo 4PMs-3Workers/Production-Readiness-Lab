@@ -128,11 +128,13 @@ def test_readiness_requires_exactly_one_accepted_revision(revisions, accepted, s
 def test_readiness_timeout_covers_connection_and_queries(delay):
     app = create_app(settings(timeout=0.2))
     connection = Connection(["a1b2c3d4e5f6"], delay=delay)
-    started = monotonic()
     with TestClient(app) as client:
         app.state.engine = Engine(connection)
+        # Measure response latency independently of lifespan startup/shutdown.
+        # Deferred cleanup is still required to finish when the client exits.
+        started = monotonic()
         result = client.get("/health/ready")
-    elapsed = monotonic() - started
+        elapsed = monotonic() - started
     assert result.status_code == 503
     assert elapsed < 0.7  # 0.2-second deadline + 0.5 seconds scheduling/test-client tolerance.
     assert connection.closed or not connection.queries  # No connection was acquired yet.

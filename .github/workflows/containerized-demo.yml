@@ -1,6 +1,14 @@
 name: Containerized demo
 
 on:
+  workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+      pr_head_sha:
+        default: ''
+        type: string
   pull_request:
     branches: [develop, main]
   push:
@@ -10,7 +18,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: containerized-demo-${{ github.ref }}
+  group: containerized-demo-${{ inputs.source_sha && github.run_id || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -26,9 +34,12 @@ jobs:
       RUN_GATEWAY_TESTS: '1'
       RUN_COMPOSE_ACCEPTANCE: '1'
       RUN_OBSERVABILITY_TESTS: '1'
-      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      PR_HEAD_SHA: ${{ inputs.pr_head_sha || github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+          persist-credentials: false
 
       - uses: actions/setup-node@v7
         with:

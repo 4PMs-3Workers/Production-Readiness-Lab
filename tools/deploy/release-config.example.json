@@ -1,0 +1,6 @@
+{
+  "overlay": "local",
+  "observability": false,
+  "previous_stable": "",
+  "bootstrap": true
+}

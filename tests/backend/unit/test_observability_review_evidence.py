@@ -471,7 +471,9 @@ def test_containerized_demo_upload_is_limited_to_sanitized_review_artifacts() ->
     job = workflow["jobs"]["compose-acceptance"]
 
     assert job["timeout-minutes"] == 45
-    assert job["env"]["PR_HEAD_SHA"] == "${{ github.event.pull_request.head.sha || github.sha }}"
+    assert job["env"]["PR_HEAD_SHA"] == (
+        "${{ inputs.pr_head_sha || github.event.pull_request.head.sha || github.sha }}"
+    )
     assert {
         "RUN_CONTAINER_TESTS",
         "RUN_COMPOSE_TESTS",
