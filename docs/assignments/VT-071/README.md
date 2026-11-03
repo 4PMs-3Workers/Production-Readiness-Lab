@@ -353,3 +353,13 @@ diff and finishing the oral-preparation questions. The source of this confirmati
 is recorded in student-diff-review-guide.md and summary.json. Team review and PR
 separation remain steps before merge. self-check-guide.md supports further practice.
 No force push or merge performed.
+
+
+## Original prompts in the PDF appendix
+
+[Prompt sources and provenance](prompts/README.md) preserve the complete initial
+user request and the verbatim technical planning prompt. AppendixA prints original
+excerpts/full planning prompt and separates them from the condensed usage table.
+The PDF embeds the complete user prompt, planning prompt and AI Usage Log, like
+the earlier assignment's Attachments workflow. Main content remains8pages;
+four appendix pages bring the report to12pages. No source/test change or new run.

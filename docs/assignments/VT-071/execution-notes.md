@@ -242,3 +242,13 @@ the four production files,1001sentinel, unresolved80-concurrency503 and the
 conditional pre-merge decision. The report now links these notes. The student
 agrees with the approach but wants further performance checks/remediation before
 accepting merge; this does not change NFR-03 or imply team approval/new execution.
+
+
+## Original prompt appendix
+
+The original user attachment is archived without byte changes under prompts/,
+alongside the full technical planning prompt already preserved in plan-review.md.
+The PDF prints exact original excerpts and embeds the complete sources plus the
+current AI Usage Log. Prompt excerpts and condensed input/output records are
+labeled separately. AppendixA spans2pages for legibility; the8main pages and
+execution/data appendices remain, making12pages total. No experiment rerun.

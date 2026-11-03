@@ -4,6 +4,12 @@ Date: 2026-11-01, Asia/Bangkok. Tool: Codex with shell, GitHub connector, Python
 ReportLab/Poppler and one coding-agent subtask reused for post-test review.
 This is AI-assisted work. No human review/approval or manual student execution is claimed.
 
+Original prompt sources: [complete user prompt](prompts/original-request.txt),
+[verbatim planning prompt](prompts/plan-prompt.txt), and
+[provenance/checksums](prompts/manifest.json). The table below is a condensed
+interaction history, not a verbatim transcript of each prompt. The PDF now prints
+original excerpts and the full planning prompt, with complete source files embedded.
+
 | Step | Actual prompt/input | Output used | Review/change/rejection | Evidence |
 |---|---|---|---|---|
 | U1 | User's full BT3 VT-071 prompt and two local lectures | requirements/rubric inventory | distinguish requested contract from existing code | spec.md; environment.json lecture hashes |
@@ -177,3 +183,13 @@ work before accepting merge. Codex preserved their wording in a separate review
 note, linked it from the report/checklist/ledger and recorded the decision in
 summary metadata. Notes are student-authored; formatting and technical context
 are AI-assisted. No new test, subjective statement or merge approval invented.
+
+
+U30: User asked why the appendix did not display the original prompt as in BT1/BT2.
+Codex inspected both prior appendices and the original BT3 attachment. Archived
+the complete user prompt byte-for-byte and extracted the already-preserved full
+planning prompt without reconstructing missing transcripts. Reorganized appendixA
+into a prompt/source page and a condensed usage/decision page; embedded full user
+prompt, planning prompt and AI Usage Log in the PDF, with hashes for source checks.
+Main content remains8pages; appendices now4pages, total12. Source, tests, original
+measurement logs, reflection330words and student-authored review notes unchanged.
