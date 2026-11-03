@@ -430,6 +430,24 @@ def test_prometheus_rule_tests_cover_thresholds_restart_and_backlog_freshness():
     )
 
 
+def test_backup_job_missing_and_incomplete_use_distinct_detection_windows():
+    document = yaml.safe_load((INFRA / "prometheus-rules.yml").read_text(encoding="utf-8"))
+    rules = {
+        rule["alert"]: " ".join(rule["expr"].split())
+        for group in document["groups"]
+        for rule in group["rules"]
+        if rule.get("alert") in {"BackupJobMissing", "BackupJobIncomplete"}
+    }
+    missing = rules["BackupJobMissing"]
+    incomplete = rules["BackupJobIncomplete"]
+    assert (
+        "prl_backup_monitor_schedule_interval_seconds + " "prl_backup_monitor_job_grace_seconds"
+    ) in missing
+    assert "prl_backup_monitor_job_runtime_seconds" not in missing
+    assert "prl_backup_monitor_job_runtime_seconds" in incomplete
+    assert "prl_backup_monitor_job_grace_seconds" in incomplete
+
+
 def test_same_slot_restart_fixture_keeps_cached_backlog_unknown_until_new_scan():
     document = yaml.safe_load((INFRA / "prometheus-rule-tests.yml").read_text(encoding="utf-8"))
     restart = next(

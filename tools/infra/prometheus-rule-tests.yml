@@ -491,7 +491,7 @@ tests:
       - eval_time: 30s
         alertname: BackupJobMissing
         exp_alerts: []
-      - eval_time: 1m
+      - eval_time: 45s
         alertname: BackupJobMissing
         exp_alerts:
           - exp_labels:
@@ -499,7 +499,7 @@ tests:
               store: backup-storage
               severity: warning
             exp_annotations:
-              summary: No scheduled backup has started within the expected schedule and completion window.
+              summary: No scheduled backup has started within the expected schedule and grace window.
               runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#backup-job-missing
 
   # Missing configuration and no data remain unknown.

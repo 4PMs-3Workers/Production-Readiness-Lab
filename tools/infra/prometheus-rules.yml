@@ -306,7 +306,6 @@ groups:
           > on(environment, store)
           (
             prl_backup_monitor_schedule_interval_seconds
-            + prl_backup_monitor_job_runtime_seconds
             + prl_backup_monitor_job_grace_seconds
           )
           unless on(environment, store)
@@ -321,7 +320,7 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: No scheduled backup has started within the expected schedule and completion window.
+          summary: No scheduled backup has started within the expected schedule and grace window.
           runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#backup-job-missing
       - alert: BackupMonitorConfigurationMissing
         expr: prl_backup_monitor_config_valid == 0
