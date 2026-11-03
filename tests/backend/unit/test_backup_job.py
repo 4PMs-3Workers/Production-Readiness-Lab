@@ -69,9 +69,7 @@ def test_runner_initialization_uses_validated_backup_image(monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out)["operation"] == "monitor-init"
 
 
-def test_monitor_initialization_reports_only_allowlisted_child_failure_reason(
-    monkeypatch, capsys
-):
+def test_monitor_initialization_reports_only_allowlisted_child_failure_reason(monkeypatch, capsys):
     monkeypatch.setattr(run, "configuration", lambda env: (["docker", "compose"], 30))
     monkeypatch.setattr(run, "remove_owned", lambda *args: None)
     monkeypatch.setattr(
