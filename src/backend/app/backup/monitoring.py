@@ -6,6 +6,7 @@ import os
 import stat
 import tempfile
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal, Self
@@ -20,6 +21,7 @@ from app.backup.storage import sync_directory
 STATE_FILENAME = ".prl-monitoring-state.json"
 STATE_LOCK_FILENAME = ".prl-monitoring-state.lock"
 MAX_STATE_BYTES = 65_536
+MAX_INITIAL_SCAN_BYTES = 4 * 1024**3
 
 
 class RemoteCopyState(StrictModel):
@@ -163,29 +165,49 @@ def _unlock(descriptor: int) -> None:
         os.close(descriptor)
 
 
-def write_state(path: Path, state: BackupMonitorState) -> None:
-    descriptor = None
-    temporary = None
+def _state_path_valid(path: Path) -> bool:
     try:
         root = path.parent
-        if (
-            path.name != STATE_FILENAME
-            or not root.is_absolute()
-            or root.is_symlink()
-            or not root.is_dir()
-            or (
+        return bool(
+            path.name == STATE_FILENAME
+            and root.is_absolute()
+            and not root.is_symlink()
+            and root.is_dir()
+            and not (
                 os.name == "posix"
                 and (root.stat().st_mode & 0o077 or root.stat().st_uid != os.geteuid())
             )
-            or (path.exists() and (path.is_symlink() or not path.is_file()))
+        )
+    except OSError:
+        return False
+
+
+def write_state(path: Path, state: BackupMonitorState) -> None:
+    if not _state_path_valid(path):
+        return
+    descriptor = _state_lock(path.parent)
+    if descriptor is None:
+        return
+    try:
+        _write_state_locked(path, state)
+    finally:
+        try:
+            _unlock(descriptor)
+        except OSError:
+            pass
+
+
+def _write_state_locked(path: Path, state: BackupMonitorState) -> bool:
+    temporary = None
+    try:
+        root = path.parent
+        if not _state_path_valid(path) or (
+            path.exists() and (path.is_symlink() or not path.is_file())
         ):
-            return
-        descriptor = _state_lock(root)
-        if descriptor is None:
-            return
+            return False
         raw = state.model_dump_json().encode()
         if len(raw) > MAX_STATE_BYTES:
-            return
+            return False
         handle = tempfile.NamedTemporaryFile(dir=root, prefix=".prl-monitoring-", delete=False)
         temporary = Path(handle.name)
         with handle:
@@ -197,26 +219,70 @@ def write_state(path: Path, state: BackupMonitorState) -> None:
         os.replace(temporary, root / STATE_FILENAME)
         temporary = None
         sync_directory(root)
+        return True
     except Exception:
-        return
+        return False
     finally:
         if temporary is not None:
             try:
                 temporary.unlink(missing_ok=True)
             except OSError:
                 pass
-        if descriptor is not None:
-            try:
-                _unlock(descriptor)
-            except OSError:
-                pass
+
+
+def initialize_state(path: Path, state: BackupMonitorState) -> BackupMonitorState | None:
+    """Initialize once, preserving any valid state written while scanning."""
+    if not _state_path_valid(path):
+        return None
+    descriptor = _state_lock(path.parent)
+    if descriptor is None:
+        return None
+    try:
+        if path.exists() or path.is_symlink():
+            return read_state(path)
+        return state if _write_state_locked(path, state) else None
+    finally:
+        try:
+            _unlock(descriptor)
+        except OSError:
+            pass
+
+
+def _update_state(
+    path: Path,
+    fallback: BackupMonitorState,
+    transform: Callable[[BackupMonitorState], BackupMonitorState],
+) -> None:
+    """Read, mutate, and persist under one lock to avoid stale snapshot writes."""
+    if not _state_path_valid(path):
+        return
+    descriptor = _state_lock(path.parent)
+    if descriptor is None:
+        return
+    try:
+        if path.exists() or path.is_symlink():
+            state = read_state(path)
+            if state is None:
+                return
+        else:
+            state = fallback
+        updated = transform(state)
+        _write_state_locked(
+            path,
+            BackupMonitorState.model_validate(updated.model_dump(mode="python")),
+        )
+    finally:
+        try:
+            _unlock(descriptor)
+        except OSError:
+            pass
 
 
 def collect_initial_state(config: BackupConfig, *, now: datetime) -> BackupMonitorState:
     if now.utcoffset() != timedelta(0) or now > datetime.now(UTC):
         raise BackupError(Reason.CONFIGURATION)
     deadline = time.monotonic() + min(config.max_seconds, 30)
-    manifests, _ = inventory(config, deadline)
+    manifests, _ = inventory(config, deadline, max_total_bytes=MAX_INITIAL_SCAN_BYTES)
     name = database_name(config.database_url)
     values = [manifest for manifest in manifests if manifest.source.database == name]
     latest = max(
@@ -285,24 +351,26 @@ def record_job_start(
 ) -> None:
     try:
         state = _current_or_initial(config, started_at)
-        updated = state.model_copy(
-            update=dict(
-                updated_at=started_at,
-                last_job_operation=operation,
-                last_job_started_at=started_at,
-                last_job_finished_at=None,
-                last_job_result=None,
-                last_job_reason=None,
-                last_job_duration_seconds=None,
-                last_scheduled_job_started_at=(
-                    started_at if operation == "scheduled" else state.last_scheduled_job_started_at
-                ),
+
+        def update(current):
+            return current.model_copy(
+                update=dict(
+                    updated_at=started_at,
+                    last_job_operation=operation,
+                    last_job_started_at=started_at,
+                    last_job_finished_at=None,
+                    last_job_result=None,
+                    last_job_reason=None,
+                    last_job_duration_seconds=None,
+                    last_scheduled_job_started_at=(
+                        started_at
+                        if operation == "scheduled"
+                        else current.last_scheduled_job_started_at
+                    ),
+                )
             )
-        )
-        write_state(
-            config.store / STATE_FILENAME,
-            BackupMonitorState.model_validate(updated.model_dump(mode="python")),
-        )
+
+        _update_state(config.store / STATE_FILENAME, state, update)
     except Exception:
         pass
 
@@ -320,60 +388,64 @@ def record_job_finish(
 ) -> None:
     try:
         state = _current_or_initial(config, finished_at)
-        started_at = state.last_job_started_at
-        if (
-            state.last_job_operation != operation
-            or started_at is None
-            or state.last_job_finished_at is not None
-        ):
-            started_at = finished_at - timedelta(seconds=max(0.0, duration_seconds))
-        completed_backup = backup_completed_at is not None and artifact_integrity_verified is True
-        scheduled_started_at = (
-            started_at if operation == "scheduled" else state.last_scheduled_job_started_at
-        )
-        updated = state.model_copy(
-            update=dict(
-                updated_at=finished_at,
-                last_verified_backup_at=(
-                    backup_completed_at if completed_backup else state.last_verified_backup_at
-                ),
-                artifact_integrity_verified=(
-                    True if completed_backup else state.artifact_integrity_verified
-                ),
-                last_job_operation=operation,
-                last_job_started_at=started_at,
-                last_job_finished_at=finished_at,
-                last_job_result="success" if success else "failure",
-                last_job_reason=None if success else (reason or Reason.DATABASE),
-                last_job_duration_seconds=max(0.0, duration_seconds),
-                last_scheduled_job_started_at=(
-                    scheduled_started_at
-                    if operation == "scheduled"
-                    else state.last_scheduled_job_started_at
-                ),
-                last_scheduled_job_finished_at=(
-                    finished_at
-                    if operation == "scheduled"
-                    else state.last_scheduled_job_finished_at
-                ),
-                last_scheduled_job_result=(
-                    ("success" if success else "failure")
-                    if operation == "scheduled"
-                    else state.last_scheduled_job_result
-                ),
-                last_scheduled_job_duration_seconds=(
-                    max(0.0, duration_seconds)
-                    if operation == "scheduled"
-                    else state.last_scheduled_job_duration_seconds
-                ),
-                scheduled_job_failure_pending=(
-                    not success if operation == "scheduled" else state.scheduled_job_failure_pending
-                ),
+
+        def update(current):
+            started_at = current.last_job_started_at
+            if (
+                current.last_job_operation != operation
+                or started_at is None
+                or current.last_job_finished_at is not None
+            ):
+                started_at = finished_at - timedelta(seconds=max(0.0, duration_seconds))
+            completed_backup = (
+                backup_completed_at is not None and artifact_integrity_verified is True
             )
-        )
-        write_state(
-            config.store / STATE_FILENAME,
-            BackupMonitorState.model_validate(updated.model_dump(mode="python")),
-        )
+            scheduled_started_at = (
+                started_at if operation == "scheduled" else current.last_scheduled_job_started_at
+            )
+            return current.model_copy(
+                update=dict(
+                    updated_at=finished_at,
+                    last_verified_backup_at=(
+                        backup_completed_at if completed_backup else current.last_verified_backup_at
+                    ),
+                    artifact_integrity_verified=(
+                        True if completed_backup else current.artifact_integrity_verified
+                    ),
+                    last_job_operation=operation,
+                    last_job_started_at=started_at,
+                    last_job_finished_at=finished_at,
+                    last_job_result="success" if success else "failure",
+                    last_job_reason=None if success else (reason or Reason.DATABASE),
+                    last_job_duration_seconds=max(0.0, duration_seconds),
+                    last_scheduled_job_started_at=(
+                        scheduled_started_at
+                        if operation == "scheduled"
+                        else current.last_scheduled_job_started_at
+                    ),
+                    last_scheduled_job_finished_at=(
+                        finished_at
+                        if operation == "scheduled"
+                        else current.last_scheduled_job_finished_at
+                    ),
+                    last_scheduled_job_result=(
+                        ("success" if success else "failure")
+                        if operation == "scheduled"
+                        else current.last_scheduled_job_result
+                    ),
+                    last_scheduled_job_duration_seconds=(
+                        max(0.0, duration_seconds)
+                        if operation == "scheduled"
+                        else current.last_scheduled_job_duration_seconds
+                    ),
+                    scheduled_job_failure_pending=(
+                        not success
+                        if operation == "scheduled"
+                        else current.scheduled_job_failure_pending
+                    ),
+                )
+            )
+
+        _update_state(config.store / STATE_FILENAME, state, update)
     except Exception:
         pass

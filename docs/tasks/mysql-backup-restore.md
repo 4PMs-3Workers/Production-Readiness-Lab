@@ -111,8 +111,10 @@ python3 -m tools.backup.run --initialize-monitor-state
 
 State nằm tại `/backups/.prl-monitoring-state.json`, thuộc UID/GID `10001:10001`
 với quyền `0600`; lock `.prl-monitoring-state.lock` cũng private. Không sửa/xóa
-các file này thủ công. Init scan đọc artifact hữu hạn, không giữ operation lock;
-không có artifact hợp lệ sẽ được biểu diễn là unknown/missing, không thành success.
+các file này thủ công. Init scan đọc tối đa 20.000 entry, 4 GiB tổng byte và 30
+giây, không giữ operation lock; nếu vượt giới hạn thì initialization thất bại để
+health ở trạng thái unknown. Không có artifact hợp lệ được biểu diễn là
+unknown/missing, không thành success.
 Runner thông thường cập nhật state khi scheduled job bắt đầu và kết thúc. Write lỗi
 không đổi exit status của backup; job bị kill không được ghi success giả.
 

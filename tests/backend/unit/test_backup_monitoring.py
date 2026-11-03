@@ -4,9 +4,10 @@ import subprocess
 import sys
 from datetime import UTC, datetime, timedelta, timezone
 
+import pytest
 from tests.backend.unit.test_backup_storage import fixture_artifact, populate
 
-from app.backup.config import Reason
+from app.backup.config import BackupError, Reason
 from app.backup.locking import operation_lock
 from app.backup.monitoring import (
     BackupMonitorState,
@@ -66,6 +67,31 @@ def test_initial_snapshot_uses_latest_integrity_verified_artifact(tmp_path):
     assert state.artifact_integrity_verified is True
     assert state.application_rehearsal_verified is False
     assert state.monitor_initialized_at == initialized_at
+
+
+def test_initial_scan_stops_when_aggregate_read_budget_is_exhausted(tmp_path, monkeypatch):
+    config, first = fixture_artifact(tmp_path)
+    config, second = fixture_artifact(tmp_path)
+    for manifest in (first, second):
+        with staging(config, manifest["backup_id"]) as owned:
+            populate(owned, manifest)
+            owned.publish(manifest)
+    total_artifact_bytes = sum(
+        path.stat().st_size
+        for backup_id in (first["backup_id"], second["backup_id"])
+        for path in (tmp_path / backup_id).iterdir()
+        if path.is_file()
+    )
+    from app.backup import monitoring
+
+    monkeypatch.setattr(
+        monitoring, "MAX_INITIAL_SCAN_BYTES", total_artifact_bytes - 1, raising=False
+    )
+
+    with pytest.raises(BackupError) as error:
+        collect_initial_state(config, now=datetime.now(UTC))
+
+    assert error.value.reason == Reason.TIMEOUT
 
 
 def test_empty_or_corrupt_store_is_unknown(tmp_path):
@@ -211,7 +237,11 @@ def test_state_write_failure_does_not_fail_backup(tmp_path, monkeypatch):
     from app.backup import monitoring
 
     config, _ = fixture_artifact(tmp_path)
-    monkeypatch.setattr(monitoring, "write_state", lambda *args: (_ for _ in ()).throw(OSError()))
+    monkeypatch.setattr(
+        monitoring,
+        "_write_state_locked",
+        lambda *args: (_ for _ in ()).throw(OSError()),
+    )
 
     record_job_start(config, operation="backup", started_at=datetime.now(UTC))
 
@@ -258,6 +288,62 @@ def test_manual_backup_success_does_not_clear_scheduled_job_failure(tmp_path):
 
     state = read_state(tmp_path / ".prl-monitoring-state.json")
     assert state is not None and state.scheduled_job_failure_pending is True
+
+
+def test_job_start_reloads_state_after_initial_scan_before_updating(tmp_path, monkeypatch):
+    from app.backup import monitoring
+
+    config, _ = fixture_artifact(tmp_path)
+    initial = make_state()
+    latest = initial.model_copy(update={"scheduled_job_failure_pending": True})
+
+    def collect_then_simulate_concurrent_writer(_config, *, now):
+        write_state(tmp_path / monitoring.STATE_FILENAME, latest)
+        return initial.model_copy(update={"updated_at": now})
+
+    monkeypatch.setattr(
+        monitoring, "collect_initial_state", collect_then_simulate_concurrent_writer
+    )
+    started = datetime.now(UTC)
+
+    record_job_start(config, operation="backup", started_at=started)
+
+    state = read_state(tmp_path / monitoring.STATE_FILENAME)
+    assert state is not None
+    assert state.scheduled_job_failure_pending is True
+    assert state.last_job_started_at == started
+
+
+def test_monitor_init_preserves_state_written_during_initial_scan(tmp_path, monkeypatch):
+    from app.backup import __main__ as backup_cli
+    from app.backup import monitoring
+
+    config, _ = fixture_artifact(tmp_path)
+    latest = make_state().model_copy(update={"scheduled_job_failure_pending": True})
+    reports = []
+
+    class FakePublisher:
+        def submit(self, report):
+            reports.append(json.loads(report))
+
+        async def close(self, _deadline):
+            return None
+
+    def collect_then_simulate_concurrent_writer(_config, *, now):
+        write_state(tmp_path / monitoring.STATE_FILENAME, latest)
+        return make_state(now)
+
+    monkeypatch.setattr(backup_cli, "Publisher", FakePublisher)
+    monkeypatch.setattr(backup_cli, "load_config", lambda: config)
+    monkeypatch.setattr(
+        backup_cli, "collect_initial_state", collect_then_simulate_concurrent_writer
+    )
+
+    result = asyncio.run(backup_cli.execute(["monitor-init"]))
+
+    assert result == 0
+    state = read_state(tmp_path / monitoring.STATE_FILENAME)
+    assert state == latest
 
 
 def test_manual_job_does_not_overwrite_scheduled_lifecycle_timestamps(tmp_path):
@@ -312,7 +398,7 @@ def test_monitor_init_fails_when_state_cannot_be_persisted(tmp_path, monkeypatch
 
     monkeypatch.setattr(backup_cli, "Publisher", FakePublisher)
     monkeypatch.setattr(backup_cli, "load_config", lambda: config)
-    monkeypatch.setattr(backup_cli, "write_state", lambda *args: None)
+    monkeypatch.setattr(backup_cli, "initialize_state", lambda *args: None)
 
     result = asyncio.run(backup_cli.execute(["monitor-init"]))
 

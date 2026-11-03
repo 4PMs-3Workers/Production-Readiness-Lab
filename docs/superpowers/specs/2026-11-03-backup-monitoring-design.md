@@ -88,7 +88,7 @@ Exporter chỉ chuyển timestamp/duration/byte/count/status thành số liệu.
 
 ### Thu thập status và operation lock
 
-Exporter không gọi `app.backup status` theo mỗi scrape. State được khởi tạo một lần từ artifact hiện có bằng một read-only scan hữu hạn và được cập nhật bởi scheduled job sau đó. Vì CLI `status` hiện giữ operation lock qua toàn bộ inventory scan, implementation cần cung cấp đường đọc monitor không chặn: giới hạn số entry, tổng byte đọc và deadline; không lấy operation lock. Artifact bị xóa/đổi trong lúc đọc được xem là race, retry hữu hạn hoặc trả unknown. Không hợp lệ/timeout/corrupt không được thay bằng health success. CLI JSON hiện hành giữ nguyên hoặc chỉ mở rộng có version rõ ràng. Exporter cập nhật riêng `last_successful_state_read_timestamp` khi parse snapshot thành công; producer state cũ do chưa tới lịch job không tự nó làm monitor stale, mà được đánh giá bởi RPO/schedule rules.
+Exporter không gọi `app.backup status` theo mỗi scrape. State được khởi tạo một lần từ artifact hiện có bằng một read-only scan hữu hạn và được cập nhật bởi scheduled job sau đó. Vì CLI `status` hiện giữ operation lock qua toàn bộ inventory scan, implementation cần cung cấp đường đọc monitor không chặn: tối đa 20.000 entry, tổng cộng 4 GiB byte đọc và 30 giây; không lấy operation lock. Artifact bị xóa/đổi trong lúc đọc được xem là race, retry hữu hạn hoặc trả unknown. Không hợp lệ/timeout/corrupt không được thay bằng health success. CLI JSON hiện hành giữ nguyên hoặc chỉ mở rộng có version rõ ràng. Exporter cập nhật riêng `last_successful_state_read_timestamp` khi parse snapshot thành công; producer state cũ do chưa tới lịch job không tự nó làm monitor stale, mà được đánh giá bởi RPO/schedule rules.
 
 ### Lỗi, quyền và trường hợp biên
 

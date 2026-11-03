@@ -17,10 +17,10 @@ from app.backup.manifest import Manifest
 from app.backup.monitoring import (
     STATE_FILENAME,
     collect_initial_state,
+    initialize_state,
     read_state,
     record_job_finish,
     record_job_start,
-    write_state,
 )
 from app.backup.restore import restore, verify_restored
 from app.backup.retention import retain, retain_locked, status
@@ -137,10 +137,11 @@ async def execute(argv: Sequence[str] | None) -> int:
         elif operation == "monitor-init":
             state = collect_initial_state(config, now=datetime.now(UTC))
             path = config.store / STATE_FILENAME
-            write_state(path, state)
-            if read_state(path) != state:
+            state = initialize_state(path, state)
+            persisted = read_state(path)
+            if state is None or persisted is None:
                 raise BackupError(Reason.STORAGE)
-            result = dict(state_schema_version=state.schema_version, initialized=True)
+            result = dict(state_schema_version=persisted.schema_version, initialized=True)
         elif operation == "retain":
             retention = retain(config)
             result = dict(
