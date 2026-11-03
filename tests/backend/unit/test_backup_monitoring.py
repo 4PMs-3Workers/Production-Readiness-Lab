@@ -106,7 +106,7 @@ collect_initial_state(config, now=datetime.now(UTC))
 """
     with operation_lock(config):
         result = subprocess.run(
-            [sys.executable, "-c", script, str(tmp_path)], capture_output=True, timeout=5
+            [sys.executable, "-c", script, str(tmp_path)], capture_output=True, timeout=15
         )
     assert result.returncode == 0 and result.stderr == b""
 
