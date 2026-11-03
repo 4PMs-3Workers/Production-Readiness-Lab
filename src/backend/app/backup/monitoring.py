@@ -114,6 +114,7 @@ def _no_duplicate_keys(pairs):
 
 
 def _state_lock(root: Path) -> int | None:
+    descriptor: int | None = None
     try:
         descriptor = os.open(
             root / STATE_LOCK_FILENAME,
@@ -137,8 +138,11 @@ def _state_lock(root: Path) -> int | None:
             fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         return descriptor
     except OSError as error:
-        if "descriptor" in locals():
-            os.close(descriptor)
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
         if error.errno in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
             return None
         return None

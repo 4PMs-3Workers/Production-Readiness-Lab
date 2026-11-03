@@ -82,6 +82,7 @@ def publish(reports: Publisher, operation: str, success: bool, started: float, *
 async def execute(argv: Sequence[str] | None) -> int:
     reports = Publisher()
     operation, started = "configuration", time.monotonic()
+    config = None
     monitor_operation = None
     monitor_started_at = None
     monitor_success = False
@@ -180,7 +181,7 @@ async def execute(argv: Sequence[str] | None) -> int:
         publish(reports, operation, False, started, reason=Reason.DATABASE.value)
         return 1
     finally:
-        if monitor_operation is not None and monitor_started_at is not None:
+        if monitor_operation is not None and monitor_started_at is not None and config is not None:
             record_job_finish(
                 config,
                 operation=monitor_operation,

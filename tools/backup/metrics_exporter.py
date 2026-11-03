@@ -291,7 +291,7 @@ def serve() -> None:
             self.end_headers()
             self.wfile.write(body)
 
-        def log_message(self, _format, *_args):
+        def log_message(self, format, *_args):
             return
 
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
