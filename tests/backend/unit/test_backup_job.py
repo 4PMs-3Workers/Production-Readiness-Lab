@@ -41,6 +41,27 @@ def test_raw_docker_errors_never_reach_output(monkeypatch, capsys):
     assert "secret" not in capsys.readouterr().out
 
 
+def test_monitor_initialization_identifies_host_failure_stage_without_raw_output(
+    monkeypatch, capsys
+):
+    monkeypatch.setattr(run, "configuration", lambda env: (["docker", "compose"], 30))
+    monkeypatch.setattr(run, "remove_owned", lambda *args: None)
+    monkeypatch.setattr(
+        run,
+        "invoke",
+        lambda args, env, timeout=10: subprocess.CompletedProcess(args, 1, "", "secret"),
+    )
+
+    assert run.main(initialize_monitor_state=True) == 1
+    output = json.loads(capsys.readouterr().out)
+    assert output == {
+        "operation": "monitor-init",
+        "success": False,
+        "reason": "HOST_JOB_FAILED",
+        "stage": "container_job",
+    }
+
+
 def test_runner_initialization_uses_validated_backup_image(monkeypatch, capsys):
     configured = []
     invoked = []

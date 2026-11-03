@@ -123,8 +123,10 @@ def main(*, initialize_monitor_state: bool = False) -> int:
     token = uuid4().hex
     name = "prl-backup-job-" + token
     operation = "monitor-init" if initialize_monitor_state else "scheduled"
+    stage = "configuration"
     try:
         command, timeout = configuration(env)
+        stage = "container_job"
         result = invoke(
             [
                 *command,
@@ -147,6 +149,8 @@ def main(*, initialize_monitor_state: bool = False) -> int:
         if len(result.stdout) > 65536:
             raise JobFailure()
         reports = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+        if result.returncode == 0:
+            stage = "report_validation"
         if initialize_monitor_state:
             if (
                 result.returncode != 0
@@ -198,7 +202,10 @@ def main(*, initialize_monitor_state: bool = False) -> int:
         AttributeError,
         subprocess.TimeoutExpired,
     ):
-        print(json.dumps(dict(operation=operation, success=False, reason="HOST_JOB_FAILED")))
+        failure = dict(operation=operation, success=False, reason="HOST_JOB_FAILED")
+        if initialize_monitor_state:
+            failure["stage"] = stage
+        print(json.dumps(failure))
         return 1
     finally:
         remove_owned(name, token, env)
