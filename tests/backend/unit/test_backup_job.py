@@ -3,6 +3,7 @@ import os
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
 from tests.containers.test_compose_acceptance import ComposeAcceptance
 from tools.backup import run
@@ -67,11 +68,14 @@ def test_monitor_initialization_identifies_host_failure_stage_without_raw_output
 
 
 def test_compose_acceptance_writes_host_job_compatible_secret_files(tmp_path, monkeypatch):
-    stack = SimpleNamespace(
-        scratch=tmp_path,
-        origin="http://localhost:8080",
-        db_passwords={role: "private" for role in ("root", "migration", "runtime", "seed")},
-        seed_passwords={role: "private" for role in ("ADMIN", "STAFF", "STUDENT")},
+    stack = cast(
+        ComposeAcceptance,
+        SimpleNamespace(
+            scratch=tmp_path,
+            origin="http://localhost:8080",
+            db_passwords={role: "private" for role in ("root", "migration", "runtime", "seed")},
+            seed_passwords={role: "private" for role in ("ADMIN", "STAFF", "STUDENT")},
+        ),
     )
     original_chmod = Path.chmod
     protected = []
