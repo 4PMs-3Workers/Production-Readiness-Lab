@@ -145,6 +145,13 @@ class BackupMetricsExporter:
                 gauges[name] = gauge
             gauge.labels(*label_values, *extra_values).set(value)
 
+        if state.monitor_initialized_at is not None:
+            set_value(
+                "prl_backup_monitor_initialized_timestamp_seconds",
+                "Unix timestamp when the backup monitor state was initialized.",
+                state.monitor_initialized_at.timestamp(),
+            )
+
         if state.last_verified_backup_at is not None:
             set_value(
                 "prl_backup_last_verified_timestamp_seconds",
@@ -167,6 +174,18 @@ class BackupMetricsExporter:
                 "prl_backup_job_last_started_timestamp_seconds",
                 "Unix timestamp when the latest backup operation started.",
                 state.last_job_started_at.timestamp(),
+            )
+        if state.last_scheduled_job_started_at is not None:
+            set_value(
+                "prl_backup_scheduled_job_last_started_timestamp_seconds",
+                "Unix timestamp when the latest scheduled backup operation started.",
+                state.last_scheduled_job_started_at.timestamp(),
+            )
+        if state.last_scheduled_job_finished_at is not None:
+            set_value(
+                "prl_backup_scheduled_job_last_finished_timestamp_seconds",
+                "Unix timestamp when the latest scheduled backup operation finished.",
+                state.last_scheduled_job_finished_at.timestamp(),
             )
         if state.last_job_finished_at is not None:
             set_value(

@@ -343,6 +343,40 @@ def test_prometheus_rule_tests_cover_thresholds_restart_and_backlog_freshness():
     assert "prl_worker_last_successful_scan_timestamp_seconds" in text
     assert "prl_worker_started_timestamp_seconds" in text
     assert "A fresh empty scan excludes a retained oldest-overdue value before max" in text
+    for backup_case in (
+        "Backup artifact missing and stale",
+        "Scheduled failure remains until scheduled success",
+        "Incomplete job fires after runtime and grace",
+        "Missing schedule does not duplicate incomplete",
+        "Missing configuration and no data remain unknown",
+        "Monitor target down and state read stale",
+        "Absent remote copy remains unknown",
+    ):
+        assert backup_case in text
+    rules = yaml.safe_load((INFRA / "prometheus-rules.yml").read_text(encoding="utf-8"))
+    alerts = {
+        rule["alert"] for group in rules["groups"] for rule in group["rules"] if "alert" in rule
+    }
+    assert {
+        "BackupArtifactMissing",
+        "BackupArtifactStale",
+        "BackupJobFailed",
+        "BackupJobIncomplete",
+        "BackupJobMissing",
+        "BackupMonitorConfigurationMissing",
+        "BackupMonitorStateUnavailable",
+        "BackupMonitorStateReadStale",
+    } <= alerts
+    target_down = next(
+        rule
+        for group in rules["groups"]
+        for rule in group["rules"]
+        if rule.get("alert") == "TelemetryTargetDown"
+    )
+    assert (
+        'job=~"api|collector|application-otel|local-alert-receiver|prometheus-self|loki-self|tempo-self|grafana-self|alertmanager-self|backup-monitor"'
+        in target_down["expr"]
+    )
 
 
 def test_same_slot_restart_fixture_keeps_cached_backlog_unknown_until_new_scan():

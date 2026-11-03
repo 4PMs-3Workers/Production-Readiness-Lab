@@ -386,3 +386,256 @@ tests:
             exp_annotations:
               summary: Telemetry items were dropped, refused, or failed export during the last five minutes.
               runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-target-or-loss
+
+  # Backup artifact missing and stale remain distinct and both recover on a fresh verified artifact.
+  - interval: 15s
+    input_series:
+      - series: 'prl_backup_monitor_config_valid'
+        values: "1+0x8"
+      - series: 'prl_backup_monitor_state_valid{environment="demo",store="backup-storage"}'
+        values: "1+0x8"
+      - series: 'prl_backup_monitor_rpo_seconds{environment="demo",store="backup-storage"}'
+        values: "60+0x8"
+      - series: 'prl_backup_last_verified_timestamp_seconds{environment="demo",store="backup-storage"}'
+        values: "1 1 1 1 1 1 61 61 61"
+    alert_rule_test:
+      - eval_time: 15s
+        alertname: BackupArtifactMissing
+        exp_alerts: []
+      - eval_time: 75s
+        alertname: BackupArtifactStale
+        exp_alerts:
+          - exp_labels:
+              environment: demo
+              store: backup-storage
+              severity: critical
+            exp_annotations:
+              summary: The latest integrity-verified local backup is older than the configured RPO.
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#backup-artifact-stale
+      - eval_time: 90s
+        alertname: BackupArtifactStale
+        exp_alerts: []
+
+  # Scheduled failure remains until scheduled success.
+  - interval: 15s
+    input_series:
+      - series: 'prl_backup_scheduled_job_failure_pending{environment="demo",store="backup-storage"}'
+        values: "1 1 1 0 0"
+    alert_rule_test:
+      - eval_time: 15s
+        alertname: BackupJobFailed
+        exp_alerts:
+          - exp_labels:
+              environment: demo
+              store: backup-storage
+              severity: critical
+            exp_annotations:
+              summary: A scheduled backup failed and remains unresolved until a later scheduled success.
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#backup-job-failed
+      - eval_time: 30s
+        alertname: BackupJobFailed
+        exp_alerts:
+          - exp_labels:
+              environment: demo
+              store: backup-storage
+              severity: critical
+            exp_annotations:
+              summary: A scheduled backup failed and remains unresolved until a later scheduled success.
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#backup-job-failed
+      - eval_time: 45s
+        alertname: BackupJobFailed
+        exp_alerts: []
+
+  # Incomplete job fires after runtime and grace.
+  - interval: 15s
+    input_series:
+      - series: 'prl_backup_scheduled_job_last_started_timestamp_seconds{environment="demo",store="backup-storage"}'
+        values: "1+0x6"
+      - series: 'prl_backup_scheduled_job_last_finished_timestamp_seconds{environment="demo",store="backup-storage"}'
+        values: "_ _ _ _ _ 76 76"
+      - series: 'prl_backup_monitor_job_runtime_seconds{environment="demo",store="backup-storage"}'
+        values: "30+0x6"
+      - series: 'prl_backup_monitor_job_grace_seconds{environment="demo",store="backup-storage"}'
+        values: "15+0x6"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: BackupJobIncomplete
+        exp_alerts:
+          - exp_labels:
+              environment: demo
+              store: backup-storage
+              severity: critical
+            exp_annotations:
+              summary: A scheduled backup has no final report after its maximum runtime and termination grace.
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#backup-job-incomplete
+      - eval_time: 1m15s
+        alertname: BackupJobIncomplete
+        exp_alerts: []
+
+  # Missing schedule does not duplicate incomplete.
+  - interval: 15s
+    input_series:
+      - series: 'prl_backup_monitor_config_valid'
+        values: "1+0x8"
+      - series: 'prl_backup_monitor_state_valid{environment="demo",store="backup-storage"}'
+        values: "1+0x8"
+      - series: 'prl_backup_monitor_initialized_timestamp_seconds{environment="demo",store="backup-storage"}'
+        values: "1+0x8"
+      - series: 'prl_backup_monitor_schedule_interval_seconds{environment="demo",store="backup-storage"}'
+        values: "30+0x8"
+      - series: 'prl_backup_monitor_job_runtime_seconds{environment="demo",store="backup-storage"}'
+        values: "10+0x8"
+      - series: 'prl_backup_monitor_job_grace_seconds{environment="demo",store="backup-storage"}'
+        values: "5+0x8"
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: BackupJobMissing
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: BackupJobMissing
+        exp_alerts:
+          - exp_labels:
+              environment: demo
+              store: backup-storage
+              severity: warning
+            exp_annotations:
+              summary: No scheduled backup has started within the expected schedule and completion window.
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#backup-job-missing
+
+  # Missing configuration and no data remain unknown.
+  - interval: 15s
+    input_series:
+      - series: 'prl_backup_monitor_config_valid'
+        values: "0+0x6"
+      - series: 'prl_backup_monitor_state_valid'
+        values: "0+0x6"
+      - series: 'prl_backup_remote_copy_state{environment="demo",store="backup-storage",state="unknown"}'
+        values: "1+0x6"
+    alert_rule_test:
+      - eval_time: 15s
+        alertname: BackupMonitorConfigurationMissing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: Required backup monitoring thresholds are missing or invalid; backup health is unknown.
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#backup-monitor-configuration
+      - eval_time: 15s
+        alertname: BackupMonitorStateUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: The backup exporter cannot validate its monitoring state; backup health is unknown.
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#backup-monitor-state
+      - eval_time: 15s
+        alertname: BackupArtifactMissing
+        exp_alerts: []
+      - eval_time: 15s
+        alertname: BackupJobMissing
+        exp_alerts: []
+
+  # A scheduled run in its runtime window suppresses BackupJobMissing while incomplete has not fired yet.
+  - interval: 15s
+    input_series:
+      - series: 'prl_backup_monitor_config_valid'
+        values: "1+0x4"
+      - series: 'prl_backup_monitor_state_valid{environment="demo",store="backup-storage"}'
+        values: "1+0x4"
+      - series: 'prl_backup_monitor_initialized_timestamp_seconds{environment="demo",store="backup-storage"}'
+        values: "1+0x4"
+      - series: 'prl_backup_monitor_schedule_interval_seconds{environment="demo",store="backup-storage"}'
+        values: "30+0x4"
+      - series: 'prl_backup_monitor_job_runtime_seconds{environment="demo",store="backup-storage"}'
+        values: "10+0x4"
+      - series: 'prl_backup_monitor_job_grace_seconds{environment="demo",store="backup-storage"}'
+        values: "5+0x4"
+      - series: 'prl_backup_scheduled_job_last_started_timestamp_seconds{environment="demo",store="backup-storage"}'
+        values: "30+0x4"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: BackupJobMissing
+        exp_alerts: []
+
+  # Monitor target down and state read stale.
+  - interval: 15s
+    input_series:
+      - series: 'up{job="backup-monitor",instance="backup_metrics_exporter:9108"}'
+        values: "0 0 0 0 1 1"
+      - series: 'prl_backup_monitor_last_successful_state_read_timestamp_seconds{environment="demo",store="backup-storage"}'
+        values: "1 1 1 1 46 46"
+      - series: 'prl_backup_monitor_stale_seconds{environment="demo",store="backup-storage"}'
+        values: "30+0x5"
+    alert_rule_test:
+      - eval_time: 15s
+        alertname: TelemetryTargetDown
+        exp_alerts: []
+      - eval_time: 45s
+        alertname: TelemetryTargetDown
+        exp_alerts:
+          - exp_labels:
+              job: backup-monitor
+              instance: backup_metrics_exporter:9108
+              severity: warning
+            exp_annotations:
+              summary: A required application or observability scrape target is unavailable.
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#telemetry-target-or-loss
+      - eval_time: 45s
+        alertname: BackupMonitorStateReadStale
+        exp_alerts:
+          - exp_labels:
+              environment: demo
+              store: backup-storage
+              severity: warning
+            exp_annotations:
+              summary: The exporter has not successfully read backup state within its configured freshness bound.
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#backup-monitor-state
+      - eval_time: 1m
+        alertname: TelemetryTargetDown
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: BackupMonitorStateReadStale
+        exp_alerts: []
+
+  # Absent remote copy remains unknown.
+  - interval: 15s
+    input_series:
+      - series: 'prl_backup_monitor_config_valid'
+        values: "1+0x4"
+      - series: 'prl_backup_monitor_state_valid{environment="demo",store="backup-storage"}'
+        values: "1+0x4"
+      - series: 'prl_backup_monitor_initialized_timestamp_seconds{environment="demo",store="backup-storage"}'
+        values: "1+0x4"
+      - series: 'prl_backup_monitor_schedule_interval_seconds{environment="demo",store="backup-storage"}'
+        values: "30+0x4"
+      - series: 'prl_backup_monitor_job_runtime_seconds{environment="demo",store="backup-storage"}'
+        values: "10+0x4"
+      - series: 'prl_backup_monitor_job_grace_seconds{environment="demo",store="backup-storage"}'
+        values: "5+0x4"
+      - series: 'prl_backup_remote_copy_state{environment="demo",store="backup-storage",state="unknown"}'
+        values: "1+0x4"
+    alert_rule_test:
+      - eval_time: 15s
+        alertname: BackupArtifactMissing
+        exp_alerts:
+          - exp_labels:
+              environment: demo
+              store: backup-storage
+              severity: critical
+            exp_annotations:
+              summary: No integrity-verified local backup artifact is recorded.
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#backup-artifact-missing
+      - eval_time: 1m
+        alertname: BackupJobMissing
+        exp_alerts:
+          - exp_labels:
+              environment: demo
+              store: backup-storage
+              severity: warning
+            exp_annotations:
+              summary: No scheduled backup has started within the expected schedule and completion window.
+              runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#backup-job-missing
+    promql_expr_test:
+      - expr: prl_backup_remote_copy_state{state="success"}
+        eval_time: 15s
+        exp_samples: []

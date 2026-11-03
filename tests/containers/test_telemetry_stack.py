@@ -18,7 +18,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, urlencode, urlparse
 from uuid import UUID, uuid4
 
 import httpx
@@ -1836,6 +1836,32 @@ class FullStackRuntime:
         if token or pin_ops_edge_network:
             self.stack._ensure_gateway_subnet_available(additional_subnets=additional_subnets)
 
+        self.backup_owner_token = self.stack.project.removeprefix("prl-task6-")
+        if not re.fullmatch(r"[0-9a-f]{32}", self.backup_owner_token):
+            raise AcceptanceFailure("The backup test owner token is invalid")
+        self.backup_volume_name = f"{self.stack.project}_backup_store"
+        existing_backup_volume = acceptance_invoke(
+            ["docker", "volume", "inspect", self.backup_volume_name]
+        )
+        if existing_backup_volume.returncode == 0:
+            raise AcceptanceFailure("A volume already uses the generated backup-test identity")
+        if existing_backup_volume.returncode not in {1, 2}:
+            raise AcceptanceFailure("The generated backup-volume identity could not be checked")
+        self.backup_password = uuid4().hex
+        self.stack.db_passwords["backup"] = self.backup_password
+        db_env_file = Path(self.stack.env["PRL_DB_ENV_FILE"])
+        with db_env_file.open("a", encoding="utf-8", newline="\n") as target:
+            target.write(f"PRL_BACKUP_PASSWORD={self.backup_password}\n")
+        db_env_file.chmod(0o600)
+        self.backup_env_file = scratch / "backup.env"
+        self.backup_env_text = (
+            "DATABASE_URL=mysql+asyncmy://prl_backup:"
+            f"{quote(self.backup_password, safe='')}@mysql/prl\n"
+            "BACKUP_MIN_FREE_BYTES=0\n"
+        )
+        self.backup_env_file.write_text(self.backup_env_text, encoding="utf-8")
+        self.backup_env_file.chmod(0o600)
+
         self.port = self.stack.port
         self.ops_host = "ops.example.invalid"
         self.app_origin = self.stack.origin
@@ -1882,6 +1908,18 @@ class FullStackRuntime:
             PRL_GRAFANA_ADMIN_USER_FILE=str(self.admin_user_file.resolve()),
             PRL_GRAFANA_ADMIN_PASSWORD_FILE=str(self.admin_password_file.resolve()),
             PRL_EXPECTED_WORKER_SLOTS="1",
+            PRL_BACKUP_PROJECT=self.stack.project,
+            PRL_BACKUP_VOLUME=self.backup_volume_name,
+            PRL_BACKUP_ENV_FILE=str(self.backup_env_file.resolve()),
+            PRL_SOURCE_SHA=self.stack.expected_sha,
+            PRL_IMAGE_TAG=self.stack.image_tag,
+            BACKUP_MONITOR_ENVIRONMENT="test",
+            BACKUP_MONITOR_STORE="backup-store",
+            BACKUP_MONITOR_RPO_SECONDS="172800",
+            BACKUP_MONITOR_SCHEDULE_INTERVAL_SECONDS="86400",
+            BACKUP_MONITOR_JOB_RUNTIME_SECONDS="600",
+            BACKUP_MONITOR_JOB_GRACE_SECONDS="60",
+            BACKUP_MONITOR_STALE_SECONDS="120",
             DOCKER_DEFAULT_PLATFORM="linux/amd64",
         )
         self.probe_file = scratch / "task6-probes.compose.yaml"
@@ -3784,6 +3822,21 @@ print("TASK6_PROBE:" + json.dumps({"spoofed_forwarded_status": status}))
         return matching
 
     def start(self) -> None:
+        acceptance_success(
+            acceptance_invoke(
+                [
+                    "docker",
+                    "volume",
+                    "create",
+                    "--label",
+                    "prl.backup.storage=1",
+                    "--label",
+                    f"org.prl.task6.owner={self.backup_owner_token}",
+                    self.backup_volume_name,
+                ]
+            ),
+            "The UUID-owned backup volume could not be created",
+        )
         self.stack.wait_gateway = self.wait_app_gateway
         original_worker_log_output = self.stack.worker_log_output
 
@@ -3902,6 +3955,7 @@ print("TASK6_PROBE:" + json.dumps({"spoofed_forwarded_status": status}))
             "alertmanager",
             "local_alert_receiver",
             "gateway_log_rotate",
+            "backup_metrics_exporter",
         )
         acceptance_success(
             self.compose("up", "-d", "--wait", "--wait-timeout", "180", *services, timeout=240),
@@ -4039,6 +4093,26 @@ print("TASK6_PROBE:" + json.dumps({"spoofed_forwarded_status": status}))
             )
         if before != self.volume_snapshot():
             raise AcceptanceFailure("Compose cleanup changed or removed a named volume")
+        backup_volume = acceptance_invoke(["docker", "volume", "inspect", self.backup_volume_name])
+        if backup_volume.returncode == 0:
+            records = acceptance_json(
+                backup_volume, "The external backup volume identity could not be verified"
+            )
+            if len(records) != 1:
+                raise AcceptanceFailure("The external backup volume identity is ambiguous")
+            labels = records[0].get("Labels") or {}
+            if (
+                records[0].get("Name") != self.backup_volume_name
+                or labels.get("prl.backup.storage") != "1"
+                or labels.get("org.prl.task6.owner") != self.backup_owner_token
+            ):
+                raise AcceptanceFailure("The external backup volume failed its UUID owner guard")
+            acceptance_success(
+                acceptance_invoke(["docker", "volume", "rm", self.backup_volume_name]),
+                "The UUID-owned external backup volume could not be removed",
+            )
+        elif backup_volume.returncode not in {1, 2}:
+            raise AcceptanceFailure("The external backup volume state could not be verified")
         self.stack.assert_demo_untouched()
 
 

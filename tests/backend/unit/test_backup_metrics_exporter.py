@@ -25,6 +25,7 @@ def write_sample_state(path, *, now=None):
         BackupMonitorState(
             schema_version=1,
             updated_at=now,
+            monitor_initialized_at=now - timedelta(hours=3),
             last_verified_backup_at=now - timedelta(hours=1),
             artifact_integrity_verified=True,
             application_rehearsal_verified=False,
@@ -62,8 +63,38 @@ def test_exporter_emits_backup_and_job_gauges_from_state(tmp_path):
         in metrics
     )
     assert "prl_backup_last_verified_timestamp_seconds" in metrics
+    assert "prl_backup_monitor_initialized_timestamp_seconds" in metrics
     assert "prl_backup_store_total_bytes" in metrics
     assert "prl_backup_store_free_bytes" in metrics
+
+
+def test_exporter_emits_separate_scheduled_lifecycle_timestamps(tmp_path):
+    now = datetime.now(UTC)
+    state_path = tmp_path / ".prl-monitoring-state.json"
+    state = BackupMonitorState(
+        schema_version=1,
+        updated_at=now,
+        last_verified_backup_at=None,
+        artifact_integrity_verified=None,
+        application_rehearsal_verified=False,
+        last_job_operation="backup",
+        last_job_started_at=now - timedelta(seconds=30),
+        last_job_finished_at=now,
+        last_job_result="success",
+        last_job_reason=None,
+        last_job_duration_seconds=30.0,
+        last_scheduled_job_started_at=now - timedelta(hours=2),
+        last_scheduled_job_finished_at=now - timedelta(hours=1, minutes=59),
+        scheduled_job_failure_pending=False,
+        minimum_free_bytes=1024,
+        remote_copy=None,
+    )
+    write_state(state_path, state)
+
+    metrics = BackupMetricsExporter(valid_environment(), state_path).render()
+
+    assert "prl_backup_scheduled_job_last_started_timestamp_seconds" in metrics
+    assert "prl_backup_scheduled_job_last_finished_timestamp_seconds" in metrics
 
 
 def test_invalid_or_missing_thresholds_are_unknown_and_config_invalid(tmp_path):

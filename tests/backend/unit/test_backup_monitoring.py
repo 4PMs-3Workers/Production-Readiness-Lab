@@ -57,13 +57,15 @@ def test_initial_snapshot_uses_latest_integrity_verified_artifact(tmp_path):
         populate(owned, manifest)
         published = owned.publish(manifest)
 
-    state = collect_initial_state(config, now=datetime.now(UTC))
+    initialized_at = datetime.now(UTC)
+    state = collect_initial_state(config, now=initialized_at)
 
     assert state.last_verified_backup_at == datetime.fromisoformat(
         published.completed_at.replace("Z", "+00:00")
     )
     assert state.artifact_integrity_verified is True
     assert state.application_rehearsal_verified is False
+    assert state.monitor_initialized_at == initialized_at
 
 
 def test_empty_or_corrupt_store_is_unknown(tmp_path):
@@ -256,6 +258,41 @@ def test_manual_backup_success_does_not_clear_scheduled_job_failure(tmp_path):
 
     state = read_state(tmp_path / ".prl-monitoring-state.json")
     assert state is not None and state.scheduled_job_failure_pending is True
+
+
+def test_manual_job_does_not_overwrite_scheduled_lifecycle_timestamps(tmp_path):
+    config, _ = fixture_artifact(tmp_path)
+    scheduled_started = datetime.now(UTC) - timedelta(hours=2)
+    scheduled_finished = scheduled_started + timedelta(minutes=1)
+    manual_started = scheduled_finished + timedelta(minutes=1)
+    record_job_start(config, operation="scheduled", started_at=scheduled_started)
+    record_job_finish(
+        config,
+        operation="scheduled",
+        finished_at=scheduled_finished,
+        success=True,
+        reason=None,
+        duration_seconds=60,
+        backup_completed_at=None,
+        artifact_integrity_verified=None,
+    )
+    record_job_start(config, operation="backup", started_at=manual_started)
+    record_job_finish(
+        config,
+        operation="backup",
+        finished_at=manual_started + timedelta(seconds=30),
+        success=True,
+        reason=None,
+        duration_seconds=30,
+        backup_completed_at=None,
+        artifact_integrity_verified=None,
+    )
+
+    state = read_state(config.store / ".prl-monitoring-state.json")
+
+    assert state is not None
+    assert state.last_scheduled_job_started_at == scheduled_started
+    assert state.last_scheduled_job_finished_at == scheduled_finished
 
 
 def test_monitor_init_fails_when_state_cannot_be_persisted(tmp_path, monkeypatch):

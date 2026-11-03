@@ -67,9 +67,10 @@ flowchart LR
 
 State file là JSON versioned, atomic replace, kích thước tối đa hữu hạn và chỉ có một snapshot hiện tại (không append log không giới hạn). Producer ghi start và completion qua module trong `src/backend/app/backup/`; exporter chỉ đọc. Trường đề xuất:
 
-- `schema_version`, `environment`, `store`, `updated_at`.
+- `schema_version`, `updated_at`, and a preserved `monitor_initialized_at` baseline. Environment/store labels come only from validated exporter configuration.
 - `last_verified_backup_at`, `artifact_integrity_verified`, `application_rehearsal_verified`.
 - `last_job_started_at`, `last_job_finished_at`, `last_job_result`, `last_job_reason` (reason thuộc enum), `last_job_duration_seconds`.
+- `last_scheduled_job_started_at` and `last_scheduled_job_finished_at` remain independent of manual operations so a manual run cannot hide an overdue schedule or an unfinished scheduled job.
 - `last_backup_at` riêng với `last_job_result`, để retention failure sau backup success vẫn thể hiện artifact mới nhưng job lỗi.
 - `store_total_bytes`, `store_free_bytes`, `minimum_free_bytes` khi filesystem cung cấp số đo hợp lệ; không suy ra quota nếu volume không có quota.
 - `remote_copy` optional theo schema version: `configured`, trạng thái hữu hạn (`not_configured`, `unknown`, `pending`, `success`, `failure`) và thời điểm verified nếu có. Vắng trường/producer nghĩa là unknown/not-configured; định dạng phải được phối hợp với #47 trước khi merge tích hợp.

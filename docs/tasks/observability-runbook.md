@@ -65,7 +65,7 @@ The configured alerts are local receivers, not an external paging service:
 
 | Alert | Trigger | First check |
 |---|---|---|
-| `TelemetryTargetDown` | Any of the nine required scrape jobs stays down for 30 seconds. | Check Prometheus target state and the named service health. This evaluator must still be running. |
+| `TelemetryTargetDown` | Any of the ten required scrape jobs, including `backup-monitor`, stays down for 30 seconds. | Check Prometheus target state and the named service health. This evaluator must still be running. |
 | `ApiTelemetryFamilyMissing` | API is up but its required stdout queue family is absent for 30 seconds. | Treat the missing family as an instrumentation gap, not zero queue use. |
 | `TelemetryLossDetected` | A dropped/failed application item or a Collector receiver refusal/failure/export enqueue/send failure increased during five minutes. | Compare the finite signal and receiver/exporter labels with Collector logs and the `Telemetry loss` dashboard. |
 | `ApiHttpErrorRateWarning` / `ApiHttpErrorRateCritical` | The 5xx/aborted rate exceeds 0.5% / 5% across at least 20 API requests in five minutes, held for two / one minute. | Filter by normalized route and release; separate input/business responses from service failures. |
@@ -122,3 +122,31 @@ A missing metric family or absent counter is unknown, not zero. Check both appli
 5. Recheck fresh telemetry and dashboard queries. A recent Loki receipt timestamp alone is insufficient; verify producer event time and the correct query window. Treat missing periods as unknown.
 
 The Task 8 business/outage acceptance repeats authenticated student and staff flows (real cookie and CSRF handling) in healthy, Collector-stopped, Loki-stopped, Tempo-stopped, and Prometheus-stopped states, restoring each component before the next state. Grafana and Alertmanager are checked at their UI/receiver boundaries rather than adding more business-write outage states. The evidence report records actual timings and traces; this matrix does not establish a host-outage alert path, a three-minute detection target, or a seven-day SLO.
+
+## Backup artifact missing
+
+`BackupArtifactMissing` means the validated monitor state contains no integrity-verified local artifact. Confirm that the backup store was initialized with `monitor-init`, then inspect the scheduled job and its finite result/reason. Do not infer that an absent artifact is an empty successful backup.
+
+## Backup artifact stale
+
+`BackupArtifactStale` means the latest integrity-verified local artifact is older than the configured RPO. Check scheduled job outcome, store capacity, and configured schedule/runtime/grace values. A manual backup may make artifact freshness current, but it does not clear a scheduled-job failure.
+
+## Backup job failed
+
+`BackupJobFailed` remains firing after a failure and resolves only after a complete scheduled job succeeds. A later manual backup does not clear this alert. Review the finite reason and the backup runbook; never use raw exception or credential text as monitoring labels.
+
+## Backup job incomplete
+
+`BackupJobIncomplete` fires when a scheduled start has no final report after the configured maximum runtime plus termination grace. Check the owned job container, host process state, and state-store permissions. The alert resolves when a final scheduled report is recorded; do not fabricate success for a killed process.
+
+## Backup job missing
+
+`BackupJobMissing` means no scheduled run started within one configured schedule interval plus its completion window. An in-flight start suppresses this alert while `BackupJobIncomplete` owns the missing-final-report condition. Confirm that the systemd timer/drop-in and monitor schedule interval agree.
+
+## Backup monitor configuration
+
+`BackupMonitorConfigurationMissing` means one or more required threshold settings are absent, malformed, or impossible. Backup status is unknown until the per-environment values are corrected and the exporter reports valid configuration. Do not substitute a healthy value for an absent threshold.
+
+## Backup monitor state
+
+`BackupMonitorStateUnavailable` means the exporter cannot validate the state file. `BackupMonitorStateReadStale` means it has not completed a valid state read within the configured freshness bound. Check volume ownership, state-file permissions, and exporter health. `TelemetryTargetDown` also covers the backup exporter scrape job. The local receiver shares the same host and does not provide protection during a host outage.

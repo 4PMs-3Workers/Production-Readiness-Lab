@@ -31,6 +31,7 @@ class RemoteCopyState(StrictModel):
 class BackupMonitorState(StrictModel):
     schema_version: Literal[1]
     updated_at: datetime
+    monitor_initialized_at: datetime | None = None
     last_verified_backup_at: datetime | None
     artifact_integrity_verified: bool | None
     application_rehearsal_verified: bool
@@ -40,6 +41,8 @@ class BackupMonitorState(StrictModel):
     last_job_result: Literal["success", "failure"] | None
     last_job_reason: Reason | None
     last_job_duration_seconds: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    last_scheduled_job_started_at: datetime | None = None
+    last_scheduled_job_finished_at: datetime | None = None
     scheduled_job_failure_pending: bool = False
     minimum_free_bytes: int | None = Field(default=None, ge=0)
     remote_copy: RemoteCopyState | None = None
@@ -48,9 +51,12 @@ class BackupMonitorState(StrictModel):
     def valid_times(self) -> Self:
         values = [
             self.updated_at,
+            self.monitor_initialized_at,
             self.last_verified_backup_at,
             self.last_job_started_at,
             self.last_job_finished_at,
+            self.last_scheduled_job_started_at,
+            self.last_scheduled_job_finished_at,
             self.remote_copy.last_verified_at if self.remote_copy else None,
         ]
         for value in values:
@@ -222,6 +228,7 @@ def collect_initial_state(config: BackupConfig, *, now: datetime) -> BackupMonit
     return BackupMonitorState(
         schema_version=1,
         updated_at=now,
+        monitor_initialized_at=now,
         last_verified_backup_at=completed,
         artifact_integrity_verified=verified,
         application_rehearsal_verified=False,
@@ -246,6 +253,7 @@ def _current_or_initial(config: BackupConfig, now: datetime) -> BackupMonitorSta
         return BackupMonitorState(
             schema_version=1,
             updated_at=now,
+            monitor_initialized_at=now,
             last_verified_backup_at=None,
             artifact_integrity_verified=None,
             application_rehearsal_verified=False,
@@ -278,6 +286,9 @@ def record_job_start(
                 last_job_result=None,
                 last_job_reason=None,
                 last_job_duration_seconds=None,
+                last_scheduled_job_started_at=(
+                    started_at if operation == "scheduled" else state.last_scheduled_job_started_at
+                ),
             )
         )
         write_state(
@@ -309,6 +320,9 @@ def record_job_finish(
         ):
             started_at = finished_at - timedelta(seconds=max(0.0, duration_seconds))
         completed_backup = backup_completed_at is not None and artifact_integrity_verified is True
+        scheduled_started_at = (
+            started_at if operation == "scheduled" else state.last_scheduled_job_started_at
+        )
         updated = state.model_copy(
             update=dict(
                 updated_at=finished_at,
@@ -324,6 +338,16 @@ def record_job_finish(
                 last_job_result="success" if success else "failure",
                 last_job_reason=None if success else (reason or Reason.DATABASE),
                 last_job_duration_seconds=max(0.0, duration_seconds),
+                last_scheduled_job_started_at=(
+                    scheduled_started_at
+                    if operation == "scheduled"
+                    else state.last_scheduled_job_started_at
+                ),
+                last_scheduled_job_finished_at=(
+                    finished_at
+                    if operation == "scheduled"
+                    else state.last_scheduled_job_finished_at
+                ),
                 scheduled_job_failure_pending=(
                     not success if operation == "scheduled" else state.scheduled_job_failure_pending
                 ),
