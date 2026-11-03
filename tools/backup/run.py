@@ -31,6 +31,8 @@ SAFE_REPORT_KEYS = {
     "removed_count",
     "preserved_count",
     "ignored_entries",
+    "state_schema_version",
+    "initialized",
 }
 
 
@@ -108,12 +110,13 @@ def remove_owned(name: str, token: str, env: dict[str, str]) -> None:
         pass
 
 
-def main() -> int:
+def main(*, initialize_monitor_state: bool = False) -> int:
     env = dict(os.environ)
     for key in ("COMPOSE_FILE", "COMPOSE_PROJECT_NAME", "COMPOSE_PROFILES"):
         env.pop(key, None)
     token = uuid4().hex
     name = "prl-backup-job-" + token
+    operation = "monitor-init" if initialize_monitor_state else "scheduled"
     try:
         command, timeout = configuration(env)
         result = invoke(
@@ -130,7 +133,7 @@ def main() -> int:
                 "--label",
                 f"prl.backup.job={token}",
                 "backup",
-                "scheduled",
+                operation,
             ],
             env,
             timeout,
@@ -138,7 +141,28 @@ def main() -> int:
         if len(result.stdout) > 65536:
             raise JobFailure()
         reports = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
-        if not reports or any(
+        if initialize_monitor_state:
+            if (
+                result.returncode != 0
+                or len(reports) != 1
+                or set(reports[0])
+                != {
+                    "operation",
+                    "success",
+                    "duration_seconds",
+                    "state_schema_version",
+                    "initialized",
+                }
+                or reports[0]["operation"] != "monitor-init"
+                or reports[0]["success"] is not True
+                or type(reports[0]["state_schema_version"]) is not int
+                or reports[0]["state_schema_version"] != 1
+                or reports[0]["initialized"] is not True
+                or type(reports[0]["duration_seconds"]) not in (int, float)
+                or not 0 <= reports[0]["duration_seconds"] < float("inf")
+            ):
+                raise JobFailure()
+        elif not reports or any(
             not isinstance(report, dict) or not set(report) <= SAFE_REPORT_KEYS
             for report in reports
         ):
@@ -155,7 +179,7 @@ def main() -> int:
         AttributeError,
         subprocess.TimeoutExpired,
     ):
-        print(json.dumps(dict(operation="scheduled", success=False, reason="HOST_JOB_FAILED")))
+        print(json.dumps(dict(operation=operation, success=False, reason="HOST_JOB_FAILED")))
         return 1
     finally:
         remove_owned(name, token, env)
@@ -163,4 +187,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     signal.signal(signal.SIGTERM, terminate)
-    sys.exit(main())
+    sys.exit(main(initialize_monitor_state="--initialize-monitor-state" in sys.argv[1:]))

@@ -39,3 +39,31 @@ def test_raw_docker_errors_never_reach_output(monkeypatch, capsys):
     )
     assert run.main() == 1
     assert "secret" not in capsys.readouterr().out
+
+
+def test_runner_initialization_uses_validated_backup_image(monkeypatch, capsys):
+    configured = []
+    invoked = []
+    monkeypatch.setattr(
+        run,
+        "configuration",
+        lambda env: (configured.append(env) or (["docker", "compose", "--validated-image"], 30)),
+    )
+
+    def invoke(args, env, timeout=10):
+        invoked.append(args)
+        report = {
+            "operation": "monitor-init",
+            "success": True,
+            "duration_seconds": 0.1,
+            "state_schema_version": 1,
+            "initialized": True,
+        }
+        return subprocess.CompletedProcess(args, 0, json.dumps(report) + "\n", "")
+
+    monkeypatch.setattr(run, "invoke", invoke)
+    monkeypatch.setattr(run, "remove_owned", lambda *args: None)
+
+    assert run.main(initialize_monitor_state=True) == 0
+    assert configured and invoked[0][-1] == "monitor-init"
+    assert json.loads(capsys.readouterr().out)["operation"] == "monitor-init"

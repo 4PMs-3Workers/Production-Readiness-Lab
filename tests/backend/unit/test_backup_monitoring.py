@@ -1,3 +1,4 @@
+import asyncio
 import json
 import subprocess
 import sys
@@ -5,11 +6,14 @@ from datetime import UTC, datetime, timedelta, timezone
 
 from tests.backend.unit.test_backup_storage import fixture_artifact, populate
 
+from app.backup.config import Reason
 from app.backup.locking import operation_lock
 from app.backup.monitoring import (
     BackupMonitorState,
     collect_initial_state,
     read_state,
+    record_job_finish,
+    record_job_start,
     write_state,
 )
 from app.backup.storage import staging
@@ -126,3 +130,153 @@ def test_state_lock_cleanup_failure_does_not_escape(tmp_path, monkeypatch):
     write_state(path, make_state())
 
     assert read_state(path) is not None
+
+
+def test_scheduled_success_records_artifact_and_job_success_separately(tmp_path):
+    config, _ = fixture_artifact(tmp_path)
+    completed = datetime.now(UTC)
+    started = completed - timedelta(seconds=2)
+
+    record_job_start(config, operation="scheduled", started_at=started)
+    record_job_finish(
+        config,
+        operation="scheduled",
+        finished_at=completed,
+        success=True,
+        reason=None,
+        duration_seconds=2.0,
+        backup_completed_at=completed,
+        artifact_integrity_verified=True,
+    )
+
+    state = read_state(tmp_path / ".prl-monitoring-state.json")
+    assert state is not None
+    assert state.last_verified_backup_at == completed
+    assert state.artifact_integrity_verified is True
+    assert state.last_job_result == "success"
+    assert state.scheduled_job_failure_pending is False
+
+
+def test_retention_failure_preserves_new_artifact_but_records_job_failure(tmp_path):
+    config, _ = fixture_artifact(tmp_path)
+    completed = datetime.now(UTC)
+    started = completed - timedelta(seconds=2)
+    record_job_start(config, operation="scheduled", started_at=started)
+
+    record_job_finish(
+        config,
+        operation="scheduled",
+        finished_at=completed,
+        success=False,
+        reason=Reason.STORAGE,
+        duration_seconds=2.0,
+        backup_completed_at=completed,
+        artifact_integrity_verified=True,
+    )
+
+    state = read_state(tmp_path / ".prl-monitoring-state.json")
+    assert state is not None
+    assert state.last_verified_backup_at == completed
+    assert state.artifact_integrity_verified is True
+    assert state.last_job_result == "failure"
+    assert state.scheduled_job_failure_pending is True
+
+
+def test_failed_job_uses_finite_reason_without_raw_exception(tmp_path):
+    config, _ = fixture_artifact(tmp_path)
+    started = datetime.now(UTC) - timedelta(seconds=2)
+    record_job_start(config, operation="scheduled", started_at=started)
+
+    record_job_finish(
+        config,
+        operation="scheduled",
+        finished_at=started + timedelta(seconds=1),
+        success=False,
+        reason=Reason.DATABASE,
+        duration_seconds=1.0,
+        backup_completed_at=None,
+        artifact_integrity_verified=None,
+    )
+
+    raw = (tmp_path / ".prl-monitoring-state.json").read_text()
+    state = read_state(tmp_path / ".prl-monitoring-state.json")
+    assert state is not None and state.last_job_reason == Reason.DATABASE
+    assert "DATABASE_OPERATION_FAILED" in raw
+    assert "password" not in raw and "traceback" not in raw
+
+
+def test_state_write_failure_does_not_fail_backup(tmp_path, monkeypatch):
+    from app.backup import monitoring
+
+    config, _ = fixture_artifact(tmp_path)
+    monkeypatch.setattr(monitoring, "write_state", lambda *args: (_ for _ in ()).throw(OSError()))
+
+    record_job_start(config, operation="backup", started_at=datetime.now(UTC))
+
+
+def test_missing_final_report_leaves_start_without_fabricated_success(tmp_path):
+    config, _ = fixture_artifact(tmp_path)
+    started = datetime.now(UTC)
+
+    record_job_start(config, operation="scheduled", started_at=started)
+
+    state = read_state(tmp_path / ".prl-monitoring-state.json")
+    assert state is not None
+    assert state.last_job_started_at == started
+    assert state.last_job_finished_at is None
+    assert state.last_job_result is None
+
+
+def test_manual_backup_success_does_not_clear_scheduled_job_failure(tmp_path):
+    config, _ = fixture_artifact(tmp_path)
+    started = datetime.now(UTC) - timedelta(seconds=10)
+    record_job_start(config, operation="scheduled", started_at=started)
+    record_job_finish(
+        config,
+        operation="scheduled",
+        finished_at=started + timedelta(seconds=1),
+        success=False,
+        reason=Reason.DATABASE,
+        duration_seconds=1.0,
+        backup_completed_at=None,
+        artifact_integrity_verified=None,
+    )
+    next_started = started + timedelta(seconds=2)
+    record_job_start(config, operation="backup", started_at=next_started)
+    record_job_finish(
+        config,
+        operation="backup",
+        finished_at=next_started + timedelta(seconds=1),
+        success=True,
+        reason=None,
+        duration_seconds=1.0,
+        backup_completed_at=next_started + timedelta(seconds=1),
+        artifact_integrity_verified=True,
+    )
+
+    state = read_state(tmp_path / ".prl-monitoring-state.json")
+    assert state is not None and state.scheduled_job_failure_pending is True
+
+
+def test_monitor_init_fails_when_state_cannot_be_persisted(tmp_path, monkeypatch):
+    from app.backup import __main__ as backup_cli
+
+    config, _ = fixture_artifact(tmp_path)
+    reports = []
+
+    class FakePublisher:
+        def submit(self, report):
+            reports.append(json.loads(report))
+
+        async def close(self, _deadline):
+            return None
+
+    monkeypatch.setattr(backup_cli, "Publisher", FakePublisher)
+    monkeypatch.setattr(backup_cli, "load_config", lambda: config)
+    monkeypatch.setattr(backup_cli, "write_state", lambda *args: None)
+
+    result = asyncio.run(backup_cli.execute(["monitor-init"]))
+
+    assert result == 1
+    assert reports[-1]["operation"] == "monitor-init"
+    assert reports[-1]["success"] is False

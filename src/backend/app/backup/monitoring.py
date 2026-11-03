@@ -40,6 +40,7 @@ class BackupMonitorState(StrictModel):
     last_job_result: Literal["success", "failure"] | None
     last_job_reason: Reason | None
     last_job_duration_seconds: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    scheduled_job_failure_pending: bool = False
     minimum_free_bytes: int | None = Field(default=None, ge=0)
     remote_copy: RemoteCopyState | None = None
 
@@ -233,3 +234,104 @@ def collect_initial_state(config: BackupConfig, *, now: datetime) -> BackupMonit
         minimum_free_bytes=config.min_free_bytes,
         remote_copy=None,
     )
+
+
+def _current_or_initial(config: BackupConfig, now: datetime) -> BackupMonitorState:
+    state = read_state(config.store / STATE_FILENAME)
+    if state is not None:
+        return state
+    try:
+        return collect_initial_state(config, now=now)
+    except Exception:
+        return BackupMonitorState(
+            schema_version=1,
+            updated_at=now,
+            last_verified_backup_at=None,
+            artifact_integrity_verified=None,
+            application_rehearsal_verified=False,
+            last_job_operation=None,
+            last_job_started_at=None,
+            last_job_finished_at=None,
+            last_job_result=None,
+            last_job_reason=None,
+            last_job_duration_seconds=None,
+            scheduled_job_failure_pending=False,
+            minimum_free_bytes=None,
+            remote_copy=None,
+        )
+
+
+def record_job_start(
+    config: BackupConfig,
+    *,
+    operation: Literal["backup", "scheduled"],
+    started_at: datetime,
+) -> None:
+    try:
+        state = _current_or_initial(config, started_at)
+        updated = state.model_copy(
+            update=dict(
+                updated_at=started_at,
+                last_job_operation=operation,
+                last_job_started_at=started_at,
+                last_job_finished_at=None,
+                last_job_result=None,
+                last_job_reason=None,
+                last_job_duration_seconds=None,
+            )
+        )
+        write_state(
+            config.store / STATE_FILENAME,
+            BackupMonitorState.model_validate(updated.model_dump(mode="python")),
+        )
+    except Exception:
+        pass
+
+
+def record_job_finish(
+    config: BackupConfig,
+    *,
+    operation: Literal["backup", "scheduled"],
+    finished_at: datetime,
+    success: bool,
+    reason: Reason | None,
+    duration_seconds: float,
+    backup_completed_at: datetime | None,
+    artifact_integrity_verified: bool | None,
+) -> None:
+    try:
+        state = _current_or_initial(config, finished_at)
+        started_at = state.last_job_started_at
+        if (
+            state.last_job_operation != operation
+            or started_at is None
+            or state.last_job_finished_at is not None
+        ):
+            started_at = finished_at - timedelta(seconds=max(0.0, duration_seconds))
+        completed_backup = backup_completed_at is not None and artifact_integrity_verified is True
+        updated = state.model_copy(
+            update=dict(
+                updated_at=finished_at,
+                last_verified_backup_at=(
+                    backup_completed_at if completed_backup else state.last_verified_backup_at
+                ),
+                artifact_integrity_verified=(
+                    True if completed_backup else state.artifact_integrity_verified
+                ),
+                last_job_operation=operation,
+                last_job_started_at=started_at,
+                last_job_finished_at=finished_at,
+                last_job_result="success" if success else "failure",
+                last_job_reason=None if success else (reason or Reason.DATABASE),
+                last_job_duration_seconds=max(0.0, duration_seconds),
+                scheduled_job_failure_pending=(
+                    not success if operation == "scheduled" else state.scheduled_job_failure_pending
+                ),
+            )
+        )
+        write_state(
+            config.store / STATE_FILENAME,
+            BackupMonitorState.model_validate(updated.model_dump(mode="python")),
+        )
+    except Exception:
+        pass
