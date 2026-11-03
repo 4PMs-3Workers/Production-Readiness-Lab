@@ -3,6 +3,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 from tools.backup.recovery_config import render
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -53,3 +54,39 @@ def test_backup_and_recovery_compose_config_are_valid_without_resolving_secrets(
     )
     assert result.returncode == 0
     assert "private" not in result.stdout
+
+
+def test_backup_exporter_compose_contract_is_internal_and_read_only():
+    compose = yaml.safe_load((ROOT / "tools/deploy/compose.observability.yaml").read_text())
+    service = compose["services"]["backup_metrics_exporter"]
+    volume = service["volumes"][0]
+
+    assert service["image"] == "prl-backend:${PRL_IMAGE_TAG:-local}"
+    assert service["command"] == ["python", "-m", "tools.backup.metrics_exporter"]
+    assert service["user"] == "10001:10001"
+    assert service["read_only"] is True
+    assert service["networks"] == ["telemetry"]
+    assert "ports" not in service and "env_file" not in service
+    assert volume == {
+        "type": "volume",
+        "source": "backup_storage",
+        "target": "/backups",
+        "read_only": True,
+    }
+    assert service["mem_limit"] == "128m"
+    assert service["cpus"] == 0.5
+    assert service["pids_limit"] == 64
+    assert compose["networks"]["telemetry"]["internal"] is True
+    assert compose["volumes"]["backup_storage"]["external"] is True
+    assert (
+        "COPY tools/backup/metrics_exporter.py ./tools/backup/metrics_exporter.py"
+        in (ROOT / "Dockerfile.backend").read_text()
+    )
+
+
+def test_prometheus_scrapes_internal_backup_exporter():
+    config = yaml.safe_load((ROOT / "tools/infra/prometheus.yml").read_text())
+    job = next(job for job in config["scrape_configs"] if job["job_name"] == "backup-monitor")
+
+    assert job["metrics_path"] == "/metrics"
+    assert job["static_configs"][0]["targets"] == ["backup_metrics_exporter:9108"]
