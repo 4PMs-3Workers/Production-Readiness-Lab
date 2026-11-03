@@ -28,6 +28,11 @@ The existing evidence-v2 hash algorithm is unchanged. Old deployment v1/v2 and
 backup manifests remain readable under their existing contracts, without being
 accepted as release proof.
 
+Both gateway profiles include the mounted Nginx entrypoint, main/server configs and
+the shared route, proxy, route-map, file-sink and error-input includes in this identity.
+Changing a mounted runtime file invalidates the recorded configuration. The inventory
+is explicit; unrelated files or secrets in the mounted directory are not read.
+
 ## Provisioning once, outside the repository
 
 1. Protect `develop`: require reviewed PRs, current-head approval and required CI.
@@ -135,6 +140,11 @@ This CLI deliberately does not run host migration, switch stable or orchestrate 
 All published releases and application images are retained. This issue implements
 no registry garbage collection or delete command. Retention preflight resolves the
 previous stable plus declared backup roots and verifies their exact image identities.
+Every retained image is copied into a fresh temporary OCI archive and all referenced
+blobs are checked for size/digest integrity. Metadata inspection or an already-cached
+Docker image cannot satisfy this check; missing/corrupt layers block the preflight.
+Archive serialization may differ from the build archive; registry manifest, config
+and layer digests must remain identical. Temporary archives are removed after checking.
 A checksum provides integrity relative to a trusted digest; it is not by itself a
 signature or proof that an arbitrary third-party registry is trusted.
 

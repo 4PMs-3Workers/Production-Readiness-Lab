@@ -149,7 +149,9 @@ class Registry:
         )
         self.verify_image(image, source_sha)
 
-    def verify_image(self, image: Image, source_sha: str, *, pull: bool = False) -> None:
+    def verify_image(
+        self, image: Image, source_sha: str, *, pull: bool = False, complete: bool = False
+    ) -> None:
         self._allow(image.reference)
         options = ["--tls-verify=false"] if self.plain_http else []
         raw = self.skopeo("inspect", *options, "--raw", "docker://" + image.reference)
@@ -174,6 +176,28 @@ class Registry:
             or labels.get("org.opencontainers.image.revision") != source_sha
         ):
             raise ReleaseError("image-source-mismatch")
+        if complete:
+            # A fresh OCI archive forces a registry download of every referenced
+            # blob, even when Docker or an earlier verification cached the image.
+            with tempfile.TemporaryDirectory(prefix="prl-retained-image-") as directory:
+                archive = Path(directory) / "image.tar"
+                source_options = ["--src-tls-verify=false"] if self.plain_http else []
+                self.skopeo(
+                    "copy",
+                    "--preserve-digests",
+                    *source_options,
+                    "docker://" + image.reference,
+                    "oci-archive:" + str(archive),
+                )
+                downloaded = archive_image(archive, image.reference.split("@", 1)[0], source_sha)
+                if (
+                    downloaded.digest != image.digest
+                    or downloaded.image_id != image.image_id
+                    or downloaded.platform != image.platform
+                ):
+                    raise ReleaseError("image-id-mismatch")
+                # Archive serialization/checksum can differ; the manifest,
+                # config, and all layer bytes above must retain their identities.
         if pull:
             command(["docker", "pull", "--platform", image.platform, image.reference])
             local = load_json(
@@ -191,9 +215,9 @@ class Registry:
             if local != {"id": image.image_id}:
                 raise ReleaseError("image-id-mismatch")
 
-    def verify_images(self, spec: Spec, *, pull: bool = False) -> None:
+    def verify_images(self, spec: Spec, *, pull: bool = False, complete: bool = False) -> None:
         for image in spec.images.values():
-            self.verify_image(image, spec.provenance.source_sha, pull=pull)
+            self.verify_image(image, spec.provenance.source_sha, pull=pull, complete=complete)
 
     def fetch(self, reference: str) -> Manifest:
         # Validate the reference before passing it to tools (no tags/options/URLs).

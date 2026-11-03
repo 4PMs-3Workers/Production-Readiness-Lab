@@ -21,6 +21,7 @@ def check_roots(spec: Spec, roots: Roots, registry: Registry) -> dict[str, Manif
         manifest = registry.fetch(reference)
         # Historical releases may have different config/schema; preserve them as-is.
         # Their versioned parser still validates structure and identity coherence.
-        registry.verify_images(manifest)
+        # Metadata inspection or a cached Docker pull cannot prove recoverability.
+        registry.verify_images(manifest, complete=True)
         retained[reference] = manifest
     return retained

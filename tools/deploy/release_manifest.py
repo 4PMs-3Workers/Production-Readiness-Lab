@@ -211,8 +211,21 @@ def configuration(overlay: str, observability: bool, root: Path = ROOT) -> Confi
         "tools/infra/images.lock.json",
         "tools/deploy/compose.backup.yaml",
         "tools/deploy/compose.recovery.yaml",
+        # Both gateway profiles mount this shared include/entrypoint inventory.
+        # Keep the allowlist explicit so secret or unrelated files are not hashed.
+        "tools/deploy/nginx/nginx.conf",
+        "tools/deploy/nginx/gateway-entrypoint.sh",
+        "tools/deploy/nginx/routes.conf",
+        "tools/deploy/nginx/proxy.conf",
+        "tools/deploy/nginx/route-map.conf",
+        "tools/deploy/nginx/file-sink.conf",
+        "tools/deploy/nginx/error-input.conf",
     ]
-    paths += ["tools/deploy/compose.local.yaml"] if overlay == "local" else list(CONFIG_HTTPS)
+    paths += (
+        ["tools/deploy/compose.local.yaml", "tools/deploy/nginx/local.conf"]
+        if overlay == "local"
+        else list(CONFIG_HTTPS)
+    )
     if observability:
         paths += list(CONFIG_OBSERVABILITY)
     data = {

@@ -168,6 +168,40 @@ def test_config_drift_and_secret_files_are_not_read(tmp_path):
     assert b"synthetic-secret" not in canonical(config)
 
 
+@pytest.mark.parametrize("overlay", ["local", "https"])
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "nginx.conf",
+        "gateway-entrypoint.sh",
+        "routes.conf",
+        "proxy.conf",
+        "route-map.conf",
+        "file-sink.conf",
+        "error-input.conf",
+        "server-profile",
+    ],
+)
+def test_gateway_runtime_file_drift_invalidates_configuration(tmp_path, overlay, filename):
+    filename = (
+        ("local.conf" if overlay == "local" else "https.conf")
+        if filename == "server-profile"
+        else filename
+    )
+    config = configuration(overlay, False)
+    relative = "tools/deploy/nginx/" + filename
+    assert relative in {file.path for file in config.files}
+    for file in config.files:
+        target = tmp_path / file.path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((ROOT / file.path).read_bytes())
+    require_configuration(config, tmp_path)
+    target = tmp_path / relative
+    target.write_bytes(target.read_bytes() + b"\n# gateway behavior changed\n")
+    with pytest.raises(ReleaseError, match="incompatible-configuration"):
+        require_configuration(config, tmp_path)
+
+
 def test_render_covers_operational_backend_without_build_fallback():
     spec = parse(canonical(spec_data()), Spec)
     text = render(spec, backup=True).decode()

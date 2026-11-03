@@ -100,11 +100,40 @@ def test_plain_http_is_loopback_only():
         registry._allow("ghcr.io/example/prl/backend")
 
 
+@pytest.mark.parametrize("corrupt", [False, True])
+def test_complete_verification_downloads_and_checks_fresh_archives(monkeypatch, tmp_path, corrupt):
+    path = tmp_path / "original.tar"
+    manifest, config = make_archive(path)
+    image = archive_image(path, "ghcr.io/example/prl/backend", "a" * 40)
+    destinations = []
+    registry = Registry()
+
+    def skopeo(operation, *args):
+        if operation == "inspect":
+            return config if "--config" in args else manifest
+        assert operation == "copy" and "--preserve-digests" in args
+        destination = Path(args[-1].removeprefix("oci-archive:"))
+        destinations.append(destination)
+        make_archive(destination, corrupt=corrupt)
+        return b""
+
+    monkeypatch.setattr(registry, "skopeo", skopeo)
+    for _ in range(2):
+        if corrupt:
+            with pytest.raises(ReleaseError, match="invalid-image-archive"):
+                registry.verify_image(image, "a" * 40, complete=True)
+        else:
+            registry.verify_image(image, "a" * 40, complete=True)
+    assert len(set(destinations)) == 2
+    assert all(not destination.parent.exists() for destination in destinations)
+
+
 class FakeRegistry(Registry):
     def __init__(self, *, failure=False):
         self.failure = failure
         self.committed = False
         self.visited = []
+        self.complete_checks = []
 
     def fetch(self, reference):
         self.visited.append(reference)
@@ -112,7 +141,8 @@ class FakeRegistry(Registry):
             raise ReleaseError("missing-artifact")
         return parse(canonical(manifest_data()), Manifest)
 
-    def verify_images(self, spec, *, pull=False):
+    def verify_images(self, spec, *, pull=False, complete=False):
+        self.complete_checks.append(complete)
         if self.failure:
             raise ReleaseError("missing-artifact")
 
@@ -129,6 +159,7 @@ def test_retention_roots_include_previous_stable_and_backups():
     registry = FakeRegistry()
     retained = check_roots(spec, roots, registry)
     assert set(retained) == {spec.previous_stable, *roots.releases}
+    assert registry.complete_checks == [True, True]
     assert not registry.committed
     with pytest.raises(ReleaseError, match="missing-artifact"):
         check_roots(spec, roots, FakeRegistry(failure=True))
