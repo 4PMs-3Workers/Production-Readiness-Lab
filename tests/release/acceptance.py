@@ -64,11 +64,22 @@ class ReleaseStack(ComposeAcceptance):
             ),
             "Release database failed",
         )
-        self.expect_compose_failure("run", "--no-build", "--rm", "-T", "schema")
+        # Compose run has no --no-build flag. Build keys were removed above;
+        # use only verified local images and avoid dependency-driven operations.
+        self.expect_compose_failure("run", "--pull", "never", "--no-deps", "--rm", "-T", "schema")
         for name in ("migrate",):
             require_success(
                 self.compose(
-                    "--profile", "operations", "run", "--no-build", "--rm", "-T", name, timeout=240
+                    "--profile",
+                    "operations",
+                    "run",
+                    "--pull",
+                    "never",
+                    "--no-deps",
+                    "--rm",
+                    "-T",
+                    name,
+                    timeout=240,
                 ),
                 "Release migration failed",
             )
@@ -77,10 +88,13 @@ class ReleaseStack(ComposeAcceptance):
             "Release runtime grants failed",
         )
         require_success(
-            self.compose("run", "--no-build", "--rm", "-T", "schema"), "Release schema gate failed"
+            self.compose("run", "--pull", "never", "--no-deps", "--rm", "-T", "schema"),
+            "Release schema gate failed",
         )
         require_success(
-            self.compose("--profile", "seed", "run", "--no-build", "--rm", "-T", "seed"),
+            self.compose(
+                "--profile", "seed", "run", "--pull", "never", "--no-deps", "--rm", "-T", "seed"
+            ),
             "Release seed failed",
         )
         require_success(
