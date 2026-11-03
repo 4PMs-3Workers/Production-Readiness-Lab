@@ -293,6 +293,8 @@ def test_manual_job_does_not_overwrite_scheduled_lifecycle_timestamps(tmp_path):
     assert state is not None
     assert state.last_scheduled_job_started_at == scheduled_started
     assert state.last_scheduled_job_finished_at == scheduled_finished
+    assert state.last_scheduled_job_result == "success"
+    assert state.last_scheduled_job_duration_seconds == 60
 
 
 def test_monitor_init_fails_when_state_cannot_be_persisted(tmp_path, monkeypatch):

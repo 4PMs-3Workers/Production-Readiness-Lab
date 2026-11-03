@@ -113,7 +113,7 @@ def test_every_alert_runbook_url_resolves_to_a_real_heading():
         assert parsed.fragment in headings, (rule["alert"], parsed.fragment, headings)
 
 
-def test_five_grafana_dashboards_are_provisioned_with_nonhealthy_empty_state():
+def test_grafana_dashboards_are_provisioned_with_nonhealthy_empty_state():
     provider_path = INFRA / "grafana-dashboard-providers.yml"
     assert provider_path.is_file(), "Grafana dashboard file provisioning is not configured"
     provider = yaml.safe_load(provider_path.read_text(encoding="utf-8"))
@@ -132,6 +132,7 @@ def test_five_grafana_dashboards_are_provisioned_with_nonhealthy_empty_state():
         "prl-db-pool",
         "prl-worker-progress",
         "prl-telemetry-loss",
+        "prl-backup-health",
     }
     assert provider["providers"][0]["options"]["path"] == "/etc/grafana/dashboards"
     assert provider["providers"][0]["allowUiUpdates"] is False
@@ -142,6 +143,56 @@ def test_five_grafana_dashboards_are_provisioned_with_nonhealthy_empty_state():
                 expression = target.get("expr", "")
                 for selector in re.findall(r"\{([^{}]*)\}", expression):
                     assert not any(label in selector for label in ("request_id=", "trace_id="))
+
+
+def test_backup_dashboard_shows_unknown_and_separates_artifact_job_and_remote_state():
+    path = INFRA / "grafana/dashboards/backup-health.json"
+    assert path.is_file(), "Backup health dashboard is not provisioned"
+    dashboard = json.loads(path.read_text(encoding="utf-8"))
+    assert dashboard["uid"] == "prl-backup-health"
+    assert dashboard["title"] == "Backup health"
+    panels = dashboard["panels"]
+    titles = {panel["title"]: panel for panel in panels}
+    assert {
+        "Verified artifact age and configured RPO",
+        "Artifact integrity",
+        "Application rehearsal",
+        "Last scheduled job outcome",
+        "Last scheduled job duration",
+        "Backup job alerts",
+        "Backup store capacity",
+        "Monitor collection freshness",
+        "Remote copy verification",
+    } <= set(titles)
+    serialized = json.dumps(dashboard, sort_keys=True)
+    for metric in (
+        "prl_backup_last_verified_timestamp_seconds",
+        "prl_backup_monitor_rpo_seconds",
+        "prl_backup_artifact_integrity_verified",
+        "prl_backup_application_rehearsal_verified",
+        "prl_backup_scheduled_job_last_success",
+        "prl_backup_scheduled_job_last_duration_seconds",
+        "BackupJobFailed",
+        "BackupJobIncomplete",
+        "BackupJobMissing",
+        "prl_backup_store_free_bytes",
+        "prl_backup_monitor_last_successful_state_read_timestamp_seconds",
+        "prl_backup_remote_copy_state",
+    ):
+        assert metric in serialized
+    assert "unknown" in titles["Remote copy verification"]["description"].lower()
+    assert "not_configured" in titles["Remote copy verification"]["description"]
+    assert "unknown" in titles["Verified artifact age and configured RPO"]["description"].lower()
+    for panel in panels:
+        for target in panel.get("targets", []):
+            expression = target.get("expr", "")
+            if expression:
+                assert 'environment=~"$environment"' in expression
+                assert 'store=~"$store"' in expression
+                assert not any(
+                    label in expression
+                    for label in ("backup_id", "request_id", "trace_id", "path=")
+                )
 
 
 def test_gateway_dashboard_runs_the_native_loki_sli_and_excludes_healthchecks():

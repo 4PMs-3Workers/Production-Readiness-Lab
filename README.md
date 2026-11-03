@@ -506,7 +506,9 @@ snapshot, có manifest/checksum và completion nguyên tử. Restore bắt buộ
 riêng rỗng, verify toàn bộ schema/rows/ràng buộc trước khi chạy smoke ứng dụng thật.
 Lịch Linux, retention giữ last success, status JSON, quyền và cấu hình external
 nằm trong [handoff backup/restore](docs/tasks/mysql-backup-restore.md) và
-[recovery runbook](docs/tasks/mysql-recovery-runbook.md).
+[recovery runbook](docs/tasks/mysql-recovery-runbook.md). Dashboard freshness, job
+health và cách diễn giải remote-copy unknown nằm trong
+[backup health runbook](docs/tasks/observability-runbook.md#backup-artifact-missing).
 
 Diễn tập lặp lại trên checkout sạch: `python -m tools.backup.rehearsal` sau khi cài
 dependencies và chuẩn bị Docker/Compose local. Công cụ tạo source giả/target UUID

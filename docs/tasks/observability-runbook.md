@@ -66,6 +66,11 @@ The configured alerts are local receivers, not an external paging service:
 | Alert | Trigger | First check |
 |---|---|---|
 | `TelemetryTargetDown` | Any of the ten required scrape jobs, including `backup-monitor`, stays down for 30 seconds. | Check Prometheus target state and the named service health. This evaluator must still be running. |
+| `BackupArtifactMissing` / `BackupArtifactStale` | No integrity-verified local artifact exists / artifact age exceeds configured RPO. | [Missing](#backup-artifact-missing) / [stale](#backup-artifact-stale) artifact procedure. |
+| `BackupJobFailed` | Scheduled job failure remains latched until a later complete scheduled success. | [Scheduled job failure](#backup-job-failed). |
+| `BackupJobIncomplete` / `BackupJobMissing` | No final report after runtime+grace / no scheduled start within the configured window. | [Incomplete](#backup-job-incomplete) / [missing](#backup-job-missing) job procedure. |
+| `BackupMonitorConfigurationMissing` | Required environment threshold is missing or invalid. | [Configuration](#backup-monitor-configuration); backup health is unknown. |
+| `BackupMonitorStateUnavailable` / `BackupMonitorStateReadStale` | State is invalid/unreadable or last valid read exceeds its age bound. | [Monitor state](#backup-monitor-state); check volume permissions and exporter health. |
 | `ApiTelemetryFamilyMissing` | API is up but its required stdout queue family is absent for 30 seconds. | Treat the missing family as an instrumentation gap, not zero queue use. |
 | `TelemetryLossDetected` | A dropped/failed application item or a Collector receiver refusal/failure/export enqueue/send failure increased during five minutes. | Compare the finite signal and receiver/exporter labels with Collector logs and the `Telemetry loss` dashboard. |
 | `ApiHttpErrorRateWarning` / `ApiHttpErrorRateCritical` | The 5xx/aborted rate exceeds 0.5% / 5% across at least 20 API requests in five minutes, held for two / one minute. | Filter by normalized route and release; separate input/business responses from service failures. |

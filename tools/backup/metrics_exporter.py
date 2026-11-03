@@ -187,6 +187,18 @@ class BackupMetricsExporter:
                 "Unix timestamp when the latest scheduled backup operation finished.",
                 state.last_scheduled_job_finished_at.timestamp(),
             )
+        if state.last_scheduled_job_result is not None:
+            set_value(
+                "prl_backup_scheduled_job_last_success",
+                "Whether the latest scheduled backup operation completed successfully.",
+                int(state.last_scheduled_job_result == "success"),
+            )
+        if state.last_scheduled_job_duration_seconds is not None:
+            set_value(
+                "prl_backup_scheduled_job_last_duration_seconds",
+                "Duration of the latest completed scheduled backup operation in seconds.",
+                state.last_scheduled_job_duration_seconds,
+            )
         if state.last_job_finished_at is not None:
             set_value(
                 "prl_backup_job_last_finished_timestamp_seconds",

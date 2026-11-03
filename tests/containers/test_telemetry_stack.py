@@ -101,6 +101,7 @@ OPS_PROBE_DASHBOARD_UIDS = {
     "prl-db-pool",
     "prl-worker-progress",
     "prl-telemetry-loss",
+    "prl-backup-health",
 }
 WORKER_METRIC_SETTLE_SECONDS = 16.0  # One full 15-second Prometheus scrape interval plus margin.
 
@@ -3593,7 +3594,8 @@ dashboard_uids = sorted(
     item.get("uid") for item in dashboards
     if isinstance(dashboards, list) and isinstance(item, dict)
     and isinstance(item.get("uid"), str) and item.get("uid") in {
-        "prl-gateway", "prl-api-errors", "prl-db-pool", "prl-worker-progress", "prl-telemetry-loss"
+        "prl-gateway", "prl-api-errors", "prl-db-pool", "prl-worker-progress",
+        "prl-telemetry-loss", "prl-backup-health"
     }
 )
 loki_source = next(

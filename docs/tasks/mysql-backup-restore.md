@@ -99,6 +99,47 @@ artifact chuẩn đã verify lại; không xóa partial, symlink, file hỏng ho
 paths. Lỗi retention sau backup có report backup success riêng và job failure;
 không làm mất bản vừa hoàn tất.
 
+## Theo dõi freshness và scheduled job (Issue #46)
+
+Exporter Prometheus đọc state file read-only từ cùng external backup volume. Trước
+khi bật timer trên volume hiện có, khởi tạo state một lần bằng runner với đúng các
+environment, image, env-file và volume của job:
+
+```sh
+python3 -m tools.backup.run --initialize-monitor-state
+```
+
+State nằm tại `/backups/.prl-monitoring-state.json`, thuộc UID/GID `10001:10001`
+với quyền `0600`; lock `.prl-monitoring-state.lock` cũng private. Không sửa/xóa
+các file này thủ công. Init scan đọc artifact hữu hạn, không giữ operation lock;
+không có artifact hợp lệ sẽ được biểu diễn là unknown/missing, không thành success.
+Runner thông thường cập nhật state khi scheduled job bắt đầu và kết thúc. Write lỗi
+không đổi exit status của backup; job bị kill không được ghi success giả.
+
+Exporter yêu cầu per-environment `BACKUP_MONITOR_ENVIRONMENT`,
+`BACKUP_MONITOR_STORE`, `BACKUP_MONITOR_RPO_SECONDS`,
+`BACKUP_MONITOR_SCHEDULE_INTERVAL_SECONDS`,
+`BACKUP_MONITOR_JOB_RUNTIME_SECONDS`, `BACKUP_MONITOR_JOB_GRACE_SECONDS` và
+`BACKUP_MONITOR_STALE_SECONDS`. Environment/store là nhãn ngắn hữu hạn, không phải
+đường dẫn hay database identity. Thiếu/sai ngưỡng làm configuration unknown và
+cảnh báo; không dùng zero để giả healthy.
+
+Đồng bộ `BACKUP_MONITOR_SCHEDULE_INTERVAL_SECONDS` với chu kỳ timer cộng jitter,
+`BACKUP_MONITOR_JOB_RUNTIME_SECONDS` với giới hạn nhỏ hơn giữa
+`PRL_BACKUP_JOB_SECONDS` và systemd `TimeoutStartSec`, và grace với thời gian dừng
+`TimeoutStopSec`. Runtime + grace phải ngắn hơn schedule interval; RPO phải bao phủ
+schedule interval + runtime + grace. Với timer mặc định hằng ngày có jitter tối đa
+5 phút, không đặt interval chỉ bằng 86400 nếu cần bao phủ toàn bộ cửa sổ timer.
+
+`BackupJobFailed` giữ trạng thái lỗi qua thao tác manual và chỉ resolve sau scheduled
+success hoàn chỉnh. `BackupJobIncomplete` báo start không có final report sau runtime
++ grace; `BackupJobMissing` báo không có scheduled start mới trong cửa sổ cấu hình.
+Freshness artifact độc lập với job outcome: backup manual mới có thể cập nhật artifact
+nhưng không xóa lỗi scheduled. Dashboard Backup health và
+[backup runbook](observability-runbook.md#backup-artifact-missing) giải thích trạng
+thái unknown, alert, dung lượng và giới hạn remote-copy. Tín hiệu exporter/receiver
+cùng host; chúng không chứng minh off-host delivery hay bảo vệ khi mất host.
+
 JSON stdout gồm operation, success/failure reason, duration, backup ID/age, checksum
 và validation flags. `status` đọc storage không kết nối DB hoặc telemetry; tuổi là
 tuổi artifact hoàn tất theo clock host. Khi cùng store có nhiều server dùng tên DB

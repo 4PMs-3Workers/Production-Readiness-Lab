@@ -43,6 +43,10 @@ class BackupMonitorState(StrictModel):
     last_job_duration_seconds: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     last_scheduled_job_started_at: datetime | None = None
     last_scheduled_job_finished_at: datetime | None = None
+    last_scheduled_job_result: Literal["success", "failure"] | None = None
+    last_scheduled_job_duration_seconds: float | None = Field(
+        default=None, ge=0, allow_inf_nan=False
+    )
     scheduled_job_failure_pending: bool = False
     minimum_free_bytes: int | None = Field(default=None, ge=0)
     remote_copy: RemoteCopyState | None = None
@@ -347,6 +351,16 @@ def record_job_finish(
                     finished_at
                     if operation == "scheduled"
                     else state.last_scheduled_job_finished_at
+                ),
+                last_scheduled_job_result=(
+                    ("success" if success else "failure")
+                    if operation == "scheduled"
+                    else state.last_scheduled_job_result
+                ),
+                last_scheduled_job_duration_seconds=(
+                    max(0.0, duration_seconds)
+                    if operation == "scheduled"
+                    else state.last_scheduled_job_duration_seconds
                 ),
                 scheduled_job_failure_pending=(
                     not success if operation == "scheduled" else state.scheduled_job_failure_pending

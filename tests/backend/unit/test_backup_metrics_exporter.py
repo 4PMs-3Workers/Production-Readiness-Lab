@@ -85,6 +85,8 @@ def test_exporter_emits_separate_scheduled_lifecycle_timestamps(tmp_path):
         last_job_duration_seconds=30.0,
         last_scheduled_job_started_at=now - timedelta(hours=2),
         last_scheduled_job_finished_at=now - timedelta(hours=1, minutes=59),
+        last_scheduled_job_result="success",
+        last_scheduled_job_duration_seconds=60.0,
         scheduled_job_failure_pending=False,
         minimum_free_bytes=1024,
         remote_copy=None,
@@ -95,6 +97,15 @@ def test_exporter_emits_separate_scheduled_lifecycle_timestamps(tmp_path):
 
     assert "prl_backup_scheduled_job_last_started_timestamp_seconds" in metrics
     assert "prl_backup_scheduled_job_last_finished_timestamp_seconds" in metrics
+    assert (
+        'prl_backup_scheduled_job_last_success{environment="demo",store="backup-storage"} 1.0'
+        in metrics
+    )
+    scheduled_duration = (
+        'prl_backup_scheduled_job_last_duration_seconds{environment="demo",'
+        'store="backup-storage"} 60.0'
+    )
+    assert scheduled_duration in metrics
 
 
 def test_invalid_or_missing_thresholds_are_unknown_and_config_invalid(tmp_path):
