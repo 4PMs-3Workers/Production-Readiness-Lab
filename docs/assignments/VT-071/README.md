@@ -37,7 +37,9 @@ submission reviewable. PR55 has not been merged.
 
 For the student's own review, [the four-file reading guide](student-diff-review-guide.md)
 uses the fixed diff `aa8c5b0..15526cb` (118 additions,2 deletions under src/).
-It is an AI-prepared aid; the student has not reported completing this code review.
+The guide was AI-prepared. On03/11/2026 the student confirmed reading the
+four-file production diff and completing the oral-preparation questions. The src/
+diff to4695035 is identical to the tested15526cb source.
 
 ## Contract
 
@@ -343,6 +345,8 @@ execution-notes.md, review-revision.md and ai-usage-log.md. Source and logs are 
 Earlier execution was delegated to Codex. On02/11/2026 the student personally ran
 41tests, TC18, coverage, mutation and production-pool load; local artifacts were
 cross-checked. Reflection now records that observed execution, with AI-assisted
-editing, rather than saying the student has never run commands. Full manual code
-review and team approval are not inferred. self-check-guide.md supports further practice. No force
-push or merge performed.
+editing. On03/11/2026 the student also confirmed reading the four-file production
+diff and finishing the oral-preparation questions. The source of this confirmation
+is recorded in student-diff-review-guide.md and summary.json. Team review and PR
+separation remain steps before merge. self-check-guide.md supports further practice.
+No force push or merge performed.

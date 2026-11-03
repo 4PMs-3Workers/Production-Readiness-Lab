@@ -210,3 +210,15 @@ UUID schema;80clients share a session within each run. A source-pinned four-file
 diff guide is prepared for the student's own review, which remains not reported.
 Reflection is unchanged. This update changes documentation/navigation only;
 no code/config/tests, raw measurement, test run, PR split or merge is claimed.
+
+
+## Student diff review and oral preparation confirmed on03/11/2026
+
+The student confirmed reading the production diff and finishing the oral questions
+in this chat. The recorded scope is the four-file src/ diff aa8c5b0..4695035,
+identical to the15526cb production source already exercised on02/11. The guide
+checklist and summary metadata now record completion by student confirmation.
+Reflection includes that reported activity, with AI editing still declared.
+This supersedes the earlier pending-review status; it does not relabel historical
+AI experiments or introduce new test/load output. Team review/PR separation remain
+before merge. No production/test/config change or raw evidence modification.

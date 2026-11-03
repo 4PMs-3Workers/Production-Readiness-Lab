@@ -2,7 +2,9 @@
 
 Log ban đầu do Codex thực thi. Ngày02/11/2026, người học đã tự chạy41tests, TC18,
 coverage, mutation và pool5+5; bằng chứng riêng nằm ở evidence/student-20261102.
-Các lệnh dưới vẫn là hướng dẫn tái hiện; lưu rõ ai chạy, command/output/thời điểm.
+Ngày03/11/2026, người học xác nhận đã đọc diff bốn file production và trả lời
+xong phần vấn đáp. Các lệnh dưới vẫn là hướng dẫn tái hiện; lưu rõ ai chạy,
+command/output/thời điểm. Xác nhận đọc/trả lời không bổ sung lượt chạy test mới.
 
 ## Lần chạy tối thiểu
 

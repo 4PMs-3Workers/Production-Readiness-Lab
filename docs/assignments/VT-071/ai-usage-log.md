@@ -144,3 +144,16 @@ Prepared an AI-authored four-file production-diff reading guide and blank checkl
 no student code-review completion or subjective reflection has been invented.
 Reworded the PDF footer neutrally. Reflection stays327words; PR split remains a
 team-integration follow-up. No runtime/test/config change, new test or load rerun.
+
+
+U26: On03/11/2026 Codex prepared a separate22-question oral-preparation guide and
+verified all63unique PDF link targets (79annotations), including45file paths in
+remote pinned Git trees. These local study/audit files did not change the report,
+submission source, earlier measurements or student completion status.
+
+U27: On03/11/2026 the student explicitly confirmed in chat: “đã đọc diff và trloi xg, sửa vào báo cáo đi”. Codex updated the four-file diff checklist, execution ledger,
+summary metadata, reflection and PDF to record that confirmation. The reflection
+adds only the reported reading/answering activity; no individual answers, feelings,
+assessment score, new test execution or team approval are invented. Earlier
+“not reported” entries describe the status before this confirmation. Raw ZIP and
+its original manifest are unchanged; production code/tests/config remain unchanged.

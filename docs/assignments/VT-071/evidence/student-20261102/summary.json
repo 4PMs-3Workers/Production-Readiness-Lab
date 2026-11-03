@@ -176,7 +176,7 @@
     "Single student load run; same host/MySQL as Codex302/560, not an independent environment or causal improvement comparison",
     "No claim student reran historical red phase, original M0, NullPool, reverse order, full backend, frontend, Docker or PDF generation",
     "Original plan/code/review and earlier experiments remain attributed to Codex",
-    "No claim of full manual code review or independently authored implementation; reflection is AI-assisted editing of verified execution observations."
+    "Implementation remains AI-assisted. Student confirmed reading the four-file production diff and completing oral-preparation questions on2026-11-03; team approval and new test results are not inferred."
   ],
   "raw_archive": "raw-evidence.zip",
   "manifest": "manifest.json",
@@ -191,6 +191,15 @@
     "between_fixture_runs": "fresh login and fixture-owned UUID schema; not one persistent cookie across all runs",
     "interpretation": "same-environment repeat; not independent-environment validation or a causal before/after fix comparison"
   },
-  "student_diff_review_status": "not reported; guide prepared by AI does not establish student review",
-  "student_diff_review_guide": "../../student-diff-review-guide.md"
+  "student_diff_review_status": "completed; student confirmed in chat on2026-11-03",
+  "student_diff_review_guide": "../../student-diff-review-guide.md",
+  "student_oral_preparation_status": "questions answered; student confirmed in chat on2026-11-03",
+  "student_review_confirmation": {
+    "confirmation_date_local": "2026-11-03",
+    "timezone": "Asia/Bangkok",
+    "source": "direct student message in this chat",
+    "verbatim_message": "đã đọc diff và trloi xg, sửa vào báo cáo đi",
+    "scope": "four-file production diff aa8c5b0..4695035 under src/; same production source as15526cb; oral-preparation questions completed",
+    "attribution": "student-confirmed activity; not a separately observed oral examination or new test execution"
+  }
 }

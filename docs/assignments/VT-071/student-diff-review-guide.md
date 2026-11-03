@@ -1,9 +1,9 @@
 # Đọc diff production BT3 - nguồn15526cb
 
-Đây là hướng dẫn do AI chuẩn bị. Trạng thái: người học chưa xác nhận hoàn tất
-review diff. Checklist bên dưới để trống; việc có tài liệu này không phải bằng
-chứng đã đọc hay đã chấp nhận patch. Reflection giữ nguyên các quan sát tự chạy
-đã có; chưa thêm cảm nhận hoặc lời xác nhận review chưa được người học cung cấp.
+Đây là hướng dẫn do AI chuẩn bị. Ngày 03/11/2026, người học xác nhận trong chat
+đã đọc diff bốn file production và trả lời xong phần vấn đáp. Phạm vi là diff
+`aa8c5b0..4695035` dưới `src/`, giống diff tới source15526cb đã tự chạy.
+Checklist được cập nhật theo xác nhận này; các log thực nghiệm ngày02/11 giữ nguyên.
 
 ## Mở đúng diff
 
@@ -68,13 +68,14 @@ Production `booking.py` không đổi. M5 chỉ tồn tại trên nhánh mutant:
 guard và thêm6dòng setup test để drop unique index trong schema fixture sở hữu;
 assertion giữ nguyên. Không áp diff mutant vào nhánh nộp.
 
-## Tự đánh dấu sau khi thực sự làm
+## Xác nhận hoàn tất của người học
 
-- [ ] Tôi đã mở toàn bộ diff4file và đọc cả các helper quyết định hành vi.
-- [ ] Tôi giải thích được mỗi import, query condition, limit, branch và response.
-- [ ] Tôi đối chiếu các oracle phía trên, nêu được giới hạn và test còn thiếu.
-- [ ] Tôi ghi lại bằng lời của mình điều đã hiểu, chỗ chưa hiểu và quyết định
-      chấp nhận hoặc yêu cầu sửa; chưa đánh dấu nếu chỉ đọc hướng dẫn này.
+- [x] Đã đọc diff bốn file production.
+- [x] Đã trả lời xong bộ câu hỏi vấn đáp.
+
+Nguồn: xác nhận trực tiếp trong chat ngày03/11/2026: “đã đọc diff và trloi xg, sửa vào báo cáo đi”.
+Hai mục trên ghi nhận hoạt động người học đã xác nhận; không bổ sung biên bản
+chấm vấn đáp, lời giải cá nhân hoặc kết quả chạy test mới.
 
 Review cá nhân này không phải team approval. PR55 hiện vẫn gộp chức năng,
 CI/dependency và evidence; kế hoạch tách trước team merge còn giữ trong README.

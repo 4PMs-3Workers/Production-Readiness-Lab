@@ -91,9 +91,10 @@ Người học đã tự chạy41tests, TC18, coverage, mutation helper và pool
 rồi kiểm tra OpenAPI/gateway. Chưa có bằng chứng họ tự chạy historical red/M0,
 NullPool, reverse order, full backend, frontend, Docker hoặc dựng PDF. Các log ban
 đầu, thiết kế/patch/review và PDF vẫn ghi AI hỗ trợ. Reflection được biên tập dựa
-trên việc đã làm. Review diff của sinh viên chưa được xác nhận: xem
-[hướng dẫn đọc4file production](../../student-diff-review-guide.md). Checklist của
-hướng dẫn để trống; tài liệu AI chuẩn bị không thay thế việc người học tự đọc.
+trên việc đã làm. Ngày03/11/2026, sinh viên xác nhận đã đọc diff bốn file
+production và trả lời xong bộ câu hỏi vấn đáp; xem
+[checklist đã xác nhận](../../student-diff-review-guide.md). Đây là cập nhật
+xác nhận hoạt động đọc/trả lời, không phải một lượt test hoặc chấm vấn đáp mới.
 Review nhóm và tách PR vẫn là bước trước khi merge.
 
 CI của source15526cb đã completed/success ở cả6workflow events, theo GitHub API
