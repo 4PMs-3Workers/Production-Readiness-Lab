@@ -205,8 +205,12 @@ jobs:
       - name: Remove only the run-owned lab registry
         if: always()
         run: |
-          docker rm -f prl-release-registry
-          docker buildx rm prl-release-builder
+          if docker container inspect prl-release-registry >/dev/null 2>&1; then
+            docker rm -f prl-release-registry
+          fi
+          if docker buildx inspect prl-release-builder >/dev/null 2>&1; then
+            docker buildx rm prl-release-builder
+          fi
 
   publish:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/develop'
