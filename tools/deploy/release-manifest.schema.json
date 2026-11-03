@@ -1,0 +1,224 @@
+{
+  "$defs": {
+    "Configuration": {
+      "additionalProperties": false,
+      "properties": {
+        "contract_version": { "const": 1, "title": "Contract Version", "type": "integer" },
+        "files": {
+          "items": { "$ref": "#/$defs/FileIdentity" },
+          "maxItems": 128,
+          "minItems": 1,
+          "title": "Files",
+          "type": "array"
+        },
+        "observability": { "title": "Observability", "type": "boolean" },
+        "overlay": { "enum": ["local", "https"], "title": "Overlay", "type": "string" },
+        "sha256": { "pattern": "^[0-9a-f]{64}$", "title": "Sha256", "type": "string" }
+      },
+      "required": ["contract_version", "overlay", "observability", "files", "sha256"],
+      "title": "Configuration",
+      "type": "object"
+    },
+    "FileIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "pattern": "^(?:tools|src|Dockerfile)[A-Za-z0-9_./-]*$",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": { "pattern": "^[0-9a-f]{64}$", "title": "Sha256", "type": "string" }
+      },
+      "required": ["path", "sha256"],
+      "title": "FileIdentity",
+      "type": "object"
+    },
+    "Image": {
+      "additionalProperties": false,
+      "properties": {
+        "archive_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Archive Sha256",
+          "type": "string"
+        },
+        "image_id": { "pattern": "^sha256:[0-9a-f]{64}$", "title": "Image Id", "type": "string" },
+        "platform": { "const": "linux/amd64", "title": "Platform", "type": "string" },
+        "reference": {
+          "pattern": "^[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?(?:/[a-z0-9][a-z0-9._-]*)+@sha256:[0-9a-f]{64}$",
+          "title": "Reference",
+          "type": "string"
+        }
+      },
+      "required": ["reference", "image_id", "archive_sha256", "platform"],
+      "title": "Image",
+      "type": "object"
+    },
+    "Proof": {
+      "additionalProperties": false,
+      "properties": {
+        "archive_sha256": {
+          "additionalProperties": { "pattern": "^[0-9a-f]{64}$", "type": "string" },
+          "title": "Archive Sha256",
+          "type": "object"
+        },
+        "configuration_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Configuration Sha256",
+          "type": "string"
+        },
+        "image_digests": {
+          "additionalProperties": { "pattern": "^sha256:[0-9a-f]{64}$", "type": "string" },
+          "title": "Image Digests",
+          "type": "object"
+        },
+        "image_ids": {
+          "additionalProperties": { "pattern": "^sha256:[0-9a-f]{64}$", "type": "string" },
+          "title": "Image Ids",
+          "type": "object"
+        },
+        "provenance": { "$ref": "#/$defs/Provenance" },
+        "stage": { "enum": ["candidate", "published"], "title": "Stage", "type": "string" }
+      },
+      "required": [
+        "stage",
+        "provenance",
+        "configuration_sha256",
+        "image_digests",
+        "image_ids",
+        "archive_sha256"
+      ],
+      "title": "Proof",
+      "type": "object"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "pr_head_sha": {
+          "anyOf": [{ "pattern": "^[0-9a-f]{40}$", "type": "string" }, { "type": "null" }],
+          "title": "Pr Head Sha"
+        },
+        "pr_merge_sha": {
+          "anyOf": [{ "pattern": "^[0-9a-f]{40}$", "type": "string" }, { "type": "null" }],
+          "title": "Pr Merge Sha"
+        },
+        "pr_number": {
+          "anyOf": [{ "exclusiveMinimum": 0, "type": "integer" }, { "type": "null" }],
+          "title": "Pr Number"
+        },
+        "repository": {
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+          "title": "Repository",
+          "type": "string"
+        },
+        "run_attempt": { "exclusiveMinimum": 0, "title": "Run Attempt", "type": "integer" },
+        "run_id": { "exclusiveMinimum": 0, "title": "Run Id", "type": "integer" },
+        "source_sha": { "pattern": "^[0-9a-f]{40}$", "title": "Source Sha", "type": "string" },
+        "workflow_ref": {
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/\\.github/workflows/release\\.yml@refs/[A-Za-z0-9_./-]+$",
+          "title": "Workflow Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repository",
+        "source_sha",
+        "pr_number",
+        "pr_head_sha",
+        "pr_merge_sha",
+        "run_id",
+        "run_attempt",
+        "workflow_ref"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "accepted_schema_revisions": {
+      "items": { "pattern": "^[A-Za-z0-9_]{1,64}$", "type": "string" },
+      "maxItems": 32,
+      "minItems": 1,
+      "title": "Accepted Schema Revisions",
+      "type": "array"
+    },
+    "bootstrap": { "title": "Bootstrap", "type": "boolean" },
+    "candidate_artifact_id": {
+      "exclusiveMinimum": 0,
+      "title": "Candidate Artifact Id",
+      "type": "integer"
+    },
+    "candidate_proof": { "$ref": "#/$defs/Proof" },
+    "configuration": { "$ref": "#/$defs/Configuration" },
+    "created_at": { "title": "Created At", "type": "string" },
+    "format": {
+      "const": "prl-release",
+      "default": "prl-release",
+      "title": "Format",
+      "type": "string"
+    },
+    "format_version": { "const": 1, "default": 1, "title": "Format Version", "type": "integer" },
+    "images": {
+      "additionalProperties": { "$ref": "#/$defs/Image" },
+      "propertyNames": { "enum": ["backend", "frontend", "collector"] },
+      "title": "Images",
+      "type": "object"
+    },
+    "previous_stable": {
+      "anyOf": [
+        {
+          "pattern": "^[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?(?:/[a-z0-9][a-z0-9._-]*)+@sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        { "type": "null" }
+      ],
+      "title": "Previous Stable"
+    },
+    "provenance": { "$ref": "#/$defs/Provenance" },
+    "published_proof": { "$ref": "#/$defs/Proof" },
+    "release_id": {
+      "pattern": "^release-[1-9][0-9]*-[1-9][0-9]*$",
+      "title": "Release Id",
+      "type": "string"
+    },
+    "services": {
+      "additionalProperties": { "enum": ["backend", "frontend", "collector"], "type": "string" },
+      "title": "Services",
+      "type": "object"
+    },
+    "source_checks": {
+      "items": {
+        "enum": ["backend", "frontend", "security", "containers", "recovery"],
+        "type": "string"
+      },
+      "title": "Source Checks",
+      "type": "array"
+    },
+    "vendor_images": {
+      "additionalProperties": {
+        "pattern": "^[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?(?:/[a-z0-9][a-z0-9._-]*)+@sha256:[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "title": "Vendor Images",
+      "type": "object"
+    }
+  },
+  "required": [
+    "release_id",
+    "created_at",
+    "provenance",
+    "images",
+    "services",
+    "vendor_images",
+    "accepted_schema_revisions",
+    "configuration",
+    "previous_stable",
+    "bootstrap",
+    "candidate_proof",
+    "published_proof",
+    "source_checks",
+    "candidate_artifact_id"
+  ],
+  "title": "Manifest",
+  "type": "object"
+}

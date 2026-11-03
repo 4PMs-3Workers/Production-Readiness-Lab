@@ -1,0 +1,22 @@
+# Last overlay: replaces mutable application references and removes inherited builds.
+# Values are supplied only by the validated release consumer.
+x-release-backend: &release-backend
+  image: ${PRL_RELEASE_BACKEND:?Validated backend digest required}
+  build: !reset null
+  platform: linux/amd64
+
+services:
+  api:
+    <<: *release-backend
+  worker:
+    <<: *release-backend
+  schema:
+    <<: *release-backend
+  migrate:
+    <<: *release-backend
+  seed:
+    <<: *release-backend
+  frontend:
+    image: ${PRL_RELEASE_FRONTEND:?Validated frontend digest required}
+    build: !reset null
+    platform: linux/amd64
