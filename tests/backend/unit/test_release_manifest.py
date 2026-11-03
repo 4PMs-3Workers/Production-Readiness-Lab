@@ -93,6 +93,8 @@ def test_roundtrip_atomic_write_and_separate_pr_head(tmp_path):
     "change",
     [
         lambda d: d.update(format_version=2),
+        lambda d: d.pop("format_version"),
+        lambda d: d.pop("format"),
         lambda d: d.update(format_version=True),
         lambda d: d.update(password="synthetic-secret"),
         lambda d: d.pop("images"),

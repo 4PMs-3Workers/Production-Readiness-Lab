@@ -151,13 +151,8 @@
     "candidate_proof": { "$ref": "#/$defs/Proof" },
     "configuration": { "$ref": "#/$defs/Configuration" },
     "created_at": { "title": "Created At", "type": "string" },
-    "format": {
-      "const": "prl-release",
-      "default": "prl-release",
-      "title": "Format",
-      "type": "string"
-    },
-    "format_version": { "const": 1, "default": 1, "title": "Format Version", "type": "integer" },
+    "format": { "const": "prl-release", "title": "Format", "type": "string" },
+    "format_version": { "const": 1, "title": "Format Version", "type": "integer" },
     "images": {
       "additionalProperties": { "$ref": "#/$defs/Image" },
       "propertyNames": { "enum": ["backend", "frontend", "collector"] },
@@ -204,6 +199,8 @@
     }
   },
   "required": [
+    "format",
+    "format_version",
     "release_id",
     "created_at",
     "provenance",

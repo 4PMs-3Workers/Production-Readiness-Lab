@@ -233,8 +233,8 @@ def require_configuration(config: Configuration, root: Path = ROOT) -> None:
 
 
 class Spec(Strict):
-    format: Literal["prl-candidate"] = "prl-candidate"
-    format_version: Literal[1] = 1
+    format: Literal["prl-candidate"]
+    format_version: Literal[1]
     release_id: Annotated[str, Field(pattern=r"^release-[1-9][0-9]*-[1-9][0-9]*$")]
     created_at: str
     provenance: Provenance
@@ -328,7 +328,7 @@ class Proof(Strict):
 
 
 class Manifest(Spec):
-    format: Literal["prl-release"] = "prl-release"  # type: ignore[override]
+    format: Literal["prl-release"]  # type: ignore[override]
     candidate_proof: Proof
     published_proof: Proof
     source_checks: list[Literal["backend", "frontend", "security", "containers", "recovery"]]
