@@ -200,10 +200,11 @@ def test_runner_bounds_retired_check_states_when_notification_queue_is_full(tmp_
         max_pending=config.max_pending_notifications,
     )
     store.save(MonitorState(checks=retired, pending=pending))
+    notifier = FakeNotifier(False)
     runner = MonitorRunner(
         config,
         transport=FakeTransport(True),
-        notifier=FakeNotifier(False),
+        notifier=notifier,
         store=store,
         clock=lambda: datetime(2026, 11, 4, tzinfo=UTC),
     )
@@ -213,6 +214,71 @@ def test_runner_bounds_retired_check_states_when_notification_queue_is_full(tmp_
     assert len(summary.state.checks) == 80
     assert len(summary.state.pending) == 64
     assert summary.state.delivery_health == "degraded"
+
+
+def test_runner_defers_new_checks_until_saturated_retired_states_can_drain(tmp_path):
+    extra_checks = "\n".join(
+        f'[[checks]]\nname = "new{index}"\nurl = "https://example.test/{index}"\n'
+        "expected_statuses = [200]\nmax_response_bytes = 1024"
+        for index in range(7)
+    )
+    path = config_file(tmp_path, extra=extra_checks)
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            'state_path = "state.json"',
+            'state_path = "state.json"\nmax_pending_notifications = 64\ndelivery_retries = 0',
+        ),
+        encoding="utf-8",
+    )
+    config = load_config(path)
+    timestamp = "2026-11-04T00:00:00+00:00"
+    pending = tuple(
+        PendingNotification(f"{index:064x}", f"pending{index}", True, timestamp)
+        for index in range(64)
+    )
+    retired = {
+        f"retired{index}": CheckState(firing=True, notified_firing=True, transition_sequence=1)
+        for index in range(8)
+    }
+    previous = {
+        f"previous{index}": CheckState(firing=True, notified_firing=True, transition_sequence=1)
+        for index in range(8)
+    }
+    store = StateStore(
+        config.state_path,
+        max_bytes=config.max_state_bytes,
+        max_pending=config.max_pending_notifications,
+    )
+    store.save(MonitorState(checks=retired | previous, pending=pending))
+    notifier = FakeNotifier(False)
+    now = [datetime(2026, 11, 4, tzinfo=UTC)]
+    runner = MonitorRunner(
+        config,
+        transport=FakeTransport(True),
+        notifier=notifier,
+        store=store,
+        clock=lambda: now[0],
+    )
+
+    summary = asyncio.run(runner.run_once())
+
+    assert summary.capacity_limited is True
+    assert summary.results == ()
+    assert summary.state.probe_health == "degraded"
+    assert summary.state.probe_attempts_total == 0
+    assert len(summary.state.checks) == 80
+    assert len(summary.state.pending) == 64
+
+    notifier.delivered = True
+    for _ in range(20):
+        now[0] += timedelta(minutes=1)
+        summary = asyncio.run(runner.run_once())
+        if not summary.capacity_limited:
+            break
+
+    assert summary.capacity_limited is False
+    assert len(summary.results) == 8
+    assert set(summary.state.checks) == {check.name for check in config.checks}
 
 
 def test_evaluate_requires_nonempty_results():

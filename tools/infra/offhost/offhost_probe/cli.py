@@ -45,7 +45,10 @@ def _emit_summary(summary: RunSummary) -> None:
     print(
         json.dumps(
             {
-                "event": "monitor.evaluated",
+                "event": (
+                    "monitor.capacity_limited" if summary.capacity_limited else "monitor.evaluated"
+                ),
+                "capacity_limited": summary.capacity_limited,
                 "completed_at": summary.completed_at,
                 "probe_health": summary.state.probe_health,
                 "delivery_health": summary.state.delivery_health,

@@ -29,6 +29,7 @@ class RunSummary:
     results: tuple[ProbeResult, ...]
     transitions: int
     state: MonitorState
+    capacity_limited: bool = False
 
 
 def _utc_now() -> datetime:
@@ -106,8 +107,29 @@ class MonitorRunner:
                 if name in self.configured_names
             },
         )
+        self.capacity_limited = self._would_exceed_state_capacity()
+
+    def _would_exceed_state_capacity(self) -> bool:
+        return len(set(self.state.checks) | self.configured_names) > self.store.max_check_states
 
     async def run_once(self) -> RunSummary:
+        if self.capacity_limited:
+            self.state = await self._process_notifications(self.state)
+            self.capacity_limited = self._would_exceed_state_capacity()
+            if self.capacity_limited:
+                self.state = replace(self.state, probe_health="degraded")
+                self.store.save(self.state)
+                now = self.clock()
+                summary = RunSummary(
+                    now.isoformat(timespec="milliseconds"),
+                    (),
+                    0,
+                    self.state,
+                    capacity_limited=True,
+                )
+                if self.on_summary is not None:
+                    self.on_summary(summary)
+                return summary
         started = self.clock()
         if started.tzinfo is None or started.utcoffset() is None:
             raise ValueError("Monitor clock must be timezone-aware")
@@ -158,6 +180,19 @@ class MonitorRunner:
         )
         self.state = state
         self.store.save(state)
+        self.state = await self._process_notifications(self.state)
+        summary = RunSummary(
+            self.state.last_probe_completed_at or completed.isoformat(timespec="milliseconds"),
+            results,
+            len(transitions),
+            self.state,
+        )
+        if self.on_summary is not None:
+            self.on_summary(summary)
+        return summary
+
+    async def _process_notifications(self, state: MonitorState) -> MonitorState:
+        self.state = state
         for _ in range(9):
             queued = self._queue_notifications(self.state)
             if queued != self.state:
@@ -178,15 +213,7 @@ class MonitorRunner:
                 break
             if self.state.pending:
                 break
-        summary = RunSummary(
-            self.state.last_probe_completed_at or completed.isoformat(timespec="milliseconds"),
-            results,
-            len(transitions),
-            self.state,
-        )
-        if self.on_summary is not None:
-            self.on_summary(summary)
-        return summary
+        return self.state
 
     def _queue_notifications(self, state: MonitorState) -> MonitorState:
         pending = list(state.pending)

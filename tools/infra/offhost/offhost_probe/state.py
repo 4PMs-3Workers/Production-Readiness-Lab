@@ -79,6 +79,7 @@ class StateStore:
         self.path = Path(path)
         self.max_bytes = max_bytes
         self.max_pending = max_pending
+        self.max_check_states = _MAX_CHECK_STATES
 
     def load(self) -> MonitorState:
         try:
