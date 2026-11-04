@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from offhost_probe.config import MonitorConfig, load_config
 from offhost_probe.evaluator import CheckState, ProbeResult, evaluate
+from offhost_probe.notify import NotificationEvent, WebhookNotifier
+from offhost_probe.state import MonitorState, PendingNotification, StateStore
 
 
 def config_file(tmp_path, *, extra: str = ""):
@@ -116,3 +119,106 @@ def test_evaluate_does_not_emit_duplicate_firing_transitions():
         emitted.extend(events)
     assert len(emitted) == 1
     assert emitted[0].firing is True
+
+
+def test_state_store_atomically_persists_bounded_transition_and_timestamps(tmp_path):
+    path = tmp_path / "state" / "monitor.json"
+    store = StateStore(path, max_bytes=8192, max_pending=4)
+    state = MonitorState(
+        checks={"gateway": CheckState(firing=True, transition_sequence=1)},
+        pending=(
+            PendingNotification("a" * 64, "gateway", True, "2026-11-04T00:00:00+00:00", attempts=1),
+        ),
+        last_probe_started_at="2026-11-04T00:00:00+00:00",
+        last_probe_completed_at="2026-11-04T00:00:01+00:00",
+        last_evaluation_at="2026-11-04T00:00:01+00:00",
+        probe_attempts_total=1,
+        evaluations_total=1,
+        probe_health="degraded",
+    )
+
+    store.save(state)
+
+    loaded = StateStore(path, max_bytes=8192, max_pending=4).load()
+    assert loaded == state
+    assert path.stat().st_size <= 8192
+
+
+@pytest.mark.parametrize("contents", ["{not json", "{}", " " * 9000])
+def test_state_store_fails_closed_for_corrupt_oversized_or_unknown_state(tmp_path, contents):
+    path = tmp_path / "state.json"
+    path.write_text(contents, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="state"):
+        StateStore(path, max_bytes=8192, max_pending=4).load()
+
+
+def test_state_store_rejects_unbounded_pending_notification_queue(tmp_path):
+    store = StateStore(tmp_path / "state.json", max_bytes=8192, max_pending=1)
+    state = MonitorState(
+        pending=(
+            PendingNotification("a" * 64, "gateway", True, "2026-11-04T00:00:00+00:00"),
+            PendingNotification("b" * 64, "gateway", False, "2026-11-04T00:01:00+00:00"),
+        )
+    )
+
+    with pytest.raises(ValueError, match="state"):
+        store.save(state)
+
+
+@pytest.mark.asyncio
+async def test_webhook_notifier_sends_stable_event_id_without_exposing_response_body():
+    received: list[tuple[dict[str, str], bytes]] = []
+
+    async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        header = await reader.readuntil(b"\r\n\r\n")
+        headers = {
+            line.split(b":", 1)[0].decode().lower(): line.split(b":", 1)[1].strip().decode()
+            for line in header.split(b"\r\n")[1:]
+            if b":" in line
+        }
+        body = await reader.readexactly(int(headers["content-length"]))
+        received.append((headers, body))
+        writer.write(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+
+    server = await asyncio.start_server(handle, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    event = NotificationEvent("f" * 64, "gateway", True, "2026-11-04T00:00:00+00:00")
+    notifier = WebhookNotifier(f"http://127.0.0.1:{port}/alerts", timeout_seconds=2)
+    try:
+        first = await notifier.deliver(event)
+        second = await notifier.deliver(event)
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert first.delivered and second.delivered
+    assert [item[0]["idempotency-key"] for item in received] == ["f" * 64, "f" * 64]
+    assert b"gateway" in received[0][1]
+    assert b"Authorization" not in received[0][1]
+
+
+@pytest.mark.asyncio
+async def test_webhook_notifier_reports_bounded_failure_without_response_details():
+    async def reject(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        await reader.readuntil(b"\r\n\r\n")
+        writer.write(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 6\r\n\r\nsecret")
+        await writer.drain()
+        writer.close()
+
+    server = await asyncio.start_server(reject, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    notifier = WebhookNotifier(f"http://127.0.0.1:{port}/alerts", timeout_seconds=2)
+    try:
+        result = await notifier.deliver(
+            NotificationEvent("e" * 64, "gateway", False, "2026-11-04T00:00:00+00:00")
+        )
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert not result.delivered
+    assert result.outcome == "rejected"

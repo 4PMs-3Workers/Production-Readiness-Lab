@@ -25,13 +25,19 @@ class HttpsTransport:
                 status, body_size = await self._request(check, policy)
             if body_size > check.max_response_bytes:
                 return ProbeResult(check.name, False, status, "response_too_large")
-            success = status in check.expected_statuses
+            success = 200 <= status < 300 and status in check.expected_statuses
             return ProbeResult(check.name, success, status, "ok" if success else "upstream_error")
         except TimeoutError:
             return ProbeResult(check.name, False, None, "timeout")
         except ssl.SSLCertVerificationError:
             return ProbeResult(check.name, False, None, "tls_untrusted")
-        except (ssl.SSLError, OSError, asyncio.IncompleteReadError, ValueError):
+        except (
+            ssl.SSLError,
+            OSError,
+            asyncio.IncompleteReadError,
+            asyncio.LimitOverrunError,
+            ValueError,
+        ):
             return ProbeResult(check.name, False, None, "network_error")
 
     async def _request(self, check: CheckConfig, policy: ProbePolicy) -> tuple[int, int]:
@@ -96,7 +102,7 @@ class HttpsTransport:
             writer.close()
             try:
                 await writer.wait_closed()
-            except OSError:
+            except (OSError, ssl.SSLError):
                 pass
 
     async def _read_chunked(self, reader: asyncio.StreamReader, max_bytes: int) -> int:
