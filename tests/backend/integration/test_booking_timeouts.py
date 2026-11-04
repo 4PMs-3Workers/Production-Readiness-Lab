@@ -266,8 +266,6 @@ async def test_query_timeout_during_commit_invalidates_without_retrying_writes(
             await asyncio.sleep(setup_delay)
             return await original_lock(db)
 
-        monkeypatch.setattr(booking.appointments, "lock_service_settings", delayed_setup)
-
     def mark_write_connection(session):
         if any(isinstance(row, Appointment) for row in session.identity_map.values()):
             targets.add(id(session.connection().connection.dbapi_connection))
@@ -286,6 +284,8 @@ async def test_query_timeout_during_commit_invalidates_without_retrying_writes(
     event.listen(Session, "before_commit", mark_write_connection)
     try:
         with monkeypatch.context() as patch:
+            if setup_delay:
+                patch.setattr(booking.appointments, "lock_service_settings", delayed_setup)
             patch.setattr(dialect, "do_commit", pause_commit)
             async with env.factory() as db:
                 invalidations = 0
