@@ -53,8 +53,10 @@ include = [
     "tools/deploy/release_trust.py",
     "tools/deploy/release_retention.py",
     "tests/release",
+    "tools/infra/offhost/offhost_probe",
+    "tests/backend/unit/test_offhost_monitor.py",
 ]
-extraPaths = ["src/backend"]
+extraPaths = ["src/backend", "tools/infra/offhost"]
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.11"

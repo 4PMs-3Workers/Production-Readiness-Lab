@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prl-offhost-probe"
+version = "0.1.0"
+description = "Independent bounded HTTPS monitor for Production Readiness Lab"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["offhost_probe*"]
