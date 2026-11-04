@@ -39,6 +39,76 @@ def make_state(now=None):
     )
 
 
+@pytest.mark.parametrize(
+    ("delayed_operation", "newer_operation"),
+    [
+        ("scheduled", "scheduled"),
+        ("backup", "backup"),
+        ("scheduled", "backup"),
+        ("backup", "scheduled"),
+    ],
+)
+def test_delayed_start_preserves_newer_general_and_scheduled_lifecycles(
+    tmp_path, monkeypatch, delayed_operation, newer_operation
+):
+    from app.backup import monitoring
+
+    config, _ = fixture_artifact(tmp_path)
+    old_start = datetime.now(UTC) - timedelta(minutes=1)
+    newer_start = old_start + timedelta(seconds=1)
+    original_collect = monitoring.collect_initial_state
+
+    def collect_then_run_newer_job(config, *, now):
+        initial = original_collect(config, now=now)
+        with monkeypatch.context() as patch:
+            patch.setattr(monitoring, "collect_initial_state", original_collect)
+            record_job_start(config, operation=newer_operation, started_at=newer_start)
+            record_job_finish(
+                config,
+                operation=newer_operation,
+                started_at=newer_start,
+                finished_at=newer_start + timedelta(seconds=1),
+                success=False,
+                reason=Reason.DATABASE,
+                duration_seconds=1,
+                backup_completed_at=None,
+                artifact_integrity_verified=None,
+            )
+        return initial
+
+    monkeypatch.setattr(monitoring, "collect_initial_state", collect_then_run_newer_job)
+    record_job_start(config, operation=delayed_operation, started_at=old_start)
+    after_start = read_state(tmp_path / monitoring.STATE_FILENAME)
+    assert after_start is not None
+    assert after_start.last_job_started_at == newer_start
+    assert after_start.last_job_result == "failure"
+    assert after_start.updated_at == newer_start + timedelta(seconds=1)
+
+    record_job_finish(
+        config,
+        operation=delayed_operation,
+        started_at=old_start,
+        finished_at=newer_start + timedelta(seconds=2),
+        success=True,
+        reason=None,
+        duration_seconds=3,
+        backup_completed_at=None,
+        artifact_integrity_verified=None,
+    )
+    final = read_state(tmp_path / monitoring.STATE_FILENAME)
+    assert final is not None
+    assert final.last_job_started_at == newer_start
+    assert final.last_job_operation == newer_operation
+    assert final.last_job_result == "failure"
+    assert final.scheduled_job_failure_pending is (newer_operation == "scheduled")
+    if newer_operation == "scheduled":
+        assert final.last_scheduled_job_started_at == newer_start
+        assert final.last_scheduled_job_result == "failure"
+    elif delayed_operation == "scheduled":
+        assert final.last_scheduled_job_started_at == old_start
+        assert final.last_scheduled_job_result == "success"
+
+
 def test_monitor_state_round_trip_rejects_extra_fields_and_oversize(tmp_path):
     path = tmp_path / ".prl-monitoring-state.json"
     expected = make_state()

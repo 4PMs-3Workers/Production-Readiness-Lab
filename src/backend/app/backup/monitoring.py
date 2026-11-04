@@ -353,22 +353,25 @@ def record_job_start(
         state = _current_or_initial(config, started_at)
 
         def update(current):
-            return current.model_copy(
-                update=dict(
-                    updated_at=started_at,
+            updates = {}
+            if current.last_job_started_at is None or started_at > current.last_job_started_at:
+                updates.update(
                     last_job_operation=operation,
                     last_job_started_at=started_at,
                     last_job_finished_at=None,
                     last_job_result=None,
                     last_job_reason=None,
                     last_job_duration_seconds=None,
-                    last_scheduled_job_started_at=(
-                        started_at
-                        if operation == "scheduled"
-                        else current.last_scheduled_job_started_at
-                    ),
                 )
-            )
+            if operation == "scheduled" and (
+                current.last_scheduled_job_started_at is None
+                or started_at > current.last_scheduled_job_started_at
+            ):
+                updates["last_scheduled_job_started_at"] = started_at
+            if not updates:
+                return current
+            updates["updated_at"] = max(current.updated_at, started_at)
+            return current.model_copy(update=updates)
 
         _update_state(config.store / STATE_FILENAME, state, update)
     except Exception:
