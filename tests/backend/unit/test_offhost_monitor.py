@@ -172,6 +172,49 @@ def test_runner_resolves_removed_firing_checks_before_pruning_state(tmp_path):
     assert all(not event.firing for event in notifier.events)
 
 
+def test_runner_bounds_retired_check_states_when_notification_queue_is_full(tmp_path):
+    extra_checks = "\n".join(
+        f'[[checks]]\nname = "new{index}"\nurl = "https://example.test/{index}"\n'
+        "expected_statuses = [200]\nmax_response_bytes = 1024"
+        for index in range(7)
+    )
+    path = config_file(tmp_path, extra=extra_checks)
+    text = path.read_text(encoding="utf-8").replace(
+        'state_path = "state.json"',
+        'state_path = "state.json"\nmax_pending_notifications = 64\ndelivery_retries = 0',
+    )
+    path.write_text(text, encoding="utf-8")
+    config = load_config(path)
+    timestamp = "2026-11-04T00:00:00+00:00"
+    pending = tuple(
+        PendingNotification(f"{index:064x}", f"pending{index}", True, timestamp)
+        for index in range(64)
+    )
+    retired = {
+        f"retired{index}": CheckState(firing=True, notified_firing=True, transition_sequence=1)
+        for index in range(8)
+    }
+    store = StateStore(
+        config.state_path,
+        max_bytes=config.max_state_bytes,
+        max_pending=config.max_pending_notifications,
+    )
+    store.save(MonitorState(checks=retired, pending=pending))
+    runner = MonitorRunner(
+        config,
+        transport=FakeTransport(True),
+        notifier=FakeNotifier(False),
+        store=store,
+        clock=lambda: datetime(2026, 11, 4, tzinfo=UTC),
+    )
+
+    summary = asyncio.run(runner.run_once())
+
+    assert len(summary.state.checks) == 80
+    assert len(summary.state.pending) == 64
+    assert summary.state.delivery_health == "degraded"
+
+
 def test_evaluate_requires_nonempty_results():
     with pytest.raises(ValueError, match="[Aa]t least one"):
         evaluate((), {}, failure_threshold=3, recovery_threshold=2, now=datetime.now(UTC))

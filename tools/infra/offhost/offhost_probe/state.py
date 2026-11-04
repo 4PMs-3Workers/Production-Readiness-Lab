@@ -14,7 +14,7 @@ from .evaluator import CheckState
 _CHECK_NAME = re.compile(r"[a-z][a-z0-9_-]{0,31}\Z")
 _EVENT_ID = re.compile(r"[0-9a-f]{64}\Z")
 _HEALTH = {"unknown", "healthy", "degraded"}
-_MAX_CHECK_STATES = 72  # Eight configured checks plus the bounded notification queue.
+_MAX_CHECK_STATES = 80  # Pending checks, deferred resolutions, and current configured checks.
 
 
 @dataclass(frozen=True)
