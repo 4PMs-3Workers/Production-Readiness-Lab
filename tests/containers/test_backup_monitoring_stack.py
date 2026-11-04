@@ -74,9 +74,9 @@ def _run_restore(runtime: FullStackRuntime, backup_id: str) -> subprocess.Comple
     password = runtime.backup_password
     runtime.backup_env_file.write_text(
         runtime.backup_env_text
-        + "RESTORE_DATABASE_URL=mysql+asyncmy://root:"
+        + "RESTORE_DATABASE_URL=mysql+asyncmy://prl_backup:"
         + quote(password, safe="")
-        + "@mysql/prl_restore\n",
+        + "@mysql/prlrestore\n",
         encoding="utf-8",
     )
     runtime.backup_env_file.chmod(0o600)
@@ -92,8 +92,8 @@ def _run_restore(runtime: FullStackRuntime, backup_id: str) -> subprocess.Comple
                 "sh",
                 "-ec",
                 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --protocol=socket -uroot -e '
-                '"CREATE DATABASE prl_restore CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci; '
-                "GRANT ALL PRIVILEGES ON prl_restore.* TO 'prl_backup'@'%'\"",
+                '"CREATE DATABASE prlrestore CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci; '
+                "GRANT ALL PRIVILEGES ON prlrestore.* TO 'prl_backup'@'%'\"",
             ],
             text=True,
             capture_output=True,
@@ -128,8 +128,6 @@ def _run_restore(runtime: FullStackRuntime, backup_id: str) -> subprocess.Comple
         [
             *runtime.stack.base,
             "-f",
-            str(ROOT / "tools/deploy/compose.local.yaml"),
-            "-f",
             str(ROOT / "tools/deploy/compose.backup.yaml"),
             "--profile",
             "backup",
@@ -142,7 +140,7 @@ def _run_restore(runtime: FullStackRuntime, backup_id: str) -> subprocess.Comple
             "--backup-id",
             backup_id,
             "--target-database",
-            "prl_restore",
+            "prlrestore",
         ],
         cwd=ROOT,
         env=environment,

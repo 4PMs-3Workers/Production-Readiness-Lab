@@ -1,12 +1,60 @@
 import os
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
 
 import pytest
 import yaml
+from sqlalchemy.engine import make_url
+from tests.containers import test_backup_monitoring_stack as backup_stack
+from tests.containers.test_telemetry_stack import FullStackRuntime
 from tools.backup.recovery_config import render
 
 ROOT = Path(__file__).resolve().parents[3]
+
+
+def test_restore_helper_uses_running_stack_and_granted_identity(tmp_path, monkeypatch):
+    base = ["docker", "compose", "--project-name", "owned-test"]
+    for name in ("compose.yaml", "compose.https.yaml", "compose.observability.yaml"):
+        base.extend(["-f", str(ROOT / "tools/deploy" / name)])
+    runtime = cast(
+        FullStackRuntime,
+        SimpleNamespace(
+            backup_password="backup-password",
+            backup_env_file=tmp_path / "backup.env",
+            backup_env_text="DATABASE_URL=mysql+asyncmy://prl_backup:backup-password@mysql/prl\n",
+            stack=SimpleNamespace(base=base, env={}, image_tag="owned", expected_sha="a" * 40),
+            compose=lambda *args: subprocess.CompletedProcess(args, 0, "mysql-id", ""),
+        ),
+    )
+    calls = []
+
+    def run(args, **kwargs):
+        calls.append((args, kwargs))
+        output = "sha256:" + "b" * 64 if args[:3] == ["docker", "image", "inspect"] else ""
+        return subprocess.CompletedProcess(args, 0, output, "")
+
+    monkeypatch.setattr(backup_stack.subprocess, "run", run)
+    result = backup_stack._run_restore(runtime, "backup-id")
+
+    assert result.returncode == 0
+    restore_args, restore_options = calls[-1]
+    assert restore_args[: len(base)] == base
+    assert restore_args[len(base) : len(base) + 2] == [
+        "-f",
+        str(ROOT / "tools/deploy/compose.backup.yaml"),
+    ]
+    target = make_url(runtime.backup_env_file.read_text().split("RESTORE_DATABASE_URL=")[1].strip())
+    assert (target.username, target.password, target.database) == (
+        "prl_backup",
+        runtime.backup_password,
+        "prlrestore",
+    )
+    assert "TO 'prl_backup'@'%'" in calls[0][0][-1]
+    assert "ON prlrestore.*" in calls[0][0][-1]
+    assert restore_args[-2:] == ["--target-database", "prlrestore"]
+    assert restore_options["env"]["PRL_BACKEND_IMAGE_ID"] == "sha256:" + "b" * 64
 
 
 def test_recovery_gateway_rewrites_routes_and_observability_identity_together(tmp_path):
@@ -24,7 +72,8 @@ def test_recovery_refuses_source_or_unbounded_networks(tmp_path, subnet):
         render(tmp_path, subnet)
 
 
-def test_backup_and_recovery_compose_config_are_valid_without_resolving_secrets(tmp_path):
+@pytest.mark.parametrize("mode", ["local-recovery", "https-monitoring"])
+def test_backup_and_recovery_compose_config_are_valid_without_resolving_secrets(tmp_path, mode):
     environment = dict(os.environ, **render(tmp_path / "gateway"))
     for kind in ("DB", "RUNTIME", "MIGRATION", "SEED", "BACKUP"):
         path = tmp_path / (kind.lower() + ".env")
@@ -35,13 +84,32 @@ def test_backup_and_recovery_compose_config_are_valid_without_resolving_secrets(
         PRL_BACKEND_IMAGE_ID="sha256:" + "b" * 64,
         PRL_BACKUP_VOLUME="prl-backup-config-test",
     )
+    if mode == "https-monitoring":
+        external_file = tmp_path / "external-secret"
+        external_file.write_text("private")
+        for key in (
+            "PRL_TLS_CERT_FILE",
+            "PRL_TLS_KEY_FILE",
+            "PRL_OPS_TLS_CERT_FILE",
+            "PRL_OPS_TLS_KEY_FILE",
+            "PRL_GRAFANA_ADMIN_USER_FILE",
+            "PRL_GRAFANA_ADMIN_PASSWORD_FILE",
+        ):
+            environment[key] = str(external_file)
+        environment.update(
+            SERVICE_RELEASE="a" * 40,
+            PRL_HTTPS_ORIGIN="https://app.example.invalid",
+            PRL_OPS_HOST="ops.example.invalid",
+            PRL_OPS_ORIGIN="https://ops.example.invalid",
+            PRL_OPS_CIDRS="127.0.0.1/32",
+        )
+    overlays = (
+        ("compose.local.yaml", "compose.backup.yaml", "compose.recovery.yaml")
+        if mode == "local-recovery"
+        else ("compose.https.yaml", "compose.observability.yaml", "compose.backup.yaml")
+    )
     command = ["docker", "compose", "--project-name", "prl-recovery-config-test"]
-    for filename in (
-        "compose.yaml",
-        "compose.local.yaml",
-        "compose.backup.yaml",
-        "compose.recovery.yaml",
-    ):
+    for filename in ("compose.yaml", *overlays):
         command.extend(["-f", str(ROOT / "tools/deploy" / filename)])
     # Parsing does not start services or require daemon access. Missing Docker is
     # a failed prerequisite, never a silently skipped required restore test.
@@ -52,7 +120,7 @@ def test_backup_and_recovery_compose_config_are_valid_without_resolving_secrets(
         text=True,
         timeout=20,
     )
-    assert result.returncode == 0
+    assert result.returncode == 0, "The backup Compose configuration could not be rendered"
     assert "private" not in result.stdout
 
 
