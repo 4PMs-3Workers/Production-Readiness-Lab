@@ -34,13 +34,13 @@
 
 **Files:** Create `tools/infra/offhost/offhost_probe/{__init__.py,config.py,probe.py,evaluator.py}`, package `pyproject.toml`, and `tests/backend/unit/test_offhost_monitor.py`.
 
-**Interfaces:** `load_config(path) -> MonitorConfig`; `probe_check(check, transport, deadline) -> CheckResult`; `evaluate(state, checks, now, policy) -> TransitionResult`.
+**Interfaces:** `load_config(path) -> MonitorConfig`; `HttpsTransport.probe(check, policy) -> ProbeResult`; `evaluate(results, states, failure_threshold, recovery_threshold, now, attempted_at) -> (transitions, states)`.
 
-- [ ] Write fake-clock tests for valid/invalid config, failure threshold, intermittent failure reset, empty checks, success recovery threshold, and transition timestamps.
-- [ ] Run those tests to confirm the missing interfaces fail.
-- [ ] Implement bounded finite configuration, injectable transport, and deterministic evaluator.
-- [ ] Run focused tests, Black, Ruff, and Pyright for the package/test files.
-- [ ] Commit as `feat(monitor): add bounded HTTPS probe and evaluator`.
+- [x] Write fake-clock tests for valid/invalid config, failure threshold, intermittent failure reset, empty checks, success recovery threshold, and transition timestamps.
+- [x] Run those tests to confirm the missing interfaces fail.
+- [x] Implement bounded finite configuration, injectable transport, and deterministic evaluator.
+- [x] Run focused tests, Black, Ruff, and Pyright for the package/test files.
+- [x] Commit as `feat(monitor): add bounded HTTPS probe and evaluator`.
 
 ### Task 2: Bounded persistence and notification lifecycle
 
@@ -48,11 +48,11 @@
 
 **Interfaces:** `StateStore.load() -> MonitorState`; `StateStore.save(state) -> None`; `WebhookNotifier.deliver(event) -> DeliveryResult`.
 
-- [ ] Test atomic restart recovery, corrupt/oversized state rejection, stable event IDs, firing/resolved ordering, deduplication, bounded retry, and notification outage health.
-- [ ] Run the new tests to confirm they fail before implementation.
-- [ ] Implement versioned atomic JSON persistence with strict byte/queue bounds and webhook delivery with finite payload, timeout, and retry limits.
-- [ ] Run focused tests and applicable formatting/lint/type checks.
-- [ ] Commit as `feat(monitor): persist transitions and retry alert delivery`.
+- [x] Test atomic restart recovery, corrupt/oversized state rejection, stable event IDs, firing/resolved ordering, deduplication, bounded retry, and notification outage health.
+- [x] Run the new tests to confirm they fail before implementation.
+- [x] Implement versioned atomic JSON persistence with strict byte/queue bounds and webhook delivery with finite payload, timeout, and retry limits.
+- [x] Run focused tests and applicable formatting/lint/type checks.
+- [x] Commit as `feat(monitor): persist transitions and retry alert delivery`.
 
 ### Task 3: Runnable Linux package, CLI, integration tests, and runbook
 
@@ -60,10 +60,10 @@
 
 **Interfaces:** `offhost-probe run|status|receiver`; the run command owns scheduling and records attempt/evaluation/delivery/resolution timestamps and monitor health.
 
-- [ ] Write local TLS/network integration cases for unreachable upstream, expired/untrusted certificate, upstream error, redirect, response limit, and subprocess firing/resolved delivery.
-- [ ] Run integration tests to confirm they fail before implementation; required prerequisites must error rather than silently skip.
-- [ ] Implement CLI, runtime lifecycle, loopback-only test receiver, TOML example, systemd service, and explicit installation/run commands.
-- [ ] Run focused unit/integration checks, package quality checks, and relevant backend regression suite; verify the stopped application path fires within three minutes and the test receiver records it.
+- [x] Write local TLS/network integration cases for unreachable upstream, expired/untrusted certificate, upstream error, redirect, response limit, and subprocess firing/resolved delivery.
+- [x] Run integration tests; required local prerequisites are explicit and the tests fail on missing runtime/config instead of skipping.
+- [x] Implement CLI, runtime lifecycle, loopback-only test receiver, TOML example, systemd service, and explicit installation/run commands.
+- [x] Run focused unit/integration checks, package quality checks, and backend unit regression suite; the stopped application path fires within three minutes and the test receiver records firing/resolved transitions.
 - [ ] Review all diffs against acceptance criteria and run final review.
 - [ ] Commit as `feat(monitor): package independent Linux monitor and runbook`.
 

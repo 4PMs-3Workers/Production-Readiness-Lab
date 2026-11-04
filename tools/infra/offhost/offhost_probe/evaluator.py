@@ -19,6 +19,7 @@ class CheckState:
     consecutive_failures: int = 0
     consecutive_successes: int = 0
     firing: bool = False
+    notified_firing: bool = False
     transition_sequence: int = 0
     last_attempt_at: str | None = None
     last_evaluation_at: str | None = None
@@ -40,14 +41,20 @@ def evaluate(
     failure_threshold: int,
     recovery_threshold: int,
     now: datetime,
+    attempted_at: datetime | None = None,
 ) -> tuple[tuple[Transition, ...], dict[str, CheckState]]:
     if not results:
         raise ValueError("At least one probe result is required")
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("Evaluation time must be timezone-aware")
+    if attempted_at is not None and (
+        attempted_at.tzinfo is None or attempted_at.utcoffset() is None
+    ):
+        raise ValueError("Probe attempt time must be timezone-aware")
     if not 1 <= failure_threshold <= 10 or not 1 <= recovery_threshold <= 10:
         raise ValueError("Evaluation thresholds are invalid")
     instant = now.isoformat(timespec="milliseconds")
+    attempt_instant = (attempted_at or now).isoformat(timespec="milliseconds")
     updated = dict(states)
     transitions: list[Transition] = []
     for result in results:
@@ -80,7 +87,14 @@ def evaluate(
             sequence += 1
             resolution_at = instant
         updated[result.check_name] = CheckState(
-            failures, successes, firing, sequence, instant, instant, resolution_at
+            consecutive_failures=failures,
+            consecutive_successes=successes,
+            firing=firing,
+            notified_firing=previous.notified_firing,
+            transition_sequence=sequence,
+            last_attempt_at=attempt_instant,
+            last_evaluation_at=instant,
+            last_resolution_at=resolution_at,
         )
         if firing != previous.firing:
             event_id = hashlib.sha256(

@@ -1,0 +1,27 @@
+[monitor]
+interval_seconds = 30
+timeout_seconds = 10
+connect_timeout_seconds = 4
+read_timeout_seconds = 4
+failure_threshold = 3
+recovery_threshold = 2
+state_path = "/var/lib/prl-offhost/state.json"
+max_state_bytes = 65536
+max_pending_notifications = 32
+delivery_timeout_seconds = 5
+delivery_cycle_timeout_seconds = 30
+delivery_retries = 2
+# Optional absolute CA bundle path; system trust is always retained.
+# ca_bundle_path = "/etc/ssl/certs/internal-monitor-ca.pem"
+
+[notification]
+# Local test receiver only. Set an explicit HTTPS destination in the deployment config.
+webhook_url = "http://127.0.0.1:8788/alerts"
+# Optional: token is read from this environment variable and never written to state or logs.
+# token_env = "PRL_OFFHOST_WEBHOOK_TOKEN"
+
+[[checks]]
+name = "gateway_ready"
+url = "https://application.example.test/health/ready"
+expected_statuses = [200]
+max_response_bytes = 4096

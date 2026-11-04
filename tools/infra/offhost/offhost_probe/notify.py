@@ -35,6 +35,8 @@ class WebhookNotifier:
             raise ValueError("Webhook settings are invalid") from None
         if (
             parsed.scheme not in {"http", "https"}
+            or not url.isascii()
+            or any(ord(char) <= 32 or ord(char) == 127 for char in url)
             or not host
             or parsed.username is not None
             or parsed.password is not None

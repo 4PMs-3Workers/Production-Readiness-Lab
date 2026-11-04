@@ -1,0 +1,20 @@
+[Unit]
+Description=Loopback-only test receiver for the independent monitor
+After=network-online.target
+
+[Service]
+Type=simple
+User=prlmonitor
+Group=prlmonitor
+ExecStart=/opt/prl-offhost/venv/bin/offhost-probe receiver --port 8788
+Restart=on-failure
+RestartSec=2s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

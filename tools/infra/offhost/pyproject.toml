@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,6 +8,9 @@ version = "0.1.0"
 description = "Independent bounded HTTPS monitor for Production Readiness Lab"
 requires-python = ">=3.11"
 dependencies = []
+
+[project.scripts]
+offhost-probe = "offhost_probe.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 _CHECK_NAME = re.compile(r"[a-z][a-z0-9_-]{0,31}\Z")
+_MAX_CONFIG_BYTES = 65536
 _MONITOR_KEYS = {
     "interval_seconds",
     "timeout_seconds",
@@ -19,7 +20,9 @@ _MONITOR_KEYS = {
     "max_state_bytes",
     "max_pending_notifications",
     "delivery_timeout_seconds",
+    "delivery_cycle_timeout_seconds",
     "delivery_retries",
+    "ca_bundle_path",
 }
 _NOTIFICATION_KEYS = {"webhook_url", "token_env"}
 _CHECK_KEYS = {"name", "url", "expected_statuses", "max_response_bytes"}
@@ -43,9 +46,11 @@ class MonitorConfig:
     failure_threshold: int
     recovery_threshold: int
     state_path: Path
+    ca_bundle_path: Path | None
     max_state_bytes: int
     max_pending_notifications: int
     delivery_timeout_seconds: int
+    delivery_cycle_timeout_seconds: int
     delivery_retries: int
     notification_url: str
     token_env: str | None
@@ -59,7 +64,12 @@ def _bounded_int(table: dict, name: str, default: int, low: int, high: int) -> i
 
 
 def _validate_url(value: object, *, allow_loopback_http: bool = False) -> str:
-    if not isinstance(value, str) or len(value) > 2048:
+    if (
+        not isinstance(value, str)
+        or len(value) > 2048
+        or not value.isascii()
+        or any(ord(char) <= 32 or ord(char) == 127 for char in value)
+    ):
         raise ValueError("Monitor configuration is invalid")
     try:
         parsed = urlsplit(value)
@@ -91,7 +101,10 @@ def _validate_url(value: object, *, allow_loopback_http: bool = False) -> str:
 def load_config(path: str | Path) -> MonitorConfig:
     config_path = Path(path)
     try:
-        data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+        raw = config_path.read_bytes()
+        if not raw or len(raw) > _MAX_CONFIG_BYTES:
+            raise ValueError("configuration size")
+        data = tomllib.loads(raw.decode("utf-8"))
         monitor = data["monitor"]
         notification = data["notification"]
         raw_checks = data["checks"]
@@ -116,8 +129,12 @@ def load_config(path: str | Path) -> MonitorConfig:
     max_state_bytes = _bounded_int(monitor, "max_state_bytes", 65536, 4096, 1048576)
     max_pending = _bounded_int(monitor, "max_pending_notifications", 32, 1, 64)
     delivery_timeout = _bounded_int(monitor, "delivery_timeout_seconds", 5, 1, 15)
+    delivery_cycle_timeout = _bounded_int(monitor, "delivery_cycle_timeout_seconds", 30, 1, 60)
     delivery_retries = _bounded_int(monitor, "delivery_retries", 2, 0, 5)
-    if connect + read > timeout:
+    if (
+        connect + read > timeout
+        or interval * failure_threshold + timeout + delivery_cycle_timeout > 180
+    ):
         raise ValueError("Monitor configuration is invalid")
 
     checks: list[CheckConfig] = []
@@ -167,6 +184,14 @@ def load_config(path: str | Path) -> MonitorConfig:
     state_path = Path(state_value)
     if not state_path.is_absolute():
         state_path = config_path.parent / state_path
+    ca_bundle_value = monitor.get("ca_bundle_path")
+    ca_bundle_path = None
+    if ca_bundle_value is not None:
+        if not isinstance(ca_bundle_value, str) or not Path(ca_bundle_value).is_absolute():
+            raise ValueError("Monitor configuration is invalid")
+        ca_bundle_path = Path(ca_bundle_value)
+        if not ca_bundle_path.is_file():
+            raise ValueError("Monitor configuration is invalid")
     return MonitorConfig(
         tuple(checks),
         interval,
@@ -176,9 +201,11 @@ def load_config(path: str | Path) -> MonitorConfig:
         failure_threshold,
         recovery_threshold,
         state_path,
+        ca_bundle_path,
         max_state_bytes,
         max_pending,
         delivery_timeout,
+        delivery_cycle_timeout,
         delivery_retries,
         webhook_url,
         token_env,

@@ -6,7 +6,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from offhost_probe.config import MonitorConfig, load_config
 from offhost_probe.evaluator import CheckState, ProbeResult, evaluate
-from offhost_probe.notify import NotificationEvent, WebhookNotifier
+from offhost_probe.notify import DeliveryResult, NotificationEvent, WebhookNotifier
+from offhost_probe.runtime import MonitorRunner
 from offhost_probe.state import MonitorState, PendingNotification, StateStore
 
 
@@ -52,6 +53,8 @@ def test_load_config_accepts_bounded_https_check_and_loopback_receiver(tmp_path)
         'url = "http://example.test/health"',
         'url = "https://user:password@example.test/health"',
         'url = "https://example.test/health?token=secret"',
+        'url = "https://example.test/health/å"',
+        "interval_seconds = 60",
         "max_response_bytes = 999999999",
         "expected_statuses = []",
         'name = "gateway/private"',
@@ -63,6 +66,14 @@ def test_load_config_rejects_unsafe_or_unbounded_checks(tmp_path, replacement):
     original = next(line for line in text.splitlines() if line.startswith(key + " = "))
     path = tmp_path / "monitor.toml"
     path.write_text(text.replace(original, replacement), encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        load_config(path)
+
+
+def test_load_config_rejects_oversized_configuration(tmp_path):
+    path = tmp_path / "monitor.toml"
+    path.write_bytes(b"#" * 65537)
 
     with pytest.raises(ValueError):
         load_config(path)
@@ -222,3 +233,83 @@ async def test_webhook_notifier_reports_bounded_failure_without_response_details
 
     assert not result.delivered
     assert result.outcome == "rejected"
+
+
+class FakeTransport:
+    def __init__(self, success: bool):
+        self.success = success
+
+    async def probe(self, check, policy):
+        return ProbeResult(
+            check.name,
+            self.success,
+            200 if self.success else None,
+            "ok" if self.success else "network_error",
+        )
+
+
+class FakeNotifier:
+    def __init__(self, delivered: bool):
+        self.delivered = delivered
+        self.events: list[NotificationEvent] = []
+
+    async def deliver(self, event: NotificationEvent) -> DeliveryResult:
+        self.events.append(event)
+        return DeliveryResult(self.delivered, "accepted" if self.delivered else "timeout")
+
+
+def test_runner_recovers_pending_firing_delivery_after_restart_and_resolves(tmp_path):
+    path = config_file(tmp_path)
+    original = path.read_text(encoding="utf-8")
+    path.write_text(
+        original.replace("failure_threshold = 3", "failure_threshold = 1")
+        .replace("recovery_threshold = 2", "recovery_threshold = 2")
+        .replace("delivery_retries = 2", "delivery_retries = 0"),
+        encoding="utf-8",
+    )
+    config = load_config(path)
+    store = StateStore(
+        config.state_path,
+        max_bytes=config.max_state_bytes,
+        max_pending=config.max_pending_notifications,
+    )
+    now = datetime(2026, 11, 4, tzinfo=UTC)
+    failed_notifier = FakeNotifier(False)
+    first = MonitorRunner(
+        config,
+        transport=FakeTransport(False),
+        notifier=failed_notifier,
+        store=store,
+        clock=lambda: now,
+    )
+
+    firing = asyncio.run(first.run_once())
+    assert firing.state.checks["gateway"].firing is True
+    assert firing.state.delivery_health == "degraded"
+    assert firing.state.pending[0].attempts == config.delivery_retries + 1
+    pending_id = firing.state.pending[0].event_id
+    assert len(failed_notifier.events) == config.delivery_retries + 1
+    assert {event.event_id for event in failed_notifier.events} == {pending_id}
+
+    recovered_notifier = FakeNotifier(True)
+    restarted = MonitorRunner(
+        config,
+        transport=FakeTransport(True),
+        notifier=recovered_notifier,
+        store=StateStore(
+            config.state_path,
+            max_bytes=config.max_state_bytes,
+            max_pending=config.max_pending_notifications,
+        ),
+        clock=lambda: now + timedelta(minutes=1),
+    )
+    first_recovery = asyncio.run(restarted.run_once())
+    assert first_recovery.state.checks["gateway"].firing is True
+    assert [event.event_id for event in recovered_notifier.events] == [pending_id]
+    assert first_recovery.state.delivery_health == "healthy"
+
+    resolved = asyncio.run(restarted.run_once())
+    assert resolved.state.checks["gateway"].firing is False
+    assert resolved.state.last_resolution_at is not None
+    assert recovered_notifier.events[-1].firing is False
+    assert len({event.event_id for event in recovered_notifier.events}) == 2

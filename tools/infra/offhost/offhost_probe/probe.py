@@ -19,6 +19,9 @@ class ProbePolicy:
 
 
 class HttpsTransport:
+    def __init__(self, *, ssl_context: ssl.SSLContext | None = None) -> None:
+        self.ssl_context = ssl_context
+
     async def probe(self, check: CheckConfig, policy: ProbePolicy) -> ProbeResult:
         try:
             async with asyncio.timeout(policy.timeout_seconds):
@@ -46,7 +49,7 @@ class HttpsTransport:
         if not host:
             raise ValueError("Invalid target")
         port = target.port or 443
-        context = ssl.create_default_context()
+        context = self.ssl_context or ssl.create_default_context()
         async with asyncio.timeout(policy.connect_timeout_seconds):
             reader, writer = await asyncio.open_connection(
                 host, port, ssl=context, server_hostname=host, limit=_HEADER_LIMIT

@@ -29,6 +29,8 @@ class PendingNotification:
 @dataclass(frozen=True)
 class MonitorState:
     checks: dict[str, CheckState] = field(default_factory=dict)
+    outcomes: dict[str, str] = field(default_factory=dict)
+    status_codes: dict[str, int | None] = field(default_factory=dict)
     pending: tuple[PendingNotification, ...] = ()
     last_probe_started_at: str | None = None
     last_probe_completed_at: str | None = None
@@ -39,6 +41,7 @@ class MonitorState:
     probe_attempts_total: int = 0
     evaluations_total: int = 0
     delivery_attempts_total: int = 0
+    last_delivery_outcome: str = "unknown"
     probe_health: str = "unknown"
     delivery_health: str = "unknown"
 
@@ -78,7 +81,8 @@ class StateStore:
 
     def load(self) -> MonitorState:
         try:
-            raw = self.path.read_bytes()
+            with self.path.open("rb") as state_file:
+                raw = state_file.read(self.max_bytes + 1)
         except FileNotFoundError:
             return MonitorState()
         except OSError:
@@ -150,6 +154,41 @@ class StateStore:
         pending_ids: set[str] = set()
         if state.probe_health not in _HEALTH or state.delivery_health not in _HEALTH:
             raise ValueError("invalid health state")
+        if state.last_delivery_outcome not in {
+            "unknown",
+            "accepted",
+            "rejected",
+            "timeout",
+            "network_error",
+            "invalid_event",
+        }:
+            raise ValueError("invalid delivery outcome")
+        if (
+            set(state.outcomes) - set(state.checks)
+            or set(state.status_codes) - set(state.checks)
+            or any(
+                outcome
+                not in {
+                    "ok",
+                    "upstream_error",
+                    "response_too_large",
+                    "timeout",
+                    "tls_untrusted",
+                    "network_error",
+                }
+                for outcome in state.outcomes.values()
+            )
+            or any(
+                status is not None
+                and (
+                    isinstance(status, bool)
+                    or not isinstance(status, int)
+                    or not 100 <= status <= 599
+                )
+                for status in state.status_codes.values()
+            )
+        ):
+            raise ValueError("invalid probe diagnostics")
         for name, check in state.checks.items():
             if not _CHECK_NAME.fullmatch(name) or not isinstance(check, CheckState):
                 raise ValueError("invalid check state")
@@ -158,6 +197,7 @@ class StateStore:
                 or not _check_counter(check.consecutive_successes)
                 or not _check_counter(check.transition_sequence)
                 or not isinstance(check.firing, bool)
+                or not isinstance(check.notified_firing, bool)
                 or not all(
                     _validate_timestamp(value)
                     for value in (
@@ -202,6 +242,8 @@ class StateStore:
         return {
             "schema": 1,
             "checks": {name: asdict(value) for name, value in state.checks.items()},
+            "outcomes": state.outcomes,
+            "status_codes": state.status_codes,
             "pending": pending,
             "timestamps": {
                 "probe_started": state.last_probe_started_at,
@@ -217,19 +259,34 @@ class StateStore:
                 "delivery_attempts": state.delivery_attempts_total,
             },
             "health": {"probe": state.probe_health, "delivery": state.delivery_health},
+            "last_delivery_outcome": state.last_delivery_outcome,
         }
 
     def _decode(self, data: Any) -> MonitorState:
         if (
             not isinstance(data, dict)
-            or set(data) != {"schema", "checks", "pending", "timestamps", "counters", "health"}
+            or set(data)
+            != {
+                "schema",
+                "checks",
+                "outcomes",
+                "status_codes",
+                "pending",
+                "timestamps",
+                "counters",
+                "health",
+                "last_delivery_outcome",
+            }
             or data["schema"] != 1
         ):
             raise ValueError("invalid state shape")
         checks_raw, pending_raw = data["checks"], data["pending"]
+        outcomes, status_codes = data["outcomes"], data["status_codes"]
         timestamps, counters, health = data["timestamps"], data["counters"], data["health"]
         if (
             not isinstance(checks_raw, dict)
+            or not isinstance(outcomes, dict)
+            or not isinstance(status_codes, dict)
             or len(checks_raw) > 8
             or not isinstance(pending_raw, list)
             or len(pending_raw) > self.max_pending
@@ -254,6 +311,7 @@ class StateStore:
             "consecutive_failures",
             "consecutive_successes",
             "firing",
+            "notified_firing",
             "transition_sequence",
             "last_attempt_at",
             "last_evaluation_at",
@@ -293,6 +351,8 @@ class StateStore:
             raise ValueError("invalid metadata")
         state = MonitorState(
             checks=checks,
+            outcomes=outcomes,
+            status_codes=status_codes,
             pending=tuple(pending),
             last_probe_started_at=timestamps["probe_started"],
             last_probe_completed_at=timestamps["probe_completed"],
@@ -303,6 +363,7 @@ class StateStore:
             probe_attempts_total=counters["probe_attempts"],
             evaluations_total=counters["evaluations"],
             delivery_attempts_total=counters["delivery_attempts"],
+            last_delivery_outcome=data["last_delivery_outcome"],
             probe_health=health["probe"],
             delivery_health=health["delivery"],
         )

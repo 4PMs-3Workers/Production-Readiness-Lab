@@ -43,9 +43,40 @@ If the denominator remains positive while a ratio is unknown, check `GatewayPipe
 Open **Telemetry loss** and compare all configured scrape targets, API telemetry-family presence, queue size/capacity, and dropped/export-failed counters. Resolve a target outage first, then confirm fresh API and worker metrics/logs arrive. A target that is up with a missing required metric family is still a telemetry gap. Prometheus self-health can only alert while the Prometheus evaluator and Alertmanager path are running; a same-host Docker or host failure requires future off-host monitoring.
 
 
-## Deployment boundary and setup
+## Independent HTTPS probe (Issue #48)
 
-This runbook covers the repository's local/demo Compose topology. The application, Collector, Prometheus, Loki, Tempo, Grafana, Alertmanager, and the local alert receiver run on the same Docker host. Alertmanager currently delivers only to the internal receiver. The repository does not provision an off-host probe or an external on-call notification destination. A healthy target-down alert therefore does not prove that the host or alert path is observable when that host is unavailable. The short acceptance run is not a production deployment, a three-minute host-outage commitment, or a seven-day SLO campaign.
+The standalone package at `tools/infra/offhost/` owns scheduling, HTTPS checks, state evaluation, persistence, and webhook delivery. It does not depend on the application's Compose, Prometheus, or Alertmanager processes. The sample configuration points at a loopback test receiver; replace the sample URL with the deployment's explicit HTTPS destination before enabling the monitor. Set `token_env` only when the destination requires a bearer token, and provide that variable through `/etc/prl-offhost/secrets.env` with mode `0640` and owner/group `root:prlmonitor`.
+
+Install on a Linux host with Python 3.11:
+
+```sh
+sudo tools/infra/offhost/install.sh
+sudo cp /etc/prl-offhost/probe.toml.example /etc/prl-offhost/probe.toml
+sudo chown root:prlmonitor /etc/prl-offhost/probe.toml
+sudo chmod 0640 /etc/prl-offhost/probe.toml
+sudoedit /etc/prl-offhost/probe.toml
+sudo systemctl enable --now prl-offhost-monitor.service
+sudo systemctl status prl-offhost-monitor.service
+/opt/prl-offhost/venv/bin/offhost-probe status --config /etc/prl-offhost/probe.toml
+```
+
+Configure only HTTPS targets with trusted certificates and finite check names. Optional `ca_bundle_path` adds a deployment CA while retaining system trust. Check URLs cannot contain credentials, query strings, or fragments, and redirects are rejected. Each configured check bounds response bytes; connect/TLS, read, total attempt, webhook attempt, and notification-cycle times all have finite limits. State is stored at the configured `state_path` (the sample uses `/var/lib/prl-offhost/state.json`) with atomic replacement and restrictive file permissions.
+
+Firing requires three consecutive failures and recovery requires two consecutive successful checks in the sample. At a 30-second interval, three failed checks plus the probe and notification budgets target firing/delivery within three minutes; check actual `probe_completed_at`, `delivery_attempt_at`, and `delivery_success_at` timestamps in the status JSON and service journal. The sender retries with the same `Idempotency-Key`; configure the destination to deduplicate that key. Delivery failures remain pending across restart and set `delivery_health=degraded`.
+
+For a local fixture only, run the loopback receiver on the probe host:
+
+```sh
+/opt/prl-offhost/venv/bin/offhost-probe receiver --port 8788
+curl --fail http://127.0.0.1:8788/health
+curl --fail http://127.0.0.1:8788/events
+```
+
+The fixture keeps at most 128 sanitized events in memory and is not a paging service. Never expose it outside loopback. A same-machine systemd service only provides process isolation; loss of that physical host also removes its monitor. The final host-failure proof must place the monitor and destination on independent infrastructure and record fault-start, firing, delivery, recovery, and resolved timestamps separately. Local tests and the sample systemd unit do not claim that deployment proof or a production three-minute SLO.
+
+## Existing Compose deployment boundary
+
+The application, Collector, Prometheus, Loki, Tempo, Grafana, Alertmanager, and local Alertmanager receiver still run on the same Docker host. Their existing alerts only prove that the internal evaluator and receiver were available during the recorded observation. The standalone Issue #48 monitor runs separately only after an operator installs and configures it on independent infrastructure. The short acceptance run is not a seven-day SLO campaign.
 
 Follow the [Compose deployment guide](containerized-demo.md) for setup and lifecycle commands. Configure HTTPS and operations access with external paths for `PRL_TLS_CERT_FILE`, `PRL_TLS_KEY_FILE`, `PRL_HTTPS_ORIGIN`, `PRL_OPS_HOST`, `PRL_OPS_ORIGIN`, `PRL_OPS_CIDRS`, `PRL_OPS_TLS_CERT_FILE`, and `PRL_OPS_TLS_KEY_FILE`. Use a trusted certificate whose SAN matches each public hostname; keep private keys outside the checkout and restrict access to the Nginx container identity. Grafana is available on the distinct operations hostname, behind the configured CIDR allowlist, with anonymous access and sign-up disabled. Do not publish telemetry ports directly.
 

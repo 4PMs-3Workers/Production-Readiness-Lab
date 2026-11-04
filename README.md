@@ -501,7 +501,7 @@ Bằng chứng nghiệm thu gồm cấu hình môi trường, commit/image diges
 
 ## Nền tảng observability (Issue #35)
 
-Cấu hình stack local/demo, các dashboard, bằng chứng nghiệm thu và giới hạn đã biết nằm trong [handoff observability](docs/tasks/observability-foundation.md). Dùng [runbook cảnh báo](docs/tasks/observability-runbook.md) cho truy vấn, TLS, redaction và quy trình recovery.
+Cấu hình stack local/demo, các dashboard, bằng chứng nghiệm thu và giới hạn đã biết nằm trong [handoff observability](docs/tasks/observability-foundation.md). Dùng [runbook cảnh báo](docs/tasks/observability-runbook.md) cho truy vấn, TLS, redaction, probe ngoài host và recovery.
 
 ## MySQL backup và recovery (Issue #36)
 
