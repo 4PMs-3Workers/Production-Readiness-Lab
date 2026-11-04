@@ -20,6 +20,8 @@ from app.backup.manifest import (
     parse_manifest,
 )
 
+VERIFY_READ_BUFFER_BYTES = 64 * 1024
+
 
 @dataclass
 class ByteBudget:
@@ -145,7 +147,9 @@ def _verify(
         digest, rows = hashlib.sha256(), 0
         bytes_read = 0
         descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-        with os.fdopen(descriptor, "rb", buffering=0) as source:
+        # The file-size preflight above ensures this file fits the remaining
+        # budget. A fixed buffer keeps readline from issuing one syscall per byte.
+        with os.fdopen(descriptor, "rb", buffering=VERIFY_READ_BUFFER_BYTES) as source:
             opened = os.fstat(source.fileno())
             if not stat.S_ISREG(opened.st_mode) or opened.st_size != info.st_size:
                 raise BackupError(Reason.INTEGRITY)
