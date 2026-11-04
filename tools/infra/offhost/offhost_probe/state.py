@@ -14,6 +14,7 @@ from .evaluator import CheckState
 _CHECK_NAME = re.compile(r"[a-z][a-z0-9_-]{0,31}\Z")
 _EVENT_ID = re.compile(r"[0-9a-f]{64}\Z")
 _HEALTH = {"unknown", "healthy", "degraded"}
+_MAX_CHECK_STATES = 72  # Eight configured checks plus the bounded notification queue.
 
 
 @dataclass(frozen=True)
@@ -147,7 +148,7 @@ class StateStore:
         raise ValueError("invalid number")
 
     def _encode(self, state: MonitorState) -> dict[str, Any]:
-        if not isinstance(state, MonitorState) or len(state.checks) > 8:
+        if not isinstance(state, MonitorState) or len(state.checks) > _MAX_CHECK_STATES:
             raise ValueError("invalid state shape")
         if len(state.pending) > self.max_pending:
             raise ValueError("pending queue overflow")
@@ -287,7 +288,7 @@ class StateStore:
             not isinstance(checks_raw, dict)
             or not isinstance(outcomes, dict)
             or not isinstance(status_codes, dict)
-            or len(checks_raw) > 8
+            or len(checks_raw) > _MAX_CHECK_STATES
             or not isinstance(pending_raw, list)
             or len(pending_raw) > self.max_pending
             or not isinstance(timestamps, dict)

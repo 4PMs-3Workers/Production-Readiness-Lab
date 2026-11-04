@@ -66,4 +66,3 @@
 - [x] Run focused unit/integration checks, package quality checks, and backend unit regression suite; the stopped application path fires within three minutes and the test receiver records firing/resolved transitions.
 - [ ] Review all diffs against acceptance criteria and run final review.
 - [ ] Commit as `feat(monitor): package independent Linux monitor and runbook`.
-

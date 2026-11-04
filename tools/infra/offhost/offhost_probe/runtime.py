@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
 from .config import CheckConfig, MonitorConfig
-from .evaluator import ProbeResult, evaluate
+from .evaluator import CheckState, ProbeResult, evaluate
 from .notify import DeliveryResult, NotificationEvent, WebhookNotifier
 from .probe import HttpsTransport, ProbePolicy
 from .state import MonitorState, PendingNotification, StateStore
@@ -59,21 +59,51 @@ class MonitorRunner:
         self.on_summary = on_summary
         self.on_delivery = on_delivery
         persisted = store.load()
-        configured_names = {check.name for check in config.checks}
+        self.configured_names = {check.name for check in config.checks}
+        checks = {}
+        last_resolution_at = persisted.last_resolution_at
+        for name, check in persisted.checks.items():
+            if name in self.configured_names:
+                checks[name] = check
+            elif check.firing:
+                retired_at = self.clock()
+                if retired_at.tzinfo is None or retired_at.utcoffset() is None:
+                    raise ValueError("Monitor clock must be timezone-aware")
+                retired_at_text = retired_at.isoformat(timespec="milliseconds")
+                checks[name] = replace(
+                    check,
+                    firing=False,
+                    notified_firing=True,
+                    transition_sequence=check.transition_sequence + 1,
+                    last_evaluation_at=retired_at_text,
+                    last_resolution_at=retired_at_text,
+                )
+                last_resolution_at = retired_at_text
+            elif check.notified_firing:
+                checks[name] = check
+        for pending in persisted.pending:
+            if (
+                pending.check_name not in self.configured_names
+                and pending.firing
+                and pending.check_name not in checks
+            ):
+                checks[pending.check_name] = CheckState(
+                    notified_firing=True,
+                    last_evaluation_at=pending.occurred_at,
+                )
         self.state = replace(
             persisted,
-            checks={
-                name: value for name, value in persisted.checks.items() if name in configured_names
-            },
+            checks=checks,
+            last_resolution_at=last_resolution_at,
             outcomes={
                 name: value
                 for name, value in persisted.outcomes.items()
-                if name in configured_names
+                if name in self.configured_names
             },
             status_codes={
                 name: value
                 for name, value in persisted.status_codes.items()
-                if name in configured_names
+                if name in self.configured_names
             },
         )
 
@@ -231,9 +261,12 @@ class MonitorRunner:
                 pending.pop(0)
                 checks = dict(current.checks)
                 if event.check_name in checks:
-                    checks[event.check_name] = replace(
-                        checks[event.check_name], notified_firing=event.firing
-                    )
+                    if not event.firing and event.check_name not in self.configured_names:
+                        checks.pop(event.check_name)
+                    else:
+                        checks[event.check_name] = replace(
+                            checks[event.check_name], notified_firing=event.firing
+                        )
                 current = replace(
                     current,
                     checks=checks,

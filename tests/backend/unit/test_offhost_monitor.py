@@ -141,20 +141,22 @@ def test_status_reports_stale_success_as_degraded(tmp_path, capsys):
     assert report["probe_stale"] is True
 
 
-def test_runner_discards_removed_check_state_before_evaluation(tmp_path):
+def test_runner_resolves_removed_firing_checks_before_pruning_state(tmp_path):
     config = load_config(config_file(tmp_path))
     old_checks = {
-        f"old{index}": CheckState(firing=True, transition_sequence=1) for index in range(8)
+        f"old{index}": CheckState(firing=True, notified_firing=True, transition_sequence=1)
+        for index in range(8)
     }
     StateStore(
         config.state_path,
         max_bytes=config.max_state_bytes,
         max_pending=config.max_pending_notifications,
     ).save(MonitorState(checks=old_checks))
+    notifier = FakeNotifier(True)
     runner = MonitorRunner(
         config,
         transport=FakeTransport(True),
-        notifier=FakeNotifier(True),
+        notifier=notifier,
         store=StateStore(
             config.state_path,
             max_bytes=config.max_state_bytes,
@@ -166,6 +168,8 @@ def test_runner_discards_removed_check_state_before_evaluation(tmp_path):
     summary = asyncio.run(runner.run_once())
 
     assert set(summary.state.checks) == {"gateway"}
+    assert {event.check_name for event in notifier.events} == set(old_checks)
+    assert all(not event.firing for event in notifier.events)
 
 
 def test_evaluate_requires_nonempty_results():
