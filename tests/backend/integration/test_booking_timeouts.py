@@ -259,12 +259,11 @@ async def test_query_timeout_during_commit_invalidates_without_retrying_writes(
     entered = asyncio.Event()
     write_commits = 0
 
-    if setup_delay:
-        original_lock = booking.appointments.lock_service_settings
+    original_lock = booking.appointments.lock_service_settings
 
-        async def delayed_setup(db):
-            await asyncio.sleep(setup_delay)
-            return await original_lock(db)
+    async def delayed_setup(db):
+        await asyncio.sleep(setup_delay)
+        return await original_lock(db)
 
     def mark_write_connection(session):
         if any(isinstance(row, Appointment) for row in session.identity_map.values()):
