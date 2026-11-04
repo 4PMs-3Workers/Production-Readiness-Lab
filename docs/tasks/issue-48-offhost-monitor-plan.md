@@ -64,5 +64,12 @@
 - [x] Run integration tests; required local prerequisites are explicit and the tests fail on missing runtime/config instead of skipping.
 - [x] Implement CLI, runtime lifecycle, loopback-only test receiver, TOML example, systemd service, and explicit installation/run commands.
 - [x] Run focused unit/integration checks, package quality checks, and backend unit regression suite; the stopped application path fires within three minutes and the test receiver records firing/resolved transitions.
-- [ ] Review all diffs against acceptance criteria and run final review.
-- [ ] Commit as `feat(monitor): package independent Linux monitor and runbook`.
+- [x] Review all diffs against acceptance criteria and run final review.
+- [x] Commit as `feat(monitor): package independent Linux monitor and runbook`.
+
+### Review follow-up
+
+- [x] Add system trust when an optional deployment CA bundle is configured.
+- [x] Report stale probe state as degraded and reconcile removed checks without losing firing/resolved delivery.
+- [x] Keep notification saturation bounded; defer new checks without restarting the service, then resume after retired state drains.
+- [x] Re-run backend unit tests, monitor TLS/network integration tests, Black, Ruff, Pyright, and diff checks.
