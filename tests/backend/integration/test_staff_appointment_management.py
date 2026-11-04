@@ -336,8 +336,17 @@ async def test_staff_cancel_uses_strict_business_midnight_and_atomic_bundle(
             assert await db.scalar(select(func.count()).select_from(Notification)) == 0
 
 
-async def test_staff_cancel_resolves_pending_proposal(availability_env, monkeypatch):
+@pytest.mark.parametrize("clock_delay", [0, 1.25], ids=["normal", "slow-database-step"])
+async def test_staff_cancel_resolves_pending_proposal(availability_env, monkeypatch, clock_delay):
     env = availability_env
+    # Keep CI scheduling and database latency from preempting the state-transition assertions.
+    monkeypatch.setattr(
+        env.app.state,
+        "settings",
+        env.app.state.settings.model_copy(
+            update={"db_query_timeout_seconds": 10.0, "db_lock_timeout_seconds": 5.0}
+        ),
+    )
     appointment_id = UUID(int=301)
     starts_at = datetime(2026, 10, 17, 18, tzinfo=UTC)
     await _seed(env, appointment_id=appointment_id, staff_id=env.staff_id, starts_at=starts_at)
@@ -356,6 +365,7 @@ async def test_staff_cancel_resolves_pending_proposal(availability_env, monkeypa
         )
 
     async def db_now(db):
+        await asyncio.sleep(clock_delay)
         return datetime(2026, 10, 17, 16, tzinfo=UTC)
 
     monkeypatch.setattr(cancellation.users, "utc_now", db_now)
