@@ -240,17 +240,33 @@ async def test_configured_lock_budget_aborts_before_mysql_server_timeout(
 
 
 @pytest.mark.parametrize("server_committed", [False, True], ids=["before-commit", "after-commit"])
+@pytest.mark.parametrize("setup_delay", [0, 0.75], ids=["normal-setup", "slow-setup"])
 async def test_query_timeout_during_commit_invalidates_without_retrying_writes(
-    booking_env, auth_settings, monkeypatch, server_committed
+    booking_env, auth_settings, monkeypatch, server_committed, setup_delay
 ):
     env, _, starts_at = booking_env
     payload = _request(env, starts_at)
-    settings = auth_settings.model_copy(update={"db_query_timeout_seconds": 0.25})
+    # The query budget covers the entire write attempt, including setup before commit.
+    # Give that real database work room on busy runners, then stall commit until the
+    # service's query timeout cancels it. The watchdog expires before the request
+    # deadline, so a missing query timeout fails instead of passing via request timeout.
+    settings = auth_settings.model_copy(
+        update={"db_query_timeout_seconds": 5.0, "db_lock_timeout_seconds": 5.0}
+    )
     dialect = env.factory.kw["bind"].sync_engine.dialect
     original_commit = dialect.do_commit
     targets = set()
     entered = asyncio.Event()
     write_commits = 0
+
+    if setup_delay:
+        original_lock = booking.appointments.lock_service_settings
+
+        async def delayed_setup(db):
+            await asyncio.sleep(setup_delay)
+            return await original_lock(db)
+
+        monkeypatch.setattr(booking.appointments, "lock_service_settings", delayed_setup)
 
     def mark_write_connection(session):
         if any(isinstance(row, Appointment) for row in session.identity_map.values()):
@@ -265,9 +281,7 @@ async def test_query_timeout_during_commit_invalidates_without_retrying_writes(
         entered.set()
         if server_committed:
             original_commit(connection)
-        await_only(asyncio.sleep(0.8))
-        if not server_committed:
-            original_commit(connection)
+        await_only(asyncio.Event().wait())
 
     event.listen(Session, "before_commit", mark_write_connection)
     try:
@@ -284,7 +298,9 @@ async def test_query_timeout_during_commit_invalidates_without_retrying_writes(
 
                 patch.setattr(db, "invalidate", invalidate)
                 with pytest.raises(AppError) as caught:
-                    await _create(db, env, payload, settings)
+                    await asyncio.wait_for(
+                        _create(db, env, payload, settings, request_budget=30.0), timeout=15.0
+                    )
                 assert (caught.value.status_code, caught.value.code) == (503, "SERVICE_UNAVAILABLE")
                 assert entered.is_set()
                 assert write_commits == 1
