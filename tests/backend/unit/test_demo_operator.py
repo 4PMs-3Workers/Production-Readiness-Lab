@@ -224,6 +224,48 @@ def test_up_never_runs_privileged_jobs_and_writes_provenance(operator):
     assert "private-password" not in json.dumps(data)
 
 
+def test_observability_up_starts_and_validates_backup_exporter(operator, monkeypatch):
+    demo, _ = operator
+    instance = object.__new__(demo.Demo)
+    instance.observability = True
+    instance.source_sha = "a" * 40
+    calls, validated = [], []
+    monkeypatch.setattr(instance, "compose", lambda *args, **kwargs: calls.append(args))
+    monkeypatch.setattr(
+        instance,
+        "_configuration",
+        lambda: {"services": {"api": {}, "backup_metrics_exporter": {}}},
+    )
+    monkeypatch.setattr(instance, "require_images", lambda services: validated.extend(services))
+    monkeypatch.setattr(instance, "database", lambda: None)
+    monkeypatch.setattr(instance, "verify", lambda: None)
+
+    instance.execute("up")
+
+    assert "backup_metrics_exporter" in next(call for call in calls if call[:2] == ("up", "-d"))
+    assert "backup_metrics_exporter" in validated
+    image = {"id": "sha256:" + "b" * 64, "digests": []}
+    manifest = demo.evidence.create_v2(
+        "a" * 40, "https", True, "c" * 64, "up", "passed", {"backup_metrics_exporter": image}
+    )
+    assert manifest["images"]["backup_metrics_exporter"] == image
+
+
+def test_backup_exporter_rejects_an_image_from_another_revision(operator, monkeypatch):
+    demo, _ = operator
+    instance = object.__new__(demo.Demo)
+    instance.source_sha = "a" * 40
+    monkeypatch.setattr(
+        demo,
+        "run",
+        lambda *args, **kwargs: json.dumps(
+            {"Id": "sha256:" + "b" * 64, "Labels": {demo.REVISION_LABEL: "c" * 40}}
+        ),
+    )
+    with pytest.raises(demo.ProvenanceMismatch):
+        instance.inspect_image("prl-backend:test", "backup_metrics_exporter")
+
+
 @pytest.mark.parametrize(
     "command", ["stop", "down", "config", "seed", "build", "status", "evidence"]
 )
