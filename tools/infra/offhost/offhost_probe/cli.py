@@ -5,7 +5,7 @@ import asyncio
 import json
 import signal
 import sys
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .config import load_config
@@ -97,16 +97,25 @@ def _status(config_path: Path) -> int:
         max_bytes=config.max_state_bytes,
         max_pending=config.max_pending_notifications,
     ).load()
+    stale_budget = (
+        config.interval_seconds + config.timeout_seconds + config.delivery_cycle_timeout_seconds
+    )
+    probe_stale = False
+    if state.last_probe_completed_at is not None:
+        completed_at = datetime.fromisoformat(state.last_probe_completed_at.replace("Z", "+00:00"))
+        probe_stale = datetime.now(UTC) - completed_at > timedelta(seconds=stale_budget)
+    probe_health = "degraded" if probe_stale else state.probe_health
     overall = (
         "degraded"
-        if "degraded" in {state.probe_health, state.delivery_health}
-        else "healthy" if state.probe_health == state.delivery_health == "healthy" else "unknown"
+        if "degraded" in {probe_health, state.delivery_health}
+        else "healthy" if probe_health == state.delivery_health == "healthy" else "unknown"
     )
     print(
         json.dumps(
             {
                 "monitor_health": overall,
-                "probe_health": state.probe_health,
+                "probe_health": probe_health,
+                "probe_stale": probe_stale,
                 "delivery_health": state.delivery_health,
                 "last_delivery_outcome": state.last_delivery_outcome,
                 "checks": {

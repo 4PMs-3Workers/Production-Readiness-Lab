@@ -58,7 +58,24 @@ class MonitorRunner:
         self.sleep = sleep
         self.on_summary = on_summary
         self.on_delivery = on_delivery
-        self.state = store.load()
+        persisted = store.load()
+        configured_names = {check.name for check in config.checks}
+        self.state = replace(
+            persisted,
+            checks={
+                name: value for name, value in persisted.checks.items() if name in configured_names
+            },
+            outcomes={
+                name: value
+                for name, value in persisted.outcomes.items()
+                if name in configured_names
+            },
+            status_codes={
+                name: value
+                for name, value in persisted.status_codes.items()
+                if name in configured_names
+            },
+        )
 
     async def run_once(self) -> RunSummary:
         started = self.clock()
@@ -258,9 +275,9 @@ def build_runner(config: MonitorConfig) -> MonitorRunner:
     import ssl
 
     try:
-        context = ssl.create_default_context(
-            cafile=str(config.ca_bundle_path) if config.ca_bundle_path else None
-        )
+        context = ssl.create_default_context()
+        if config.ca_bundle_path is not None:
+            context.load_verify_locations(cafile=str(config.ca_bundle_path))
     except (OSError, ssl.SSLError):
         raise ValueError("Monitor configuration is invalid") from None
     transport = HttpsTransport(ssl_context=context)

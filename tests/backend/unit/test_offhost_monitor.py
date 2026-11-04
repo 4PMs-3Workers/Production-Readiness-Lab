@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import ssl
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from offhost_probe import cli as monitor_cli
 from offhost_probe.config import MonitorConfig, load_config
 from offhost_probe.evaluator import CheckState, ProbeResult, evaluate
 from offhost_probe.notify import DeliveryResult, NotificationEvent, WebhookNotifier
@@ -77,6 +80,92 @@ def test_load_config_rejects_oversized_configuration(tmp_path):
 
     with pytest.raises(ValueError):
         load_config(path)
+
+
+def test_build_runner_adds_custom_ca_without_replacing_system_trust(tmp_path, monkeypatch):
+    ca_path = tmp_path / "private-ca.pem"
+    ca_path.write_text("test certificate bundle", encoding="utf-8")
+    config_path = config_file(tmp_path)
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8").replace(
+            'state_path = "state.json"',
+            f'state_path = "state.json"\nca_bundle_path = "{ca_path.as_posix()}"',
+        ),
+        encoding="utf-8",
+    )
+    loaded = load_config(config_path)
+    calls = []
+
+    class FakeSSLContext:
+        def load_verify_locations(self, *, cafile):
+            calls.append(cafile)
+
+    def create_default_context(**kwargs):
+        assert kwargs == {}
+        return FakeSSLContext()
+
+    monkeypatch.setattr(ssl, "create_default_context", create_default_context)
+
+    from offhost_probe.runtime import build_runner
+
+    build_runner(loaded)
+
+    assert calls == [str(ca_path)]
+
+
+def test_status_reports_stale_success_as_degraded(tmp_path, capsys):
+    config_path = config_file(tmp_path)
+    config = load_config(config_path)
+    stale_time = (datetime.now(UTC) - timedelta(hours=1)).isoformat(timespec="milliseconds")
+    StateStore(
+        config.state_path,
+        max_bytes=config.max_state_bytes,
+        max_pending=config.max_pending_notifications,
+    ).save(
+        MonitorState(
+            checks={
+                "gateway": CheckState(last_attempt_at=stale_time, last_evaluation_at=stale_time)
+            },
+            last_probe_started_at=stale_time,
+            last_probe_completed_at=stale_time,
+            last_evaluation_at=stale_time,
+            probe_health="healthy",
+            delivery_health="healthy",
+        )
+    )
+
+    assert monitor_cli._status(config_path) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["monitor_health"] == "degraded"
+    assert report["probe_health"] == "degraded"
+    assert report["probe_stale"] is True
+
+
+def test_runner_discards_removed_check_state_before_evaluation(tmp_path):
+    config = load_config(config_file(tmp_path))
+    old_checks = {
+        f"old{index}": CheckState(firing=True, transition_sequence=1) for index in range(8)
+    }
+    StateStore(
+        config.state_path,
+        max_bytes=config.max_state_bytes,
+        max_pending=config.max_pending_notifications,
+    ).save(MonitorState(checks=old_checks))
+    runner = MonitorRunner(
+        config,
+        transport=FakeTransport(True),
+        notifier=FakeNotifier(True),
+        store=StateStore(
+            config.state_path,
+            max_bytes=config.max_state_bytes,
+            max_pending=config.max_pending_notifications,
+        ),
+        clock=lambda: datetime(2026, 11, 4, tzinfo=UTC),
+    )
+
+    summary = asyncio.run(runner.run_once())
+
+    assert set(summary.state.checks) == {"gateway"}
 
 
 def test_evaluate_requires_nonempty_results():
