@@ -127,6 +127,31 @@ def body_scope(path):
     }
 
 
+async def test_oversized_admin_patch_is_rejected_before_routing(auth_settings):
+    settings = auth_settings.model_copy(update={"api_max_body_bytes": 3})
+    scope = body_scope("/api/v1/admin/accounts/00000000-0000-0000-0000-000000000001")
+    scope["method"] = "PATCH"
+    routed = False
+    sent = []
+
+    async def receive():
+        return {"type": "http.request", "body": b"1234", "more_body": False}
+
+    async def send(message):
+        sent.append(message)
+
+    async def app(scope, receive, send):
+        nonlocal routed
+        routed = True
+        await Response(status_code=204)(scope, receive, send)
+
+    await PrivateApiHttpMiddleware(app, settings=settings)(scope, receive, send)
+
+    assert not routed
+    assert sent[0]["status"] == 413
+    assert b"PAYLOAD_TOO_LARGE" in sent[1]["body"]
+
+
 def body_middleware(app, path, settings):
     if "/auth/" in path:
         return AuthHttpMiddleware(app, settings=settings, throttle=LoginThrottle(settings))
