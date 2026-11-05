@@ -131,10 +131,9 @@ def load_config(path: str | Path) -> MonitorConfig:
     delivery_timeout = _bounded_int(monitor, "delivery_timeout_seconds", 5, 1, 15)
     delivery_cycle_timeout = _bounded_int(monitor, "delivery_cycle_timeout_seconds", 30, 1, 60)
     delivery_retries = _bounded_int(monitor, "delivery_retries", 2, 0, 5)
-    if (
-        connect + read > timeout
-        or interval * failure_threshold + timeout + delivery_cycle_timeout > 180
-    ):
+    maximum_cycle = max(interval, timeout + delivery_cycle_timeout)
+    detection_bound = (failure_threshold - 1) * maximum_cycle + timeout
+    if connect + read > timeout or detection_bound > 180:
         raise ValueError("Monitor configuration is invalid")
 
     checks: list[CheckConfig] = []

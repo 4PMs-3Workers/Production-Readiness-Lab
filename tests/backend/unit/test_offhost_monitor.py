@@ -58,7 +58,6 @@ def test_load_config_accepts_bounded_https_check_and_loopback_receiver(tmp_path)
         'url = "https://user:password@example.test/health"',
         'url = "https://example.test/health?token=secret"',
         'url = "https://example.test/health/å"',
-        "interval_seconds = 60",
         "max_response_bytes = 999999999",
         "expected_statuses = []",
         'name = "gateway/private"',
@@ -81,6 +80,30 @@ def test_load_config_rejects_oversized_configuration(tmp_path):
 
     with pytest.raises(ValueError):
         load_config(path)
+
+
+@pytest.mark.parametrize(("failure_threshold", "valid"), [(2, True), (3, False), (10, False)])
+def test_load_config_bounds_detection_latency_by_serial_probe_cycles(
+    tmp_path, failure_threshold, valid
+):
+    path = config_file(tmp_path)
+    text = path.read_text(encoding="utf-8")
+    text = text.replace("interval_seconds = 30", "interval_seconds = 5")
+    text = text.replace("timeout_seconds = 10", "timeout_seconds = 30")
+    text = text.replace("connect_timeout_seconds = 4", "connect_timeout_seconds = 15")
+    text = text.replace("read_timeout_seconds = 4", "read_timeout_seconds = 15")
+    text = text.replace("failure_threshold = 3", f"failure_threshold = {failure_threshold}")
+    text = text.replace(
+        'state_path = "state.json"',
+        'state_path = "state.json"\ndelivery_cycle_timeout_seconds = 60',
+    )
+    path.write_text(text, encoding="utf-8")
+
+    if valid:
+        assert load_config(path).failure_threshold == failure_threshold
+    else:
+        with pytest.raises(ValueError, match="configuration"):
+            load_config(path)
 
 
 def test_build_runner_adds_custom_ca_without_replacing_system_trust(tmp_path, monkeypatch):
