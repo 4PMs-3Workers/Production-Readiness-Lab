@@ -85,6 +85,7 @@ async def test_query_budget_cancels_database_work_and_cleans_transaction(
 ):
     env, _, starts_at = booking_env
     payload = _request(env, starts_at)
+    target_budget = 0.25
     replay = stage in {"committed-key", "duplicate-winner"}
     setup_settings = auth_settings.model_copy(
         update={"db_query_timeout_seconds": 10.0, "db_lock_timeout_seconds": 5.0}
@@ -104,12 +105,12 @@ async def test_query_budget_cancels_database_work_and_cleans_transaction(
                     row.cancelled_at = await users.utc_now(seed)
     settings = auth_settings.model_copy(
         update={
-            "db_query_timeout_seconds": 5.0 if limiter == "query" else 30.0,
+            "db_query_timeout_seconds": target_budget if limiter == "query" else 30.0,
             "db_lock_timeout_seconds": 5.0,
         }
     )
     reads = 0
-    request_budget = 5.0 if limiter == "request" else 30.0
+    request_budget = target_budget if limiter == "request" else 30.0
     if stage == "duplicate-winner":
         # Reaching the winner read requires a complete write/unique-error cycle.
         # Lock, write and request budgets must not expire before that target read.
@@ -134,7 +135,6 @@ async def test_query_budget_cancels_database_work_and_cleans_transaction(
     active_request_scopes: list[tuple[float, asyncio.Timeout]] = []
     supplied_deadlines: list[float] = []
     expired_target: list[asyncio.Timeout] = []
-    target_budget = 0.25
 
     @asynccontextmanager
     async def tracked_query_timeout(seconds: float) -> AsyncIterator[asyncio.Timeout]:
