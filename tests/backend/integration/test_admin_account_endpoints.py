@@ -165,6 +165,31 @@ async def test_admin_account_creation_normalizes_email_and_rejects_collation_dup
 
 
 @pytest.mark.mysql
+async def test_mysql_email_collation_rejects_canonically_equivalent_unicode(account_env):
+    client, factory, user_id, _ = account_env
+    await sign_in(client)
+    await promote_to_admin(factory, user_id)
+    payload = {
+        "email": "maria.café@example.invalid",
+        "name": "Maria Café",
+        "role": "STAFF",
+        "password": "Initial-password!",
+    }
+
+    created = await client.post(ADMIN_ACCOUNTS, json=payload, headers=write_headers(client))
+    assert created.status_code == 201
+
+    equivalent = await client.post(
+        ADMIN_ACCOUNTS,
+        json={**payload, "email": "maria.cafe\u0301@example.invalid"},
+        headers=write_headers(client),
+    )
+
+    assert equivalent.status_code == 409
+    assert equivalent.json()["error"]["code"] == "EMAIL_ALREADY_EXISTS"
+
+
+@pytest.mark.mysql
 async def test_account_updates_check_version_and_skip_audit_for_noop(account_env):
     client, factory, user_id, _ = account_env
     await sign_in(client)
@@ -199,6 +224,11 @@ async def test_account_updates_check_version_and_skip_audit_for_noop(account_env
     )
     assert stale.status_code == 409
     assert stale.json()["error"]["code"] == "ACCOUNT_VERSION_CONFLICT"
+    async with factory() as db:
+        events = await db.scalar(
+            select(func.count()).select_from(AuditEvent).where(AuditEvent.entity_id == str(user_id))
+        )
+    assert events == 1
 
 
 @pytest.mark.mysql
@@ -219,11 +249,6 @@ async def test_account_update_rejects_student_profile_fields_for_admin(account_e
     async with factory() as db:
         user = await db.get(User, user_id)
     assert user is not None and user.student_code is None
-    async with factory() as db:
-        events = await db.scalar(
-            select(func.count()).select_from(AuditEvent).where(AuditEvent.entity_id == str(user_id))
-        )
-    assert events == 1
 
 
 @pytest.mark.mysql
@@ -280,7 +305,81 @@ async def test_password_reset_revokes_sessions_and_audits_without_secret(account
 
 
 @pytest.mark.mysql
-async def test_last_active_admin_race_cannot_remove_both_admins(account_env):
+async def test_password_reset_commit_failure_rolls_back_password_sessions_and_audit(
+    account_env, monkeypatch
+):
+    from sqlalchemy.exc import IntegrityError
+
+    from app.services import admin_accounts as account_service
+
+    admin_client, factory, admin_id, app = account_env
+    await sign_in(admin_client)
+    await promote_to_admin(factory, admin_id)
+    created = await admin_client.post(
+        ADMIN_ACCOUNTS,
+        json={
+            "email": "rollback-reset@example.invalid",
+            "name": "Rollback Reset",
+            "role": "STAFF",
+            "password": "Old-password!",
+        },
+        headers=write_headers(admin_client),
+    )
+    assert created.status_code == 201
+    target_id = created.json()["id"]
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://localhost:3000"
+    ) as target_client:
+        login = await target_client.post(
+            "/api/v1/auth/login",
+            json={"email": "rollback-reset@example.invalid", "password": "Old-password!"},
+            headers=ORIGIN,
+        )
+        assert login.status_code == 200
+        async with factory() as db:
+            target = await db.get(User, target_id)
+            assert target is not None
+            original_hash = target.password_hash
+            original_version = target.updated_at
+
+        async def fail_commit(_db, _transaction, **_kwargs):
+            raise IntegrityError("forced audit commit failure", {}, Exception("forced"))
+
+        monkeypatch.setattr(account_service, "commit_safely", fail_commit)
+        response = await admin_client.post(
+            f"{ADMIN_ACCOUNTS}/{target_id}/password",
+            json={
+                "expected_updated_at": created.json()["updated_at"],
+                "password": "New-password!",
+            },
+            headers=write_headers(admin_client),
+        )
+
+        assert response.status_code == 503
+        assert (await target_client.get("/api/v1/auth/me")).status_code == 200
+
+    async with factory() as db:
+        target = await db.get(User, target_id)
+        sessions = list(
+            (await db.scalars(select(Session).where(Session.user_id == target_id))).all()
+        )
+        reset_audits = await db.scalar(
+            select(func.count())
+            .select_from(AuditEvent)
+            .where(
+                AuditEvent.entity_id == target_id,
+                AuditEvent.action == "ACCOUNT_PASSWORD_RESET",
+            )
+        )
+    assert target is not None and target.password_hash == original_hash
+    assert target.updated_at == original_version
+    assert sessions and all(session.revoked_at is None for session in sessions)
+    assert reset_audits == 0
+
+
+@pytest.mark.mysql
+async def test_concurrent_admin_actor_deactivation_rechecks_losing_session(account_env):
     first_client, factory, first_id, app = account_env
     await sign_in(first_client)
     await promote_to_admin(factory, first_id)
@@ -322,8 +421,62 @@ async def test_last_active_admin_race_cannot_remove_both_admins(account_env):
         )
 
     statuses = sorted(response.status_code for response in outcomes)
-    assert statuses[1] == 200
-    assert statuses[0] in {401, 403}
+    assert statuses.count(200) == 1
+    assert sum(status in {401, 403} for status in statuses) == 1
+    async with factory() as db:
+        remaining = await db.scalar(
+            select(func.count())
+            .select_from(User)
+            .where(User.role == "ADMIN", User.is_active.is_(True))
+        )
+    assert remaining == 1
+
+
+@pytest.mark.mysql
+async def test_concurrent_self_deactivation_preserves_last_active_admin(account_env):
+    first_client, factory, first_id, app = account_env
+    await sign_in(first_client)
+    await promote_to_admin(factory, first_id)
+    second = await first_client.post(
+        ADMIN_ACCOUNTS,
+        json={
+            "email": "second-admin@example.invalid",
+            "name": "Second Admin",
+            "role": "ADMIN",
+            "password": "Second-password!",
+        },
+        headers=write_headers(first_client),
+    )
+    assert second.status_code == 201
+    second_id = second.json()["id"]
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://localhost:3000"
+    ) as second_client:
+        login = await second_client.post(
+            "/api/v1/auth/login",
+            json={"email": "second-admin@example.invalid", "password": "Second-password!"},
+            headers=ORIGIN,
+        )
+        assert login.status_code == 200
+        first_version = await active_account(factory, first_id)
+        second_version = second.json()["updated_at"]
+        outcomes = await asyncio.gather(
+            first_client.patch(
+                f"{ADMIN_ACCOUNTS}/{first_id}",
+                json={"expected_updated_at": first_version, "is_active": False},
+                headers=write_headers(first_client),
+            ),
+            second_client.patch(
+                f"{ADMIN_ACCOUNTS}/{second_id}",
+                json={"expected_updated_at": second_version, "is_active": False},
+                headers=write_headers(second_client),
+            ),
+        )
+
+    assert sorted(response.status_code for response in outcomes) == [200, 409]
+    conflict = next(response for response in outcomes if response.status_code == 409)
+    assert conflict.json()["error"]["code"] == "LAST_ACTIVE_ADMIN"
     async with factory() as db:
         remaining = await db.scalar(
             select(func.count())
@@ -358,6 +511,49 @@ async def test_last_active_staff_account_cannot_be_deactivated(account_env):
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "LAST_ACTIVE_STAFF"
+
+
+@pytest.mark.mysql
+async def test_concurrent_staff_deactivation_preserves_last_active_staff(account_env):
+    client, factory, admin_id, _ = account_env
+    await sign_in(client)
+    await promote_to_admin(factory, admin_id)
+    created = []
+    for email in ("first-staff@example.invalid", "second-staff@example.invalid"):
+        response = await client.post(
+            ADMIN_ACCOUNTS,
+            json={
+                "email": email,
+                "name": email.split("@")[0],
+                "role": "STAFF",
+                "password": "Initial-password!",
+            },
+            headers=write_headers(client),
+        )
+        assert response.status_code == 201
+        created.append(response.json())
+
+    outcomes = await asyncio.gather(
+        *(
+            client.patch(
+                f"{ADMIN_ACCOUNTS}/{account['id']}",
+                json={"expected_updated_at": account["updated_at"], "is_active": False},
+                headers=write_headers(client),
+            )
+            for account in created
+        )
+    )
+
+    assert sorted(response.status_code for response in outcomes) == [200, 409]
+    conflict = next(response for response in outcomes if response.status_code == 409)
+    assert conflict.json()["error"]["code"] == "LAST_ACTIVE_STAFF"
+    async with factory() as db:
+        remaining = await db.scalar(
+            select(func.count())
+            .select_from(User)
+            .where(User.role == "STAFF", User.is_active.is_(True))
+        )
+    assert remaining == 1
 
 
 @pytest.mark.mysql
