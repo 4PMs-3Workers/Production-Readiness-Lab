@@ -164,6 +164,7 @@ class Operation(Strict):
     target: Selection
     fallback: Selection | None = None
     trigger_reason: Reason | None = None
+    recovery_pending: bool = False
     events: list[Event] = Field(min_length=1, max_length=16)
     verification: Verification | None = None
 
@@ -171,8 +172,36 @@ class Operation(Strict):
     def phase(self) -> Phase:
         return self.events[-1].phase
 
+    @property
+    def requires_recovery(self) -> bool:
+        if self.phase in {"succeeded", "rolled_back"}:
+            return False
+        return (
+            self.recovery_pending
+            or self.phase == "interrupted"
+            or self.phase == "failed"
+            and (
+                self.command == "rollback"
+                or any(
+                    event.phase
+                    in {
+                        "migration",
+                        "rollout",
+                        "readiness",
+                        "smoke",
+                        "rollback_rollout",
+                        "rollback_readiness",
+                        "rollback_smoke",
+                    }
+                    for event in self.events
+                )
+            )
+        )
+
     @model_validator(mode="after")
     def transitions(self) -> Self:
+        if self.phase in {"succeeded", "rolled_back"} and self.recovery_pending:
+            raise ValueError("Verified recovery cannot remain pending")
         if (self.phase in {"succeeded", "rolled_back"}) != (self.verification is not None):
             raise ValueError("A successful operation requires complete service proof")
         if self.events[0].phase != (
