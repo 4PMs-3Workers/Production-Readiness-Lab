@@ -1,13 +1,18 @@
 import asyncio
 import hashlib
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import uuid4
 
 import httpx
 import pytest
 import pytest_asyncio
 from sqlalchemy import func, select
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.core.database import create_database_engine
 from app.models import Appointment, AuditEvent, ServiceSetting, Session, StaffPurpose, User
 
 ORIGIN = {"Origin": "http://localhost:3000"}
@@ -896,3 +901,103 @@ async def test_booking_and_staff_deactivation_serialize_on_settings_lock(booking
             )
         assert staff is not None and not staff.is_active
         assert appointment is None
+
+
+@pytest.mark.mysql
+async def test_admin_mutations_work_with_deployed_runtime_grants(account_env, mysql_engine):
+    client, factory, admin_id, app = account_env
+    await promote_to_admin(factory, admin_id)
+
+    runtime_user = f"prl_runtime_{uuid4().hex[:12]}"
+    runtime_password = "runtime-test-only-password"
+    schema = mysql_engine.url.database
+    grants = Path(__file__).resolve().parents[3] / "tools/deploy/mysql/grants.sql"
+    statements = [
+        line.strip()
+        for line in grants.read_text(encoding="utf-8").splitlines()
+        if line.strip().startswith(("GRANT ", "REVOKE ")) and "'prl_runtime'@'%'" in line
+    ]
+    assert statements
+    assert any(
+        statement == "GRANT UPDATE (id) ON prl.service_settings TO 'prl_runtime'@'%';"
+        for statement in statements
+    )
+    assert not any(
+        statement == "GRANT UPDATE ON prl.service_settings TO 'prl_runtime'@'%';"
+        for statement in statements
+    )
+
+    async with mysql_engine.begin() as connection:
+        await connection.exec_driver_sql(
+            f"CREATE USER '{runtime_user}'@'%%' IDENTIFIED BY '{runtime_password}'"
+        )
+        for statement in statements:
+            if "'prl_seed'@'%'" in statement:
+                statement = statement.split(", 'prl_seed'@'%'", maxsplit=1)[0] + ";"
+            statement = statement.replace("'prl_runtime'@'%'", f"'{runtime_user}'@'%%'")
+            statement = statement.replace("prl.", f"`{schema}`.")
+            await connection.exec_driver_sql(statement)
+
+    root_factory = app.state.session_factory
+    runtime_engine = create_database_engine(
+        make_url(mysql_engine.url).set(username=runtime_user, password=runtime_password),
+    )
+    app.state.session_factory = async_sessionmaker(runtime_engine, expire_on_commit=False)
+    try:
+        await sign_in(client)
+        async with runtime_engine.begin() as connection:
+            with pytest.raises(SQLAlchemyError):
+                await connection.exec_driver_sql(
+                    "UPDATE service_settings SET timezone = 'UTC' WHERE id = 1"
+                )
+        create = await client.post(
+            ADMIN_ACCOUNTS,
+            json={
+                "email": "runtime.staff@example.invalid",
+                "name": "Runtime Staff",
+                "role": "STAFF",
+                "password": "Initial-password!",
+            },
+            headers=write_headers(client),
+        )
+        assert create.status_code == 201
+        created_id = create.json()["id"]
+
+        version = await active_account(factory, admin_id)
+        update = await client.patch(
+            f"{ADMIN_ACCOUNTS}/{admin_id}",
+            json={"expected_updated_at": version, "name": "Runtime Admin"},
+            headers=write_headers(client),
+        )
+        assert update.status_code == 200
+        assert update.json()["name"] == "Runtime Admin"
+
+        version = await active_account(factory, admin_id)
+        reset = await client.post(
+            f"{ADMIN_ACCOUNTS}/{admin_id}/password",
+            json={"expected_updated_at": version, "password": "Reset-password!"},
+            headers=write_headers(client),
+        )
+        assert reset.status_code == 200
+        assert reset.json()["id"] == str(admin_id)
+    finally:
+        app.state.session_factory = root_factory
+        await runtime_engine.dispose()
+        async with mysql_engine.begin() as connection:
+            await connection.exec_driver_sql(f"DROP USER '{runtime_user}'@'%%'")
+
+    async with factory() as db:
+        created_user = await db.get(User, created_id)
+        events = list((await db.scalars(select(AuditEvent).order_by(AuditEvent.id))).all())
+        admin_sessions = list(
+            (await db.scalars(select(Session).where(Session.user_id == admin_id))).all()
+        )
+    assert created_user is not None and created_user.role == "STAFF"
+    assert sorted(event.action for event in events) == sorted(
+        [
+            "ACCOUNT_CREATED",
+            "ACCOUNT_UPDATED",
+            "ACCOUNT_PASSWORD_RESET",
+        ]
+    )
+    assert admin_sessions and all(session.revoked_at is not None for session in admin_sessions)
