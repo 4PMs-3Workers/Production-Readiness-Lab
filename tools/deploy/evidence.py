@@ -231,6 +231,11 @@ def lifecycle_lock(path):
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
+def lifecycle_directory(root):
+    """One host selection for legacy lifecycle commands and manifest operations."""
+    return Path(root) / "build" / "deploy"
+
+
 def main():
     parser = argparse.ArgumentParser(description="Validate a deployment manifest")
     parser.add_argument("manifest", type=Path)

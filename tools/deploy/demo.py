@@ -783,7 +783,7 @@ def main(argv=None):
     if requested_observability and requested_overlay != "https":
         return 2
     try:
-        with evidence.lifecycle_lock(ROOT / "build/deploy/.lifecycle.lock"):
+        with evidence.lifecycle_lock(evidence.lifecycle_directory(ROOT) / ".lifecycle.lock"):
             sha = run(["git", "rev-parse", "HEAD"])
             if not re.fullmatch(r"[0-9a-f]{40}", sha):
                 raise OperationFailed()
