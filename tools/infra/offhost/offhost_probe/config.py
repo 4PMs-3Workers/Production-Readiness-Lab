@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from .state import StateStore
+
 _CHECK_NAME = re.compile(r"[a-z][a-z0-9_-]{0,31}\Z")
 _MAX_CONFIG_BYTES = 65536
 _MONITOR_KEYS = {
@@ -170,6 +172,9 @@ def load_config(path: str | Path) -> MonitorConfig:
             )
         )
         seen.add(name)
+
+    if max_state_bytes < StateStore.worst_case_bytes(max_pending):
+        raise ValueError("Monitor configuration is invalid")
 
     webhook_url = _validate_url(notification.get("webhook_url"), allow_loopback_http=True)
     token_env = notification.get("token_env")

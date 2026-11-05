@@ -47,6 +47,8 @@ Open **Telemetry loss** and compare all configured scrape targets, API telemetry
 
 The standalone package at `tools/infra/offhost/` owns scheduling, HTTPS checks, state evaluation, persistence, and webhook delivery. It does not depend on the application's Compose, Prometheus, or Alertmanager processes. The sample configuration points at a loopback test receiver; replace the sample URL with the deployment's explicit HTTPS destination before enabling the monitor. Set `token_env` only when the destination requires a bearer token, and provide that variable through `/etc/prl-offhost/secrets.env` with mode `0640` and owner/group `root:prlmonitor`.
 
+Before starting, configuration validation checks that `max_state_bytes` can hold the largest valid serialized check history and pending notification queue. If it is too small, increase it or reduce `max_pending_notifications`; the monitor reports invalid configuration without starting.
+
 Install on a Linux host with Python 3.11:
 
 ```sh

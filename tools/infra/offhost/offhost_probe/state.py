@@ -81,6 +81,62 @@ class StateStore:
         self.max_pending = max_pending
         self.max_check_states = _MAX_CHECK_STATES
 
+    @classmethod
+    def worst_case_bytes(cls, max_pending: int) -> int:
+        """Size the largest valid bounded state before accepting its byte budget."""
+        if not 1 <= max_pending <= 64:
+            raise ValueError("Monitor state limits are invalid")
+        # A valid non-ASCII datetime separator maximizes JSON's escaped representation.
+        timestamp = "9999-12-31\U0001f4a923:59:59.999999+23:59:59.9999"
+        names = tuple(f"check{index:03d}".ljust(32, "x") for index in range(_MAX_CHECK_STATES))
+        counter = 2**63 - 1
+        checks = {
+            name: CheckState(
+                consecutive_failures=counter,
+                consecutive_successes=counter,
+                firing=True,
+                notified_firing=True,
+                transition_sequence=counter,
+                last_attempt_at=timestamp,
+                last_evaluation_at=timestamp,
+                last_resolution_at=timestamp,
+            )
+            for name in names
+        }
+        state = MonitorState(
+            checks=checks,
+            outcomes={name: "response_too_large" for name in names},
+            status_codes={name: None for name in names},
+            pending=tuple(
+                PendingNotification(
+                    f"{index + 1:064x}",
+                    names[index],
+                    True,
+                    timestamp,
+                    attempts=counter,
+                    next_attempt_at=timestamp,
+                )
+                for index in range(max_pending)
+            ),
+            last_probe_started_at=timestamp,
+            last_probe_completed_at=timestamp,
+            last_evaluation_at=timestamp,
+            last_delivery_attempt_at=timestamp,
+            last_delivery_success_at=timestamp,
+            last_resolution_at=timestamp,
+            probe_attempts_total=counter,
+            evaluations_total=counter,
+            delivery_attempts_total=counter,
+            last_delivery_outcome="network_error",
+            probe_health="degraded",
+            delivery_health="degraded",
+        )
+        store = cls(Path("state.json"), max_bytes=1_048_576, max_pending=max_pending)
+        raw = json.dumps(
+            store._encode(state), sort_keys=True, separators=(",", ":"), ensure_ascii=True
+        ).encode()
+        return len(raw)
+
     def load(self) -> MonitorState:
         try:
             with self.path.open("rb") as state_file:

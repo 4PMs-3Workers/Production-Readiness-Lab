@@ -240,6 +240,38 @@ def test_runner_bounds_retired_check_states_when_notification_queue_is_full(tmp_
     assert summary.state.delivery_health == "degraded"
 
 
+def test_load_config_rejects_state_budget_too_small_for_bounded_notification_queue(tmp_path):
+    path = config_file(tmp_path)
+    text = path.read_text(encoding="utf-8")
+    text = text.replace("failure_threshold = 3", "failure_threshold = 1")
+    text = text.replace("recovery_threshold = 2", "recovery_threshold = 1")
+    text = text.replace(
+        'state_path = "state.json"',
+        'state_path = "state.json"\nmax_state_bytes = 4096\nmax_pending_notifications = 64',
+    )
+    additional_checks = "".join(
+        f'\n[[checks]]\nname = "check{index}"\n'
+        f'url = "https://check{index}.example.test/health"\n'
+        "expected_statuses = [200]\nmax_response_bytes = 1024\n"
+        for index in range(2, 9)
+    )
+    path.write_text(text + additional_checks, encoding="utf-8")
+    with pytest.raises(ValueError, match="configuration"):
+        load_config(path)
+    assert not path.with_name("state.json").exists()
+
+
+def test_load_config_accepts_full_notification_queue_with_default_state_budget(tmp_path):
+    path = config_file(tmp_path)
+    text = path.read_text(encoding="utf-8").replace(
+        'state_path = "state.json"',
+        'state_path = "state.json"\nmax_pending_notifications = 64',
+    )
+    path.write_text(text, encoding="utf-8")
+
+    assert load_config(path).max_pending_notifications == 64
+
+
 def test_runner_defers_new_checks_until_saturated_retired_states_can_drain(tmp_path):
     extra_checks = "\n".join(
         f'[[checks]]\nname = "new{index}"\nurl = "https://example.test/{index}"\n'
