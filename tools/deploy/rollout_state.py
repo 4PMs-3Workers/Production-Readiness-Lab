@@ -8,6 +8,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import Field, model_validator
 from tools.deploy.release_manifest import (
+    SCHEMA,
     SHA,
     Digest,
     Hex,
@@ -55,6 +56,19 @@ Reason = Literal[
     "unexpected-failure",
 ]
 TERMINAL = {"succeeded", "rolled_back", "failed", "interrupted"}
+SMOKE_CHECKS = {
+    "frontend",
+    "login",
+    "history",
+    "detail",
+    "availability",
+    "book",
+    "book_replay",
+    "cancel",
+    "cancel_replay",
+    "logout",
+    "side_effects_exact",
+}
 NEXT: dict[str, set[str]] = {
     "preflight": {"migration"},
     "migration": {"rollout"},
@@ -129,6 +143,20 @@ class Event(Strict):
         return self
 
 
+class Verification(Strict):
+    schema_revision: str
+    image_identity_verified: Literal[True]
+    database_volume_preserved: Literal[True]
+    worker_progress_verified: Literal[True]
+    smoke_checks: list[str]
+
+    @model_validator(mode="after")
+    def complete(self) -> Self:
+        if self.schema_revision != SCHEMA or self.smoke_checks != sorted(SMOKE_CHECKS):
+            raise ValueError("Incomplete service verification")
+        return self
+
+
 class Operation(Strict):
     operation_id: Annotated[str, Field(pattern=r"^[0-9a-f]{32}$")]
     command: Literal["deploy", "rollback"]
@@ -136,6 +164,7 @@ class Operation(Strict):
     target: Selection
     fallback: Selection | None = None
     events: list[Event] = Field(min_length=1, max_length=16)
+    verification: Verification | None = None
 
     @property
     def phase(self) -> Phase:
@@ -143,6 +172,8 @@ class Operation(Strict):
 
     @model_validator(mode="after")
     def transitions(self) -> Self:
+        if (self.phase in {"succeeded", "rolled_back"}) != (self.verification is not None):
+            raise ValueError("A successful operation requires complete service proof")
         if self.events[0].phase != (
             "preflight" if self.command == "deploy" else "rollback_preflight"
         ):

@@ -351,3 +351,54 @@ class ReleaseRuntime:
             reason="migration-failed",
             cap=15,
         )
+
+    def effects(self, appointment: str) -> tuple[int, int, int]:
+        from uuid import UUID
+
+        identifier = str(UUID(appointment))
+        script = """
+import asyncio,json,os,sys
+from uuid import UUID
+from sqlalchemy import text
+from app.core.database import create_database_engine
+async def main():
+    key=UUID(sys.argv[1])
+    engine=create_database_engine(os.environ['DATABASE_URL'],hide_parameters=True)
+    try:
+        async with engine.connect() as db:
+            row=(await db.execute(text("SELECT "
+                "(SELECT COUNT(*) FROM appointments WHERE id=:binary),"
+                "(SELECT COUNT(*) FROM audit_events WHERE entity_id=:identifier),"
+                "(SELECT COUNT(*) FROM notifications WHERE appointment_id=:binary)"),
+                dict(binary=key.bytes,identifier=str(key)))).one()
+            print(json.dumps(list(row)))
+    finally:
+        await engine.dispose()
+asyncio.run(main())
+"""
+        raw = self.compose(
+            "run",
+            "--pull",
+            "never",
+            "--no-deps",
+            "--rm",
+            "-T",
+            "schema",
+            "python",
+            "-c",
+            script,
+            identifier,
+            reason="smoke-failed",
+            cap=15,
+        )
+        try:
+            values = json.loads(raw)
+            if (
+                not isinstance(values, list)
+                or len(values) != 3
+                or any(type(v) is not int or v < 0 for v in values)
+            ):
+                raise ValueError()
+            return values[0], values[1], values[2]
+        except (ValueError, TypeError):
+            raise RolloutError("smoke-failed") from None

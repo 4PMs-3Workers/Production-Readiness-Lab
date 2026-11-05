@@ -1,0 +1,77 @@
+import httpx
+import pytest
+from tools.deploy.rollout_http import SmokeCredentials, SmokeSession
+from tools.deploy.rollout_runtime import Deadline
+from tools.deploy.rollout_smoke import business_smoke
+from tools.deploy.rollout_state import SMOKE_CHECKS, RolloutError
+
+
+@pytest.mark.parametrize("fault", [None, "replay", "effects", "logout"])
+def test_complete_gateway_smoke_and_failed_invariants(fault):
+    created, cancelled, logged_out = [0], [0], [False]
+    appointment = "33333333-3333-3333-3333-333333333333"
+
+    def handler(request):
+        path = request.url.path
+        body, status = {}, 200
+        if path == "/login":
+            pass
+        elif path.endswith("auth/login"):
+            pass
+        elif path.endswith("auth/csrf"):
+            body = dict(csrf_token="signed-token")
+        elif path == "/api/v1/booking-context":
+            body = dict(min_booking_date="2026-11-06", max_booking_date="2026-11-07")
+        elif path == "/api/v1/purposes":
+            body = dict(
+                items=[
+                    dict(
+                        id="11111111-1111-1111-1111-111111111111",
+                        code="CAREER",
+                        requires_free_text=False,
+                    )
+                ]
+            )
+        elif path == "/api/v1/staff":
+            body = dict(items=[dict(id="22222222-2222-2222-2222-222222222222")])
+        elif path == "/api/v1/availability":
+            body = dict(slots=[dict(starts_at="2026-11-06T09:00:00Z")])
+        elif path.endswith("auth/logout"):
+            logged_out[0] = True
+            status = 204
+        elif path.endswith("/cancel"):
+            cancelled[0] += 1
+            body = dict(status="CANCELLED")
+        elif path == "/api/v1/appointments" and request.method == "POST":
+            created[0] += 1
+            status = 201 if created[0] == 1 else 200
+            body = dict(id=appointment if created[0] == 1 or fault != "replay" else "changed-id")
+        elif path == "/api/v1/appointments":
+            status = 200 if not logged_out[0] or fault == "logout" else 401
+            body = dict(items=[])
+        elif path.endswith(appointment):
+            body = dict(id=appointment)
+        else:
+            raise AssertionError("Unexpected smoke route")
+        return httpx.Response(
+            status,
+            json=body if status != 204 else None,
+            headers={"Cache-Control": "private, no-store", "X-Request-ID": "r"},
+        )
+
+    def effects(identifier):
+        assert identifier == appointment
+        if fault == "effects":
+            return (1, 2, 2)
+        return (1, 2, 4) if cancelled[0] else (1, 1, 2)
+
+    with SmokeSession(
+        "http://localhost:8080", Deadline(30), transport=httpx.MockTransport(handler)
+    ) as session:
+        account = SmokeCredentials("private@example.invalid", "private-password", "CAREER")
+        if fault is not None:
+            with pytest.raises(RolloutError, match="smoke-failed"):
+                business_smoke(session, account, effects)
+        else:
+            assert business_smoke(session, account, effects) == sorted(SMOKE_CHECKS)
+            assert (created[0], cancelled[0], logged_out[0]) == (2, 2, True)
