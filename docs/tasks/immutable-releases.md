@@ -12,12 +12,17 @@ adds candidate/published proofs, the successful source-check inventory and the
 same-run Actions candidate artifact ID. `release-manifest.schema.json` is generated
 from the strict runtime model; CI tests that it matches.
 
-Each image records three different identities: registry manifest digest, Docker
-image/config ID, and OCI archive SHA-256. Only `linux/amd64` is accepted. Frontend
+Each image records three different identities: registry manifest digest, OCI
+config digest (`image_id`), and OCI archive SHA-256. Only `linux/amd64` is accepted. Frontend
 and backend must carry the exact checkout SHA, while API, worker, schema, migration,
 seed and optional backup all select the same backend image. The alert receiver
 also uses backend; an observability release includes the source-built collector.
 Vendor dependencies use the existing reviewed image lock.
+
+Docker local IDs are normalized when verifying pulled/running images: a classic
+config ID must match `image_id`; a local single-manifest ID must match the exact
+selected digest and descriptor media type. Remote manifest/config bytes and source
+labels are still verified. An index or unrelated local descriptor is rejected.
 
 Configuration identity covers the allowlisted public Compose/Dockerfile/config
 files and the selected local/HTTPS/observability profile. It excludes secret env
@@ -79,6 +84,8 @@ There is no implicit choice of stable or `latest`; bootstrap must be explicit.
 
 Dispatch reruns the five existing backend/frontend/security/container/recovery
 workflows on the exact merged source. Their historical PR triggers remain.
+It also requires the isolated serialized deployment/rollback rehearsal before
+publication. See [the deployment and recovery runbook](serialized-release-rollback.md).
 PR-head SHA, checkout SHA and merged SHA are recorded separately. PR candidate jobs
 never receive the environment's registry credential.
 

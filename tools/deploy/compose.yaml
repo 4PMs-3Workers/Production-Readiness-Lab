@@ -47,11 +47,12 @@ services:
     pids_limit: 256
     stop_grace_period: 60s
     healthcheck:
-      # Socket-only SELECT; no credentials in arguments or output.
+      # The temporary init server accepts socket SELECTs but disables networking.
+      # Require the final server; no credentials in arguments or output.
       test:
         [
           CMD-SHELL,
-          'MYSQL_PWD="$${MYSQL_ROOT_PASSWORD}" mysql --protocol=socket -uroot --connect-timeout=3 --batch --skip-column-names -e "SELECT 1" >/dev/null 2>&1',
+          'test "$$(MYSQL_PWD="$${MYSQL_ROOT_PASSWORD}" mysql --protocol=socket -uroot --connect-timeout=3 --batch --skip-column-names -e "SELECT @@GLOBAL.skip_networking" 2>/dev/null)" = "0"',
         ]
       interval: 5s
       timeout: 5s
