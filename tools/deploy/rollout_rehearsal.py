@@ -20,6 +20,7 @@ from tools.deploy.rollout_http import SmokeCredentials, SmokeSession
 from tools.deploy.rollout_readiness import ready
 from tools.deploy.rollout_runtime import Deadline, ReleaseRuntime
 from tools.deploy.rollout_smoke import booking_payload, business_smoke
+from tools.deploy.rollout_smoke_journal import SmokeJournal
 from tools.deploy.rollout_state import RolloutError
 from tools.deploy.rollout_store import StateStore
 
@@ -54,6 +55,7 @@ def rehearse(directory: Path) -> dict:
         stack.start()
         store = StateStore(private / "state")
         account = SmokeCredentials(stack.student_email, stack.student_password, "CAREER_INTERNSHIP")
+        journal = SmokeJournal(private / "smoke-transaction.json")
         committed: list[tuple[dict, str, dict]] = []
         during = [False]
 
@@ -84,7 +86,7 @@ def rehearse(directory: Path) -> dict:
 
             def smoke(selected: ReleaseRuntime) -> list[str]:
                 with SmokeSession(selected.origin, selected.deadline) as session:
-                    return business_smoke(session, account, selected.effects)
+                    return business_smoke(session, account, selected.effects, journal=journal)
 
             host_config = hashlib.sha256(
                 canonical(

@@ -19,6 +19,7 @@ from tools.deploy.rollout_http import SmokeSession, credentials
 from tools.deploy.rollout_readiness import ready
 from tools.deploy.rollout_runtime import ReleaseRuntime
 from tools.deploy.rollout_smoke import business_smoke
+from tools.deploy.rollout_smoke_journal import SmokeJournal
 from tools.deploy.rollout_state import RolloutError
 from tools.deploy.rollout_store import StateStore
 
@@ -66,10 +67,11 @@ def controller(args, store: StateStore) -> RolloutController:
             overlay=args.overlay,
             observability=args.observability,
         )
+        journal = SmokeJournal(store.directory / "private" / "smoke-transaction.json")
 
         def smoke(selected: ReleaseRuntime) -> list[str]:
             with SmokeSession(selected.origin, selected.deadline, tls=context or True) as session:
-                return business_smoke(session, account, selected.effects)
+                return business_smoke(session, account, selected.effects, journal=journal)
 
         return RolloutController(
             store,
