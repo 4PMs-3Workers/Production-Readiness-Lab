@@ -10,7 +10,7 @@ from uuid import uuid4
 from tools.deploy.release_images import Registry
 from tools.deploy.release_manifest import SCHEMA, canonical, parse
 from tools.deploy.rollout_lock import operation_lock
-from tools.deploy.rollout_preflight import Prepared, ReleaseConsumer
+from tools.deploy.rollout_preflight import ReleaseConsumer
 from tools.deploy.rollout_readiness import ready
 from tools.deploy.rollout_runtime import Deadline, ReleaseRuntime
 from tools.deploy.rollout_schema import require_schema
@@ -21,7 +21,9 @@ from tools.deploy.rollout_state import (
     Operation,
     Phase,
     Reason,
+    Refusal,
     RolloutError,
+    Selection,
     Verification,
     timestamp,
 )
@@ -69,14 +71,14 @@ class RolloutController:
     def _begin(
         self,
         state: HostState,
-        prepared: Prepared,
+        selected: Selection,
         command: Literal["deploy", "rollback"] = "deploy",
     ) -> None:
         op = Operation(
             operation_id=uuid4().hex,
             command=command,
             orchestrator_sha=self.source_sha,
-            target=prepared.selected,
+            target=selected,
             events=[
                 Event(
                     phase="preflight" if command == "deploy" else "rollback_preflight",
@@ -85,7 +87,7 @@ class RolloutController:
                 )
             ],
         )
-        self.state = replace_state(state, operation=op.model_dump(mode="json"))
+        self.state = replace_state(state, operation=op.model_dump(mode="json"), refusal=None)
         self.store.save(self.state)
 
     def _transition(
@@ -126,13 +128,24 @@ class RolloutController:
         reason: Reason = error.reason if isinstance(error, RolloutError) else "unexpected-failure"
         return self._transition("failed", reason=reason)
 
+    def _refuse(
+        self, state: HostState, command: Literal["deploy", "rollback"], reason: Reason
+    ) -> HostState:
+        refusal = Refusal(command=command, at=self.started_at, reason=reason)
+        self.state = replace_state(state, refusal=refusal.model_dump(mode="json"))
+        self.store.save(self.state)
+        return self.state
+
     def deploy(self, reference: str) -> HostState:
         with operation_lock(self.store):
             self._budget(600)
             self.started, self.started_at = time.monotonic(), timestamp()
             state = self._host()
-            prepared = self.consumer.resolve(reference)
-            self._begin(state, prepared)
+            try:
+                prepared = self.consumer.resolve(reference)
+            except RolloutError as error:
+                return self._refuse(state, "deploy", error.reason)
+            self._begin(state, prepared.selected)
             try:
                 if state.stable is None:
                     if not prepared.manifest.bootstrap:
@@ -180,5 +193,56 @@ class RolloutController:
                     stable=prepared.selected.model_dump(mode="json"),
                     previous_stable=state.stable.model_dump(mode="json") if state.stable else None,
                 )
+            except Exception as error:
+                return self._failed(error)
+
+    def _restore(self, target: Selection) -> HostState:
+        prepared = self.consumer.prepare(target.reference, expected=target)
+        self.runtime.select(prepared.manifest)
+        self.runtime.validate_plan()
+        self.runtime.vendor_images()
+        require_schema(self.runtime.schema(), prepared.manifest.accepted_schema_revisions)
+        before = self.runtime.database_identity()
+        self._transition("rollback_rollout")
+        # There is deliberately no migration, seed, downgrade, or DB startup here.
+        self.runtime.rollout()
+        self.runtime.require_database(before)
+        self._transition("rollback_readiness")
+        self.readiness(self.runtime)
+        self.runtime.verify_images()
+        self._transition("rollback_smoke")
+        checks = self.smoke(self.runtime)
+        require_schema(self.runtime.schema(), prepared.manifest.accepted_schema_revisions)
+        self.runtime.verify_images()
+        self.runtime.require_database(before)
+        self.runtime.deadline.remaining()
+        return self._transition(
+            "rolled_back",
+            verification=self._proof(checks),
+            stable=target.model_dump(mode="json"),
+            previous_stable=None,
+        )
+
+    def rollback(self) -> HostState:
+        with operation_lock(self.store):
+            self._budget(300)
+            self.started, self.started_at = time.monotonic(), timestamp()
+            state = self._host()
+            target = state.previous_stable
+            if (
+                state.operation is not None
+                and state.operation.command == "deploy"
+                and state.operation.phase == "failed"
+                and any(
+                    e.phase in {"migration", "rollout", "readiness", "smoke"}
+                    for e in state.operation.events
+                )
+            ):
+                target = state.stable
+            if target is None:
+                return self._refuse(state, "rollback", "rollback-unavailable")
+            self._begin(state, target, "rollback")
+            try:
+                return self._restore(target)
             except Exception as error:
                 return self._failed(error)

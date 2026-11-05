@@ -46,6 +46,10 @@ class MemoryRegistry(Registry):
         self.missing = False
 
     def fetch(self, reference: str) -> Manifest:
+        if reference not in self.releases:
+            from tools.deploy.release_manifest import ReleaseError
+
+            raise ReleaseError("missing-artifact")
         return self.releases[reference]
 
     def verify_images(self, spec, *, pull=False, complete=False):
@@ -58,7 +62,9 @@ class MemoryRegistry(Registry):
 class MemoryRuntime(ReleaseRuntime):
     def __init__(self, directory, store):
         super().__init__(["docker", "compose"], {}, "http://localhost:8080", "isolated", directory)
-        self.store, self.calls, self.fail = store, [], None
+        self.store = store
+        self.calls: list[str] = []
+        self.fail: str | None = None
         self.database = DatabaseIdentity("a" * 64, "isolated_mysql_data")
         self.snapshot = SchemaSnapshot(
             tables=copy.deepcopy(EXPECTED),
@@ -79,6 +85,9 @@ class MemoryRuntime(ReleaseRuntime):
         return self.snapshot
 
     def prepare_database(self) -> DatabaseIdentity:
+        return self.database
+
+    def database_identity(self) -> DatabaseIdentity:
         return self.database
 
     def require_database(self, before: DatabaseIdentity) -> None:
@@ -112,6 +121,9 @@ class Fixture:
 
     def deploy(self, reference):
         return self.control.deploy(reference)
+
+    def rollback(self):
+        return self.control.rollback()
 
 
 def controller(tmp_path) -> Fixture:

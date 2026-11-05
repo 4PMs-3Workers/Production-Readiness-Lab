@@ -189,6 +189,21 @@ class Operation(Strict):
         if self.command == "deploy" and any(e.phase == "rollback_preflight" for e in self.events):
             if self.fallback is None:
                 raise ValueError("Automatic rollback lacks a stable target")
+        if self.phase == "rolled_back":
+            decided = next(e for e in self.events if e.phase == "rollback_preflight")
+            if self.events[-1].elapsed_seconds - decided.elapsed_seconds > 300:
+                raise ValueError("Rollback exceeded its decision-to-verification budget")
+        return self
+
+
+class Refusal(Strict):
+    command: Literal["deploy", "rollback"]
+    at: str
+    reason: Reason
+
+    @model_validator(mode="after")
+    def valid_time(self) -> Self:
+        utc(self.at)
         return self
 
 
@@ -200,6 +215,7 @@ class HostState(Strict):
     stable: Selection | None = None
     previous_stable: Selection | None = None
     operation: Operation | None = None
+    refusal: Refusal | None = None
 
     @model_validator(mode="after")
     def stable_is_verified(self) -> Self:
