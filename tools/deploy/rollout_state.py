@@ -49,6 +49,7 @@ Reason = Literal[
     "rollout-failed",
     "readiness-failed",
     "smoke-failed",
+    "smoke-cleanup-failed",
     "rollback-unavailable",
     "rollback-incompatible",
     "rollback-failed",
