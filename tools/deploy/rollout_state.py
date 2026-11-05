@@ -72,8 +72,8 @@ SMOKE_CHECKS = {
 NEXT: dict[str, set[str]] = {
     "preflight": {"migration"},
     "migration": {"rollout"},
-    "rollout": {"readiness"},
-    "readiness": {"smoke"},
+    "rollout": {"readiness", "rollback_preflight"},
+    "readiness": {"smoke", "rollback_preflight"},
     "smoke": {"succeeded", "rollback_preflight"},
     "rollback_preflight": {"rollback_rollout"},
     "rollback_rollout": {"rollback_readiness"},
@@ -163,6 +163,7 @@ class Operation(Strict):
     orchestrator_sha: SHA
     target: Selection
     fallback: Selection | None = None
+    trigger_reason: Reason | None = None
     events: list[Event] = Field(min_length=1, max_length=16)
     verification: Verification | None = None
 
@@ -187,7 +188,7 @@ class Operation(Strict):
             if utc(after.at) < utc(before.at):
                 raise ValueError("Timeline moved backwards")
         if self.command == "deploy" and any(e.phase == "rollback_preflight" for e in self.events):
-            if self.fallback is None:
+            if self.fallback is None or self.trigger_reason is None:
                 raise ValueError("Automatic rollback lacks a stable target")
         if self.phase == "rolled_back":
             decided = next(e for e in self.events if e.phase == "rollback_preflight")

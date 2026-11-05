@@ -65,6 +65,7 @@ class MemoryRuntime(ReleaseRuntime):
         self.store = store
         self.calls: list[str] = []
         self.fail: str | None = None
+        self.fail_release: str | None = None
         self.database = DatabaseIdentity("a" * 64, "isolated_mysql_data")
         self.snapshot = SchemaSnapshot(
             tables=copy.deepcopy(EXPECTED),
@@ -95,7 +96,7 @@ class MemoryRuntime(ReleaseRuntime):
 
     def migrate(self) -> None:
         self.calls.append("migrate")
-        if self.fail == "migration":
+        if self.fails("migration"):
             raise RolloutError("migration-failed")
 
     def apply_grants(self) -> None:
@@ -105,11 +106,18 @@ class MemoryRuntime(ReleaseRuntime):
         self.calls.append("rollout")
         current = self.store.load()
         assert current is not None and current.stable == self.previous_stable
-        if self.fail == "rollout":
+        if self.fails("rollout"):
             raise RolloutError("rollout-failed")
 
     def verify_images(self) -> None:
         self.calls.append("verify-images")
+
+    def fails(self, phase: str) -> bool:
+        return self.fail == phase and (
+            self.fail_release is None
+            or self.manifest is not None
+            and self.manifest.release_id == self.fail_release
+        )
 
 
 @dataclass
@@ -133,7 +141,7 @@ def controller(tmp_path) -> Fixture:
 
     def smoke(host):
         runtime.calls.append("smoke")
-        if runtime.fail == "smoke":
+        if runtime.fails("smoke"):
             raise RolloutError("smoke-failed")
         return sorted(SMOKE_CHECKS)
 

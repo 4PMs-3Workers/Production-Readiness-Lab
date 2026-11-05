@@ -96,10 +96,12 @@ class RolloutController:
         *,
         reason: Reason | None = None,
         verification: Verification | None = None,
+        operation_changes: dict | None = None,
         **changes,
     ) -> HostState:
         assert self.state is not None and self.state.operation is not None
         data = self.state.operation.model_dump(mode="json")
+        data.update(operation_changes or {})
         data["events"].append(
             Event(
                 phase=phase,
@@ -194,7 +196,31 @@ class RolloutController:
                     previous_stable=state.stable.model_dump(mode="json") if state.stable else None,
                 )
             except Exception as error:
+                assert self.state is not None and self.state.operation is not None
+                if state.stable is not None and self.state.operation.phase in {
+                    "rollout",
+                    "readiness",
+                    "smoke",
+                }:
+                    return self._automatic_restore(state.stable, error)
                 return self._failed(error)
+
+    def _automatic_restore(self, target: Selection, error: Exception) -> HostState:
+        reason: Reason = error.reason if isinstance(error, RolloutError) else "unexpected-failure"
+        # This is the measured decision. The existing operation/lock stays owned,
+        # while every registry, Compose and HTTP call now shares this 300s budget.
+        self._budget(300)
+        self._transition(
+            "rollback_preflight",
+            operation_changes={
+                "fallback": target.model_dump(mode="json"),
+                "trigger_reason": reason,
+            },
+        )
+        try:
+            return self._restore(target)
+        except Exception as rollback_error:
+            return self._failed(rollback_error)
 
     def _restore(self, target: Selection) -> HostState:
         prepared = self.consumer.prepare(target.reference, expected=target)
@@ -216,11 +242,13 @@ class RolloutController:
         self.runtime.verify_images()
         self.runtime.require_database(before)
         self.runtime.deadline.remaining()
+        assert self.state is not None and self.state.operation is not None
+        previous = self.state.previous_stable if self.state.operation.command == "deploy" else None
         return self._transition(
             "rolled_back",
             verification=self._proof(checks),
             stable=target.model_dump(mode="json"),
-            previous_stable=None,
+            previous_stable=previous.model_dump(mode="json") if previous else None,
         )
 
     def rollback(self) -> HostState:
