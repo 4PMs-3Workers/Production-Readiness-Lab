@@ -148,6 +148,17 @@ async def lock_service_settings(db: AsyncSession) -> ServiceSetting | None:
     return await db.scalar(statement)
 
 
+async def lock_service_settings_for_account_change(db: AsyncSession) -> ServiceSetting | None:
+    """Serialize account-role changes with booking and other account changes."""
+    statement = (
+        select(ServiceSetting)
+        .where(ServiceSetting.id == 1)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    return await db.scalar(statement)
+
+
 async def count_blocking_for_student(db: AsyncSession, *, student_id: UUID) -> int:
     """Count quota-consuming appointments across all dates."""
     statement = (

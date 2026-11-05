@@ -42,6 +42,19 @@ def test_notification_routes_use_private_headers_and_request_deadlines():
         assert requires_request_deadline(scope)
 
 
+def test_admin_account_routes_use_private_headers_body_limits_and_request_deadlines():
+    for method, path in (
+        ("GET", "/api/v1/admin/accounts"),
+        ("POST", "/api/v1/admin/accounts"),
+        ("PATCH", "/api/v1/admin/accounts/00000000-0000-0000-0000-000000000001"),
+        ("POST", "/api/v1/admin/accounts/00000000-0000-0000-0000-000000000001/password"),
+    ):
+        scope: Scope = {"type": "http", "method": method, "path": path, "root_path": ""}
+        assert uses_private_api_middleware(scope)
+        assert requires_private_response(scope)
+        assert requires_request_deadline(scope)
+
+
 async def test_notification_validation_error_is_private(auth_settings):
     sent = []
 
@@ -112,6 +125,31 @@ def body_scope(path):
         ],
         "state": {"request_id": "test-body-limit"},
     }
+
+
+async def test_oversized_admin_patch_is_rejected_before_routing(auth_settings):
+    settings = auth_settings.model_copy(update={"api_max_body_bytes": 3})
+    scope = body_scope("/api/v1/admin/accounts/00000000-0000-0000-0000-000000000001")
+    scope["method"] = "PATCH"
+    routed = False
+    sent = []
+
+    async def receive():
+        return {"type": "http.request", "body": b"1234", "more_body": False}
+
+    async def send(message):
+        sent.append(message)
+
+    async def app(scope, receive, send):
+        nonlocal routed
+        routed = True
+        await Response(status_code=204)(scope, receive, send)
+
+    await PrivateApiHttpMiddleware(app, settings=settings)(scope, receive, send)
+
+    assert not routed
+    assert sent[0]["status"] == 413
+    assert b"PAYLOAD_TOO_LARGE" in sent[1]["body"]
 
 
 def body_middleware(app, path, settings):

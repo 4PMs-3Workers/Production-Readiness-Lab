@@ -3,6 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 from app.factory import create_app
@@ -27,6 +28,32 @@ def test_cancellation_openapi_declares_required_csrf_and_origin_fallback(auth_se
     assert operation["requestBody"]["required"] is True
 
 
+@pytest.mark.parametrize(
+    "path,method",
+    [
+        ("/api/v1/admin/accounts", "post"),
+        ("/api/v1/admin/accounts/{account_id}", "patch"),
+        ("/api/v1/admin/accounts/{account_id}/password", "post"),
+    ],
+)
+def test_admin_account_mutations_openapi_declares_csrf_and_origin_fallback(
+    auth_settings, path, method
+):
+    operation = create_app(auth_settings).openapi()["paths"][path][method]
+    parameters = {parameter["name"]: parameter for parameter in operation["parameters"]}
+
+    csrf = parameters["X-CSRF-Token"]
+    assert csrf["in"] == "header"
+    assert csrf["required"] is True
+    assert "prl_csrf" in csrf["description"]
+    assert parameters["Origin"]["required"] is False
+    assert parameters["Referer"]["required"] is False
+    assert "Referer" in parameters["Origin"]["description"]
+    assert "Origin" in parameters["Referer"]["description"]
+    assert "Origin or Referer" in operation["description"]
+    assert "Origin takes precedence" in operation["description"]
+
+
 def test_openapi_export_is_deterministic_without_database(tmp_path):
     root = Path(__file__).resolve().parents[3]
     output = tmp_path / "openapi.yaml"
@@ -49,6 +76,9 @@ def test_openapi_export_is_deterministic_without_database(tmp_path):
         "/api/v1/auth/me",
         "/api/v1/auth/csrf",
         "/api/v1/auth/logout",
+        "/api/v1/admin/accounts",
+        "/api/v1/admin/accounts/{account_id}",
+        "/api/v1/admin/accounts/{account_id}/password",
         "/api/v1/purposes",
         "/api/v1/staff",
         "/api/v1/availability",

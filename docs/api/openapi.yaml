@@ -1,5 +1,203 @@
 components:
   schemas:
+    AccountCreateRequest:
+      additionalProperties: false
+      properties:
+        email:
+          title: Email
+          type: string
+        faculty:
+          anyOf:
+          - maxLength: 150
+            type: string
+          - type: 'null'
+          title: Faculty
+        gender:
+          anyOf:
+          - enum:
+            - MALE
+            - FEMALE
+            - OTHER
+            - UNDISCLOSED
+            type: string
+          - type: 'null'
+          title: Gender
+        is_active:
+          default: true
+          title: Is Active
+          type: boolean
+        major:
+          anyOf:
+          - maxLength: 150
+            type: string
+          - type: 'null'
+          title: Major
+        name:
+          maxLength: 150
+          minLength: 1
+          title: Name
+          type: string
+        password:
+          format: password
+          maxLength: 1024
+          minLength: 1
+          title: Password
+          type: string
+          writeOnly: true
+        role:
+          enum:
+          - STUDENT
+          - STAFF
+          - ADMIN
+          title: Role
+          type: string
+        student_code:
+          anyOf:
+          - maxLength: 50
+            type: string
+          - type: 'null'
+          title: Student Code
+      required:
+      - email
+      - name
+      - role
+      - password
+      title: AccountCreateRequest
+      type: object
+    AccountItem:
+      properties:
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        email:
+          title: Email
+          type: string
+        faculty:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Faculty
+        gender:
+          anyOf:
+          - enum:
+            - MALE
+            - FEMALE
+            - OTHER
+            - UNDISCLOSED
+            type: string
+          - type: 'null'
+          title: Gender
+        id:
+          format: uuid
+          title: Id
+          type: string
+        is_active:
+          title: Is Active
+          type: boolean
+        major:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Major
+        name:
+          title: Name
+          type: string
+        role:
+          enum:
+          - STUDENT
+          - STAFF
+          - ADMIN
+          title: Role
+          type: string
+        student_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Student Code
+        updated_at:
+          format: date-time
+          title: Updated At
+          type: string
+      required:
+      - id
+      - email
+      - name
+      - role
+      - is_active
+      - student_code
+      - faculty
+      - major
+      - gender
+      - created_at
+      - updated_at
+      title: AccountItem
+      type: object
+    AccountUpdateRequest:
+      additionalProperties: false
+      properties:
+        email:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Email
+        expected_updated_at:
+          format: date-time
+          title: Expected Updated At
+          type: string
+        faculty:
+          anyOf:
+          - maxLength: 150
+            type: string
+          - type: 'null'
+          title: Faculty
+        gender:
+          anyOf:
+          - enum:
+            - MALE
+            - FEMALE
+            - OTHER
+            - UNDISCLOSED
+            type: string
+          - type: 'null'
+          title: Gender
+        is_active:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Is Active
+        major:
+          anyOf:
+          - maxLength: 150
+            type: string
+          - type: 'null'
+          title: Major
+        name:
+          anyOf:
+          - maxLength: 150
+            minLength: 1
+            type: string
+          - type: 'null'
+          title: Name
+        role:
+          anyOf:
+          - enum:
+            - STUDENT
+            - STAFF
+            - ADMIN
+            type: string
+          - type: 'null'
+          title: Role
+        student_code:
+          anyOf:
+          - maxLength: 50
+            type: string
+          - type: 'null'
+          title: Student Code
+      required:
+      - expected_updated_at
+      title: AccountUpdateRequest
+      type: object
     AppointmentCancelRequest:
       additionalProperties: false
       properties:
@@ -427,6 +625,33 @@ components:
       - read_at
       title: NotificationReadResponse
       type: object
+    PageResponse_AccountItem_:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/AccountItem'
+          title: Items
+          type: array
+        page:
+          minimum: 1.0
+          title: Page
+          type: integer
+        page_size:
+          maximum: 100.0
+          minimum: 1.0
+          title: Page Size
+          type: integer
+        total:
+          minimum: 0.0
+          title: Total
+          type: integer
+      required:
+      - items
+      - page
+      - page_size
+      - total
+      title: PageResponse[AccountItem]
+      type: object
     PageResponse_AppointmentListItem_:
       properties:
         items:
@@ -615,6 +840,25 @@ components:
       - page_size
       - total
       title: PageResponse[UnavailabilityResponse]
+      type: object
+    PasswordResetRequest:
+      additionalProperties: false
+      properties:
+        expected_updated_at:
+          format: date-time
+          title: Expected Updated At
+          type: string
+        password:
+          format: password
+          maxLength: 1024
+          minLength: 1
+          title: Password
+          type: string
+          writeOnly: true
+      required:
+      - expected_updated_at
+      - password
+      title: PasswordResetRequest
       type: object
     ProposalContext:
       properties:
@@ -1285,6 +1529,784 @@ info:
   version: 0.1.0
 openapi: 3.1.0
 paths:
+  /api/v1/admin/accounts:
+    get:
+      description: List accounts by role, active state, or an email/name substring.
+      operationId: list_accounts_api_v1_admin_accounts_get
+      parameters:
+      - in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          maximum: 1000000
+          minimum: 1
+          title: Page
+          type: integer
+      - in: query
+        name: page_size
+        required: false
+        schema:
+          default: 20
+          maximum: 100
+          minimum: 1
+          title: Page Size
+          type: integer
+      - in: query
+        name: role
+        required: false
+        schema:
+          anyOf:
+          - enum:
+            - STUDENT
+            - STAFF
+            - ADMIN
+            type: string
+          - type: 'null'
+          title: Role
+      - in: query
+        name: is_active
+        required: false
+        schema:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Is Active
+      - in: query
+        name: search
+        required: false
+        schema:
+          anyOf:
+          - maxLength: 100
+            minLength: 1
+            type: string
+          - type: 'null'
+          title: Search
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageResponse_AccountItem_'
+          description: Successful Response
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '413':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '415':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+      security:
+      - prl_session: []
+      summary: List Accounts
+      tags:
+      - admin accounts
+    post:
+      description: Create an internal account; the submitted password is never returned
+        or audited. This mutation requires the signed CSRF token in `X-CSRF-Token`.
+        Origin or Referer must match the configured application origin. Origin takes
+        precedence when both are supplied.
+      operationId: create_account_api_v1_admin_accounts_post
+      parameters:
+      - description: Signed token matching the prl_csrf cookie.
+        in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+      - description: Preferred same-origin header. If present, it takes precedence
+          over Referer and must match the configured application origin.
+        in: header
+        name: Origin
+        required: false
+        schema:
+          format: uri
+          type: string
+      - description: Accepted only when Origin is absent; its origin must match the
+          configured application origin.
+        in: header
+        name: Referer
+        required: false
+        schema:
+          format: uri
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountCreateRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountItem'
+          description: Successful Response
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '413':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '415':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+      security:
+      - prl_session: []
+      summary: Create Account
+      tags:
+      - admin accounts
+  /api/v1/admin/accounts/{account_id}:
+    patch:
+      description: Update an account using its current `updated_at` as a stale-write
+        precondition. This mutation requires the signed CSRF token in `X-CSRF-Token`.
+        Origin or Referer must match the configured application origin. Origin takes
+        precedence when both are supplied.
+      operationId: update_account_api_v1_admin_accounts__account_id__patch
+      parameters:
+      - in: path
+        name: account_id
+        required: true
+        schema:
+          format: uuid
+          title: Account Id
+          type: string
+      - description: Signed token matching the prl_csrf cookie.
+        in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+      - description: Preferred same-origin header. If present, it takes precedence
+          over Referer and must match the configured application origin.
+        in: header
+        name: Origin
+        required: false
+        schema:
+          format: uri
+          type: string
+      - description: Accepted only when Origin is absent; its origin must match the
+          configured application origin.
+        in: header
+        name: Referer
+        required: false
+        schema:
+          format: uri
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountUpdateRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountItem'
+          description: Successful Response
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '413':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '415':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+      security:
+      - prl_session: []
+      summary: Update Account
+      tags:
+      - admin accounts
+  /api/v1/admin/accounts/{account_id}/password:
+    post:
+      description: Set a new internal password and revoke every existing session atomically.
+        This mutation requires the signed CSRF token in `X-CSRF-Token`. Origin or
+        Referer must match the configured application origin. Origin takes precedence
+        when both are supplied.
+      operationId: reset_password_api_v1_admin_accounts__account_id__password_post
+      parameters:
+      - in: path
+        name: account_id
+        required: true
+        schema:
+          format: uuid
+          title: Account Id
+          type: string
+      - description: Signed token matching the prl_csrf cookie.
+        in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+      - description: Preferred same-origin header. If present, it takes precedence
+          over Referer and must match the configured application origin.
+        in: header
+        name: Origin
+        required: false
+        schema:
+          format: uri
+          type: string
+      - description: Accepted only when Origin is absent; its origin must match the
+          configured application origin.
+        in: header
+        name: Referer
+        required: false
+        schema:
+          format: uri
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountItem'
+          description: Successful Response
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '413':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '415':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+      security:
+      - prl_session: []
+      summary: Reset Password
+      tags:
+      - admin accounts
   /api/v1/appointments:
     get:
       operationId: list_appointments_api_v1_appointments_get

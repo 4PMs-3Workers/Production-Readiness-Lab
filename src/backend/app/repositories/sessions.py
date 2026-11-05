@@ -25,6 +25,22 @@ async def add_session(db: AsyncSession, session: Session) -> None:
     await db.flush()
 
 
+async def lock_active_by_id(
+    db: AsyncSession, session_id: UUID, user_id: UUID, now: datetime
+) -> Session | None:
+    return await db.scalar(
+        select(Session)
+        .where(
+            Session.id == session_id,
+            Session.user_id == user_id,
+            Session.revoked_at.is_(None),
+            Session.expires_at > now,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
 async def revoke_one(db: AsyncSession, session_id: UUID, user_id: UUID, now: datetime) -> None:
     await db.execute(
         update(Session)

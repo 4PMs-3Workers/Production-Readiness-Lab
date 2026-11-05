@@ -63,6 +63,9 @@ jobs:
           python -m pip install -r requirements-dev.txt
           python -m pip install -e .
 
+      - name: Check generated gateway routes against OpenAPI
+        run: python tools/infra/generate_gateway_routes.py --check
+
       - name: Check workflow and Compose formatting
         run: >-
           npx --no-install prettier --check --ignore-path .prettierignore

@@ -4,11 +4,18 @@ import hashlib
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select, text
+from sqlalchemy import exists, func, or_, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import User
+from app.models import (
+    Appointment,
+    ChangeProposal,
+    StaffPurpose,
+    StaffUnavailability,
+    User,
+)
+from app.schemas.admin_accounts import AccountQuery
 
 
 async def find_by_email(db: AsyncSession, email: str) -> User | None:
@@ -38,6 +45,80 @@ async def lock_by_id(db: AsyncSession, user_id: UUID) -> User | None:
 async def find_student_by_id(db: AsyncSession, user_id: UUID) -> User | None:
     return await db.scalar(
         select(User).where(User.id == user_id, User.role == "STUDENT", User.is_active.is_(True))
+    )
+
+
+async def read_account_page(db: AsyncSession, query: AccountQuery) -> tuple[list[User], int]:
+    filters = []
+    if query.role is not None:
+        filters.append(User.role == query.role)
+    if query.is_active is not None:
+        filters.append(User.is_active.is_(query.is_active))
+    if query.search is not None:
+        search = query.search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{search}%"
+        filters.append(
+            or_(User.name.ilike(pattern, escape="\\"), User.email.like(pattern, escape="\\"))
+        )
+    total = int(await db.scalar(select(func.count()).select_from(User).where(*filters)) or 0)
+    offset = (query.page - 1) * query.page_size
+    rows = list(
+        await db.scalars(
+            select(User)
+            .where(*filters)
+            .order_by(User.email, User.id)
+            .limit(query.page_size)
+            .offset(offset)
+        )
+    )
+    return rows, total
+
+
+async def add_account(db: AsyncSession, user: User) -> None:
+    db.add(user)
+    await db.flush()
+
+
+async def count_active_role(db: AsyncSession, role: str) -> int:
+    return int(
+        await db.scalar(
+            select(func.count())
+            .select_from(User)
+            .where(User.role == role, User.is_active.is_(True))
+        )
+        or 0
+    )
+
+
+async def has_role_references(db: AsyncSession, user_id: UUID) -> bool:
+    references = or_(
+        exists().where(
+            or_(
+                Appointment.student_id == user_id,
+                Appointment.staff_id == user_id,
+                Appointment.cancelled_by == user_id,
+                Appointment.outcome_by == user_id,
+            )
+        ),
+        exists().where(StaffPurpose.staff_id == user_id),
+        exists().where(StaffUnavailability.staff_id == user_id),
+        exists().where(
+            or_(ChangeProposal.created_by == user_id, ChangeProposal.resolved_by == user_id)
+        ),
+    )
+    return bool(await db.scalar(select(references)))
+
+
+async def has_occupying_staff_appointments(db: AsyncSession, staff_id: UUID) -> bool:
+    return bool(
+        await db.scalar(
+            select(
+                exists().where(
+                    Appointment.staff_id == staff_id,
+                    Appointment.status.in_(("UPCOMING", "CHANGE_PENDING")),
+                )
+            )
+        )
     )
 
 

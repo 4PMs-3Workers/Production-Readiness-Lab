@@ -69,14 +69,29 @@ async def test_audit_failure_rolls_back_each_configuration_change(booking_env, k
 
 @pytest.mark.parametrize("kind", ["purpose", "create", "delete"])
 @pytest.mark.parametrize("committed", [True, False])
+@pytest.mark.parametrize("flush_delay", [0, 1.25], ids=["normal", "slow-database-step"])
 async def test_unknown_commit_is_not_auto_replayed_and_explicit_recovery_has_no_duplicates(
-    booking_env, monkeypatch, kind, committed
+    booking_env, monkeypatch, kind, committed, flush_delay
 ):
     env, _, start = booking_env
     identifier = await prepare_delete(env, start, kind)
+    # Exercise commit recovery even when a CI database step takes over one second.
+    # Dedicated deadline tests below retain their intentionally short budgets.
+    settings = env.app.state.settings.model_copy(
+        update={
+            "request_timeout_seconds": 20.0,
+            "db_query_timeout_seconds": 10.0,
+            "db_lock_timeout_seconds": 5.0,
+        }
+    )
     original_commit = AsyncSessionTransaction.commit
     attempts = []
     async with env.factory() as db:
+        original_flush = db.flush
+
+        async def delayed_flush(*args, **kwargs):
+            await asyncio.sleep(flush_delay)
+            return await original_flush(*args, **kwargs)
 
         async def uncertain(transaction):
             if transaction.session is not db:
@@ -87,9 +102,10 @@ async def test_unknown_commit_is_not_auto_replayed_and_explicit_recovery_has_no_
             raise OperationalError("COMMIT", {}, Exception(2013, "connection lost during commit"))
 
         with monkeypatch.context() as patch:
+            patch.setattr(db, "flush", delayed_flush)
             patch.setattr(AsyncSessionTransaction, "commit", uncertain)
             with pytest.raises(AppError) as error:
-                await mutate(env, kind, start, identifier=identifier, db=db)
+                await mutate(env, kind, start, identifier=identifier, db=db, settings=settings)
         assert error.value.code == "SERVICE_UNAVAILABLE"
         assert len(attempts) == 1
         assert not db.in_transaction()
@@ -101,10 +117,10 @@ async def test_unknown_commit_is_not_auto_replayed_and_explicit_recovery_has_no_
         async with env.factory() as db:
             assert await db.get(StaffUnavailability, identifier) is None
         with pytest.raises(AppError) as missing:
-            await mutate(env, kind, start, identifier=identifier)
+            await mutate(env, kind, start, identifier=identifier, settings=settings)
         assert missing.value.code == "NOT_FOUND"
     else:
-        result = await mutate(env, kind, start, identifier=identifier)
+        result = await mutate(env, kind, start, identifier=identifier, settings=settings)
         if kind == "create":
             assert result[1] is committed
             assert (await counts(env))["staff_unavailability"] == 1
