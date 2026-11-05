@@ -572,15 +572,19 @@ def test_runner_persists_transition_outbox_before_crash_and_recovers_after_probe
         max_pending=config.max_pending_notifications,
     )
 
-    class CrashAfterEvaluationStore:
+    class CrashAfterEvaluationStore(StateStore):
         def __init__(self):
+            super().__init__(
+                config.state_path,
+                max_bytes=config.max_state_bytes,
+                max_pending=config.max_pending_notifications,
+            )
             self.saves = 0
-            self.max_check_states = backing_store.max_check_states
 
-        def load(self):
+        def load(self) -> MonitorState:
             return backing_store.load()
 
-        def save(self, state):
+        def save(self, state: MonitorState) -> None:
             self.saves += 1
             backing_store.save(state)
             if self.saves == 2:
