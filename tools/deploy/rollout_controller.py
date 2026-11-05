@@ -55,7 +55,7 @@ class RolloutController:
         self.runtime.deadline = budget
         self.registry.deadline = budget.expires
 
-    def _host(self) -> HostState:
+    def _host(self, *, allow_pending: bool = False) -> HostState:
         state = self.store.load() or HostState(
             project=self.runtime.project, configuration_sha256=self.configuration_sha256
         )
@@ -64,9 +64,55 @@ class RolloutController:
             self.configuration_sha256,
         ):
             raise RolloutError("incompatible-configuration")
-        if state.operation is not None and state.operation.phase not in TERMINAL:
+        if (
+            not allow_pending
+            and state.operation is not None
+            and state.operation.phase not in TERMINAL
+        ):
             raise RolloutError("interrupted-operation")
         return state
+
+    def _interrupted(self, state: HostState) -> HostState:
+        op = state.operation
+        if op is None or op.phase in TERMINAL:
+            return state
+        data = op.model_dump(mode="json")
+        # Across a crash/reboot monotonic clocks cannot be joined. Retain the
+        # last measured elapsed lower bound and explicitly mark it interrupted.
+        data["events"].append(
+            Event(
+                phase="interrupted",
+                at=timestamp(),
+                elapsed_seconds=op.events[-1].elapsed_seconds,
+                reason="interrupted-operation",
+            ).model_dump(mode="json")
+        )
+        state = replace_state(
+            state, operation=parse(canonical(data), Operation).model_dump(mode="json")
+        )
+        self.store.save(state)
+        return state
+
+    @staticmethod
+    def _needs_recovery(state: HostState) -> bool:
+        op = state.operation
+        return op is not None and (
+            op.phase == "interrupted"
+            or op.phase == "failed"
+            and any(
+                e.phase
+                in {
+                    "migration",
+                    "rollout",
+                    "readiness",
+                    "smoke",
+                    "rollback_rollout",
+                    "rollback_readiness",
+                    "rollback_smoke",
+                }
+                for e in op.events
+            )
+        )
 
     def _begin(
         self,
@@ -127,8 +173,26 @@ class RolloutController:
         )
 
     def _failed(self, error: Exception) -> HostState:
+        committed = self._committed_terminal()
+        if committed is not None:
+            return committed
         reason: Reason = error.reason if isinstance(error, RolloutError) else "unexpected-failure"
         return self._transition("failed", reason=reason)
+
+    def _committed_terminal(self) -> HostState | None:
+        disk = self.store.load()
+        if (
+            disk is not None
+            and disk.operation is not None
+            and self.state is not None
+            and self.state.operation is not None
+            and disk.operation.operation_id == self.state.operation.operation_id
+            and disk.operation.phase in {"succeeded", "rolled_back"}
+        ):
+            # A replace may succeed before a directory fsync reports an error.
+            # Never overwrite that verified stable pointer with an older in-memory copy.
+            return self._refuse(disk, disk.operation.command, "invalid-state")
+        return None
 
     def _refuse(
         self, state: HostState, command: Literal["deploy", "rollback"], reason: Reason
@@ -138,21 +202,32 @@ class RolloutController:
         self.store.save(self.state)
         return self.state
 
-    def deploy(self, reference: str) -> HostState:
+    def deploy(self, reference: str, *, resume: bool = False) -> HostState:
         with operation_lock(self.store):
             self._budget(600)
             self.started, self.started_at = time.monotonic(), timestamp()
-            state = self._host()
+            state = self._interrupted(self._host(allow_pending=True))
+            if self._needs_recovery(state):
+                op = state.operation
+                assert op is not None
+                if (
+                    not resume
+                    or op.command != "deploy"
+                    or reference != op.target.reference
+                    or any(e.phase == "rollback_preflight" for e in op.events)
+                ):
+                    return self._refuse(state, "deploy", "interrupted-operation")
             try:
                 prepared = self.consumer.resolve(reference)
             except RolloutError as error:
                 return self._refuse(state, "deploy", error.reason)
             self._begin(state, prepared.selected)
             try:
+                stable_retry = resume and state.stable == prepared.selected
                 if state.stable is None:
                     if not prepared.manifest.bootstrap:
                         raise RolloutError("invalid-manifest")
-                elif (
+                elif not stable_retry and (
                     prepared.manifest.bootstrap
                     or prepared.manifest.previous_stable != state.stable.reference
                 ):
@@ -193,9 +268,20 @@ class RolloutController:
                     "succeeded",
                     verification=self._proof(checks),
                     stable=prepared.selected.model_dump(mode="json"),
-                    previous_stable=state.stable.model_dump(mode="json") if state.stable else None,
+                    previous_stable=(
+                        state.previous_stable.model_dump(mode="json")
+                        if stable_retry and state.previous_stable
+                        else (
+                            state.stable.model_dump(mode="json")
+                            if state.stable and not stable_retry
+                            else None
+                        )
+                    ),
                 )
             except Exception as error:
+                committed = self._committed_terminal()
+                if committed is not None:
+                    return committed
                 assert self.state is not None and self.state.operation is not None
                 if state.stable is not None and self.state.operation.phase in {
                     "rollout",
@@ -255,18 +341,15 @@ class RolloutController:
         with operation_lock(self.store):
             self._budget(300)
             self.started, self.started_at = time.monotonic(), timestamp()
-            state = self._host()
+            state = self._interrupted(self._host(allow_pending=True))
             target = state.previous_stable
-            if (
-                state.operation is not None
-                and state.operation.command == "deploy"
-                and state.operation.phase == "failed"
-                and any(
-                    e.phase in {"migration", "rollout", "readiness", "smoke"}
-                    for e in state.operation.events
+            if self._needs_recovery(state):
+                assert state.operation is not None
+                target = (
+                    state.operation.target
+                    if state.operation.command == "rollback"
+                    else state.stable
                 )
-            ):
-                target = state.stable
             if target is None:
                 return self._refuse(state, "rollback", "rollback-unavailable")
             self._begin(state, target, "rollback")

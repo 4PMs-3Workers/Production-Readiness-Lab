@@ -127,8 +127,8 @@ class Fixture:
     registry: MemoryRegistry
     runtime: MemoryRuntime
 
-    def deploy(self, reference):
-        return self.control.deploy(reference)
+    def deploy(self, reference, *, resume=False):
+        return self.control.deploy(reference, resume=resume)
 
     def rollback(self):
         return self.control.rollback()
