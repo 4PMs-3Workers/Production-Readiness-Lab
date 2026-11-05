@@ -7,9 +7,9 @@ Provide ADMIN-only account management APIs that preserve account history, author
 The API supports filtered/paginated account reads, account creation, profile and role/active-state updates, and explicit internal password reset. It does not delete accounts, deliver reset emails, provide SSO, or expose consultation content.
 
 ## Policy decisions
-- At least one active ADMIN and one active STAFF account must remain. Concurrent role/active changes are serialized by locking `service_settings(id=1)` before account rows.
+- At least one active ADMIN and one active STAFF account must remain. Concurrent role/active changes are serialized by exclusively locking `service_settings(id=1)` before account rows.
 - STAFF accounts with an occupying appointment cannot be deactivated. A role change is rejected for any account referenced by appointments, staff-purpose assignments, staff unavailability, or change proposals; FK history is never deleted.
-- Account state changes recheck the actor and target under account locks. Account locks are acquired in UUID byte order after the settings lock, matching booking's settings-then-sorted-users order.
+- Account state changes recheck the actor and target under account locks. Account locks are acquired in UUID byte order after the exclusive settings lock; this serializes with booking's shared settings lock and its settings-then-sorted-users order.
 - Mutations require the account's `updated_at` value as a precondition. A stale value returns `409 ACCOUNT_VERSION_CONFLICT`; an exact no-op performs no write or audit. After an unknown commit, retrying with the old version conflicts if the first write committed, while a retry after a known rollback can proceed.
 - Password input uses `SecretStr` and existing password policy/service. Passwords and hashes never appear in output, audit, or logs. A successful password reset revokes all sessions in the same transaction.
 - Email is stripped and lowercased using the same normalization as login; uniqueness follows MySQL's `utf8mb4_0900_as_ci` collation and duplicate identities return a stable conflict.

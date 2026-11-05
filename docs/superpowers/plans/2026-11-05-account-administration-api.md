@@ -17,7 +17,7 @@
 - Minimum active account counts: one ADMIN and one STAFF.
 - STAFF with occupying appointments cannot be disabled; referenced accounts cannot change roles.
 - Account writes use `updated_at` preconditions, bounded deadlines, and atomic sanitized audit.
-- Lock `service_settings(id=1)` before sorted account UUID locks for state-changing flows.
+- Exclusively lock `service_settings(id=1)` before sorted account UUID locks for state-changing flows; booking uses a shared lock on that row.
 
 ## Review Focus
 
@@ -37,10 +37,10 @@
 
 **Dependencies:** Existing role/CSRF dependencies, public auth error conventions, user collation, password service, request ID, and integration fixtures.
 
-- [ ] Add integration tests for ADMIN/non-ADMIN access, pagination/filtering, output secrecy, account creation, and collation-equivalent duplicate email; run them and confirm expected failures.
-- [ ] Implement schemas and explicit repository list/create helpers.
-- [ ] Implement read/create service transactions with finite deadlines, actor recheck, password hashing, sanitized audit, and create locking for ADMIN/STAFF roles.
-- [ ] Register the router and run focused tests plus formatting/lint/type checks for changed Python files.
+- [x] Add integration tests for ADMIN/non-ADMIN access, pagination/filtering, output secrecy, account creation, and collation-equivalent duplicate email. Local execution was attempted but is blocked by the unavailable MySQL engine; CI must run these tests.
+- [x] Implement schemas and explicit repository list/create helpers.
+- [x] Implement read/create service transactions with finite deadlines, actor recheck, password hashing, sanitized audit, and serialized account creation.
+- [x] Register the router and run focused tests plus backend formatting, lint, and type checks.
 - [ ] Review/stage only Task 1 files and commit as `feat(admin): add account listing and creation APIs`.
 
 ## Task 2: Safe account updates and password reset

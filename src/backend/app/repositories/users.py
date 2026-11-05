@@ -4,11 +4,12 @@ import hashlib
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import User
+from app.schemas.admin_accounts import AccountQuery
 
 
 async def find_by_email(db: AsyncSession, email: str) -> User | None:
@@ -39,6 +40,37 @@ async def find_student_by_id(db: AsyncSession, user_id: UUID) -> User | None:
     return await db.scalar(
         select(User).where(User.id == user_id, User.role == "STUDENT", User.is_active.is_(True))
     )
+
+
+async def read_account_page(db: AsyncSession, query: AccountQuery) -> tuple[list[User], int]:
+    filters = []
+    if query.role is not None:
+        filters.append(User.role == query.role)
+    if query.is_active is not None:
+        filters.append(User.is_active.is_(query.is_active))
+    if query.search is not None:
+        search = query.search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{search}%"
+        filters.append(
+            or_(User.name.ilike(pattern, escape="\\"), User.email.like(pattern, escape="\\"))
+        )
+    total = int(await db.scalar(select(func.count()).select_from(User).where(*filters)) or 0)
+    offset = (query.page - 1) * query.page_size
+    rows = list(
+        await db.scalars(
+            select(User)
+            .where(*filters)
+            .order_by(User.email, User.id)
+            .limit(query.page_size)
+            .offset(offset)
+        )
+    )
+    return rows, total
+
+
+async def add_account(db: AsyncSession, user: User) -> None:
+    db.add(user)
+    await db.flush()
 
 
 async def utc_now(db: AsyncSession) -> datetime:

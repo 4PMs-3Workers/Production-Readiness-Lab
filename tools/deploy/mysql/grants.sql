@@ -2,7 +2,7 @@
 -- adding a future table cannot silently grant mutation access to it.
 REVOKE ALL PRIVILEGES, GRANT OPTION FROM 'prl_runtime'@'%';
 REVOKE ALL PRIVILEGES, GRANT OPTION FROM 'prl_seed'@'%';
-GRANT SELECT, UPDATE ON prl.users TO 'prl_runtime'@'%';
+GRANT SELECT, INSERT, UPDATE ON prl.users TO 'prl_runtime'@'%';
 GRANT SELECT, INSERT, UPDATE ON prl.sessions TO 'prl_runtime'@'%';
 GRANT SELECT, INSERT, UPDATE ON prl.appointments TO 'prl_runtime'@'%';
 GRANT SELECT, INSERT, UPDATE ON prl.change_proposals TO 'prl_runtime'@'%';
