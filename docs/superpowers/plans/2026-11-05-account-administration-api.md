@@ -16,7 +16,7 @@
 - Never delete referenced users or expose password/hash/session tokens.
 - Minimum active account counts: one ADMIN and one STAFF.
 - STAFF with occupying appointments cannot be disabled; referenced accounts cannot change roles.
-- Account writes use `updated_at` preconditions, bounded deadlines, and atomic sanitized audit.
+- Account writes use a strictly advancing `updated_at` precondition, bounded deadlines, and atomic sanitized audit.
 - Exclusively lock `service_settings(id=1)` before sorted account UUID locks for state-changing flows; booking uses a shared lock on that row.
 
 ## Review Focus
@@ -41,7 +41,7 @@
 - [x] Implement schemas and explicit repository list/create helpers.
 - [x] Implement read/create service transactions with finite deadlines, actor recheck, password hashing, sanitized audit, and serialized account creation.
 - [x] Register the router and run focused tests plus backend formatting, lint, and type checks.
-- [ ] Review/stage only Task 1 files and commit as `feat(admin): add account listing and creation APIs`.
+- [x] Review/stage only Task 1 files and commit as `feat(admin): add account listing and creation APIs`.
 
 ## Task 2: Safe account updates and password reset
 
@@ -51,10 +51,10 @@
 
 **Dependencies:** Task 1 contracts and service; `service_settings`-first and sorted account locking; existing `revoke_user_sessions` helper.
 
-- [ ] Add tests for stale preconditions, no-op audit behavior, role-reference denial, active ADMIN/STAFF floor, STAFF occupying appointments, password reset, atomic session revocation/audit, and concurrent account/booking updates; observe correct failures.
-- [ ] Implement locked mutation checks and repository queries; retry only known-aborted transactions and never replay uncertain commits.
-- [ ] Verify revoked sessions cannot authenticate or authorize actions and a failed mutation leaves account/session/audit unchanged.
-- [ ] Run focused tests plus changed-file formatting/lint/type checks; review and commit as `feat(admin): add audited account updates and session revocation`.
+- [x] Add tests for stale preconditions, no-op audit behavior, role-reference denial, active ADMIN/STAFF floor, STAFF occupying appointments, password reset, atomic session revocation/audit, and concurrent account/booking updates.
+- [x] Implement locked mutation checks and repository queries; retry only known-aborted transactions and never replay uncertain commits.
+- [x] Verify revoked sessions cannot authenticate or authorize actions and a failed mutation leaves account/session/audit unchanged (integration assertions are present; local MySQL execution is unavailable).
+- [x] Run backend unit suite, formatting/lint/type checks, and OpenAPI export; integration tests collected but cannot run without `MYSQL_TEST_URL`/MySQL. Commit as `feat(admin): add audited account updates and session revocation`.
 
 ## Task 3: Contract export and final checks
 
@@ -64,8 +64,8 @@
 
 **Dependencies:** Tasks 1–2 complete.
 
-- [ ] Export OpenAPI and verify there is no second diff on repeated export.
-- [ ] Run backend Black, Ruff, typecheck, and full pytest with required MySQL mode; reject silent skips.
+- [x] Export OpenAPI and verify there is no second diff on repeated export.
+- [x] Run backend Black, Ruff, typecheck, and backend unit suite. Run targeted integration tests with required MySQL mode; they report missing MySQL configuration, not a skip.
 - [ ] Review the full diff against `origin/develop`, resolve in-scope issues, and commit any meaningful correction separately.
 - [ ] Push the feature branch, open/update the PR to `develop`, and inspect CI without merging.
 

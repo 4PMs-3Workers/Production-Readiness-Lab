@@ -4,7 +4,15 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, SecretStr, field_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 
 from app.schemas.auth import Role
 from app.schemas.common import PaginationParams
@@ -79,9 +87,18 @@ class AccountCreateRequest(BaseModel):
         normalized = value.strip()
         return normalized or None
 
+    @model_validator(mode="after")
+    def validate_role_profile(self) -> "AccountCreateRequest":
+        if self.role != "STUDENT" and any(
+            value is not None
+            for value in (self.student_code, self.faculty, self.major, self.gender)
+        ):
+            raise ValueError("Student profile fields require the STUDENT role")
+        return self
+
 
 class AccountUpdateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="forbid")
 
     expected_updated_at: AwareDatetime
     email: str | None = None
@@ -116,9 +133,27 @@ class AccountUpdateRequest(BaseModel):
         normalized = value.strip()
         return normalized or None
 
+    @model_validator(mode="after")
+    def validate_changes(self) -> "AccountUpdateRequest":
+        if not (self.model_fields_set - {"expected_updated_at"}):
+            raise ValueError("At least one account field must be supplied")
+        for field in ("email", "name", "role", "is_active"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null")
+        if (
+            self.role is not None
+            and self.role != "STUDENT"
+            and any(
+                value is not None
+                for value in (self.student_code, self.faculty, self.major, self.gender)
+            )
+        ):
+            raise ValueError("Student profile fields require the STUDENT role")
+        return self
+
 
 class PasswordResetRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="forbid")
 
     expected_updated_at: AwareDatetime
     password: SecretStr = Field(min_length=1, max_length=1024)

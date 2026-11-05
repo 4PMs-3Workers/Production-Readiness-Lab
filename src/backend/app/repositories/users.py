@@ -4,11 +4,17 @@ import hashlib
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import exists, func, or_, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import User
+from app.models import (
+    Appointment,
+    ChangeProposal,
+    StaffPurpose,
+    StaffUnavailability,
+    User,
+)
 from app.schemas.admin_accounts import AccountQuery
 
 
@@ -71,6 +77,49 @@ async def read_account_page(db: AsyncSession, query: AccountQuery) -> tuple[list
 async def add_account(db: AsyncSession, user: User) -> None:
     db.add(user)
     await db.flush()
+
+
+async def count_active_role(db: AsyncSession, role: str) -> int:
+    return int(
+        await db.scalar(
+            select(func.count())
+            .select_from(User)
+            .where(User.role == role, User.is_active.is_(True))
+        )
+        or 0
+    )
+
+
+async def has_role_references(db: AsyncSession, user_id: UUID) -> bool:
+    references = or_(
+        exists().where(
+            or_(
+                Appointment.student_id == user_id,
+                Appointment.staff_id == user_id,
+                Appointment.cancelled_by == user_id,
+                Appointment.outcome_by == user_id,
+            )
+        ),
+        exists().where(StaffPurpose.staff_id == user_id),
+        exists().where(StaffUnavailability.staff_id == user_id),
+        exists().where(
+            or_(ChangeProposal.created_by == user_id, ChangeProposal.resolved_by == user_id)
+        ),
+    )
+    return bool(await db.scalar(select(references)))
+
+
+async def has_occupying_staff_appointments(db: AsyncSession, staff_id: UUID) -> bool:
+    return bool(
+        await db.scalar(
+            select(
+                exists().where(
+                    Appointment.staff_id == staff_id,
+                    Appointment.status.in_(("UPCOMING", "CHANGE_PENDING")),
+                )
+            )
+        )
+    )
 
 
 async def utc_now(db: AsyncSession) -> datetime:
