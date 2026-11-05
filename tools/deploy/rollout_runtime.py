@@ -59,7 +59,9 @@ class ReleaseRuntime:
         self.manifest: Manifest | None = None
         self.overlay_path: Path | None = None
 
-    def command(self, args: list[str], *, reason: Reason = "rollout-failed", cap=180) -> bytes:
+    def command(
+        self, args: list[str], *, reason: Reason = "rollout-failed", cap: float = 180
+    ) -> bytes:
         try:
             result = subprocess.run(
                 args,
@@ -76,7 +78,7 @@ class ReleaseRuntime:
             self.deadline.remaining()
             raise RolloutError(reason) from None
 
-    def compose(self, *args: str, reason: Reason = "rollout-failed", cap=180) -> bytes:
+    def compose(self, *args: str, reason: Reason = "rollout-failed", cap: float = 180) -> bytes:
         if self.overlay_path is None:
             raise RolloutError("invalid-manifest")
         return self.command(

@@ -24,11 +24,22 @@ class ReleaseConsumer:
     def __init__(self, registry: ReleaseRegistry, store: StateStore):
         self.registry, self.store = registry, store
 
-    def prepare(self, reference: str, *, expected: Selection | None = None) -> Prepared:
+    def resolve(self, reference: str) -> Prepared:
         try:
             manifest = self.registry.fetch(reference)
+            return Prepared(selection(reference, manifest), manifest)
+        except ReleaseError as error:
+            if error.code == "deadline-exceeded":
+                raise RolloutError("deadline-exceeded") from None
+            raise RolloutError("invalid-manifest") from None
+
+    def prepare(self, reference: str, *, expected: Selection | None = None) -> Prepared:
+        return self.verify(self.resolve(reference), expected=expected)
+
+    def verify(self, prepared: Prepared, *, expected: Selection | None = None) -> Prepared:
+        manifest, selected = prepared.manifest, prepared.selected
+        try:
             require_compatible(manifest)
-            selected = selection(reference, manifest)
             if expected is not None and selected != expected:
                 raise RolloutError("invalid-manifest")
         except ReleaseError as error:
@@ -47,5 +58,5 @@ class ReleaseConsumer:
             if error.code == "deadline-exceeded":
                 raise RolloutError("deadline-exceeded") from None
             raise RolloutError("missing-images") from None
-        self.store.remember(reference, manifest)
+        self.store.remember(selected.reference, manifest)
         return Prepared(selected, manifest)

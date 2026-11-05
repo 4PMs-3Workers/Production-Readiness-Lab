@@ -1,0 +1,137 @@
+"""In-memory effects for controller failure/ordering tests; no claimed container proof."""
+
+import copy
+from dataclasses import dataclass
+
+from tests.backend.unit.test_release_manifest import manifest_data
+from tools.deploy.release_images import Registry
+from tools.deploy.release_manifest import Manifest, Spec, canonical, parse, proof
+from tools.deploy.rollout_controller import RolloutController
+from tools.deploy.rollout_runtime import DatabaseIdentity, ReleaseRuntime
+from tools.deploy.rollout_schema import EXPECTED, SchemaSnapshot
+from tools.deploy.rollout_state import SMOKE_CHECKS, RolloutError, Selection
+from tools.deploy.rollout_store import StateStore
+
+
+def release(number=123, previous=None):
+    data = manifest_data()
+    data.update(
+        release_id=f"release-{number}-1", previous_stable=previous, bootstrap=previous is None
+    )
+    data["provenance"]["run_id"] = number
+    # Proofs are regenerated from the exact fixture candidate, not copied from a different release.
+    candidate = {
+        key: value
+        for key, value in data.items()
+        if key
+        not in {"candidate_proof", "published_proof", "source_checks", "candidate_artifact_id"}
+    }
+    candidate["format"] = "prl-candidate"
+    spec = parse(canonical(candidate), Spec)
+    data.update(
+        candidate_proof=proof(spec, "candidate").model_dump(),
+        published_proof=proof(spec, "published").model_dump(),
+    )
+    return parse(canonical(data), Manifest)
+
+
+def reference(number=1):
+    return "ghcr.io/example/releases@sha256:" + f"{number:064x}"
+
+
+class MemoryRegistry(Registry):
+    def __init__(self):
+        super().__init__()
+        self.releases = {reference(): release()}
+        self.missing = False
+
+    def fetch(self, reference: str) -> Manifest:
+        return self.releases[reference]
+
+    def verify_images(self, spec, *, pull=False, complete=False):
+        if self.missing:
+            from tools.deploy.release_manifest import ReleaseError
+
+            raise ReleaseError("missing-image")
+
+
+class MemoryRuntime(ReleaseRuntime):
+    def __init__(self, directory, store):
+        super().__init__(["docker", "compose"], {}, "http://localhost:8080", "isolated", directory)
+        self.store, self.calls, self.fail = store, [], None
+        self.database = DatabaseIdentity("a" * 64, "isolated_mysql_data")
+        self.snapshot = SchemaSnapshot(
+            tables=copy.deepcopy(EXPECTED),
+            revisions=["20261019_1200_proposal_replay"],
+            unsupported_objects=0,
+            nontransactional_tables=0,
+        )
+        self.previous_stable: Selection | None = None
+
+    def validate_plan(self) -> dict:
+        self.calls.append("plan")
+        return {}
+
+    def vendor_images(self) -> None:
+        self.calls.append("images")
+
+    def schema(self) -> SchemaSnapshot:
+        return self.snapshot
+
+    def prepare_database(self) -> DatabaseIdentity:
+        return self.database
+
+    def require_database(self, before: DatabaseIdentity) -> None:
+        assert self.database == before
+
+    def migrate(self) -> None:
+        self.calls.append("migrate")
+        if self.fail == "migration":
+            raise RolloutError("migration-failed")
+
+    def apply_grants(self) -> None:
+        self.calls.append("grants")
+
+    def rollout(self) -> None:
+        self.calls.append("rollout")
+        current = self.store.load()
+        assert current is not None and current.stable == self.previous_stable
+        if self.fail == "rollout":
+            raise RolloutError("rollout-failed")
+
+    def verify_images(self) -> None:
+        self.calls.append("verify-images")
+
+
+@dataclass
+class Fixture:
+    control: RolloutController
+    store: StateStore
+    registry: MemoryRegistry
+    runtime: MemoryRuntime
+
+    def deploy(self, reference):
+        return self.control.deploy(reference)
+
+
+def controller(tmp_path) -> Fixture:
+    store = StateStore(tmp_path / "state")
+    registry = MemoryRegistry()
+    runtime = MemoryRuntime(tmp_path / "rendered", store)
+
+    def smoke(host):
+        runtime.calls.append("smoke")
+        if runtime.fail == "smoke":
+            raise RolloutError("smoke-failed")
+        return sorted(SMOKE_CHECKS)
+
+    control = RolloutController(
+        store,
+        registry,
+        runtime,
+        "b" * 40,
+        "c" * 64,
+        smoke=smoke,
+        readiness=lambda host: runtime.calls.append("ready"),
+    )
+    return Fixture(control, store, registry, runtime)

@@ -85,7 +85,7 @@ NEXT: dict[str, set[str]] = {
 class RolloutError(Exception):
     def __init__(self, reason: Reason):
         super().__init__(reason)
-        self.reason = reason
+        self.reason: Reason = reason
 
 
 def timestamp() -> str:
