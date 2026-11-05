@@ -628,9 +628,22 @@ Local và demo dùng Docker Compose. Cả ứng dụng và telemetry/Alertmanage
 3. Xác minh cấu hình, khả năng tương thích migration và release ổn định trước đó; lưu manifest của release đang chạy.
 4. Chạy migration bằng một job triển khai riêng; dừng phát hành nếu migration thất bại.
 5. Triển khai frontend, API và worker bằng digest; API và worker dùng cùng digest backend.
-6. Kiểm tra readiness, smoke test qua gateway và heartbeat worker. Kiểm tra probe ngoài host khi môi trường đã cài đặt package Issue #48 trên host/network độc lập; cấu hình local/demo không tự triển khai monitor.
+6. Kiểm tra readiness, smoke test qua gateway và bộ đếm scan worker thực sự tiến triển trong cùng container; heartbeat đơn lẻ không đủ. Kiểm tra probe ngoài host chỉ khi môi trường đã triển khai package Issue #48 trên host/network độc lập; cấu hình local/demo không tự khởi chạy monitor.
 
 Deploy và rollback chạy tuần tự để tránh hai thao tác phát hành cạnh tranh. Nếu smoke test thất bại và có release ổn định trước đó, pipeline quay lại digest tương ứng của frontend/backend, cập nhật cả API và worker. Database giữ dữ liệu đã commit.
+
+Controller và CLI trong `tools/deploy/rollout*.py` dùng chung khóa OS với lifecycle
+demo, ghi state nguyên tử và chỉ promote stable sau toàn bộ xác minh. Crash giữ
+stable cũ; retry/resume phải kiểm tra lại manifest, schema và trạng thái phục hồi.
+[Runbook phát hành/rollback](../tasks/serialized-release-rollback.md) quy định một
+checkout vận hành và state bền duy nhất trên host, các nhánh lỗi và lệnh phục hồi.
+
+Ý định phục hồi và đích đã chọn được giữ qua lỗi preflight/retry. Archive theo hash
+nội dung không thay thế state có thẩm quyền hoặc khóa retry sau lỗi ghi dở dang.
+Smoke giữ journal giao dịch riêng tư để bản ổn định có thể hủy đúng booking do
+candidate lỗi để lại trước khi đặt lịch thử mới; journal không thuộc evidence công
+khai. Hủy lịch phải khớp receipt, detail và trạng thái DB. Khi thay gateway của
+stack observability, rotator được tạo lại và kiểm tra cả PID/network namespace mới.
 
 Migration được rà soát FK/CHECK/UNIQUE, generated column, collation và chỉ mục MySQL; kiểm thử nâng cấp và rollback ứng dụng trên MySQL 8.4/InnoDB thật. Alembic autogenerate tạo bản nháp để rà soát. DDL có thể implicit commit nên job migration kiểm tra từng bước và xử lý lỗi giữa chừng. Rollback ứng dụng giữ schema tương thích, không tự động chạy migration down.
 
@@ -639,8 +652,8 @@ Migration được rà soát FK/CHECK/UNIQUE, generated column, collation và ch
 1. Ghi thời điểm quyết định rollback, release lỗi và dấu hiệu quan sát được; giữ logs/traces phục vụ điều tra.
 2. Chọn manifest của release ổn định gần nhất có schema tương thích. Nếu không có release phù hợp, dừng chuyển image và xử lý lỗi theo tình trạng hệ thống.
 3. Khôi phục đồng bộ digest frontend, API và worker; giữ nguyên database volume, dữ liệu đã commit và schema tương thích.
-4. Kiểm tra readiness, đăng nhập, đọc khả dụng, tạo/hủy lịch bằng tài khoản lab và heartbeat worker. Kiểm tra probe chỉ khi môi trường đã triển khai; retry cùng key phải trả đúng lịch, không tạo bản trùng.
-5. Nếu môi trường có probe độc lập, xác nhận nó phục hồi theo ngưỡng và ghi trạng thái/timeline. Local/demo hiện chưa có đường này; mục tiêu ≤5 phút chưa được kiểm chứng.
+4. Kiểm tra readiness, đăng nhập, đọc khả dụng, tạo/hủy lịch, replay/logout bằng tài khoản lab và scan worker tiến triển; đối chiếu audit/notification không nhân đôi. Kiểm tra probe chỉ khi môi trường đã triển khai; retry cùng key phải trả đúng lịch, không tạo bản trùng.
+5. Ghi thời điểm quyết định đến readiness/smoke hoàn tất; controller giới hạn chung 300 giây. Diễn tập Linux Compose tự động kiểm chứng release lỗi, rollback và dữ liệu commit trước/trong rollout, xuất bằng chứng lab riêng. Đây không phải số đo production hay probe ngoài host. Nếu môi trường có probe độc lập, xác nhận nó phục hồi theo ngưỡng và ghi trạng thái/timeline.
 
 ### 9.4. Sao lưu và khôi phục dữ liệu
 

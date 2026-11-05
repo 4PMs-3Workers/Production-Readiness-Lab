@@ -223,6 +223,19 @@ def test_unknown_versions_do_not_reinterpret_deployment_evidence():
             parse(canonical(old), Manifest)
 
 
+def test_observability_derived_exporter_uses_the_selected_backend_digest():
+    data = spec_data()
+    data["configuration"] = configuration("https", True).model_dump()
+    data["vendor_images"] = vendor_inventory(True)
+    data["images"]["collector"] = dict(data["images"]["backend"])
+    data["services"].update(collector="collector", local_alert_receiver="backend")
+    spec = parse(canonical(data), Spec)
+    text = render(spec).decode()
+    assert "  backup_metrics_exporter:\n    image: " + spec.images["backend"].reference in text
+    assert "prl-backend:local" not in text
+    assert "SERVICE_RELEASE: " + spec.provenance.source_sha in text
+
+
 def test_json_schema_is_current():
     expected = json.loads((ROOT / "tools/deploy/release-manifest.schema.json").read_bytes())
     assert Manifest.model_json_schema() == expected

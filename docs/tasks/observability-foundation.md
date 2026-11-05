@@ -4,9 +4,12 @@ Tài liệu này mô tả cấu hình local/demo chạy cùng host bằng Docker
 
 [Backup/restore #36](mysql-backup-restore.md) cung cấp JSON status/outcomes đã sanitize
 (success/failure, identity/age/duration, artifact validation và rehearsal riêng).
-Core operations chạy không cần telemetry. Có thể tích hợp những tín hiệu đó sau;
-dashboard/alert hiện tại chưa được coi là monitor backup freshness hay xác nhận
-application restore. Evidence lịch sử bên dưới giữ nguyên phạm vi/source ban đầu.
+Core operations chạy không cần telemetry. Backup health dashboard và freshness/job
+alerts được nối trong [backup handoff](mysql-backup-restore.md)
+và [runbook](observability-runbook.md#backup-artifact-missing). Chúng theo dõi
+artifact local và state collector; không xác nhận remote delivery hoặc thay thế
+application restore rehearsal. Evidence lịch sử bên dưới giữ nguyên phạm vi/source
+ban đầu.
 
 ## Thành phần và vận hành
 

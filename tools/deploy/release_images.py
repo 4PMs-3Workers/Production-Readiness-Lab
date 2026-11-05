@@ -8,6 +8,7 @@ import re
 import subprocess
 import tarfile
 import tempfile
+import time
 from pathlib import Path
 
 from tools.deploy.release_manifest import (
@@ -28,9 +29,32 @@ from tools.deploy.release_manifest import (
 ARTIFACT_TYPE = "application/vnd.prl.release.v1"
 PAYLOAD_TYPE = "application/vnd.prl.release.v1+json"
 OCI_MANIFEST = "application/vnd.oci.image.manifest.v1+json"
+LOCAL_IMAGE_FORMAT = '{"id":{{json .Id}},"descriptor":{{json (index . "Descriptor")}}}'
 
 
-def command(args: list[str], *, cwd: Path | None = None, timeout: int = 600) -> bytes:
+def local_image_identity(image: Image, local: dict) -> str:
+    """Bind both classic config IDs and containerd manifest IDs to selected bytes.
+
+    Publication image_id remains the OCI config digest. A containerd store may
+    expose the selected *manifest* as its local ID; require its exact descriptor,
+    never an index, a mutable tag, or merely a matching source label.
+    """
+    identifier = local.get("id")
+    if identifier == image.image_id:
+        return image.image_id
+    descriptor = local.get("descriptor")
+    if (
+        identifier == image.digest
+        and isinstance(descriptor, dict)
+        and descriptor.get("digest") == image.digest
+        and descriptor.get("mediaType")
+        in {OCI_MANIFEST, "application/vnd.docker.distribution.manifest.v2+json"}
+    ):
+        return image.digest
+    raise ReleaseError("image-id-mismatch")
+
+
+def command(args: list[str], *, cwd: Path | None = None, timeout: float = 600) -> bytes:
     try:
         result = subprocess.run(args, cwd=cwd, capture_output=True, timeout=timeout, check=False)
         if result.returncode:
@@ -113,8 +137,23 @@ def archive_image(path: Path, repository: str, source_sha: str) -> Image:
 
 
 class Registry:
-    def __init__(self, *, plain_http: bool = False):
+    def __init__(self, *, plain_http: bool = False, deadline: float | None = None):
         self.plain_http = plain_http
+        self.deadline = deadline
+
+    def _command(self, args: list[str], *, cwd: Path | None = None) -> bytes:
+        remaining = 600.0 if self.deadline is None else self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise ReleaseError("deadline-exceeded")
+        try:
+            result = command(args, cwd=cwd, timeout=min(600, remaining))
+        except ReleaseError:
+            if self.deadline is not None and time.monotonic() >= self.deadline:
+                raise ReleaseError("deadline-exceeded") from None
+            raise
+        if self.deadline is not None and time.monotonic() >= self.deadline:
+            raise ReleaseError("deadline-exceeded")
+        return result
 
     def _allow(self, reference: str) -> None:
         # Plain HTTP is explicitly lab-only. Never disable TLS for remote credentials.
@@ -124,7 +163,7 @@ class Registry:
     def skopeo(self, operation: str, *args: str) -> bytes:
         auth = os.environ.get("REGISTRY_AUTH_FILE")
         options = ["--authfile", auth] if auth else []
-        return command(["skopeo", operation, *options, *args])
+        return self._command(["skopeo", operation, *options, *args])
 
     def oras(self, operation: list[str], reference: str, *args: str, cwd=None) -> bytes:
         self._allow(reference)
@@ -132,7 +171,7 @@ class Registry:
         options = ["--registry-config", auth] if auth else []
         if self.plain_http:
             options += ["--plain-http"]
-        return command(["oras", *operation, *options, reference, *args], cwd=cwd)
+        return self._command(["oras", *operation, *options, reference, *args], cwd=cwd)
 
     def copy_archive(self, path: Path, image: Image, source_sha: str, tag: str) -> None:
         repository = image.reference.split("@", 1)[0]
@@ -199,21 +238,20 @@ class Registry:
                 # Archive serialization/checksum can differ; the manifest,
                 # config, and all layer bytes above must retain their identities.
         if pull:
-            command(["docker", "pull", "--platform", image.platform, image.reference])
+            self._command(["docker", "pull", "--platform", image.platform, image.reference])
             local = load_json(
-                command(
+                self._command(
                     [
                         "docker",
                         "image",
                         "inspect",
                         "--format",
-                        '{"id":{{json .Id}}}',
+                        LOCAL_IMAGE_FORMAT,
                         image.reference,
                     ]
                 )
             )
-            if local != {"id": image.image_id}:
-                raise ReleaseError("image-id-mismatch")
+            local_image_identity(image, local)
 
     def verify_images(self, spec: Spec, *, pull: bool = False, complete: bool = False) -> None:
         for image in spec.images.values():
@@ -257,15 +295,22 @@ class Registry:
         auth = os.environ.get("REGISTRY_AUTH_FILE")
         if auth:
             options += ["--registry-config", auth]
+        remaining = 60.0 if self.deadline is None else min(60, self.deadline - time.monotonic())
+        if remaining <= 0:
+            raise ReleaseError("deadline-exceeded")
         try:
             result = subprocess.run(
                 ["oras", "manifest", "fetch", *options, target],
                 capture_output=True,
-                timeout=60,
+                timeout=remaining,
                 check=False,
             )
         except (OSError, subprocess.TimeoutExpired):
+            if self.deadline is not None and time.monotonic() >= self.deadline:
+                raise ReleaseError("deadline-exceeded") from None
             raise ReleaseError("tool-unavailable") from None
+        if self.deadline is not None and time.monotonic() >= self.deadline:
+            raise ReleaseError("deadline-exceeded")
         if result.returncode == 0:
             return result.stdout
         if re.search(
@@ -295,7 +340,7 @@ class Registry:
                 "artifact.json",
                 "release.json:" + PAYLOAD_TYPE,
             ]
-            command(
+            self._command(
                 ["oras", "push", "--oci-layout", "layout:" + manifest.release_id, *parameters],
                 cwd=cwd,
             )

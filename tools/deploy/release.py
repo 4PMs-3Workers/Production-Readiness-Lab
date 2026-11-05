@@ -74,6 +74,11 @@ def candidate(
 def render(spec: Spec, *, backup: bool = False) -> bytes:
     require_compatible(spec)
     names = {name: spec.images[key].reference for name, key in spec.services.items()}
+    if spec.configuration.observability:
+        # The merged backup-monitoring foundation reuses the shared backend.
+        # Its derived service must not retain a mutable local image reference.
+        names["backup_metrics_exporter"] = spec.images["backend"].reference
+        names["gateway_log_rotate"] = spec.vendor_images["gateway"]
     if not backup:
         names.pop("backup")
     names.update(spec.vendor_images)
@@ -81,10 +86,11 @@ def render(spec: Spec, *, backup: bool = False) -> bytes:
     lines = ["# Generated from a validated release; apply LAST.", "services:"]
     for name, reference in sorted(names.items()):
         lines += [f"  {name}:", f"    image: {reference}", "    platform: linux/amd64"]
-        if name in spec.services:
+        if name in spec.services or name == "backup_metrics_exporter":
             lines += ["    build: !reset null"]
         if name in {"api", "worker", "schema"}:
             lines += ["    environment:", f"      ACCEPTED_SCHEMA_REVISIONS: {SCHEMA}"]
+            lines += [f"      SERVICE_RELEASE: {spec.provenance.source_sha}"]
     return ("\n".join(lines) + "\n").encode()
 
 

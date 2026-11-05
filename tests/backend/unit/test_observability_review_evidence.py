@@ -341,6 +341,7 @@ def test_runtime_evidence_keeps_only_sanitized_route_sli_alert_and_business_fact
                     "prl-db-pool",
                     "prl-worker-progress",
                     "prl-telemetry-loss",
+                    "prl-backup-health",
                 )
             ]
             + [
@@ -377,7 +378,9 @@ def test_runtime_evidence_keeps_only_sanitized_route_sli_alert_and_business_fact
     assert heartbeat_stale["alertname"] == "WorkerHeartbeatStale"
     assert heartbeat_stale["firing_budget_seconds"] == 90
     assert dashboards["all_five_captured"] is True
-    assert dashboards["captured_dashboard_count"] == 5
+    assert dashboards["all_required_captured"] is True
+    assert dashboards["required_dashboard_count"] == 6
+    assert dashboards["captured_dashboard_count"] == 6
     screenshot_rows = dashboards["screenshots"]
     assert isinstance(screenshot_rows, list)
     for screenshot in screenshot_rows:

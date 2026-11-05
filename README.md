@@ -510,7 +510,9 @@ snapshot, có manifest/checksum và completion nguyên tử. Restore bắt buộ
 riêng rỗng, verify toàn bộ schema/rows/ràng buộc trước khi chạy smoke ứng dụng thật.
 Lịch Linux, retention giữ last success, status JSON, quyền và cấu hình external
 nằm trong [handoff backup/restore](docs/tasks/mysql-backup-restore.md) và
-[recovery runbook](docs/tasks/mysql-recovery-runbook.md).
+[recovery runbook](docs/tasks/mysql-recovery-runbook.md). Dashboard freshness, job
+health và cách diễn giải remote-copy unknown nằm trong
+[backup health runbook](docs/tasks/observability-runbook.md#backup-artifact-missing).
 
 Diễn tập lặp lại trên checkout sạch: `python -m tools.backup.rehearsal` sau khi cài
 dependencies và chuẩn bị Docker/Compose local. Công cụ tạo source giả/target UUID
@@ -519,6 +521,16 @@ riêng bằng môi trường #34, chạy real gateway login/read/book/cancel/rep
 để cutover database thật. [Evidence lịch sử](docs/evidence/mysql-backup-restore/2026-10-28-rehearsal.json)
 và workflow `MySQL recovery` cung cấp kết quả kiểm chứng; payload backup/credentials
 không được publish.
+
+## Phát hành và rollback theo manifest (Issue #45)
+
+Deploy/rollback dùng manifest bất biến của [quy trình phát hành](docs/tasks/immutable-releases.md),
+giữ chung một khóa vận hành và chỉ cập nhật stable sau readiness, tiến triển worker
+và smoke nghiệp vụ đầy đủ. Rollback giữ nguyên database volume, không tự hạ schema.
+[Runbook deploy/rollback](docs/tasks/serialized-release-rollback.md) mô tả cấu hình
+ngoài Git, lệnh vận hành, xử lý gián đoạn và diễn tập Linux tự động có timeline
+phục hồi cùng kiểm chứng dữ liệu đã commit. Bằng chứng lab được tách rõ khỏi số
+đo trên môi trường triển khai thực tế.
 
 ## Đóng góp
 

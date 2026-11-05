@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 from urllib.request import urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import evidence  # noqa: E402
 from worker_status import WorkerProgressTracker, latest_worker_progress  # noqa: E402
 
@@ -24,7 +25,11 @@ ROOT = Path(__file__).resolve().parents[2]
 CONFIG_ROOT = ROOT
 REVISION_LABEL = "org.opencontainers.image.revision"
 APPLICATION_SERVICES = {"api", "worker", "frontend", "migrate", "schema", "seed"}
-SOURCE_SERVICES = APPLICATION_SERVICES | {"collector", "local_alert_receiver"}
+SOURCE_SERVICES = APPLICATION_SERVICES | {
+    "collector",
+    "local_alert_receiver",
+    "backup_metrics_exporter",
+}
 VENDOR_SERVICE_KEYS = {
     "mysql": "mysql",
     "gateway": "gateway",
@@ -660,6 +665,7 @@ class Demo:
                             "alertmanager",
                             "local_alert_receiver",
                             "gateway_log_rotate",
+                            "backup_metrics_exporter",
                         ]
                     )
                 self.compose("up", "-d", *services)
@@ -766,6 +772,10 @@ def _record_state(command, previous, *, succeeded=True):
 
 def main(argv=None):
     args = sys.argv[1:] if argv is None else argv
+    if args and args[0] in {"deploy", "rollback", "release-status"}:
+        from tools.deploy.rollout import main as managed
+
+        return managed(["status" if args[0] == "release-status" else args[0], *args[1:]])
     parsed = _parse_args(args)
     if parsed is None:
         print(
@@ -778,7 +788,16 @@ def main(argv=None):
     if requested_observability and requested_overlay != "https":
         return 2
     try:
-        with evidence.lifecycle_lock(ROOT / "build/deploy/.lifecycle.lock"):
+        with evidence.lifecycle_lock(evidence.lifecycle_directory(ROOT) / ".lifecycle.lock"):
+            if (
+                command in {"build", "migrate", "seed", "up", "stop", "down"}
+                and (evidence.lifecycle_directory(ROOT) / "release-state.json").exists()
+            ):
+                print(
+                    "Manifest-managed stack: use deploy/rollback and release-status",
+                    file=sys.stderr,
+                )
+                return 1
             sha = run(["git", "rev-parse", "HEAD"])
             if not re.fullmatch(r"[0-9a-f]{40}", sha):
                 raise OperationFailed()

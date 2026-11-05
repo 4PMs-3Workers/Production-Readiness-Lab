@@ -51,6 +51,7 @@ CONFIG_HASH_PATHS = (
     "tools/infra/grafana/dashboards/db-pool.json",
     "tools/infra/grafana/dashboards/worker-progress.json",
     "tools/infra/grafana/dashboards/telemetry-loss.json",
+    "tools/infra/grafana/dashboards/backup-health.json",
     "tools/infra/loki-rules/fake/gateway-sli.yml",
     "tools/infra/prometheus-rule-tests.yml",
     "tools/infra/gateway-log-rotate.sh",
@@ -78,6 +79,7 @@ _DASHBOARDS = {
     "prl-db-pool": "DB / pool",
     "prl-worker-progress": "Worker progress / backlog",
     "prl-telemetry-loss": "Telemetry loss",
+    "prl-backup-health": "Backup health",
 }
 _ERROR_CATEGORIES = {
     "AcceptanceFailure": "acceptance_failure",
@@ -452,7 +454,14 @@ def _project_screenshots(value: object) -> dict[str, object]:
     return {
         "required_dashboard_count": len(_DASHBOARDS),
         "captured_dashboard_count": len(screenshots),
-        "all_five_captured": len(screenshots) == len(_DASHBOARDS),
+        "all_five_captured": {
+            "prl-gateway",
+            "prl-api-errors",
+            "prl-db-pool",
+            "prl-worker-progress",
+            "prl-telemetry-loss",
+        }.issubset(seen),
+        "all_required_captured": len(screenshots) == len(_DASHBOARDS),
         "capture_region": "top dashboard overview, 1600x760; log panels omitted",
         "screenshots": screenshots,
     }

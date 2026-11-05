@@ -147,6 +147,7 @@ def _compose_environment(temp: Path) -> dict[str, str]:
         PRL_OPS_CIDRS="127.0.0.1/32",
         PRL_EXPECTED_WORKER_SLOTS="1",
         PRL_IMAGE_TAG="check-only",
+        PRL_BACKUP_VOLUME="prl-task6-check-backups",
         SERVICE_RELEASE="a" * 40,
     )
     return environment

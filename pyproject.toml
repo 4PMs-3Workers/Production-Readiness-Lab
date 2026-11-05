@@ -55,6 +55,8 @@ include = [
     "tests/release",
     "tools/infra/offhost/offhost_probe",
     "tests/backend/unit/test_offhost_monitor.py",
+    "tools/deploy/rollout*.py",
+    "tests/rollout",
 ]
 extraPaths = ["src/backend", "tools/infra/offhost"]
 venvPath = "."

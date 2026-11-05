@@ -29,6 +29,7 @@ OBSERVABILITY_SERVICES = {
     "alertmanager",
     "local_alert_receiver",
     "gateway_log_rotate",
+    "backup_metrics_exporter",
 }
 V2_SERVICES = SERVICES | OPERATIONAL_SERVICES | OBSERVABILITY_SERVICES
 V1_FIELDS = {
@@ -228,6 +229,11 @@ def lifecycle_lock(path):
                 msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
             else:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def lifecycle_directory(root):
+    """One host selection for legacy lifecycle commands and manifest operations."""
+    return Path(root) / "build" / "deploy"
 
 
 def main():

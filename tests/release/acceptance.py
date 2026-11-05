@@ -8,11 +8,12 @@ from tests.containers.test_compose_acceptance import (
     require_success,
 )
 from tools.deploy.release import render
-from tools.deploy.release_images import Registry, command
+from tools.deploy.release_images import LOCAL_IMAGE_FORMAT, Registry, command, local_image_identity
 from tools.deploy.release_manifest import (
     Spec,
     canonical,
     configuration,
+    load_json,
     parse,
     require_configuration,
 )
@@ -134,9 +135,21 @@ class ReleaseStack(ComposeAcceptance):
                     identifier,
                 ]
             )
-            assert actual.strip() == canonical(
-                {"id": expected.image_id, "reference": expected.reference}
+            observed = load_json(actual)
+            assert observed["reference"] == expected.reference
+            local = load_json(
+                command(
+                    [
+                        "docker",
+                        "image",
+                        "inspect",
+                        "--format",
+                        LOCAL_IMAGE_FORMAT,
+                        expected.reference,
+                    ]
+                )
             )
+            assert observed["id"] == local_image_identity(expected, local)
 
 
 def consume(spec: Spec, scratch: Path, registry: Registry) -> None:
