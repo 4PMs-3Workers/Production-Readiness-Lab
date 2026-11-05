@@ -358,7 +358,12 @@ def gateway_file_records(base, env):
             "gateway",
             "sh",
             "-c",
-            'for file in /var/log/prl/access.jsonl*; do [ -f "$file" ] && cat "$file"; done',
+            # Rotation can remove a glob match before either the test or cat.
+            # Missing files are a transient empty sample; other read errors fail.
+            "for file in /var/log/prl/access.jsonl*; do "
+            'if [ -f "$file" ]; then '
+            'cat "$file" || { [ ! -e "$file" ] || exit 1; }; '
+            "fi; done",
         ],
         cwd=ROOT,
         env=env,
