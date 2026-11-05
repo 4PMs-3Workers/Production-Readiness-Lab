@@ -95,24 +95,7 @@ class RolloutController:
 
     @staticmethod
     def _needs_recovery(state: HostState) -> bool:
-        op = state.operation
-        return op is not None and (
-            op.phase == "interrupted"
-            or op.phase == "failed"
-            and any(
-                e.phase
-                in {
-                    "migration",
-                    "rollout",
-                    "readiness",
-                    "smoke",
-                    "rollback_rollout",
-                    "rollback_readiness",
-                    "rollback_smoke",
-                }
-                for e in op.events
-            )
-        )
+        return state.operation is not None and state.operation.requires_recovery
 
     def _begin(
         self,
@@ -125,6 +108,7 @@ class RolloutController:
             command=command,
             orchestrator_sha=self.source_sha,
             target=selected,
+            recovery_pending=command == "rollback" or self._needs_recovery(state),
             events=[
                 Event(
                     phase="preflight" if command == "deploy" else "rollback_preflight",
@@ -148,6 +132,8 @@ class RolloutController:
         assert self.state is not None and self.state.operation is not None
         data = self.state.operation.model_dump(mode="json")
         data.update(operation_changes or {})
+        if phase in {"succeeded", "rolled_back"}:
+            data["recovery_pending"] = False
         data["events"].append(
             Event(
                 phase=phase,
@@ -219,6 +205,12 @@ class RolloutController:
                     return self._refuse(state, "deploy", "interrupted-operation")
             try:
                 prepared = self.consumer.resolve(reference)
+                if (
+                    self._needs_recovery(state)
+                    and state.operation is not None
+                    and prepared.selected != state.operation.target
+                ):
+                    raise RolloutError("invalid-manifest")
             except RolloutError as error:
                 return self._refuse(state, "deploy", error.reason)
             self._begin(state, prepared.selected)
