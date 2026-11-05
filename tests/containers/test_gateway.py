@@ -204,6 +204,44 @@ def certificate(directory):
     return cert_path, key_path
 
 
+def wait_for_gateway_upstreams(client):
+    deadline = time.monotonic() + 15
+    observations = {role: {"status": "pending"} for role in ("api", "frontend")}
+    reason = "attempt limit reached"
+    for _ in range(60):
+        ready = True
+        for role, path in (("api", "/api/v1/probe"), ("frontend", "/login")):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                ready = False
+                break
+            try:
+                response = client.get(path, timeout=min(1.0, remaining))
+            except httpx.TransportError:
+                observations[role] = {"status": "transport_error"}
+                ready = False
+                continue
+            observed_role = "unavailable"
+            if response.status_code == 200:
+                try:
+                    payload = response.json()
+                except ValueError:
+                    payload = None
+                value = payload.get("role") if isinstance(payload, dict) else None
+                observed_role = value if value in ("api", "frontend") else "unexpected"
+            observations[role] = {"status": response.status_code, "role": observed_role}
+            if response.status_code != 200 or observed_role != role:
+                ready = False
+        if ready and time.monotonic() < deadline:
+            return
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            reason = "deadline exceeded"
+            break
+        time.sleep(min(0.25, remaining))
+    pytest.fail(f"gateway/upstreams did not become ready ({reason}): {observations}")
+
+
 @pytest.fixture(scope="function", params=["local", "https"])
 def gateway(request, tmp_path_factory, backend_image):
     directory = tmp_path_factory.mktemp("gateway")
@@ -279,15 +317,7 @@ def gateway(request, tmp_path_factory, backend_image):
         run(*base, "up", "-d", env=env)
         run(*base, "exec", "-T", "gateway", "nginx", "-t", env=env)
         with httpx.Client(base_url=origin, verify=context, trust_env=False, timeout=15) as client:
-            for _ in range(60):
-                try:
-                    if client.get("/api/v1/probe").status_code == 200:
-                        break
-                except httpx.TransportError:
-                    pass
-                time.sleep(0.25)
-            else:
-                pytest.fail("gateway/upstream did not become ready")
+            wait_for_gateway_upstreams(client)
             yield client, mode, base, env
     finally:
         report = getattr(request.node, "rep_call", None)
@@ -299,6 +329,7 @@ def gateway(request, tmp_path_factory, backend_image):
 def test_real_routing_headers_and_spoofed_identity(gateway):
     client, mode, _, _ = gateway
     page = client.get("/login?private=secret-query")
+    assert page.status_code == 200
     assert page.json()["role"] == "frontend"
     for path in ("/api/v1", "/health/live", "/health/ready"):
         assert client.get(path).json()["role"] == "api"
