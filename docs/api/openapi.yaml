@@ -1715,8 +1715,33 @@ paths:
       - admin accounts
     post:
       description: Create an internal account; the submitted password is never returned
-        or audited.
+        or audited. This mutation requires the signed CSRF token in `X-CSRF-Token`.
+        Origin or Referer must match the configured application origin. Origin takes
+        precedence when both are supplied.
       operationId: create_account_api_v1_admin_accounts_post
+      parameters:
+      - description: Signed token matching the prl_csrf cookie.
+        in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+      - description: Preferred same-origin header. If present, it takes precedence
+          over Referer and must match the configured application origin.
+        in: header
+        name: Origin
+        required: false
+        schema:
+          format: uri
+          type: string
+      - description: Accepted only when Origin is absent; its origin must match the
+          configured application origin.
+        in: header
+        name: Referer
+        required: false
+        schema:
+          format: uri
+          type: string
       requestBody:
         content:
           application/json:
@@ -1873,7 +1898,9 @@ paths:
   /api/v1/admin/accounts/{account_id}:
     patch:
       description: Update an account using its current `updated_at` as a stale-write
-        precondition.
+        precondition. This mutation requires the signed CSRF token in `X-CSRF-Token`.
+        Origin or Referer must match the configured application origin. Origin takes
+        precedence when both are supplied.
       operationId: update_account_api_v1_admin_accounts__account_id__patch
       parameters:
       - in: path
@@ -1882,6 +1909,28 @@ paths:
         schema:
           format: uuid
           title: Account Id
+          type: string
+      - description: Signed token matching the prl_csrf cookie.
+        in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+      - description: Preferred same-origin header. If present, it takes precedence
+          over Referer and must match the configured application origin.
+        in: header
+        name: Origin
+        required: false
+        schema:
+          format: uri
+          type: string
+      - description: Accepted only when Origin is absent; its origin must match the
+          configured application origin.
+        in: header
+        name: Referer
+        required: false
+        schema:
+          format: uri
           type: string
       requestBody:
         content:
@@ -2055,6 +2104,9 @@ paths:
   /api/v1/admin/accounts/{account_id}/password:
     post:
       description: Set a new internal password and revoke every existing session atomically.
+        This mutation requires the signed CSRF token in `X-CSRF-Token`. Origin or
+        Referer must match the configured application origin. Origin takes precedence
+        when both are supplied.
       operationId: reset_password_api_v1_admin_accounts__account_id__password_post
       parameters:
       - in: path
@@ -2063,6 +2115,28 @@ paths:
         schema:
           format: uuid
           title: Account Id
+          type: string
+      - description: Signed token matching the prl_csrf cookie.
+        in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+      - description: Preferred same-origin header. If present, it takes precedence
+          over Referer and must match the configured application origin.
+        in: header
+        name: Origin
+        required: false
+        schema:
+          format: uri
+          type: string
+      - description: Accepted only when Origin is absent; its origin must match the
+          configured application origin.
+        in: header
+        name: Referer
+        required: false
+        schema:
+          format: uri
           type: string
       requestBody:
         content:

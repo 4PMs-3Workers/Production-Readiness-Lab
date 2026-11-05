@@ -23,6 +23,42 @@ from app.services import admin_accounts as account_service
 
 router = APIRouter(prefix="/admin/accounts", tags=["admin accounts"])
 
+ACCOUNT_WRITE_OPENAPI = {
+    "parameters": [
+        {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": True,
+            "description": "Signed token matching the prl_csrf cookie.",
+            "schema": {"type": "string"},
+        },
+        {
+            "name": "Origin",
+            "in": "header",
+            "required": False,
+            "description": (
+                "Preferred same-origin header. If present, it takes precedence over Referer "
+                "and must match the configured application origin."
+            ),
+            "schema": {"type": "string", "format": "uri"},
+        },
+        {
+            "name": "Referer",
+            "in": "header",
+            "required": False,
+            "description": (
+                "Accepted only when Origin is absent; its origin must match the configured "
+                "application origin."
+            ),
+            "schema": {"type": "string", "format": "uri"},
+        },
+    ]
+}
+ACCOUNT_WRITE_DESCRIPTION = (
+    "This mutation requires the signed CSRF token in `X-CSRF-Token`. Origin or Referer "
+    "must match the configured application origin. Origin takes precedence when both are supplied."
+)
+
 
 def account_responses(success: int, *statuses: int) -> dict[int | str, dict[str, Any]]:
     headers = {
@@ -61,6 +97,11 @@ async def list_accounts(
     status_code=201,
     response_model=AccountItem,
     responses=account_responses(201, 401, 403, 409, 413, 415, 422, 500, 503),
+    description=(
+        "Create an internal account; the submitted password is never returned or audited. "
+        + ACCOUNT_WRITE_DESCRIPTION
+    ),
+    openapi_extra=ACCOUNT_WRITE_OPENAPI,
 )
 async def create_account(
     payload: AccountCreateRequest,
@@ -84,6 +125,11 @@ async def create_account(
     "/{account_id}",
     response_model=AccountItem,
     responses=account_responses(200, 401, 403, 404, 409, 413, 415, 422, 500, 503),
+    description=(
+        "Update an account using its current `updated_at` as a stale-write precondition. "
+        + ACCOUNT_WRITE_DESCRIPTION
+    ),
+    openapi_extra=ACCOUNT_WRITE_OPENAPI,
 )
 async def update_account(
     account_id: UUID,
@@ -108,6 +154,11 @@ async def update_account(
     "/{account_id}/password",
     response_model=AccountItem,
     responses=account_responses(200, 401, 403, 404, 409, 413, 415, 422, 500, 503),
+    description=(
+        "Set a new internal password and revoke every existing session atomically. "
+        + ACCOUNT_WRITE_DESCRIPTION
+    ),
+    openapi_extra=ACCOUNT_WRITE_OPENAPI,
 )
 async def reset_password(
     account_id: UUID,
