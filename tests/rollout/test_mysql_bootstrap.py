@@ -36,7 +36,21 @@ def test_mysql_health_rejects_temporary_server_before_init_scripts_complete(tmp_
         encoding="utf-8",
         newline="\n",
     )
-    environment = dict(os.environ, MYSQL_ROOT_PASSWORD=secrets.token_hex(24))
+    runtime_user_script = tmp_path / "10-runtime-user.sh"
+    runtime_user_script.write_text(
+        "#!/bin/bash\nset -eu\n"
+        'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --protocol=socket -uroot '
+        "--connect-timeout=3 <<SQL\n"
+        "CREATE USER 'prl_runtime'@'%' IDENTIFIED BY '$PRL_RUNTIME_PASSWORD';\n"
+        "SQL\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    environment = dict(
+        os.environ,
+        MYSQL_ROOT_PASSWORD=secrets.token_hex(24),
+        PRL_RUNTIME_PASSWORD=secrets.token_hex(24),
+    )
     identifier = None
     try:
         identifier = require_success(
@@ -55,8 +69,13 @@ def test_mysql_health_rejects_temporary_server_before_init_scripts_complete(tmp_
                     "/var/lib/mysql",
                     "--env",
                     "MYSQL_ROOT_PASSWORD",
+                    "--env",
+                    "PRL_RUNTIME_PASSWORD",
                     "--mount",
                     f"type=bind,source={script.resolve()},target=/tmp/prl-hold-bootstrap.sh,readonly",
+                    "--mount",
+                    "type=bind,source="
+                    f"{runtime_user_script.resolve()},target=/tmp/prl-runtime-user.sh,readonly",
                     "--entrypoint",
                     "bash",
                     image,
@@ -65,6 +84,8 @@ def test_mysql_health_rejects_temporary_server_before_init_scripts_complete(tmp_
                     # every host, including Windows bind mounts with +x bits.
                     "cp /tmp/prl-hold-bootstrap.sh /docker-entrypoint-initdb.d/00-hold-bootstrap.sh"
                     " && chmod 0644 /docker-entrypoint-initdb.d/00-hold-bootstrap.sh"
+                    " && cp /tmp/prl-runtime-user.sh /docker-entrypoint-initdb.d/10-runtime-user.sh"
+                    " && chmod 0644 /docker-entrypoint-initdb.d/10-runtime-user.sh"
                     " && exec /usr/local/bin/docker-entrypoint.sh mysqld",
                 ],
                 env=environment,
