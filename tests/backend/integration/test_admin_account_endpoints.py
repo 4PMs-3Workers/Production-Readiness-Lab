@@ -927,23 +927,26 @@ async def test_admin_mutations_work_with_deployed_runtime_grants(account_env, my
         for statement in statements
     )
 
-    async with mysql_engine.begin() as connection:
-        await connection.exec_driver_sql(
-            f"CREATE USER '{runtime_user}'@'%%' IDENTIFIED BY '{runtime_password}'"
-        )
-        for statement in statements:
-            if "'prl_seed'@'%'" in statement:
-                statement = statement.split(", 'prl_seed'@'%'", maxsplit=1)[0] + ";"
-            statement = statement.replace("'prl_runtime'@'%'", f"'{runtime_user}'@'%%'")
-            statement = statement.replace("prl.", f"`{schema}`.")
-            await connection.exec_driver_sql(statement)
-
     root_factory = app.state.session_factory
-    runtime_engine = create_database_engine(
-        make_url(mysql_engine.url).set(username=runtime_user, password=runtime_password),
-    )
-    app.state.session_factory = async_sessionmaker(runtime_engine, expire_on_commit=False)
+    runtime_engine = None
+    user_created = False
     try:
+        async with mysql_engine.begin() as connection:
+            await connection.exec_driver_sql(
+                f"CREATE USER '{runtime_user}'@'%%' IDENTIFIED BY '{runtime_password}'"
+            )
+            user_created = True
+            for statement in statements:
+                if "'prl_seed'@'%'" in statement:
+                    statement = statement.split(", 'prl_seed'@'%'", maxsplit=1)[0] + ";"
+                statement = statement.replace("'prl_runtime'@'%'", f"'{runtime_user}'@'%%'")
+                statement = statement.replace("prl.", f"`{schema}`.")
+                await connection.exec_driver_sql(statement)
+
+        runtime_engine = create_database_engine(
+            make_url(mysql_engine.url).set(username=runtime_user, password=runtime_password),
+        )
+        app.state.session_factory = async_sessionmaker(runtime_engine, expire_on_commit=False)
         await sign_in(client)
         async with runtime_engine.begin() as connection:
             with pytest.raises(SQLAlchemyError):
@@ -982,9 +985,11 @@ async def test_admin_mutations_work_with_deployed_runtime_grants(account_env, my
         assert reset.json()["id"] == str(admin_id)
     finally:
         app.state.session_factory = root_factory
-        await runtime_engine.dispose()
-        async with mysql_engine.begin() as connection:
-            await connection.exec_driver_sql(f"DROP USER '{runtime_user}'@'%%'")
+        if runtime_engine is not None:
+            await runtime_engine.dispose()
+        if user_created:
+            async with mysql_engine.begin() as connection:
+                await connection.exec_driver_sql(f"DROP USER '{runtime_user}'@'%%'")
 
     async with factory() as db:
         created_user = await db.get(User, created_id)
