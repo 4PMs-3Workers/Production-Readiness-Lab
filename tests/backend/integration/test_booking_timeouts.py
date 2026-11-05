@@ -69,9 +69,12 @@ async def _assert_booking_locks_released(env):
         ("duplicate-winner", "query", 0),
         pytest.param("duplicate-winner", "query", 0.75, id="duplicate-winner-query-slow-setup"),
         ("eligibility", "query", 0),
+        pytest.param("eligibility", "query", 0.75, id="eligibility-query-slow-setup"),
         ("flush", "query", 0),
+        pytest.param("flush", "query", 0.75, id="flush-query-slow-setup"),
         ("committed-key", "request", 0),
         ("eligibility", "request", 0),
+        pytest.param("eligibility", "request", 0.75, id="eligibility-request-slow-setup"),
     ],
 )
 async def test_query_budget_cancels_database_work_and_cleans_transaction(
@@ -80,11 +83,16 @@ async def test_query_budget_cancels_database_work_and_cleans_transaction(
     env, _, starts_at = booking_env
     payload = _request(env, starts_at)
     replay = stage in {"committed-key", "duplicate-winner"}
+    setup_settings = auth_settings.model_copy(
+        update={"db_query_timeout_seconds": 10.0, "db_lock_timeout_seconds": 5.0}
+    )
     # Force escaped exception repr, as binary UUID values can do with random fixtures.
     key = 'timeout-"quoted"-key' if stage == "duplicate-winner" else "timeout-key"
     if replay:
         async with env.factory() as seed:
-            receipt, _ = await _create(seed, env, payload, auth_settings, key=key)
+            receipt, _ = await _create(
+                seed, env, payload, setup_settings, key=key, request_budget=15.0
+            )
             if stage == "duplicate-winner":
                 async with seed.begin():
                     row = await seed.get(Appointment, receipt.id)
@@ -92,19 +100,22 @@ async def test_query_budget_cancels_database_work_and_cleans_transaction(
                     row.status = "CANCELLED"
                     row.cancelled_at = await users.utc_now(seed)
     settings = auth_settings.model_copy(
-        update={"db_query_timeout_seconds": 0.25 if limiter == "query" else 3.0}
+        update={
+            "db_query_timeout_seconds": 5.0 if limiter == "query" else 30.0,
+            "db_lock_timeout_seconds": 5.0,
+        }
     )
     reads = 0
-    request_budget = 0.25 if limiter == "request" else 3.0
+    request_budget = 5.0 if limiter == "request" else 30.0
     if stage == "duplicate-winner":
         # Reaching the winner read requires a complete write/unique-error cycle.
         # Lock, write and request budgets must not expire before that target read.
-        # Only the winner lookup under test retains the 250 ms query budget.
+        # Only the winner lookup under test retains the target query budget.
         read_settings = settings
         settings = settings.model_copy(
             update={"db_query_timeout_seconds": 10.0, "db_lock_timeout_seconds": 5.0}
         )
-        request_budget = 15.0
+        request_budget = 30.0
         original_read = booking._read_committed_key
 
         async def read_with_short_budget(db, **kwargs):
@@ -130,7 +141,12 @@ async def test_query_budget_cancels_database_work_and_cleans_transaction(
 
     async def slow_query(db):
         entered.set()
-        await db.execute(text("SELECT SLEEP(0.8)"))
+        # Keep real MySQL work active beyond the 5s target budget without one
+        # long server-side sleep retaining transaction locks after cancellation.
+        # Nominally 8s of work exceeds the target budget; the separate watchdog
+        # fails with TimeoutError if neither the work nor the target budget finishes.
+        for _ in range(10):
+            await db.execute(text("SELECT SLEEP(0.8)"))
         completed.set()
 
     if replay:
@@ -167,13 +183,16 @@ async def test_query_budget_cancels_database_work_and_cleans_transaction(
 
             monkeypatch.setattr(db, "flush", slow_flush)
         with pytest.raises(AppError) as caught:
-            await _create(
-                db,
-                env,
-                payload,
-                settings,
-                key=key,
-                request_budget=request_budget,
+            await asyncio.wait_for(
+                _create(
+                    db,
+                    env,
+                    payload,
+                    settings,
+                    key=key,
+                    request_budget=request_budget,
+                ),
+                timeout=15.0,
             )
         assert (caught.value.status_code, caught.value.code) == (503, "SERVICE_UNAVAILABLE")
         if setup_delay:
