@@ -178,6 +178,7 @@ class MonitorRunner:
             probe_health="healthy" if all(result.success for result in results) else "degraded",
             delivery_health=self.state.delivery_health,
         )
+        state = self._queue_notifications(state)
         self.state = state
         self.store.save(state)
         self.state = await self._process_notifications(self.state)
@@ -259,9 +260,11 @@ class MonitorRunner:
                     delivery_attempts_total=current.delivery_attempts_total + 1,
                 )
                 self.store.save(current)
+                self.state = current
                 pending[0] = replace(pending[0], attempts=pending[0].attempts + 1)
                 current = replace(current, pending=tuple(pending))
                 self.store.save(current)
+                self.state = current
                 result = await self.notifier.deliver(
                     NotificationEvent(
                         event.event_id, event.check_name, event.firing, event.occurred_at
@@ -303,6 +306,7 @@ class MonitorRunner:
                     delivery_health="healthy" if not pending else "degraded",
                 )
                 self.store.save(current)
+                self.state = current
             else:
                 pending[0] = replace(
                     pending[0],
@@ -317,6 +321,7 @@ class MonitorRunner:
                     delivery_health="degraded",
                 )
                 self.store.save(current)
+                self.state = current
                 break
         return current
 

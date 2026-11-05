@@ -499,6 +499,110 @@ class FakeNotifier:
         return DeliveryResult(self.delivered, "accepted" if self.delivered else "timeout")
 
 
+def test_runner_persists_transition_outbox_before_crash_and_recovers_after_probe_improves(
+    tmp_path,
+):
+    path = config_file(tmp_path)
+    path.write_text(
+        path.read_text(encoding="utf-8")
+        .replace("failure_threshold = 3", "failure_threshold = 1")
+        .replace("recovery_threshold = 2", "recovery_threshold = 1")
+        .replace("delivery_retries = 2", "delivery_retries = 0"),
+        encoding="utf-8",
+    )
+    config = load_config(path)
+    backing_store = StateStore(
+        config.state_path,
+        max_bytes=config.max_state_bytes,
+        max_pending=config.max_pending_notifications,
+    )
+
+    class CrashAfterEvaluationStore:
+        def __init__(self):
+            self.saves = 0
+            self.max_check_states = backing_store.max_check_states
+
+        def load(self):
+            return backing_store.load()
+
+        def save(self, state):
+            self.saves += 1
+            backing_store.save(state)
+            if self.saves == 2:
+                raise RuntimeError("simulated crash after evaluation persistence")
+
+    crashed = MonitorRunner(
+        config,
+        transport=FakeTransport(False),
+        notifier=FakeNotifier(True),
+        store=CrashAfterEvaluationStore(),
+    )
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        asyncio.run(crashed.run_once())
+
+    durable = backing_store.load()
+    assert durable.checks["gateway"].firing is True
+    assert len(durable.pending) == 1
+    firing_id = durable.pending[0].event_id
+
+    recovered_notifier = FakeNotifier(True)
+    recovered = MonitorRunner(
+        config,
+        transport=FakeTransport(True),
+        notifier=recovered_notifier,
+        store=backing_store,
+        clock=lambda: datetime(2026, 11, 5, 0, 1, tzinfo=UTC),
+    )
+    asyncio.run(recovered.run_once())
+
+    assert recovered_notifier.events[0].event_id == firing_id
+    assert recovered_notifier.events[0].firing is True
+    assert [event.firing for event in recovered_notifier.events] == [True, False]
+
+
+@pytest.mark.asyncio
+async def test_cycle_timeout_keeps_earlier_delivery_acknowledgement_and_attempts(tmp_path):
+    path = config_file(tmp_path)
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            'state_path = "state.json"',
+            'state_path = "state.json"\n'
+            "delivery_cycle_timeout_seconds = 1\n"
+            "delivery_retries = 0",
+        ),
+        encoding="utf-8",
+    )
+    config = load_config(path)
+    first = PendingNotification("a" * 64, "gateway", True, "2026-11-05T00:00:00+00:00")
+    second = PendingNotification("b" * 64, "gateway", False, "2026-11-05T00:01:00+00:00")
+    store = StateStore(
+        config.state_path,
+        max_bytes=config.max_state_bytes,
+        max_pending=config.max_pending_notifications,
+    )
+    store.save(MonitorState(pending=(first, second)))
+
+    class SlowNotifier:
+        async def deliver(self, event):
+            await asyncio.sleep(0.6)
+            return DeliveryResult(True, "accepted")
+
+    runner = MonitorRunner(
+        config,
+        transport=FakeTransport(True),
+        notifier=SlowNotifier(),
+        store=store,
+    )
+    result = await runner._process_notifications(runner.state)
+    durable = store.load()
+
+    assert [event.event_id for event in durable.pending] == [second.event_id]
+    assert durable.pending[0].attempts == 1
+    assert durable.delivery_attempts_total == 2
+    assert durable.last_delivery_outcome == "timeout"
+    assert result == durable
+
+
 def test_runner_recovers_pending_firing_delivery_after_restart_and_resolves(tmp_path):
     path = config_file(tmp_path)
     original = path.read_text(encoding="utf-8")
