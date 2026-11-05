@@ -73,3 +73,15 @@
 - [x] Report stale probe state as degraded and reconcile removed checks without losing firing/resolved delivery.
 - [x] Keep notification saturation bounded; defer new checks without restarting the service, then resume after retired state drains.
 - [x] Re-run backend unit tests, monitor TLS/network integration tests, Black, Ruff, Pyright, and diff checks.
+
+### PR #58 team lead review follow-up
+
+The review on head `123eb01` reproduced seven issues in the off-host monitor. Implement each item with a regression test before its fix. Keep the work in five commits grouped by the shared durable-state and transport boundaries.
+
+1. **Probe parsing and status validation** — `tools/infra/offhost/offhost_probe/probe.py`, unit and local TLS integration tests. Read close-delimited responses to EOF under the existing deadline and byte cap; reject status codes outside 100–599 as bounded probe failures. Commit: `fix(monitor): validate complete probe responses`.
+2. **Webhook cancellation deadline** — `tools/infra/offhost/offhost_probe/notify.py`, unit and real local TLS tests. Ensure TLS shutdown after timeout cannot extend an attempt beyond its configured budget. Commit: `fix(monitor): bound webhook cancellation cleanup`.
+3. **Durable transitions and delivery progress** — `tools/infra/offhost/offhost_probe/runtime.py`, runtime persistence tests. Save evaluator transitions with their pending events, and publish each persisted delivery mutation to the live runner state before another cancellation point. Commit: `fix(monitor): preserve durable notification progress`.
+4. **Serial-cycle firing bound** — `config.py`, `cli.py`, runtime tests, and sample configuration if needed. Validate detection latency using the worst-case serial probe cycle and the configured failure threshold. Commit: `fix(monitor): validate serial-cycle detection latency`.
+5. **Serialized state capacity** — `config.py`, `runtime.py`, `state.py`, and state/outbox tests. Guarantee that accepted configurations can persist their bounded evaluation and notification state; saturation must remain degraded and recoverable. Commit: `fix(monitor): bound serialized notification state`.
+
+Run each focused regression red before its implementation and green after. After all five commits, run the monitor unit and TLS integration suites, backend quality checks, review the complete diff, push, and verify both push and pull-request CI. No merge or deployment.
