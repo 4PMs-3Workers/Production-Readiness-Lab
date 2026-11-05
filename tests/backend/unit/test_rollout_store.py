@@ -45,10 +45,9 @@ def test_replacing_operation_retains_historical_authoritative_decision(tmp_path)
     store.save(first)
     second = replace_state(first, operation=None)
     store.save(second)
-    assert (
-        parse((tmp_path / "operations" / f"{op.operation_id}.json").read_bytes(), HostState)
-        == first
-    )
+    snapshots = list((tmp_path / "operations" / op.operation_id).glob("*.json"))
+    assert len(snapshots) == 1
+    assert parse(snapshots[0].read_bytes(), HostState) == first
     assert store.load() == second
 
 

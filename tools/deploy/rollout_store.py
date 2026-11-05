@@ -25,7 +25,9 @@ class StateStore:
         self.lock_path = directory / ".lifecycle.lock"
 
     def _directory(self, path: Path) -> None:
-        if self.directory.is_symlink() or path.is_symlink():
+        if self.directory.is_symlink() or any(
+            candidate.is_symlink() for candidate in (path, *path.parents)
+        ):
             raise RolloutError("invalid-state")
         path.mkdir(parents=True, exist_ok=True, mode=0o700)
 
@@ -55,8 +57,9 @@ class StateStore:
             raise RolloutError("invalid-state") from None
 
     def save(self, state: HostState) -> None:
-        # An old operation is retained before replacing it. This archive never
-        # serves as the authoritative stable pointer; only release-state.json does.
+        # Retirement is not a second authoritative commit. Content addressing
+        # retains every prepared snapshot if the subsequent state replace fails;
+        # later refusals/interruptions can archive their own distinct snapshot.
         prior = self.load()
         if prior is not None:
             if (prior.project, prior.configuration_sha256) != (
@@ -68,7 +71,13 @@ class StateStore:
                 state.operation is None
                 or prior.operation.operation_id != state.operation.operation_id
             ):
-                archive = self.directory / "operations" / f"{prior.operation.operation_id}.json"
+                digest = hashlib.sha256(canonical(prior)).hexdigest()
+                archive = (
+                    self.directory / "operations" / prior.operation.operation_id / f"{digest}.json"
+                )
+                self._directory(archive.parent)
+                if archive.is_symlink():
+                    raise RolloutError("invalid-state")
                 if archive.exists():
                     if read(archive, HostState) != prior:
                         raise RolloutError("invalid-state")
