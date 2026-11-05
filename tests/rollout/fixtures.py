@@ -31,18 +31,20 @@ from tools.deploy.release_manifest import (
 REGISTRY_IMAGE = "registry:2.8.3"
 OWNER_LABEL = "org.prl.issue45.owner"
 BAD_API = """
-from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
-class Handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200 if self.path == '/health/ready' else 503)
-        self.end_headers()
-        self.wfile.write(b'{}')
-    def do_POST(self):
-        self.send_response(503)
-        self.end_headers()
-    def log_message(self,*args):
-        pass
-ThreadingHTTPServer(('0.0.0.0',8000),Handler).serve_forever()
+import re
+import uvicorn
+from starlette.responses import JSONResponse
+from app.main import app
+@app.middleware('http')
+async def fail_after_booking(request,call_next):
+    path=request.url.path
+    detail=request.method=='GET' and re.fullmatch(r'/api/v1/appointments/[0-9a-f-]{36}',path)
+    cancel=request.method=='POST' and path.endswith('/cancel')
+    if detail or cancel:
+        return JSONResponse({'code':'fixture-failed'},status_code=503)
+    return await call_next(request)
+# Real /health/ready, login, booking and replay; no raw access/body logging.
+uvicorn.run(app,host='0.0.0.0',port=8000,proxy_headers=False,access_log=False,log_level='warning')
 """
 
 

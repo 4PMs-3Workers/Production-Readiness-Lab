@@ -20,7 +20,7 @@ from tools.deploy.rollout_http import SmokeCredentials, SmokeSession
 from tools.deploy.rollout_readiness import ready
 from tools.deploy.rollout_runtime import Deadline, ReleaseRuntime
 from tools.deploy.rollout_smoke import booking_payload, business_smoke
-from tools.deploy.rollout_smoke_journal import SmokeJournal
+from tools.deploy.rollout_smoke_journal import SmokeJournal, binding
 from tools.deploy.rollout_state import RolloutError
 from tools.deploy.rollout_store import StateStore
 
@@ -58,6 +58,7 @@ def rehearse(directory: Path) -> dict:
         journal = SmokeJournal(private / "smoke-transaction.json")
         committed: list[tuple[dict, str, dict]] = []
         during = [False]
+        failed_smoke: list[str] = []
 
         with SmokeSession(stack.origin, Deadline(1200)) as actor:
             actor.login(account)
@@ -78,6 +79,18 @@ def rehearse(directory: Path) -> dict:
                         book()
                         concurrent_rollback_is_refused(controller)
                         during[0] = True
+                    elif (
+                        controller.state is not None
+                        and controller.state.operation is not None
+                        and controller.state.operation.phase == "rollback_rollout"
+                    ):
+                        pending = journal.load(binding(self.origin, account.email))
+                        if pending is None or pending.receipt is None:
+                            raise RolloutError("smoke-cleanup-failed")
+                        identifier = str(pending.receipt.id)
+                        if self.appointment_status(identifier) != "UPCOMING":
+                            raise RolloutError("smoke-cleanup-failed")
+                        failed_smoke.append(identifier)
                     super().rollout()
 
             runtime = Runtime(
@@ -135,10 +148,21 @@ def rehearse(directory: Path) -> dict:
             if runtime.database_identity() != before_volume:
                 raise RolloutError("volume-changed")
             runtime.verify_images()
+            if (
+                len(failed_smoke) != 1
+                or journal.load(binding(runtime.origin, account.email)) is not None
+                or runtime.appointment_status(failed_smoke[0]) != "CANCELLED"
+                or runtime.effects(failed_smoke[0]) != (1, 2, 4)
+            ):
+                raise RolloutError("smoke-cleanup-failed")
             stage = "committed_data_verification"
             for payload, key, receipt in committed:
                 appointment = str(UUID(receipt["id"]))
-                actor.request("GET", f"/api/v1/appointments/{appointment}", 200, private=True)
+                detail = actor.request(
+                    "GET", f"/api/v1/appointments/{appointment}", 200, private=True
+                ).json()
+                if detail["status"] != "UPCOMING":
+                    raise RolloutError("smoke-failed")
                 replay = actor.request(
                     "POST", "/api/v1/appointments", 200, key=key, private=True, json=payload
                 ).json()

@@ -26,8 +26,10 @@ def test_local_manifests_are_explicit_immutable_protocol_fixtures(tmp_path):
     )
 
 
-def test_known_bad_api_is_healthy_only_at_readiness_and_has_no_payload_logging():
+def test_known_bad_api_uses_real_booking_but_breaks_detail_and_cancellation():
     compile(BAD_API, "known-bad-api-fixture", "exec")
-    assert "'/health/ready'" in BAD_API
+    assert "/health/ready" in BAD_API
     assert "503" in BAD_API
-    assert "def log_message" in BAD_API
+    assert "from app.main import app" in BAD_API
+    assert "access_log=False" in BAD_API
+    assert "path.endswith('/cancel')" in BAD_API

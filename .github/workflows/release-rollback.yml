@@ -38,8 +38,8 @@ jobs:
       - uses: ./.github/actions/release-tools
       - name: Check rollout tooling
         run: |
-          python -m black --check tools/deploy/rollout*.py tests/rollout tests/backend/unit/test_rollout*.py tests/backend/unit/rollout_fixtures.py
-          python -m ruff check tools/deploy/rollout*.py tests/rollout tests/backend/unit/test_rollout*.py tests/backend/unit/rollout_fixtures.py
+          python -m black --check tools/deploy/rollout*.py tests/rollout tests/backend/unit/test_rollout*.py tests/backend/unit/rollout_fixtures.py tests/backend/unit/smoke_fixtures.py
+          python -m ruff check tools/deploy/rollout*.py tests/rollout tests/backend/unit/test_rollout*.py tests/backend/unit/rollout_fixtures.py tests/backend/unit/smoke_fixtures.py
       - name: Required isolated Linux rollback and committed-data proof
         run: |
           python -m pytest tests/rollout -q --tb=short --junitxml=build/rollback-tests.xml
