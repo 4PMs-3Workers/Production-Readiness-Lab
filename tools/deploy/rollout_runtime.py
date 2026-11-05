@@ -5,14 +5,23 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from tools.deploy.release import render
 from tools.deploy.release_manifest import MAX_JSON, Manifest, load_json
+from tools.deploy.rollout_schema import CATALOG_SQL, REVISION_SQL, SchemaSnapshot, snapshot
 from tools.deploy.rollout_state import Reason, RolloutError
+
+
+@dataclass(frozen=True)
+class DatabaseIdentity:
+    container_id: str
+    volume: str
 
 
 class Deadline:
@@ -186,3 +195,159 @@ class ReleaseRuntime:
             return result
         except (ValueError, TypeError, UnicodeError):
             raise RolloutError("invalid-state") from None
+
+    def inspect(self, service: str, *, optional: bool = False) -> dict | None:
+        identifier = self.compose("ps", "--all", "-q", service).decode().strip()
+        if not identifier and optional:
+            return None
+        if not re.fullmatch(r"[0-9a-f]{64}", identifier):
+            raise RolloutError("image-mismatch")
+        raw = self.command(
+            [
+                "docker",
+                "inspect",
+                "--format",
+                '{"id":{{json .Id}},"image":{{json .Image}},'
+                '"reference":{{json .Config.Image}},"labels":{{json .Config.Labels}},'
+                '"running":{{json .State.Running}},"mounts":{{json .Mounts}},'
+                '"health":{{if .State.Health}}{{json .State.Health.Status}}{{else}}null{{end}}}',
+                identifier,
+            ]
+        )
+        record = self.json_output(raw)
+        if (
+            record.get("id") != identifier
+            or (record.get("labels") or {}).get("com.docker.compose.project") != self.project
+            or (record.get("labels") or {}).get("com.docker.compose.service") != service
+        ):
+            raise RolloutError("image-mismatch")
+        return record
+
+    def verify_images(self) -> None:
+        if self.manifest is None:
+            raise RolloutError("invalid-manifest")
+        for service in ("api", "worker", "frontend"):
+            key = "frontend" if service == "frontend" else "backend"
+            record = self.inspect(service)
+            image = self.manifest.images[key]
+            if (
+                record is None
+                or record.get("image") != image.image_id
+                or record.get("reference") != image.reference
+                or record.get("running") is not True
+                or (record.get("labels") or {}).get("org.opencontainers.image.revision")
+                != self.manifest.provenance.source_sha
+            ):
+                raise RolloutError("image-mismatch")
+
+    def vendor_images(self) -> None:
+        if self.manifest is None:
+            raise RolloutError("invalid-manifest")
+        for reference in self.manifest.vendor_images.values():
+            self.command(
+                ["docker", "pull", "--platform", "linux/amd64", reference], reason="missing-images"
+            )
+
+    def database_identity(self) -> DatabaseIdentity:
+        record = self.inspect("mysql")
+        if record is None or record.get("running") is not True or self.manifest is None:
+            raise RolloutError("database-unavailable")
+        expected = (
+            self.command(
+                [
+                    "docker",
+                    "image",
+                    "inspect",
+                    "--format",
+                    "{{.Id}}",
+                    self.manifest.vendor_images["mysql"],
+                ],
+                reason="image-mismatch",
+            )
+            .decode()
+            .strip()
+        )
+        if record.get("image") != expected:
+            raise RolloutError("image-mismatch")
+        mounts = [
+            entry
+            for entry in record.get("mounts", [])
+            if entry.get("Destination") == "/var/lib/mysql"
+        ]
+        volume = f"{self.project}_mysql_data"
+        if len(mounts) != 1 or mounts[0].get("Type") != "volume" or mounts[0].get("Name") != volume:
+            raise RolloutError("volume-changed")
+        labels = self.json_output(
+            self.command(
+                ["docker", "volume", "inspect", "--format", "{{json .Labels}}", volume],
+                reason="volume-changed",
+            )
+        )
+        if labels.get("com.docker.compose.project") != self.project:
+            raise RolloutError("volume-changed")
+        return DatabaseIdentity(record["id"], volume)
+
+    def require_database(self, before: DatabaseIdentity) -> None:
+        if self.database_identity() != before:
+            raise RolloutError("volume-changed")
+
+    def sql(self, statement: str) -> bytes:
+        return self.compose(
+            "exec",
+            "-T",
+            "mysql",
+            "bash",
+            "-c",
+            'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --protocol=socket -uroot '
+            '--connect-timeout=3 --batch --skip-column-names -e "$1"',
+            "--",
+            statement,
+            reason="database-unavailable",
+            cap=15,
+        ).strip()
+
+    def schema(self) -> SchemaSnapshot:
+        record = self.inspect("mysql", optional=True)
+        if record is None:
+            return SchemaSnapshot(
+                tables={}, revisions=[], unsupported_objects=0, nontransactional_tables=0
+            )
+        self.database_identity()
+        catalog = self.json_output(self.sql(CATALOG_SQL))
+        revisions = []
+        if any(row.get("table") == "alembic_version" for row in catalog.get("columns", [])):
+            try:
+                revisions = json.loads(self.sql(REVISION_SQL))
+                if not isinstance(revisions, list):
+                    raise ValueError()
+            except (ValueError, TypeError):
+                raise RolloutError("schema-partial") from None
+        return snapshot(catalog, revisions)
+
+    def prepare_database(self) -> DatabaseIdentity:
+        if self.inspect("mysql", optional=True) is None:
+            self.compose(
+                "up",
+                "-d",
+                "--no-build",
+                "--pull",
+                "never",
+                "--wait",
+                "--wait-timeout",
+                "120",
+                "mysql",
+                reason="database-unavailable",
+                cap=130,
+            )
+        return self.database_identity()
+
+    def apply_grants(self) -> None:
+        self.compose(
+            "exec",
+            "-T",
+            "mysql",
+            "bash",
+            "/opt/prl/apply-grants.sh",
+            reason="migration-failed",
+            cap=15,
+        )
