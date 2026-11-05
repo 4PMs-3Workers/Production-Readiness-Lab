@@ -77,7 +77,8 @@ class SmokeAPI:
                 status = 503
             else:
                 self.rows[identifier]["status"] = "CANCELLED"
-                body = dict(id=identifier, status="CANCELLED")
+                self.rows[identifier]["cancelled_at"] = "2026-11-05T00:01:00Z"
+                body = dict(id=identifier, status="CANCELLED", cancelled_at="2026-11-05T00:01:00Z")
         elif path.startswith("/api/v1/appointments/"):
             identifier = path.split("/")[-1]
             if self.fail_detail:

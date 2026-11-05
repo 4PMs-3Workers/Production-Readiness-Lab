@@ -373,6 +373,20 @@ class ReleaseRuntime:
             cap=15,
         )
 
+    def appointment_status(self, appointment: str) -> str:
+        from uuid import UUID
+
+        identifier = UUID(appointment).hex
+        try:
+            value = self.sql(
+                f"SELECT status FROM prl.appointments WHERE id=UNHEX('{identifier}');"
+            ).decode("ascii")
+            if value not in {"UPCOMING", "CHANGE_PENDING", "CANCELLED", "COMPLETED", "NO_SHOW"}:
+                raise ValueError()
+            return value
+        except (ValueError, UnicodeError):
+            raise RolloutError("smoke-failed") from None
+
     def effects(self, appointment: str) -> tuple[int, int, int]:
         from uuid import UUID
 

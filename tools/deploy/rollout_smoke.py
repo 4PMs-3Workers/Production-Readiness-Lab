@@ -1,14 +1,17 @@
 """Gateway business verification with private receipts and exact replay effects."""
 
 from collections.abc import Callable
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from uuid import UUID, uuid4
 
 from tools.deploy.rollout_http import SmokeCredentials, SmokeSession
 from tools.deploy.rollout_smoke_journal import SmokeJournal, binding
 from tools.deploy.rollout_state import SMOKE_CHECKS, RolloutError
 
+from app.schemas.appointments import AppointmentCancelResponse
+
 Effects = Callable[[str], tuple[int, int, int]]
+PersistedStatus = Callable[[str], str]
 
 
 def booking_payload(session: SmokeSession, account: SmokeCredentials) -> dict:
@@ -53,10 +56,17 @@ def booking_payload(session: SmokeSession, account: SmokeCredentials) -> dict:
     raise RolloutError("smoke-failed")
 
 
-def cancel_and_verify(session: SmokeSession, appointment: str, effects: Effects) -> None:
+def cancel_and_verify(
+    session: SmokeSession,
+    appointment: str,
+    effects: Effects,
+    persisted_status: PersistedStatus | None = None,
+) -> None:
     path = f"/api/v1/appointments/{appointment}/cancel"
-    cancelled = session.request("POST", path, 200, private=True, json={}).json()
-    if cancelled.get("id") != appointment or cancelled.get("status") != "CANCELLED":
+    response = session.request("POST", path, 200, private=True, json={})
+    receipt = AppointmentCancelResponse.model_validate_json(response.content, strict=True)
+    cancelled = response.json()
+    if str(receipt.id) != appointment:
         raise RolloutError("smoke-failed")
     replay = session.request("POST", path, 200, private=True, json={}).json()
     detail = session.request("GET", f"/api/v1/appointments/{appointment}", 200, private=True).json()
@@ -64,13 +74,21 @@ def cancel_and_verify(session: SmokeSession, appointment: str, effects: Effects)
         replay != cancelled
         or detail.get("id") != appointment
         or detail.get("status") != "CANCELLED"
+        or datetime.fromisoformat(detail["cancelled_at"].replace("Z", "+00:00"))
+        != receipt.cancelled_at
         or effects(appointment) != (1, 2, 4)
+        or persisted_status is not None
+        and persisted_status(appointment) != "CANCELLED"
     ):
         raise RolloutError("smoke-failed")
 
 
 def cleanup_pending(
-    session: SmokeSession, account: SmokeCredentials, journal: SmokeJournal, effects: Effects
+    session: SmokeSession,
+    account: SmokeCredentials,
+    journal: SmokeJournal,
+    effects: Effects,
+    persisted_status: PersistedStatus | None = None,
 ) -> None:
     account_id = binding(session.origin, account.email)
     pending = journal.load(account_id)
@@ -90,7 +108,7 @@ def cleanup_pending(
         pending = journal.received(account_id, receipt)
         assert pending.receipt is not None
         appointment = str(pending.receipt.id)
-        cancel_and_verify(session, appointment, effects)
+        cancel_and_verify(session, appointment, effects, persisted_status)
         journal.cleared(account_id, appointment)
     except Exception:
         # Keep the private intent until a healthy restored release verifies it.
@@ -103,13 +121,14 @@ def business_smoke(
     effects: Effects,
     *,
     journal: SmokeJournal | None = None,
+    persisted_status: PersistedStatus | None = None,
 ) -> list[str]:
     journal = journal if journal is not None else SmokeJournal()
     account_id = binding(session.origin, account.email)
     try:
         session.request("GET", "/login", 200)
         session.login(account)
-        cleanup_pending(session, account, journal, effects)
+        cleanup_pending(session, account, journal, effects, persisted_status)
         session.request("GET", "/api/v1/appointments?page=1&page_size=50", 200, private=True)
         payload, key = booking_payload(session, account), uuid4().hex
         journal.begin(account_id, key, payload)
@@ -126,7 +145,7 @@ def business_smoke(
         ).json()
         if replay != receipt or effects(appointment) != (1, 1, 2):
             raise RolloutError("smoke-failed")
-        cancel_and_verify(session, appointment, effects)
+        cancel_and_verify(session, appointment, effects, persisted_status)
         journal.cleared(account_id, appointment)
         session.request("POST", "/api/v1/auth/logout", 204)
         session.request("GET", "/api/v1/appointments", 401)
@@ -134,7 +153,7 @@ def business_smoke(
     except Exception as error:
         if session.csrf:
             try:
-                cleanup_pending(session, account, journal, effects)
+                cleanup_pending(session, account, journal, effects, persisted_status)
             except Exception:
                 pass
         if isinstance(error, RolloutError):

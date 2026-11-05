@@ -86,7 +86,13 @@ def rehearse(directory: Path) -> dict:
 
             def smoke(selected: ReleaseRuntime) -> list[str]:
                 with SmokeSession(selected.origin, selected.deadline) as session:
-                    return business_smoke(session, account, selected.effects, journal=journal)
+                    return business_smoke(
+                        session,
+                        account,
+                        selected.effects,
+                        journal=journal,
+                        persisted_status=selected.appointment_status,
+                    )
 
             host_config = hashlib.sha256(
                 canonical(

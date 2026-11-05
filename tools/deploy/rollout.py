@@ -71,7 +71,13 @@ def controller(args, store: StateStore) -> RolloutController:
 
         def smoke(selected: ReleaseRuntime) -> list[str]:
             with SmokeSession(selected.origin, selected.deadline, tls=context or True) as session:
-                return business_smoke(session, account, selected.effects, journal=journal)
+                return business_smoke(
+                    session,
+                    account,
+                    selected.effects,
+                    journal=journal,
+                    persisted_status=selected.appointment_status,
+                )
 
         return RolloutController(
             store,
