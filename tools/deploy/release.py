@@ -78,6 +78,7 @@ def render(spec: Spec, *, backup: bool = False) -> bytes:
         # The merged backup-monitoring foundation reuses the shared backend.
         # Its derived service must not retain a mutable local image reference.
         names["backup_metrics_exporter"] = spec.images["backend"].reference
+        names["gateway_log_rotate"] = spec.vendor_images["gateway"]
     if not backup:
         names.pop("backup")
     names.update(spec.vendor_images)

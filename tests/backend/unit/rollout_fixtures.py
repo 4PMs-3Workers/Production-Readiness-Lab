@@ -5,7 +5,15 @@ from dataclasses import dataclass
 
 from tests.backend.unit.test_release_manifest import manifest_data
 from tools.deploy.release_images import Registry
-from tools.deploy.release_manifest import Manifest, Spec, canonical, parse, proof
+from tools.deploy.release_manifest import (
+    Manifest,
+    Spec,
+    canonical,
+    configuration,
+    parse,
+    proof,
+    vendor_inventory,
+)
 from tools.deploy.rollout_controller import RolloutController
 from tools.deploy.rollout_runtime import DatabaseIdentity, ReleaseRuntime
 from tools.deploy.rollout_schema import EXPECTED, SchemaSnapshot
@@ -13,7 +21,7 @@ from tools.deploy.rollout_state import SMOKE_CHECKS, RolloutError, Selection
 from tools.deploy.rollout_store import StateStore
 
 
-def release(number=123, previous=None, *, backend=None):
+def release(number=123, previous=None, *, backend=None, observability=False):
     data = manifest_data()
     data.update(
         release_id=f"release-{number}-1", previous_stable=previous, bootstrap=previous is None
@@ -21,6 +29,11 @@ def release(number=123, previous=None, *, backend=None):
     data["provenance"]["run_id"] = number
     if backend is not None:
         data["images"]["backend"] = backend.model_dump()
+    if observability:
+        data["configuration"] = configuration("https", True).model_dump()
+        data["vendor_images"] = vendor_inventory(True)
+        data["images"]["collector"] = copy.deepcopy(data["images"]["backend"])
+        data["services"].update(collector="collector", local_alert_receiver="backend")
     # Proofs are regenerated from the exact fixture candidate, not copied from a different release.
     candidate = {
         key: value

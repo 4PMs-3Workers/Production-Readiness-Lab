@@ -139,6 +139,14 @@ class ReleaseRuntime:
                 self.manifest.images["backend"].reference
             ):
                 raise ValueError()
+            if self.observability:
+                helper = services["gateway_log_rotate"]
+                if (
+                    helper["image"] != self.manifest.vendor_images["gateway"]
+                    or helper.get("pid") != "service:gateway"
+                    or helper.get("network_mode") != "service:gateway"
+                ):
+                    raise ValueError()
             return config
         except (ValueError, KeyError, TypeError):
             raise RolloutError("incompatible-configuration") from None
@@ -175,7 +183,12 @@ class ReleaseRuntime:
             "frontend",
             cap=100,
         )
-        # Recreate the reviewed gateway to refresh service DNS, without recreating MySQL.
+        self.recreate_gateway()
+
+    def recreate_gateway(self) -> None:
+        # Namespace consumers must stop before their PID namespace owner exits.
+        if self.observability:
+            self.compose("stop", "--timeout", "5", "gateway_log_rotate", cap=10)
         self.compose(
             "up",
             "-d",
@@ -187,6 +200,18 @@ class ReleaseRuntime:
             "gateway",
             cap=40,
         )
+        if self.observability:
+            self.compose(
+                "up",
+                "-d",
+                "--no-build",
+                "--pull",
+                "never",
+                "--no-deps",
+                "--force-recreate",
+                "gateway_log_rotate",
+                cap=20,
+            )
 
     def json_output(self, raw: bytes) -> dict:
         try:
@@ -213,6 +238,8 @@ class ReleaseRuntime:
                 '{"id":{{json .Id}},"image":{{json .Image}},'
                 '"reference":{{json .Config.Image}},"labels":{{json .Config.Labels}},'
                 '"running":{{json .State.Running}},"mounts":{{json .Mounts}},'
+                '"pid_mode":{{json .HostConfig.PidMode}},'
+                '"network_mode":{{json .HostConfig.NetworkMode}},'
                 '"health":{{with (index .State "Health")}}{{json .Status}}{{else}}null{{end}}}',
                 identifier,
             ]
@@ -260,6 +287,41 @@ class ReleaseRuntime:
                         raise RolloutError("image-mismatch")
                 except ReleaseError:
                     raise RolloutError("image-mismatch") from None
+        self.verify_gateway_helpers()
+
+    def verify_gateway_helpers(self) -> None:
+        if not self.observability:
+            return
+        if self.manifest is None:
+            raise RolloutError("invalid-manifest")
+        gateway, helper = self.inspect("gateway"), self.inspect("gateway_log_rotate")
+        if (
+            gateway is None
+            or helper is None
+            or gateway.get("running") is not True
+            or helper.get("running") is not True
+            or helper.get("reference") != self.manifest.vendor_images["gateway"]
+            or helper.get("pid_mode") != "container:" + gateway["id"]
+            or helper.get("network_mode") != "container:" + gateway["id"]
+        ):
+            raise RolloutError("readiness-failed")
+        expected = (
+            self.command(
+                [
+                    "docker",
+                    "image",
+                    "inspect",
+                    "--format",
+                    "{{.Id}}",
+                    self.manifest.vendor_images["gateway"],
+                ],
+                reason="image-mismatch",
+            )
+            .decode()
+            .strip()
+        )
+        if helper.get("image") != expected:
+            raise RolloutError("image-mismatch")
 
     def vendor_images(self) -> None:
         if self.manifest is None:
