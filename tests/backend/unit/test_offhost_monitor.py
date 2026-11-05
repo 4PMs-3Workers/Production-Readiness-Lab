@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from offhost_probe import cli as monitor_cli
+from offhost_probe import notify as notify_module
 from offhost_probe.config import MonitorConfig, load_config
 from offhost_probe.evaluator import CheckState, ProbeResult, evaluate
 from offhost_probe.notify import DeliveryResult, NotificationEvent, WebhookNotifier
@@ -377,6 +378,44 @@ def test_state_store_rejects_unbounded_pending_notification_queue(tmp_path):
 
     with pytest.raises(ValueError, match="state"):
         store.save(state)
+
+
+@pytest.mark.asyncio
+async def test_webhook_deadline_aborts_transport_instead_of_waiting_for_tls_shutdown(monkeypatch):
+    class HangingWriter:
+        class Transport:
+            aborted = False
+
+            def abort(self):
+                self.aborted = True
+
+        transport = Transport()
+
+        def write(self, data):
+            pass
+
+        async def drain(self):
+            pass
+
+        def close(self):
+            pass
+
+        async def wait_closed(self):
+            await asyncio.Event().wait()
+
+    writer = HangingWriter()
+
+    async def open_connection(*args, **kwargs):
+        return asyncio.StreamReader(), writer
+
+    monkeypatch.setattr(notify_module.asyncio, "open_connection", open_connection)
+    notifier = WebhookNotifier("http://127.0.0.1/alerts", timeout_seconds=0.05)
+    event = NotificationEvent("a" * 64, "gateway", True, "2026-11-05T00:00:00+00:00")
+
+    result = await asyncio.wait_for(notifier.deliver(event), timeout=0.2)
+
+    assert result == DeliveryResult(False, "timeout")
+    assert writer.transport.aborted
 
 
 @pytest.mark.asyncio

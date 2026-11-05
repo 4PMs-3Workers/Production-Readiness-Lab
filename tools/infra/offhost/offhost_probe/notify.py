@@ -139,8 +139,12 @@ class WebhookNotifier:
                 raise ValueError("Invalid response")
             return int(first[1])
         finally:
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except OSError:
-                pass
+            task = asyncio.current_task()
+            if task is not None and task.cancelling():
+                writer.transport.abort()
+            else:
+                writer.close()
+                try:
+                    await writer.wait_closed()
+                except OSError:
+                    pass

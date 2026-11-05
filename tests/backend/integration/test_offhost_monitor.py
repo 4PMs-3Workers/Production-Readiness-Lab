@@ -19,7 +19,9 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
+from offhost_probe import notify as notify_module
 from offhost_probe.config import CheckConfig
+from offhost_probe.notify import DeliveryResult, NotificationEvent, WebhookNotifier
 from offhost_probe.probe import HttpsTransport, ProbePolicy
 from offhost_probe.receiver import ReceiverServer
 
@@ -69,6 +71,9 @@ async def _https_server(
     close_delimited: bool = False,
     chunk_sizes: tuple[int, ...] = (),
     chunk_delay: float = 0,
+    read_request_body: bool = False,
+    request_received: asyncio.Event | None = None,
+    hold_peer_until: asyncio.Event | None = None,
 ) -> tuple[asyncio.AbstractServer, int, Path, Path]:
     tmp_path.mkdir(parents=True, exist_ok=True)
     cert_path, key_path = _certificate(tmp_path, expired=expired)
@@ -76,9 +81,20 @@ async def _https_server(
     context.load_cert_chain(cert_path, key_path)
 
     async def respond(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-        await reader.readuntil(b"\r\n\r\n")
+        raw_request = await reader.readuntil(b"\r\n\r\n")
+        if read_request_body:
+            content_length = next(
+                int(line.split(b":", 1)[1])
+                for line in raw_request.split(b"\r\n")
+                if line.lower().startswith(b"content-length:")
+            )
+            await reader.readexactly(content_length)
+        if request_received is not None:
+            request_received.set()
         if delay:
             await asyncio.sleep(delay)
+        if hold_peer_until is not None:
+            await hold_peer_until.wait()
         headers = [f"HTTP/1.1 {status} Test", "Connection: close"]
         if not close_delimited:
             headers.insert(1, f"Content-Length: {len(body)}")
@@ -195,6 +211,35 @@ async def test_https_probe_classifies_out_of_range_status_as_malformed_response(
 
     assert result.success is False
     assert (result.status_code, result.outcome) == (None, "network_error")
+
+
+@pytest.mark.asyncio
+async def test_webhook_timeout_aborts_tls_peer_without_waiting_for_shutdown(tmp_path, monkeypatch):
+    request_received = asyncio.Event()
+    release_peer = asyncio.Event()
+    server, port, cert, _ = await _https_server(
+        tmp_path,
+        read_request_body=True,
+        request_received=request_received,
+        hold_peer_until=release_peer,
+    )
+    trusted_context = _trusted(cert)
+    monkeypatch.setattr(notify_module.ssl, "create_default_context", lambda: trusted_context)
+    notifier = WebhookNotifier(f"https://127.0.0.1:{port}/alerts", timeout_seconds=1)
+    event = NotificationEvent("a" * 64, "gateway", True, "2026-11-05T00:00:00+00:00")
+    try:
+        delivery = asyncio.create_task(notifier.deliver(event))
+        await asyncio.wait_for(request_received.wait(), timeout=0.5)
+        done, _ = await asyncio.wait({delivery}, timeout=1.3)
+        release_peer.set()
+        result = await asyncio.wait_for(delivery, timeout=1)
+    finally:
+        release_peer.set()
+        server.close()
+        await server.wait_closed()
+
+    assert result == DeliveryResult(False, "timeout")
+    assert delivery in done
 
 
 @pytest.mark.asyncio
