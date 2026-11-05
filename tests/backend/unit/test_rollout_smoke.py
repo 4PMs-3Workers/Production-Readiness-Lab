@@ -41,16 +41,20 @@ def test_complete_gateway_smoke_and_failed_invariants(fault):
             status = 204
         elif path.endswith("/cancel"):
             cancelled[0] += 1
-            body = dict(status="CANCELLED")
+            body = dict(id=appointment, status="CANCELLED")
         elif path == "/api/v1/appointments" and request.method == "POST":
             created[0] += 1
             status = 201 if created[0] == 1 else 200
-            body = dict(id=appointment if created[0] == 1 or fault != "replay" else "changed-id")
+            body = dict(
+                id=appointment if created[0] == 1 or fault != "replay" else "changed-id",
+                status="UPCOMING",
+                created_at="2026-11-05T00:00:00Z",
+            )
         elif path == "/api/v1/appointments":
             status = 200 if not logged_out[0] or fault == "logout" else 401
             body = dict(items=[])
         elif path.endswith(appointment):
-            body = dict(id=appointment)
+            body = dict(id=appointment, status="CANCELLED" if cancelled[0] else "UPCOMING")
         else:
             raise AssertionError("Unexpected smoke route")
         return httpx.Response(

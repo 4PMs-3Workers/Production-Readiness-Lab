@@ -95,7 +95,7 @@ class SmokeSession:
         self,
         method: str,
         path: str,
-        status: int,
+        status: int | tuple[int, ...],
         *,
         key: str | None = None,
         private: bool = False,
@@ -113,7 +113,7 @@ class SmokeSession:
                 method, path, headers=headers, timeout=self.budget.remaining(5), **kwargs
             ) as response:
                 if (
-                    response.status_code != status
+                    response.status_code not in ((status,) if isinstance(status, int) else status)
                     or response.headers.get("Content-Encoding", "identity") != "identity"
                 ):
                     raise RolloutError("smoke-failed")
