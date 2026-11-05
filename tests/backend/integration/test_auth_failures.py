@@ -1,4 +1,7 @@
 ﻿import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import event, select
@@ -101,13 +104,24 @@ async def test_cancel_after_flush_rolls_back_and_releases_account_lock(auth_env,
 
 
 async def test_timeout_awaiting_commit_dispatch_rolls_back_and_releases_lock(auth_env, monkeypatch):
-    client, factory, user_id, app = auth_env
+    from app.services import auth
+
+    client, factory, user_id, _ = auth_env
     engine = factory.kw["bind"]
     targets = set()
     entered_commit = asyncio.Event()
     original = engine.sync_engine.dialect.do_commit
-    original_query_timeout = app.state.settings.db_query_timeout_seconds
-    app.state.settings.db_query_timeout_seconds = 0.2
+    active_timeouts: list[asyncio.Timeout] = []
+    commit_timeouts: list[asyncio.Timeout] = []
+
+    @asynccontextmanager
+    async def tracked_timeout(seconds: float) -> AsyncIterator[None]:
+        async with asyncio.timeout(seconds) as scope:
+            active_timeouts.append(scope)
+            try:
+                yield
+            finally:
+                active_timeouts.pop()
 
     def mark_write_connection(db):
         if any(isinstance(item, Session) for item in db.identity_map.values()):
@@ -118,19 +132,25 @@ async def test_timeout_awaiting_commit_dispatch_rolls_back_and_releases_lock(aut
         if id(raw) in targets:
             entered_commit.set()
             # Suspend the real dialect commit path before sending COMMIT.
+            # Expire the actual auth transaction timeout only after reaching this
+            # boundary, so slow pre-commit queries cannot satisfy a different error path.
             # This proves known-uncommitted cleanup, not ambiguous network outcomes.
+            scope = active_timeouts[-1]
+            commit_timeouts.append(scope)
+            scope.reschedule(asyncio.get_running_loop().time())
             await_only(asyncio.Event().wait())
         original(dbapi_connection)
 
-    event.listen(SyncSession, "before_commit", mark_write_connection)
-    monkeypatch.setattr(engine.sync_engine.dialect, "do_commit", paused_commit)
-    try:
-        response = await sign_in(client)
-    finally:
-        event.remove(SyncSession, "before_commit", mark_write_connection)
-        monkeypatch.setattr(engine.sync_engine.dialect, "do_commit", original)
-        app.state.settings.db_query_timeout_seconds = original_query_timeout
+    with monkeypatch.context() as patcher:
+        patcher.setattr(auth, "asyncio", SimpleNamespace(timeout=tracked_timeout))
+        patcher.setattr(engine.sync_engine.dialect, "do_commit", paused_commit)
+        event.listen(SyncSession, "before_commit", mark_write_connection)
+        try:
+            response = await sign_in(client)
+        finally:
+            event.remove(SyncSession, "before_commit", mark_write_connection)
     assert entered_commit.is_set()
+    assert len(commit_timeouts) == 1 and commit_timeouts[0].expired()
     assert response.status_code == 503
     assert response.headers["X-Error-Class"] == "service"
     assert "Set-Cookie" not in response.headers

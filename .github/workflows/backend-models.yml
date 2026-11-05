@@ -63,6 +63,8 @@ jobs:
         run: |
           .venv/bin/python -m black --check tools/deploy/release*.py tests/backend/unit/test_release*.py tests/release
           .venv/bin/python -m ruff check tools/deploy/release*.py tests/backend/unit/test_release*.py tests/release
+          .venv/bin/python -m black --check tools/deploy/rollout*.py tests/backend/unit/test_rollout*.py tests/backend/unit/rollout_fixtures.py tests/backend/unit/smoke_fixtures.py tests/rollout
+          .venv/bin/python -m ruff check tools/deploy/rollout*.py tests/backend/unit/test_rollout*.py tests/backend/unit/rollout_fixtures.py tests/backend/unit/smoke_fixtures.py tests/rollout
       - run: pyright
 
       # --- Migration smoke tests ---

@@ -522,6 +522,16 @@ riêng bằng môi trường #34, chạy real gateway login/read/book/cancel/rep
 và workflow `MySQL recovery` cung cấp kết quả kiểm chứng; payload backup/credentials
 không được publish.
 
+## Phát hành và rollback theo manifest (Issue #45)
+
+Deploy/rollback dùng manifest bất biến của [quy trình phát hành](docs/tasks/immutable-releases.md),
+giữ chung một khóa vận hành và chỉ cập nhật stable sau readiness, tiến triển worker
+và smoke nghiệp vụ đầy đủ. Rollback giữ nguyên database volume, không tự hạ schema.
+[Runbook deploy/rollback](docs/tasks/serialized-release-rollback.md) mô tả cấu hình
+ngoài Git, lệnh vận hành, xử lý gián đoạn và diễn tập Linux tự động có timeline
+phục hồi cùng kiểm chứng dữ liệu đã commit. Bằng chứng lab được tách rõ khỏi số
+đo trên môi trường triển khai thực tế.
+
 ## Đóng góp
 
 Nền tảng xác thực backend (Issue #5) cung cấp `POST /api/v1/auth/login`,
