@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import re
 import socket
 import time
 from pathlib import Path
@@ -206,15 +207,20 @@ class Artifacts:
     def close(self) -> None:
         if self.builder_created:
             command(["docker", "buildx", "rm", "--force", self.builder])
-        if self.container is not None:
-            record = json.loads(command(["docker", "inspect", self.container]))[0]
+        inspected = invoke(["docker", "inspect", self.name])
+        if inspected.returncode == 0:
+            record = json.loads(inspected.stdout)[0]
+            identifier = record.get("Id")
             if (
-                record.get("Id") != self.container
+                not isinstance(identifier, str)
+                or not re.fullmatch(r"[0-9a-f]{64}", identifier)
+                or self.container is not None
+                and record.get("Id") != self.container
                 or record.get("Name") != "/" + self.name
                 or record["Config"]["Labels"].get(OWNER_LABEL) != self.owner
             ):
                 raise RuntimeError("Release registry cleanup ownership mismatch")
-            command(["docker", "rm", "--force", "--volumes", self.container])
+            command(["docker", "rm", "--force", "--volumes", identifier])
         for reference in self.references:
             # Delete only this UUID repository reference, without force/prune.
             invoke(["docker", "image", "rm", reference])

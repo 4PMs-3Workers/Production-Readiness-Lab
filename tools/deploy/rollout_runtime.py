@@ -13,7 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from tools.deploy.release import render
-from tools.deploy.release_manifest import MAX_JSON, Manifest, load_json
+from tools.deploy.release_images import LOCAL_IMAGE_FORMAT, local_image_identity
+from tools.deploy.release_manifest import MAX_JSON, Manifest, ReleaseError, load_json
 from tools.deploy.rollout_schema import CATALOG_SQL, REVISION_SQL, SchemaSnapshot, snapshot
 from tools.deploy.rollout_state import Reason, RolloutError
 
@@ -212,7 +213,7 @@ class ReleaseRuntime:
                 '{"id":{{json .Id}},"image":{{json .Image}},'
                 '"reference":{{json .Config.Image}},"labels":{{json .Config.Labels}},'
                 '"running":{{json .State.Running}},"mounts":{{json .Mounts}},'
-                '"health":{{if .State.Health}}{{json .State.Health.Status}}{{else}}null{{end}}}',
+                '"health":{{with (index .State "Health")}}{{json .Status}}{{else}}null{{end}}}',
                 identifier,
             ]
         )
@@ -234,13 +235,31 @@ class ReleaseRuntime:
             image = self.manifest.images[key]
             if (
                 record is None
-                or record.get("image") != image.image_id
                 or record.get("reference") != image.reference
                 or record.get("running") is not True
                 or (record.get("labels") or {}).get("org.opencontainers.image.revision")
                 != self.manifest.provenance.source_sha
             ):
                 raise RolloutError("image-mismatch")
+            if record["image"] != image.image_id:
+                local = self.json_output(
+                    self.command(
+                        [
+                            "docker",
+                            "image",
+                            "inspect",
+                            "--format",
+                            LOCAL_IMAGE_FORMAT,
+                            image.reference,
+                        ],
+                        reason="image-mismatch",
+                    )
+                )
+                try:
+                    if record["image"] != local_image_identity(image, local):
+                        raise RolloutError("image-mismatch")
+                except ReleaseError:
+                    raise RolloutError("image-mismatch") from None
 
     def vendor_images(self) -> None:
         if self.manifest is None:

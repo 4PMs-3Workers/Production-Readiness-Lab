@@ -29,6 +29,29 @@ from tools.deploy.release_manifest import (
 ARTIFACT_TYPE = "application/vnd.prl.release.v1"
 PAYLOAD_TYPE = "application/vnd.prl.release.v1+json"
 OCI_MANIFEST = "application/vnd.oci.image.manifest.v1+json"
+LOCAL_IMAGE_FORMAT = '{"id":{{json .Id}},"descriptor":{{json (index . "Descriptor")}}}'
+
+
+def local_image_identity(image: Image, local: dict) -> str:
+    """Bind both classic config IDs and containerd manifest IDs to selected bytes.
+
+    Publication image_id remains the OCI config digest. A containerd store may
+    expose the selected *manifest* as its local ID; require its exact descriptor,
+    never an index, a mutable tag, or merely a matching source label.
+    """
+    identifier = local.get("id")
+    if identifier == image.image_id:
+        return image.image_id
+    descriptor = local.get("descriptor")
+    if (
+        identifier == image.digest
+        and isinstance(descriptor, dict)
+        and descriptor.get("digest") == image.digest
+        and descriptor.get("mediaType")
+        in {OCI_MANIFEST, "application/vnd.docker.distribution.manifest.v2+json"}
+    ):
+        return image.digest
+    raise ReleaseError("image-id-mismatch")
 
 
 def command(args: list[str], *, cwd: Path | None = None, timeout: float = 600) -> bytes:
@@ -223,13 +246,12 @@ class Registry:
                         "image",
                         "inspect",
                         "--format",
-                        '{"id":{{json .Id}}}',
+                        LOCAL_IMAGE_FORMAT,
                         image.reference,
                     ]
                 )
             )
-            if local != {"id": image.image_id}:
-                raise ReleaseError("image-id-mismatch")
+            local_image_identity(image, local)
 
     def verify_images(self, spec: Spec, *, pull: bool = False, complete: bool = False) -> None:
         for image in spec.images.values():

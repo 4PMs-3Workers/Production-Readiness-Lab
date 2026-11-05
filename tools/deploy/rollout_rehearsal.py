@@ -11,6 +11,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 from tests.rollout.fixtures import Artifacts, RolloutStack
+from tests.rollout.gates import concurrent_rollback_is_refused, preflight_refusals
 from tools.deploy.release_images import command
 from tools.deploy.release_manifest import ROOT, canonical
 from tools.deploy.rollout_controller import RolloutController
@@ -72,6 +73,7 @@ def rehearse(directory: Path) -> dict:
                         # A real HTTP transaction commits while the rollout operation
                         # owns its lock, immediately before graceful app quiescence.
                         book()
+                        concurrent_rollback_is_refused(controller)
                         during[0] = True
                     super().rollout()
 
@@ -107,6 +109,8 @@ def rehearse(directory: Path) -> dict:
             if first.operation is None or first.operation.phase != "succeeded":
                 raise RolloutError("smoke-failed")
             before_volume = runtime.database_identity()
+            stage = "negative_preflight_cases"
+            negative_cases = preflight_refusals(controller, artifacts, stable_ref, stable)
             book()
             stage = "bad_deployment_and_rollback"
             restored = controller.deploy(bad_ref)
@@ -160,6 +164,8 @@ def rehearse(directory: Path) -> dict:
             committed_during=1,
             committed_records_preserved=True,
             replay_and_effects_verified=True,
+            concurrent_rollback_refused=True,
+            negative_preflight_cases=negative_cases,
             database_volume_preserved=True,
             result=restored.model_dump(mode="json"),
             outcome="passed",

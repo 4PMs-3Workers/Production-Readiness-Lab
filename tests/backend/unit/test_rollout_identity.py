@@ -38,6 +38,16 @@ def test_running_services_must_match_exact_selected_images(tmp_path, monkeypatch
     monkeypatch.setattr(host, "inspect", lambda service: records[service])
     host.verify_images()
     records["worker"][field] = value
+    monkeypatch.setattr(
+        host,
+        "command",
+        lambda *args, **kwargs: canonical(
+            {
+                "id": "sha256:" + "f" * 64,
+                "descriptor": None,
+            }
+        ),
+    )
     with pytest.raises(RolloutError, match="image-mismatch"):
         host.verify_images()
 
