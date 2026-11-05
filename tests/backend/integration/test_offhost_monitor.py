@@ -66,6 +66,9 @@ async def _https_server(
     delay: float = 0,
     redirect: str | None = None,
     expired: bool = False,
+    close_delimited: bool = False,
+    chunk_sizes: tuple[int, ...] = (),
+    chunk_delay: float = 0,
 ) -> tuple[asyncio.AbstractServer, int, Path, Path]:
     tmp_path.mkdir(parents=True, exist_ok=True)
     cert_path, key_path = _certificate(tmp_path, expired=expired)
@@ -76,12 +79,23 @@ async def _https_server(
         await reader.readuntil(b"\r\n\r\n")
         if delay:
             await asyncio.sleep(delay)
-        headers = [f"HTTP/1.1 {status} Test", f"Content-Length: {len(body)}", "Connection: close"]
+        headers = [f"HTTP/1.1 {status} Test", "Connection: close"]
+        if not close_delimited:
+            headers.insert(1, f"Content-Length: {len(body)}")
         if redirect:
             headers.append(f"Location: {redirect}")
-        writer.write(("\r\n".join(headers) + "\r\n\r\n").encode() + body)
         try:
+            writer.write(("\r\n".join(headers) + "\r\n\r\n").encode())
             await writer.drain()
+            offset = 0
+            for size in chunk_sizes or (len(body),):
+                if offset >= len(body):
+                    break
+                if offset and chunk_delay:
+                    await asyncio.sleep(chunk_delay)
+                writer.write(body[offset : offset + size])
+                offset += size
+                await writer.drain()
         except OSError:
             pass
         finally:
@@ -145,6 +159,42 @@ async def test_https_probe_rejects_upstream_error_redirect_and_response_over_lim
     assert (results[0].outcome, results[0].status_code) == ("upstream_error", 503)
     assert (results[1].outcome, results[1].status_code) == ("upstream_error", 302)
     assert results[2].outcome == "response_too_large"
+
+
+@pytest.mark.asyncio
+async def test_https_probe_reads_close_delimited_body_through_size_limit(tmp_path):
+    server, port, cert, _ = await _https_server(
+        tmp_path,
+        body=b"x" * 4097,
+        close_delimited=True,
+        chunk_sizes=(1, 4096),
+        chunk_delay=0.1,
+    )
+    try:
+        result = await HttpsTransport(ssl_context=_trusted(cert)).probe(
+            _check(port, limit=128), ProbePolicy(3, 1, 1)
+        )
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert result.success is False
+    assert (result.status_code, result.outcome) == (200, "response_too_large")
+
+
+@pytest.mark.asyncio
+async def test_https_probe_classifies_out_of_range_status_as_malformed_response(tmp_path):
+    server, port, cert, _ = await _https_server(tmp_path, status=999, body=b"")
+    try:
+        result = await HttpsTransport(ssl_context=_trusted(cert)).probe(
+            _check(port), ProbePolicy(3, 1, 1)
+        )
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert result.success is False
+    assert (result.status_code, result.outcome) == (None, "network_error")
 
 
 @pytest.mark.asyncio

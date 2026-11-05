@@ -74,6 +74,8 @@ class HttpsTransport:
                 if len(pieces) < 2 or not pieces[0].startswith(b"HTTP/"):
                     raise ValueError("Invalid response")
                 status = int(pieces[1])
+                if not 100 <= status <= 599:
+                    raise ValueError("Invalid response")
                 headers: dict[bytes, bytes] = {}
                 for line in lines[1:]:
                     if not line:
@@ -98,8 +100,12 @@ class HttpsTransport:
                         await reader.readexactly(length)
                     size = length
                 else:
-                    body = await reader.read(max_bytes + 1)
-                    size = len(body)
+                    size = 0
+                    while size <= max_bytes:
+                        body = await reader.read(min(65536, max_bytes + 1 - size))
+                        if not body:
+                            break
+                        size += len(body)
                 return status, size
         finally:
             writer.close()
