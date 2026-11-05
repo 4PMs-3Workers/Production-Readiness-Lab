@@ -53,6 +53,8 @@ include = [
     "tools/deploy/release_trust.py",
     "tools/deploy/release_retention.py",
     "tests/release",
+    "tools/deploy/rollout*.py",
+    "tests/rollout",
 ]
 extraPaths = ["src/backend"]
 venvPath = "."

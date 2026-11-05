@@ -109,14 +109,22 @@ jobs:
       source_sha: ${{ needs.source.outputs.sha }}
       pr_head_sha: ${{ needs.source.outputs.pr_head }}
 
+  rollback:
+    if: github.event_name == 'workflow_dispatch'
+    needs: source
+    uses: ./.github/workflows/release-rollback.yml
+    with:
+      source_sha: ${{ needs.source.outputs.sha }}
+      pr_head_sha: ${{ needs.source.outputs.pr_head }}
+
   candidate:
-    needs: [source, backend, frontend, security, containers, recovery]
+    needs: [source, backend, frontend, security, containers, recovery, rollback]
     if: >-
       always() && needs.source.result == 'success' &&
       (github.event_name == 'pull_request' ||
       (needs.backend.result == 'success' && needs.frontend.result == 'success' &&
       needs.security.result == 'success' && needs.containers.result == 'success' &&
-      needs.recovery.result == 'success'))
+      needs.recovery.result == 'success' && needs.rollback.result == 'success'))
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     outputs:

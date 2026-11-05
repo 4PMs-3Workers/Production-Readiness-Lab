@@ -6,7 +6,7 @@ from tools.deploy.rollout_schema import EXPECTED, SchemaSnapshot, require_schema
 from tools.deploy.rollout_state import RolloutError
 
 
-def current():
+def current() -> dict:
     return dict(
         tables=copy.deepcopy(EXPECTED),
         revisions=[SCHEMA],

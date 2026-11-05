@@ -13,12 +13,14 @@ from tools.deploy.rollout_state import SMOKE_CHECKS, RolloutError, Selection
 from tools.deploy.rollout_store import StateStore
 
 
-def release(number=123, previous=None):
+def release(number=123, previous=None, *, backend=None):
     data = manifest_data()
     data.update(
         release_id=f"release-{number}-1", previous_stable=previous, bootstrap=previous is None
     )
     data["provenance"]["run_id"] = number
+    if backend is not None:
+        data["images"]["backend"] = backend.model_dump()
     # Proofs are regenerated from the exact fixture candidate, not copied from a different release.
     candidate = {
         key: value

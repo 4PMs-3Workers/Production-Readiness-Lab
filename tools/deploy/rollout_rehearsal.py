@@ -13,8 +13,9 @@ from uuid import UUID, uuid4
 from tests.rollout.fixtures import Artifacts, RolloutStack
 from tests.rollout.gates import concurrent_rollback_is_refused, preflight_refusals
 from tools.deploy.release_images import command
-from tools.deploy.release_manifest import ROOT, canonical
+from tools.deploy.release_manifest import ROOT, canonical, parse, write
 from tools.deploy.rollout_controller import RolloutController
+from tools.deploy.rollout_evidence import LabFailure, LabReport
 from tools.deploy.rollout_http import SmokeCredentials, SmokeSession
 from tools.deploy.rollout_readiness import ready
 from tools.deploy.rollout_runtime import Deadline, ReleaseRuntime
@@ -170,7 +171,7 @@ def rehearse(directory: Path) -> dict:
             result=restored.model_dump(mode="json"),
             outcome="passed",
         )
-        (directory / "rehearsal.json").write_bytes(canonical(report))
+        write(directory / "rehearsal.json", parse(canonical(report), LabReport))
         return report
     except Exception as error:
         state = store.load() if store is not None else None
@@ -183,7 +184,7 @@ def rehearse(directory: Path) -> dict:
             reason=error.reason if isinstance(error, RolloutError) else "fixture-failed",
             state=state.model_dump(mode="json") if state else None,
         )
-        (directory / "failure.json").write_bytes(canonical(failure))
+        write(directory / "failure.json", parse(canonical(failure), LabFailure))
         raise
     finally:
         try:

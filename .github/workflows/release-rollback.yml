@@ -1,0 +1,67 @@
+name: Serialized release rollback
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+      pr_head_sha:
+        default: ''
+        type: string
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: ['feature/**', 'fixbug/**', 'hotfix/**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-rollback-${{ inputs.source_sha && github.run_id || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rollback:
+    name: Serialized deployment and verified rollback
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      RUN_ROLLOUT_REHEARSAL: '1'
+      NEXT_TELEMETRY_DISABLED: '1'
+      PR_HEAD_SHA: ${{ inputs.pr_head_sha || github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/release-tools
+      - name: Check rollout tooling
+        run: |
+          python -m black --check tools/deploy/rollout*.py tests/rollout tests/backend/unit/test_rollout*.py tests/backend/unit/rollout_fixtures.py
+          python -m ruff check tools/deploy/rollout*.py tests/rollout tests/backend/unit/test_rollout*.py tests/backend/unit/rollout_fixtures.py
+      - name: Required isolated Linux rollback and committed-data proof
+        run: |
+          python -m pytest tests/rollout -q --tb=short --junitxml=build/rollback-tests.xml
+          python - <<'PY'
+          from xml.etree import ElementTree
+          root = ElementTree.parse("build/rollback-tests.xml").getroot()
+          if sum(int(suite.get("skipped", "0")) for suite in root.iter("testsuite")):
+              raise SystemExit("Required rollback acceptance skipped")
+          PY
+      - name: Preserve successful allowlisted lab evidence
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-rollback-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/rollback-review/rehearsal.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Preserve sanitized failure decisions
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-rollback-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/rollback-review/failure.json
+          if-no-files-found: warn
+          retention-days: 7
