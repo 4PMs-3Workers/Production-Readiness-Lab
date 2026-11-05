@@ -1,16 +1,24 @@
 import asyncio
 import hashlib
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import httpx
 import pytest
+import pytest_asyncio
 from sqlalchemy import func, select
 
-from app.models import Appointment, AuditEvent, Session, StaffPurpose, User
+from app.models import Appointment, AuditEvent, ServiceSetting, Session, StaffPurpose, User
 
 ORIGIN = {"Origin": "http://localhost:3000"}
 ADMIN_ACCOUNTS = "/api/v1/admin/accounts"
+
+
+@pytest_asyncio.fixture
+async def account_env(auth_env):
+    async with auth_env[1].begin() as db:
+        db.add(ServiceSetting())
+    return auth_env
 
 
 async def sign_in(client):
@@ -36,12 +44,12 @@ async def active_account(factory, user_id):
     async with factory() as db:
         user = await db.get(User, user_id)
         assert user is not None
-        return user.updated_at.isoformat()
+        return user.updated_at.isoformat().replace("+00:00", "Z")
 
 
 @pytest.mark.mysql
-async def test_account_api_rechecks_admin_role_and_requires_csrf(auth_env):
-    client, factory, user_id, _ = auth_env
+async def test_account_api_rechecks_admin_role_and_requires_csrf(account_env):
+    client, factory, user_id, _ = account_env
     await sign_in(client)
 
     denied = await client.get(ADMIN_ACCOUNTS)
@@ -66,8 +74,8 @@ async def test_account_api_rechecks_admin_role_and_requires_csrf(auth_env):
 
 
 @pytest.mark.mysql
-async def test_admin_can_filter_and_paginate_accounts_without_secrets(auth_env):
-    client, factory, user_id, _ = auth_env
+async def test_admin_can_filter_and_paginate_accounts_without_secrets(account_env):
+    client, factory, user_id, _ = account_env
     await sign_in(client)
     await promote_to_admin(factory, user_id)
     async with factory.begin() as db:
@@ -116,8 +124,10 @@ async def test_admin_can_filter_and_paginate_accounts_without_secrets(auth_env):
 
 
 @pytest.mark.mysql
-async def test_admin_account_creation_normalizes_email_and_rejects_collation_duplicates(auth_env):
-    client, factory, user_id, _ = auth_env
+async def test_admin_account_creation_normalizes_email_and_rejects_collation_duplicates(
+    account_env,
+):
+    client, factory, user_id, _ = account_env
     await sign_in(client)
     await promote_to_admin(factory, user_id)
     payload = {
@@ -155,8 +165,8 @@ async def test_admin_account_creation_normalizes_email_and_rejects_collation_dup
 
 
 @pytest.mark.mysql
-async def test_account_updates_check_version_and_skip_audit_for_noop(auth_env):
-    client, factory, user_id, _ = auth_env
+async def test_account_updates_check_version_and_skip_audit_for_noop(account_env):
+    client, factory, user_id, _ = account_env
     await sign_in(client)
     await promote_to_admin(factory, user_id)
     version = await active_account(factory, user_id)
@@ -189,6 +199,26 @@ async def test_account_updates_check_version_and_skip_audit_for_noop(auth_env):
     )
     assert stale.status_code == 409
     assert stale.json()["error"]["code"] == "ACCOUNT_VERSION_CONFLICT"
+
+
+@pytest.mark.mysql
+async def test_account_update_rejects_student_profile_fields_for_admin(account_env):
+    client, factory, user_id, _ = account_env
+    await sign_in(client)
+    await promote_to_admin(factory, user_id)
+    version = await active_account(factory, user_id)
+
+    response = await client.patch(
+        f"{ADMIN_ACCOUNTS}/{user_id}",
+        json={"expected_updated_at": version, "student_code": "S-123"},
+        headers=write_headers(client),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "STUDENT_PROFILE_ROLE_REQUIRED"
+    async with factory() as db:
+        user = await db.get(User, user_id)
+    assert user is not None and user.student_code is None
     async with factory() as db:
         events = await db.scalar(
             select(func.count()).select_from(AuditEvent).where(AuditEvent.entity_id == str(user_id))
@@ -197,8 +227,8 @@ async def test_account_updates_check_version_and_skip_audit_for_noop(auth_env):
 
 
 @pytest.mark.mysql
-async def test_password_reset_revokes_sessions_and_audits_without_secret(auth_env):
-    admin_client, factory, admin_id, app = auth_env
+async def test_password_reset_revokes_sessions_and_audits_without_secret(account_env):
+    admin_client, factory, admin_id, app = account_env
     await sign_in(admin_client)
     await promote_to_admin(factory, admin_id)
     created = await admin_client.post(
@@ -250,8 +280,8 @@ async def test_password_reset_revokes_sessions_and_audits_without_secret(auth_en
 
 
 @pytest.mark.mysql
-async def test_last_active_admin_race_cannot_remove_both_admins(auth_env):
-    first_client, factory, first_id, app = auth_env
+async def test_last_active_admin_race_cannot_remove_both_admins(account_env):
+    first_client, factory, first_id, app = account_env
     await sign_in(first_client)
     await promote_to_admin(factory, first_id)
     second = await first_client.post(
@@ -291,7 +321,9 @@ async def test_last_active_admin_race_cannot_remove_both_admins(auth_env):
             ),
         )
 
-    assert sorted(response.status_code for response in outcomes) == [200, 403]
+    statuses = sorted(response.status_code for response in outcomes)
+    assert statuses[1] == 200
+    assert statuses[0] in {401, 403}
     async with factory() as db:
         remaining = await db.scalar(
             select(func.count())
@@ -302,8 +334,8 @@ async def test_last_active_admin_race_cannot_remove_both_admins(auth_env):
 
 
 @pytest.mark.mysql
-async def test_last_active_staff_account_cannot_be_deactivated(auth_env):
-    client, factory, admin_id, _ = auth_env
+async def test_last_active_staff_account_cannot_be_deactivated(account_env):
+    client, factory, admin_id, _ = account_env
     await sign_in(client)
     await promote_to_admin(factory, admin_id)
     staff = await client.post(
@@ -390,8 +422,8 @@ async def test_staff_with_occupying_appointment_cannot_be_deactivated(booking_en
 
 
 @pytest.mark.mysql
-async def test_inactive_admin_session_cannot_read_or_mutate_accounts(auth_env):
-    client, factory, user_id, _ = auth_env
+async def test_inactive_admin_session_cannot_read_or_mutate_accounts(account_env):
+    client, factory, user_id, _ = account_env
     await sign_in(client)
     await promote_to_admin(factory, user_id)
     async with factory.begin() as db:
@@ -418,8 +450,8 @@ async def test_inactive_admin_session_cannot_read_or_mutate_accounts(auth_env):
 
 
 @pytest.mark.mysql
-async def test_concurrent_stale_updates_only_commit_once(auth_env):
-    client, factory, admin_id, _ = auth_env
+async def test_concurrent_stale_updates_only_commit_once(account_env):
+    client, factory, admin_id, _ = account_env
     await sign_in(client)
     await promote_to_admin(factory, admin_id)
     created = await client.post(
@@ -463,8 +495,8 @@ async def test_concurrent_stale_updates_only_commit_once(auth_env):
 
 
 @pytest.mark.mysql
-async def test_duplicate_email_update_rolls_back_account_and_audit(auth_env):
-    client, factory, admin_id, _ = auth_env
+async def test_duplicate_email_update_rolls_back_account_and_audit(account_env):
+    client, factory, admin_id, _ = account_env
     await sign_in(client)
     await promote_to_admin(factory, admin_id)
     created = await client.post(
@@ -498,16 +530,16 @@ async def test_duplicate_email_update_rolls_back_account_and_audit(auth_env):
         )
     assert user is not None
     assert user.email == "duplicate-target@example.invalid"
-    assert user.updated_at.isoformat() == version
+    assert user.updated_at == datetime.fromisoformat(version.replace("Z", "+00:00"))
     assert event_count == 0
 
 
 @pytest.mark.mysql
-async def test_unknown_commit_retry_uses_old_version_as_conflict(auth_env, monkeypatch):
+async def test_unknown_commit_retry_uses_old_version_as_conflict(account_env, monkeypatch):
     from app.core.transactions import CommitOutcomeUnknown
     from app.services import admin_accounts as account_service
 
-    client, factory, admin_id, _ = auth_env
+    client, factory, admin_id, _ = account_env
     await sign_in(client)
     await promote_to_admin(factory, admin_id)
     version = await active_account(factory, admin_id)
@@ -537,6 +569,58 @@ async def test_unknown_commit_retry_uses_old_version_as_conflict(auth_env, monke
         )
     assert user is not None and user.name == "Committed, response lost"
     assert events == 1
+
+
+@pytest.mark.mysql
+async def test_revoked_admin_session_cannot_mutate_after_waiting_for_settings_lock(
+    account_env, monkeypatch
+):
+    from app.services import admin_accounts as account_service
+
+    client, factory, admin_id, _ = account_env
+    await sign_in(client)
+    await promote_to_admin(factory, admin_id)
+    version = await active_account(factory, admin_id)
+    lock_requested = asyncio.Event()
+    lock_settings = account_service.appointments.lock_service_settings_for_account_change
+
+    async def signal_and_lock(db):
+        lock_requested.set()
+        return await lock_settings(db)
+
+    monkeypatch.setattr(
+        account_service.appointments, "lock_service_settings_for_account_change", signal_and_lock
+    )
+
+    async with factory() as blocker:
+        await blocker.begin()
+        await blocker.execute(
+            select(ServiceSetting).where(ServiceSetting.id == 1).with_for_update()
+        )
+        request = asyncio.create_task(
+            client.patch(
+                f"{ADMIN_ACCOUNTS}/{admin_id}",
+                json={"expected_updated_at": version, "name": "Must not commit"},
+                headers=write_headers(client),
+            )
+        )
+        await asyncio.wait_for(lock_requested.wait(), timeout=2)
+        async with factory.begin() as db:
+            session = await db.scalar(
+                select(Session).where(Session.user_id == admin_id, Session.revoked_at.is_(None))
+            )
+            assert session is not None
+            session.revoked_at = datetime.now(UTC)
+        await blocker.commit()
+
+    response = await request
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "INVALID_SESSION"
+    async with factory() as db:
+        user = await db.get(User, admin_id)
+        audit = await db.scalar(select(AuditEvent))
+    assert user is not None and user.name == "Test Student"
+    assert audit is None
 
 
 @pytest.mark.mysql

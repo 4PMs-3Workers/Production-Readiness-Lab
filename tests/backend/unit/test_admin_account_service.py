@@ -2,8 +2,10 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import cast
 
+import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import AppError
 from app.models import User
 from app.services import admin_accounts
 
@@ -21,3 +23,11 @@ async def test_account_version_timestamp_advances_when_database_clock_repeats(mo
     )
 
     assert updated_at == current + timedelta(microseconds=1)
+
+
+def test_non_student_account_cannot_receive_student_profile_fields():
+    with pytest.raises(AppError) as error:
+        admin_accounts._validate_student_profile_changes("STAFF", {"student_code": "S-123"})
+
+    assert error.value.status_code == 422
+    assert error.value.code == "STUDENT_PROFILE_ROLE_REQUIRED"

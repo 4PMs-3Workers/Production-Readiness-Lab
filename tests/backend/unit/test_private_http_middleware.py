@@ -42,6 +42,19 @@ def test_notification_routes_use_private_headers_and_request_deadlines():
         assert requires_request_deadline(scope)
 
 
+def test_admin_account_routes_use_private_headers_body_limits_and_request_deadlines():
+    for method, path in (
+        ("GET", "/api/v1/admin/accounts"),
+        ("POST", "/api/v1/admin/accounts"),
+        ("PATCH", "/api/v1/admin/accounts/00000000-0000-0000-0000-000000000001"),
+        ("POST", "/api/v1/admin/accounts/00000000-0000-0000-0000-000000000001/password"),
+    ):
+        scope: Scope = {"type": "http", "method": method, "path": path, "root_path": ""}
+        assert uses_private_api_middleware(scope)
+        assert requires_private_response(scope)
+        assert requires_request_deadline(scope)
+
+
 async def test_notification_validation_error_is_private(auth_settings):
     sent = []
 

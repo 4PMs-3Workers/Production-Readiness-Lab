@@ -3,6 +3,8 @@
 The account API is for authenticated `ADMIN` users only. It manages internal
 accounts and does not expose consultation content, account deletion, SSO, or
 email-based password recovery. Every response is private and must not be cached.
+The shared private API middleware applies its request deadline and body-size
+limit to all account routes.
 
 ## Routes
 
@@ -29,7 +31,11 @@ content are never returned.
   references the user through an appointment, staff-purpose association, staff
   unavailability, or a change proposal. This preserves historical meaning.
 - Creating or changing a role/active state rechecks the acting ADMIN and target
-  account while locked. Account rows are locked in UUID byte order.
+  account while locked. The actor's session is also rechecked for ownership,
+  revocation, and expiry after the account locks are acquired. Account rows are
+  locked in UUID byte order.
+- Student profile fields can only be populated while the target's effective
+  role is `STUDENT`; leaving that role clears any existing student profile.
 
 ## Concurrency, retries, and audit
 

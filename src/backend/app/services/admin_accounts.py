@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.auth_errors import auth_error
 from app.api.errors import AppError, ServiceUnavailable
 from app.core.config import Settings
 from app.core.passwords import PasswordService
@@ -22,7 +23,7 @@ from app.core.transactions import (
 )
 from app.domain.auth import AuthContext
 from app.models import AuditEvent, User
-from app.repositories import appointments, users
+from app.repositories import appointments, sessions, users
 from app.schemas.admin_accounts import (
     AccountCreateRequest,
     AccountItem,
@@ -34,11 +35,23 @@ from app.schemas.common import PageResponse
 from app.services import auth
 
 T = TypeVar("T")
+STUDENT_PROFILE_FIELDS = ("student_code", "faculty", "major", "gender")
 
 
 def account_error(code: str, message: str, status: int = 409) -> AppError:
     error_class = "input" if status < 500 else "service"
     return AppError(status, code, message, error_class)
+
+
+def _validate_student_profile_changes(role: str, requested: dict[str, object]) -> None:
+    if role != "STUDENT" and any(
+        requested.get(field) is not None for field in STUDENT_PROFILE_FIELDS
+    ):
+        raise account_error(
+            "STUDENT_PROFILE_ROLE_REQUIRED",
+            "Student profile fields require the STUDENT role",
+            422,
+        )
 
 
 def _require_admin(user: User | None) -> User:
@@ -50,7 +63,18 @@ def _require_admin(user: User | None) -> User:
 async def _lock_admin(db: AsyncSession, context: AuthContext, settings: Settings) -> User:
     async with asyncio.timeout(settings.db_lock_timeout_seconds):
         actor = await users.lock_by_id(db, context.user_id)
-    return _require_admin(actor)
+    actor = _require_admin(actor)
+    await _lock_active_session(db, context, settings)
+    return actor
+
+
+async def _lock_active_session(db: AsyncSession, context: AuthContext, settings: Settings) -> None:
+    async with asyncio.timeout(settings.db_lock_timeout_seconds):
+        session = await sessions.lock_active_by_id(
+            db, context.session_id, context.user_id, await users.utc_now(db)
+        )
+    if session is None:
+        raise auth_error("INVALID_SESSION")
 
 
 async def list_accounts(
@@ -228,6 +252,7 @@ async def _lock_actor_and_target(
         async with asyncio.timeout(settings.db_lock_timeout_seconds):
             locked[user_id] = await users.lock_by_id(db, user_id)
     actor = _require_admin(locked.get(context.user_id))
+    await _lock_active_session(db, context, settings)
     target = locked.get(target_id)
     if target is None:
         raise account_error("ACCOUNT_NOT_FOUND", "Account not found", 404)
@@ -270,8 +295,10 @@ async def update_account(
             )
             if field in request.model_fields_set
         }
-        if requested.get("role", user.role) != "STUDENT":
-            for field in ("student_code", "faculty", "major", "gender"):
+        new_role = requested.get("role", user.role)
+        _validate_student_profile_changes(new_role, requested)
+        if new_role != "STUDENT":
+            for field in STUDENT_PROFILE_FIELDS:
                 if getattr(user, field) is not None:
                     requested[field] = None
         changes = {
