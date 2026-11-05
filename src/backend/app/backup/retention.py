@@ -9,25 +9,37 @@ from datetime import UTC, datetime, timedelta
 from app.backup.config import BackupConfig, BackupError, Reason, database_name
 from app.backup.locking import operation_lock
 from app.backup.manifest import BACKUP_ID, timestamp
-from app.backup.storage import load_artifact, store_root, sync_directory
+from app.backup.storage import ByteBudget, load_artifact, store_root, sync_directory
 
 SCAN_LIMIT = 20000
+RESERVED_STORE_FILES = {".prl-monitoring-state.json", ".prl-monitoring-state.lock"}
 
 
-def inventory(config: BackupConfig, deadline: float):
+def inventory(config: BackupConfig, deadline: float, *, max_total_bytes: int | None = None):
+    if max_total_bytes is not None and max_total_bytes < 0:
+        raise BackupError(Reason.CONFIGURATION)
     root = store_root(config)
     manifests, ignored, count = [], 0, 0
+    byte_budget = ByteBudget(max_total_bytes) if max_total_bytes is not None else None
     with os.scandir(root) as entries:
         for entry in entries:
             count += 1
             if count > SCAN_LIMIT or time.monotonic() >= deadline:
                 raise BackupError(Reason.TIMEOUT)
+            if entry.name in RESERVED_STORE_FILES:
+                continue
             if not BACKUP_ID.fullmatch(entry.name) or entry.is_symlink() or not entry.is_dir():
                 ignored += 1
                 continue
             try:
                 manifests.append(
-                    load_artifact(config, entry.name, compatible=False, deadline=deadline)
+                    load_artifact(
+                        config,
+                        entry.name,
+                        compatible=False,
+                        deadline=deadline,
+                        byte_budget=byte_budget,
+                    )
                 )
             except BackupError as error:
                 if error.reason == Reason.TIMEOUT:

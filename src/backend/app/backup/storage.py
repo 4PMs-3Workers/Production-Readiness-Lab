@@ -6,6 +6,7 @@ import shutil
 import stat
 import time
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -18,6 +19,18 @@ from app.backup.manifest import (
     manifest_bytes,
     parse_manifest,
 )
+
+VERIFY_READ_BUFFER_BYTES = 64 * 1024
+
+
+@dataclass
+class ByteBudget:
+    remaining: int
+
+    def consume(self, amount: int) -> None:
+        if amount > self.remaining:
+            raise BackupError(Reason.TIMEOUT)
+        self.remaining -= amount
 
 
 def store_root(config: BackupConfig, *, create: bool = False) -> Path:
@@ -45,15 +58,27 @@ def capacity(path: Path, required: int, minimum: int) -> None:
         raise BackupError(Reason.STORAGE)
 
 
-def _read(path: Path, maximum: int) -> bytes:
+def _read(path: Path, maximum: int, *, byte_budget: ByteBudget | None = None) -> bytes:
     info = path.lstat()
     if not stat.S_ISREG(info.st_mode) or info.st_size > maximum:
         raise BackupError(Reason.INTEGRITY)
+    if byte_budget is not None and info.st_size > byte_budget.remaining:
+        raise BackupError(Reason.TIMEOUT)
     if os.name == "posix" and info.st_mode & 0o077:
         raise BackupError(Reason.STORAGE)
     descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-    with os.fdopen(descriptor, "rb") as source:
-        value = source.read(maximum + 1)
+    with os.fdopen(descriptor, "rb", buffering=0) as source:
+        opened = os.fstat(source.fileno())
+        if not stat.S_ISREG(opened.st_mode) or opened.st_size > maximum:
+            raise BackupError(Reason.INTEGRITY)
+        if byte_budget is not None and opened.st_size > byte_budget.remaining:
+            raise BackupError(Reason.TIMEOUT)
+        limit = maximum + 1 if byte_budget is None else min(maximum, byte_budget.remaining)
+        value = source.read(limit)
+        if byte_budget is not None:
+            byte_budget.consume(len(value))
+            if len(value) != opened.st_size or os.fstat(source.fileno()).st_size != opened.st_size:
+                raise BackupError(Reason.TIMEOUT)
     if len(value) > maximum:
         raise BackupError(Reason.INTEGRITY)
     return value
@@ -83,10 +108,12 @@ def _verify(
     *,
     compatible: bool = True,
     deadline: float | None = None,
+    byte_budget: ByteBudget | None = None,
 ) -> Manifest:
     limit = time.monotonic() + config.max_seconds if deadline is None else deadline
-    raw = _read(directory / "manifest.json", MAX_MANIFEST_BYTES)
-    if _read(directory / "COMPLETE", 64) != hashlib.sha256(raw).hexdigest().encode():
+    raw = _read(directory / "manifest.json", MAX_MANIFEST_BYTES, byte_budget=byte_budget)
+    complete = _read(directory / "COMPLETE", 64, byte_budget=byte_budget)
+    if complete != hashlib.sha256(raw).hexdigest().encode():
         raise BackupError(Reason.INTEGRITY)
     manifest = parse_manifest(
         raw, compatible=compatible, expected_sha=config.source_sha if compatible else None
@@ -112,27 +139,60 @@ def _verify(
             raise BackupError(Reason.INTEGRITY)
         if os.name == "posix" and info.st_mode & 0o077:
             raise BackupError(Reason.STORAGE)
+        if byte_budget is not None and info.st_size > byte_budget.remaining:
+            raise BackupError(Reason.TIMEOUT)
         total += info.st_size
         if total > config.max_bytes:
             raise BackupError(Reason.STORAGE)
         digest, rows = hashlib.sha256(), 0
+        bytes_read = 0
         descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-        with os.fdopen(descriptor, "rb") as source:
-            while raw_row := source.readline(MAX_RECORD_BYTES + 1):
+        # The file-size preflight above ensures this file fits the remaining
+        # budget. A fixed buffer keeps readline from issuing one syscall per byte.
+        with os.fdopen(descriptor, "rb", buffering=VERIFY_READ_BUFFER_BYTES) as source:
+            opened = os.fstat(source.fileno())
+            if not stat.S_ISREG(opened.st_mode) or opened.st_size != info.st_size:
+                raise BackupError(Reason.INTEGRITY)
+            while bytes_read < info.st_size:
                 if time.monotonic() >= limit:
+                    raise BackupError(Reason.TIMEOUT)
+                line_limit = MAX_RECORD_BYTES + 1
+                if byte_budget is not None:
+                    if byte_budget.remaining <= 0:
+                        raise BackupError(Reason.TIMEOUT)
+                    line_limit = min(line_limit, byte_budget.remaining)
+                raw_row = source.readline(line_limit)
+                if not raw_row:
+                    break
+                if byte_budget is not None:
+                    byte_budget.consume(len(raw_row))
+                bytes_read += len(raw_row)
+                if (
+                    byte_budget is not None
+                    and bytes_read < info.st_size
+                    and not raw_row.endswith(b"\n")
+                    and byte_budget.remaining == 0
+                ):
                     raise BackupError(Reason.TIMEOUT)
                 row = decode_row(raw_row, len(table.columns))
                 if table.name == "alembic_version" and row != (manifest.source.revision,):
                     raise BackupError(Reason.INTEGRITY)
                 digest.update(raw_row)
                 rows += 1
+            if bytes_read != info.st_size or os.fstat(source.fileno()).st_size != info.st_size:
+                raise BackupError(Reason.INTEGRITY)
         if rows != expected_file.rows or digest.hexdigest() != expected_file.sha256:
             raise BackupError(Reason.INTEGRITY)
     return manifest
 
 
 def load_artifact(
-    config: BackupConfig, backup_id: str, *, compatible: bool = True, deadline: float | None = None
+    config: BackupConfig,
+    backup_id: str,
+    *,
+    compatible: bool = True,
+    deadline: float | None = None,
+    byte_budget: ByteBudget | None = None,
 ) -> Manifest:
     if not BACKUP_ID.fullmatch(backup_id):
         raise BackupError(Reason.INTEGRITY)
@@ -141,7 +201,14 @@ def load_artifact(
     if path.is_symlink() or not path.is_dir() or path.resolve().parent != root:
         raise BackupError(Reason.INTEGRITY)
     try:
-        return _verify(path, backup_id, config, compatible=compatible, deadline=deadline)
+        return _verify(
+            path,
+            backup_id,
+            config,
+            compatible=compatible,
+            deadline=deadline,
+            byte_budget=byte_budget,
+        )
     except OSError:
         raise BackupError(Reason.INTEGRITY) from None
 

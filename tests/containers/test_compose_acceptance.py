@@ -214,6 +214,7 @@ class ComposeAcceptance:
         for role, entries in raw.items():
             path = self.scratch / f"{role}.env"
             path.write_text("".join(f"{name}={value}\n" for name, value in entries.items()))
+            path.chmod(0o600)
             variables[f"PRL_{role.upper()}_ENV_FILE"] = str(path.resolve())
         return variables
 

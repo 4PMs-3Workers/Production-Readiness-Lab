@@ -113,7 +113,7 @@ def test_every_alert_runbook_url_resolves_to_a_real_heading():
         assert parsed.fragment in headings, (rule["alert"], parsed.fragment, headings)
 
 
-def test_five_grafana_dashboards_are_provisioned_with_nonhealthy_empty_state():
+def test_grafana_dashboards_are_provisioned_with_nonhealthy_empty_state():
     provider_path = INFRA / "grafana-dashboard-providers.yml"
     assert provider_path.is_file(), "Grafana dashboard file provisioning is not configured"
     provider = yaml.safe_load(provider_path.read_text(encoding="utf-8"))
@@ -132,6 +132,7 @@ def test_five_grafana_dashboards_are_provisioned_with_nonhealthy_empty_state():
         "prl-db-pool",
         "prl-worker-progress",
         "prl-telemetry-loss",
+        "prl-backup-health",
     }
     assert provider["providers"][0]["options"]["path"] == "/etc/grafana/dashboards"
     assert provider["providers"][0]["allowUiUpdates"] is False
@@ -142,6 +143,56 @@ def test_five_grafana_dashboards_are_provisioned_with_nonhealthy_empty_state():
                 expression = target.get("expr", "")
                 for selector in re.findall(r"\{([^{}]*)\}", expression):
                     assert not any(label in selector for label in ("request_id=", "trace_id="))
+
+
+def test_backup_dashboard_shows_unknown_and_separates_artifact_job_and_remote_state():
+    path = INFRA / "grafana/dashboards/backup-health.json"
+    assert path.is_file(), "Backup health dashboard is not provisioned"
+    dashboard = json.loads(path.read_text(encoding="utf-8"))
+    assert dashboard["uid"] == "prl-backup-health"
+    assert dashboard["title"] == "Backup health"
+    panels = dashboard["panels"]
+    titles = {panel["title"]: panel for panel in panels}
+    assert {
+        "Verified artifact age and configured RPO",
+        "Artifact integrity",
+        "Application rehearsal",
+        "Last scheduled job outcome",
+        "Last scheduled job duration",
+        "Backup job alerts",
+        "Backup store capacity",
+        "Monitor collection freshness",
+        "Remote copy verification",
+    } <= set(titles)
+    serialized = json.dumps(dashboard, sort_keys=True)
+    for metric in (
+        "prl_backup_last_verified_timestamp_seconds",
+        "prl_backup_monitor_rpo_seconds",
+        "prl_backup_artifact_integrity_verified",
+        "prl_backup_application_rehearsal_verified",
+        "prl_backup_scheduled_job_last_success",
+        "prl_backup_scheduled_job_last_duration_seconds",
+        "BackupJobFailed",
+        "BackupJobIncomplete",
+        "BackupJobMissing",
+        "prl_backup_store_free_bytes",
+        "prl_backup_monitor_last_successful_state_read_timestamp_seconds",
+        "prl_backup_remote_copy_state",
+    ):
+        assert metric in serialized
+    assert "unknown" in titles["Remote copy verification"]["description"].lower()
+    assert "not_configured" in titles["Remote copy verification"]["description"]
+    assert "unknown" in titles["Verified artifact age and configured RPO"]["description"].lower()
+    for panel in panels:
+        for target in panel.get("targets", []):
+            expression = target.get("expr", "")
+            if expression:
+                assert 'environment=~"$environment"' in expression
+                assert 'store=~"$store"' in expression
+                assert not any(
+                    label in expression
+                    for label in ("backup_id", "request_id", "trace_id", "path=")
+                )
 
 
 def test_gateway_dashboard_runs_the_native_loki_sli_and_excludes_healthchecks():
@@ -343,6 +394,80 @@ def test_prometheus_rule_tests_cover_thresholds_restart_and_backlog_freshness():
     assert "prl_worker_last_successful_scan_timestamp_seconds" in text
     assert "prl_worker_started_timestamp_seconds" in text
     assert "A fresh empty scan excludes a retained oldest-overdue value before max" in text
+    for backup_case in (
+        "Backup artifact missing and stale",
+        "Scheduled failure remains until scheduled success",
+        "Incomplete job fires after runtime and grace",
+        "Missing schedule does not duplicate incomplete",
+        "Missing configuration and no data remain unknown",
+        "Monitor target down and state read stale",
+        "Absent remote copy remains unknown",
+    ):
+        assert backup_case in text
+    rules = yaml.safe_load((INFRA / "prometheus-rules.yml").read_text(encoding="utf-8"))
+    alerts = {
+        rule["alert"] for group in rules["groups"] for rule in group["rules"] if "alert" in rule
+    }
+    assert {
+        "BackupArtifactMissing",
+        "BackupArtifactStale",
+        "BackupJobFailed",
+        "BackupJobIncomplete",
+        "BackupJobMissing",
+        "BackupMonitorConfigurationMissing",
+        "BackupMonitorStateUnavailable",
+        "BackupMonitorStateReadStale",
+    } <= alerts
+    target_down = next(
+        rule
+        for group in rules["groups"]
+        for rule in group["rules"]
+        if rule.get("alert") == "TelemetryTargetDown"
+    )
+    assert (
+        'job=~"api|collector|application-otel|local-alert-receiver|prometheus-self|loki-self|tempo-self|grafana-self|alertmanager-self|backup-monitor"'
+        in target_down["expr"]
+    )
+
+
+def test_backup_job_missing_and_incomplete_use_distinct_detection_windows():
+    rules_document = yaml.safe_load((INFRA / "prometheus-rules.yml").read_text(encoding="utf-8"))
+    rules = {
+        rule["alert"]: " ".join(rule["expr"].split())
+        for group in rules_document["groups"]
+        for rule in group["rules"]
+        if rule.get("alert") in {"BackupJobMissing", "BackupJobIncomplete"}
+    }
+    missing = rules["BackupJobMissing"]
+    incomplete = rules["BackupJobIncomplete"]
+    assert (
+        "prl_backup_monitor_schedule_interval_seconds + " "prl_backup_monitor_job_grace_seconds"
+    ) in missing
+    assert "prl_backup_monitor_job_runtime_seconds" not in missing
+    missing_window = missing.split(" > on(environment, store)", 1)[0]
+    assert "prl_backup_scheduled_job_last_started_timestamp_seconds" in missing_window
+    assert "prl_backup_scheduled_job_last_finished_timestamp_seconds" not in missing_window
+    assert "prl_backup_monitor_job_runtime_seconds" in incomplete
+    assert "prl_backup_monitor_job_grace_seconds" in incomplete
+
+    missing_summary = next(
+        rule["annotations"]["summary"]
+        for group in rules_document["groups"]
+        for rule in group["rules"]
+        if rule.get("alert") == "BackupJobMissing"
+    )
+    tests_document = yaml.safe_load(
+        (INFRA / "prometheus-rule-tests.yml").read_text(encoding="utf-8")
+    )
+    fixture_summaries = [
+        alert["exp_annotations"]["summary"]
+        for scenario in tests_document["tests"]
+        for check in scenario.get("alert_rule_test", [])
+        if check.get("alertname") == "BackupJobMissing"
+        for alert in check.get("exp_alerts", [])
+    ]
+    assert fixture_summaries
+    assert set(fixture_summaries) == {missing_summary}
 
 
 def test_same_slot_restart_fixture_keeps_cached_backlog_unknown_until_new_scan():

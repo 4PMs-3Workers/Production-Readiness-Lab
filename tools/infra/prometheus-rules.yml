@@ -3,7 +3,7 @@ groups:
     interval: 15s
     rules:
       - alert: TelemetryTargetDown
-        expr: up{job=~"api|collector|application-otel|local-alert-receiver|prometheus-self|loki-self|tempo-self|grafana-self|alertmanager-self"} == 0
+        expr: up{job=~"api|collector|application-otel|local-alert-receiver|prometheus-self|loki-self|tempo-self|grafana-self|alertmanager-self|backup-monitor"} == 0
         for: 30s
         labels:
           severity: warning
@@ -245,3 +245,104 @@ groups:
         annotations:
           summary: A fresh positive worker backlog contains work more than 60 seconds overdue.
           runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#worker-backlog-overdue
+
+  - name: backup-health
+    interval: 15s
+    rules:
+      - alert: BackupArtifactMissing
+        expr: |
+          (
+            (prl_backup_monitor_state_valid == 1)
+            unless on(environment, store) prl_backup_last_verified_timestamp_seconds
+          )
+          and on() (prl_backup_monitor_config_valid == 1)
+        labels:
+          severity: critical
+        annotations:
+          summary: No integrity-verified local backup artifact is recorded.
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#backup-artifact-missing
+      - alert: BackupArtifactStale
+        expr: |
+          (time() - prl_backup_last_verified_timestamp_seconds)
+          > on(environment, store) prl_backup_monitor_rpo_seconds
+        labels:
+          severity: critical
+        annotations:
+          summary: The latest integrity-verified local backup is older than the configured RPO.
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#backup-artifact-stale
+      - alert: BackupJobFailed
+        expr: prl_backup_scheduled_job_failure_pending == 1
+        labels:
+          severity: critical
+        annotations:
+          summary: A scheduled backup failed and remains unresolved until a later scheduled success.
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#backup-job-failed
+      - alert: BackupJobIncomplete
+        expr: |
+          (
+            prl_backup_scheduled_job_last_started_timestamp_seconds
+            + on(environment, store) prl_backup_monitor_job_runtime_seconds
+            + on(environment, store) prl_backup_monitor_job_grace_seconds
+          ) < time()
+          unless on(environment, store)
+          (
+            prl_backup_scheduled_job_last_finished_timestamp_seconds
+            >= on(environment, store) prl_backup_scheduled_job_last_started_timestamp_seconds
+          )
+        labels:
+          severity: critical
+        annotations:
+          summary: A scheduled backup has no final report after its maximum runtime and termination grace.
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#backup-job-incomplete
+      - alert: BackupJobMissing
+        expr: |
+          (
+            time()
+            - (
+              prl_backup_scheduled_job_last_started_timestamp_seconds
+              or on(environment, store) prl_backup_monitor_initialized_timestamp_seconds
+            )
+          )
+          > on(environment, store)
+          (
+            prl_backup_monitor_schedule_interval_seconds
+            + prl_backup_monitor_job_grace_seconds
+          )
+          unless on(environment, store)
+          (
+            prl_backup_scheduled_job_last_started_timestamp_seconds
+            > on(environment, store)
+            (
+              prl_backup_scheduled_job_last_finished_timestamp_seconds
+              or on(environment, store) prl_backup_monitor_initialized_timestamp_seconds
+            )
+          )
+        labels:
+          severity: warning
+        annotations:
+          summary: No scheduled backup has started within the expected schedule and grace window.
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#backup-job-missing
+      - alert: BackupMonitorConfigurationMissing
+        expr: prl_backup_monitor_config_valid == 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Required backup monitoring thresholds are missing or invalid; backup health is unknown.
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#backup-monitor-configuration
+      - alert: BackupMonitorStateUnavailable
+        expr: prl_backup_monitor_state_valid == 0
+        labels:
+          severity: critical
+        annotations:
+          summary: The backup exporter cannot validate its monitoring state; backup health is unknown.
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#backup-monitor-state
+      - alert: BackupMonitorStateReadStale
+        expr: |
+          (
+            time() - prl_backup_monitor_last_successful_state_read_timestamp_seconds
+          ) > on(environment, store) prl_backup_monitor_stale_seconds
+        labels:
+          severity: warning
+        annotations:
+          summary: The exporter has not successfully read backup state within its configured freshness bound.
+          runbook_url: https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/develop/docs/tasks/observability-runbook.md#backup-monitor-state

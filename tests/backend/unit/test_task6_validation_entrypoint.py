@@ -91,6 +91,21 @@ def test_temporary_compose_project_name_is_normalized_for_docker():
     assert project == "prl-task6-check-20261024t132742z-deadbeef"
 
 
+def test_validation_environment_renders_backup_monitoring_without_operator_settings(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("PRL_BACKUP_VOLUME", "private-operator-volume")
+    monkeypatch.setattr(check_telemetry, "EVIDENCE", tmp_path)
+    environment = check_telemetry._compose_environment(tmp_path)
+
+    check_telemetry._run_compose("backup-contract", environment)
+
+    assert environment["PRL_BACKUP_VOLUME"] == "prl-task6-check-backups"
+    evidence = list(tmp_path.glob("task-6-check-backup-contract-*.txt"))
+    assert len(evidence) == 2
+    assert all("private-operator-volume" not in path.read_text() for path in evidence)
+
+
 def test_compose_inventory_resolves_collector_and_gateway_base_locks():
     lock = json.loads((ROOT / "tools/infra/images.lock.json").read_text(encoding="utf-8-sig"))
     services: dict[str, object] = {

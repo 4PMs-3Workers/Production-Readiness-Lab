@@ -58,6 +58,18 @@ def test_age_boundary_and_count_limit_are_independent(tmp_path):
     assert result["removed"] == [boundary]
 
 
+def test_monitoring_state_files_are_excluded_from_inventory(tmp_path):
+    config, _ = fixture_artifact(tmp_path)
+    (tmp_path / ".prl-monitoring-state.json").write_text("{}")
+    (tmp_path / ".prl-monitoring-state.lock").write_text("0")
+
+    result = status(config)
+
+    # status() owns .operation.lock; the two monitoring files add no ignored entries.
+    assert result["ignored_entries"] == 1
+    assert result["last_successful_backup"] is None
+
+
 def test_overlapping_process_is_refused_and_lock_releases_after_owner_exit(tmp_path):
     config, _ = fixture_artifact(tmp_path)
     script = """

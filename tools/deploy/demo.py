@@ -24,7 +24,11 @@ ROOT = Path(__file__).resolve().parents[2]
 CONFIG_ROOT = ROOT
 REVISION_LABEL = "org.opencontainers.image.revision"
 APPLICATION_SERVICES = {"api", "worker", "frontend", "migrate", "schema", "seed"}
-SOURCE_SERVICES = APPLICATION_SERVICES | {"collector", "local_alert_receiver"}
+SOURCE_SERVICES = APPLICATION_SERVICES | {
+    "collector",
+    "local_alert_receiver",
+    "backup_metrics_exporter",
+}
 VENDOR_SERVICE_KEYS = {
     "mysql": "mysql",
     "gateway": "gateway",
@@ -660,6 +664,7 @@ class Demo:
                             "alertmanager",
                             "local_alert_receiver",
                             "gateway_log_rotate",
+                            "backup_metrics_exporter",
                         ]
                     )
                 self.compose("up", "-d", *services)

@@ -29,6 +29,7 @@ OBSERVABILITY_SERVICES = {
     "alertmanager",
     "local_alert_receiver",
     "gateway_log_rotate",
+    "backup_metrics_exporter",
 }
 V2_SERVICES = SERVICES | OPERATIONAL_SERVICES | OBSERVABILITY_SERVICES
 V1_FIELDS = {
