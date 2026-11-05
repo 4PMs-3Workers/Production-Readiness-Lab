@@ -6,11 +6,13 @@ from tools.deploy.rollout_controller import RolloutController
 
 def interrupted_deploy(tmp_path, stable_count):
     host = controller(tmp_path)
+    completed = None
     for number in range(1, stable_count + 1):
         if number > 1:
             host.registry.releases[reference(number)] = release(122 + number, reference(number - 1))
         completed = host.deploy(reference(number))
         host.runtime.previous_stable = completed.stable
+    assert completed is not None
     host.registry.releases[reference(3)] = release(125, reference(stable_count))
     original = host.control.smoke
 

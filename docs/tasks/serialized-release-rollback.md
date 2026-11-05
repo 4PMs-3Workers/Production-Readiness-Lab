@@ -99,6 +99,14 @@ requires complete image, database-volume, schema, advancing worker and business
 proofs; writing a pending phase never promotes a release. Legacy deployment
 evidence v1/v2 remains readable and is not converted into release proof.
 
+Retirement snapshots use `operations/<operation-id>/<canonical-state-sha256>.json`.
+They are immutable observations prepared before replacing authoritative state.
+If that replacement fails, the same operation may still receive a refusal or an
+interruption marker; its next retirement writes a distinct snapshot. An existing
+prepared snapshot never forces equality with a subsequently updated authoritative
+record. Older flat `operations/<operation-id>.json` archives are retained and remain
+non-authoritative.
+
 | Situation                                                   | Behavior and operator action                                                                                                                                                                                               |
 | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Normal deploy                                               | `preflight → migration → rollout → readiness → smoke → succeeded`; only the final verified write promotes stable and retains the old stable.                                                                               |
@@ -117,18 +125,31 @@ an accidental second rollback from selecting the release just rejected. Missing
 images and configuration/schema incompatibility refuse the target before replacing
 the applications.
 
+An unresolved recovery intent survives preflight failures. For example, after
+verified A → B and an interrupted C, rollback selects B. If B's image pull fails,
+the next rollback retries **B**, including on a newly started controller; it does
+not fall back again to A or report no target. Failed `deploy --resume` preflight
+likewise retains the original selection and resume restrictions. Only complete
+verified recovery clears `recovery_pending`.
+
 CLI exit status is zero for a successful deploy or explicit rollback. A failed
 deploy whose automatic recovery succeeds still exits **1**, with outcome
 `rolled_back`: recovery does not make the attempted release successful. Failed
 rollback also exits 1. Errors use allowlisted reason codes, without raw subprocess
 output, account data, cookies or response payloads.
 
-## Live verification and recovery clock
+## Live verification
 
 Readiness verifies selected frontend/API/worker image references, source labels
 and local identities; API, frontend and gateway health; gateway live/ready/login;
 and two advancing scan counters from the same worker container. An unchanged
 heartbeat counter cannot satisfy worker progress.
+
+With observability enabled, replacement stops the gateway log rotator before its
+namespace owner, recreates the gateway, then recreates the rotator. Readiness also
+requires the pinned rotator image to be running in both PID and network namespaces
+of the current gateway container. A process attached to a retired gateway cannot
+satisfy verification. This applies to deployment and rollback alike.
 
 Business smoke uses the gateway, real session cookies and signed CSRF. It covers
 login, history/detail, purpose/staff/availability reads, booking, replay with the
@@ -136,6 +157,39 @@ same key and exact receipt, cancellation/replay, logout and subsequent protected
 request rejection. Read-only database checks require exactly one appointment,
 one audit and two notifications after book/replay, and one appointment, two audits
 and four notifications after cancel/replay. No smoke payload is public evidence.
+Cancellation additionally requires the strict response's correct identity,
+`CANCELLED` status and timestamp, a matching persisted detail read, and an independent
+read-only database status check. Equal responses and row counts alone cannot prove
+cancellation.
+
+## Private smoke transaction recovery
+
+Host commands keep `build/deploy/private/smoke-transaction.json` separately from
+public operation evidence. This bounded, atomic, mode-0600 file contains the
+original idempotency key, non-free-text booking input and minimal creation receipt.
+Its parent is private; no password, cookie or CSRF token is stored. The journal is
+bound to the gateway origin and dedicated account identity. Preserve it across
+source updates and process restarts along with the canonical host state. Do not
+upload it, include it in CI artifacts, or delete it to bypass recovery.
+
+Intent is durable before sending a booking request. If a response is lost or the
+process exits after commit, recovery replays the original key and input to resolve
+the receipt. If detail/effects/replay later fails, smoke first attempts to cancel
+and verify its own transaction. An unhealthy candidate may not serve cancellation;
+in that case the journal remains pending and automatic rollback performs cleanup
+through the restored release **before any fresh smoke booking**. Previously
+committed application bookings are never used as cleanup targets.
+
+Use the original dedicated account credentials when retrying recovery. Cleanup
+must verify cancellation, replay effects and persisted status before clearing the
+journal. If cleanup cannot be established, the operation reports
+`smoke-cleanup-failed`, keeps its private intent and creates no additional booking.
+Correct the gateway/account/database cause and retry the recorded rollback target;
+the stable pointer remains unchanged on failure. Bootstrap without a known stable
+release may require reviewed operator intervention; retain its private transaction
+evidence rather than discarding an unresolved booking.
+
+## Recovery clock and identities
 
 The rollback budget is **300 seconds from the persisted rollback decision** to
 complete readiness and business smoke, including registry, Compose and HTTP work.
@@ -170,14 +224,22 @@ Python callers can use `rehearse(Path("build/rollback-review"))` from
 
 The harness owns a UUID registry, builder, project, network and data volume. It
 builds source-labelled OCI images once, publishes a stable fixture plus a known
-bad backend with successful readiness but failing business endpoints, and uses
-the real controller for automatic recovery. One real booking commits before
+bad backend whose real readiness/login/booking/replay work while detail and
+cancellation return errors, and uses the real controller for automatic recovery.
+The candidate therefore commits a real smoke booking which only the restored
+release can cancel and verify before its own smoke. One real booking commits before
 deployment and one during its rollout phase, before graceful quiescence. The
 same actor session reads/replays both after recovery and verifies exact audit/
 notification counts. A separate process attempts a competing rollback during
 deployment; real missing-image and configuration-drift preflights must also fail
 without changing stable or its running containers. Cleanup verifies ownership
 and preserves any existing `prl-demo` resources.
+
+The required suite also holds MySQL inside bootstrap to verify its health boundary
+and runs a pinned-Nginx component scenario which replaces the gateway twice,
+verifies the rotator's new namespaces, and observes actual log rotation/reopening.
+Each fixture owns its project/storage and verifies ownership before cleanup; none
+uses the host deployment's MySQL volume.
 
 `prl-rollback-lab` v1 requires an outcome, exact checkout/PR-head SHA, artifact and
 configuration identities, decision/readiness/smoke times, recovery duration and
@@ -195,9 +257,11 @@ Affected local checks:
 
 ```bash
 python -m black --check tools/deploy/rollout*.py tests/rollout \
-  tests/backend/unit/test_rollout*.py tests/backend/unit/rollout_fixtures.py
+  tests/backend/unit/test_rollout*.py tests/backend/unit/rollout_fixtures.py \
+  tests/backend/unit/smoke_fixtures.py
 python -m ruff check tools/deploy/rollout*.py tests/rollout \
-  tests/backend/unit/test_rollout*.py tests/backend/unit/rollout_fixtures.py
+  tests/backend/unit/test_rollout*.py tests/backend/unit/rollout_fixtures.py \
+  tests/backend/unit/smoke_fixtures.py
 pyright
 python -m pytest tests/backend/unit -q
 ```

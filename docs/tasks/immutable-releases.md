@@ -18,6 +18,9 @@ and backend must carry the exact checkout SHA, while API, worker, schema, migrat
 seed and optional backup all select the same backend image. The alert receiver
 also uses backend; an observability release includes the source-built collector.
 Vendor dependencies use the existing reviewed image lock.
+The observability log rotator derives its exact image reference from the gateway's
+locked vendor digest in the final release overlay; its namespace owner is replaced
+before the rotator is recreated and verified.
 
 Docker local IDs are normalized when verifying pulled/running images: a classic
 config ID must match `image_id`; a local single-manifest ID must match the exact

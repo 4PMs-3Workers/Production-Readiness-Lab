@@ -638,6 +638,13 @@ stable cũ; retry/resume phải kiểm tra lại manifest, schema và trạng th
 [Runbook phát hành/rollback](../tasks/serialized-release-rollback.md) quy định một
 checkout vận hành và state bền duy nhất trên host, các nhánh lỗi và lệnh phục hồi.
 
+Ý định phục hồi và đích đã chọn được giữ qua lỗi preflight/retry. Archive theo hash
+nội dung không thay thế state có thẩm quyền hoặc khóa retry sau lỗi ghi dở dang.
+Smoke giữ journal giao dịch riêng tư để bản ổn định có thể hủy đúng booking do
+candidate lỗi để lại trước khi đặt lịch thử mới; journal không thuộc evidence công
+khai. Hủy lịch phải khớp receipt, detail và trạng thái DB. Khi thay gateway của
+stack observability, rotator được tạo lại và kiểm tra cả PID/network namespace mới.
+
 Migration được rà soát FK/CHECK/UNIQUE, generated column, collation và chỉ mục MySQL; kiểm thử nâng cấp và rollback ứng dụng trên MySQL 8.4/InnoDB thật. Alembic autogenerate tạo bản nháp để rà soát. DDL có thể implicit commit nên job migration kiểm tra từng bước và xử lý lỗi giữa chừng. Rollback ứng dụng giữ schema tương thích, không tự động chạy migration down.
 
 ### 9.3. Rollback và xác minh phục hồi

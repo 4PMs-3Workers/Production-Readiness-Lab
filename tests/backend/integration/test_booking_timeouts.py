@@ -1,7 +1,10 @@
 """Configured booking budgets cancel MySQL work and leave recoverable transactions."""
 
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -116,6 +119,45 @@ async def test_query_budget_cancels_database_work_and_cleans_transaction(
     entered = asyncio.Event()
     completed = asyncio.Event()
     setup_completed = asyncio.Event()
+    active_query_scopes: list[tuple[float, asyncio.Timeout]] = []
+    active_request_scopes: list[tuple[float, asyncio.Timeout]] = []
+    supplied_deadlines: list[float] = []
+    expired_target: list[asyncio.Timeout] = []
+    target_budget = 0.25
+
+    @asynccontextmanager
+    async def tracked_query_timeout(seconds: float) -> AsyncIterator[asyncio.Timeout]:
+        # Isolate fault injection from untimed setup on a contended CI runner.
+        # Keep the production-requested duration and require the actual query
+        # scope to own cancellation once the intended SQL boundary is reached.
+        async with asyncio.timeout(max(seconds, 15.0)) as scope:
+            active_query_scopes.append((seconds, scope))
+            try:
+                yield scope
+            finally:
+                active_query_scopes.pop()
+
+    @asynccontextmanager
+    async def tracked_request_timeout(deadline: float) -> AsyncIterator[asyncio.Timeout]:
+        assert supplied_deadlines and deadline == supplied_deadlines[-1]
+        async with asyncio.timeout_at(asyncio.get_running_loop().time() + 15) as scope:
+            active_request_scopes.append((deadline, scope))
+            try:
+                yield scope
+            finally:
+                active_request_scopes.pop()
+
+    original_create = booking.create_appointment
+
+    async def capture_deadline(*args, **kwargs):
+        supplied_deadlines.append(kwargs["deadline"])
+        return await original_create(*args, **kwargs)
+
+    test_clock = SimpleNamespace(**vars(asyncio))
+    test_clock.timeout = tracked_query_timeout
+    test_clock.timeout_at = tracked_request_timeout
+    monkeypatch.setattr(booking, "asyncio", test_clock)
+    monkeypatch.setattr(booking, "create_appointment", capture_deadline)
 
     if setup_delay:
         original_lock = booking.appointments.lock_service_settings
@@ -130,6 +172,16 @@ async def test_query_budget_cancels_database_work_and_cleans_transaction(
 
     async def slow_query(db):
         entered.set()
+        if limiter == "query":
+            candidates = [
+                scope for seconds, scope in active_query_scopes if seconds == target_budget
+            ]
+        else:
+            candidates = [scope for _, scope in active_request_scopes]
+        assert len(candidates) == 1, "The selected production timeout must cover the injected SQL"
+        scope = candidates[0]
+        expired_target.append(scope)
+        scope.reschedule(asyncio.get_running_loop().time() + target_budget)
         await db.execute(text("SELECT SLEEP(0.8)"))
         completed.set()
 
@@ -179,6 +231,8 @@ async def test_query_budget_cancels_database_work_and_cleans_transaction(
         if setup_delay:
             assert setup_completed.is_set()
         assert entered.is_set(), (reads, repr(caught.value.__context__))
+        assert len(expired_target) == 1 and expired_target[0].expired()
+        assert len(supplied_deadlines) == 1
         if stage == "duplicate-winner":
             assert reads == 3
         assert not completed.is_set()
