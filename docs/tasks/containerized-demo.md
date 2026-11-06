@@ -248,13 +248,15 @@ rotation](https://dev.mysql.com/doc/refman/8.4/en/alter-user.html) cùng các
 Đồng bộ đúng các file consumer trước khi tạo lại ứng dụng:
 
 - `prl_runtime`: `PRL_RUNTIME_PASSWORD` trong `db.env` và `DATABASE_URL` trong
-  `runtime.env`; URL này được API và worker dùng chung.
+  `runtime.env`; URL này được API và worker dùng chung. Healthcheck MySQL dùng
+  account runtime qua TCP loopback với `SELECT 1`, không cần quyền trên bảng.
+  Cách này chờ server cuối cùng sau bootstrap, không nhận nhầm server socket tạm.
 - `prl_migration`: `PRL_MIGRATION_PASSWORD` trong `db.env` và `DATABASE_URL`
   trong `migration.env`.
 - `prl_seed`: `PRL_SEED_PASSWORD` trong `db.env` và `DATABASE_URL` trong
   `seed.env` nếu cần chạy seed sau này.
-- `root`: `MYSQL_ROOT_PASSWORD` trong `db.env`; account này cũng được
-  healthcheck MySQL và script vận hành root-only dùng.
+- `root`: `MYSQL_ROOT_PASSWORD` trong `db.env`; account này được script vận hành
+  root-only dùng.
 
 Sau khi đổi account trong MySQL và cập nhật file được bảo vệ, dùng `down` rồi
 `up` với cùng overlay/mode để container MySQL và consumer đọc cấu hình mới. Lệnh

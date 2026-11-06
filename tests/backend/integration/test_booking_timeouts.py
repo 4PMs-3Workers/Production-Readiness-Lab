@@ -72,9 +72,12 @@ async def _assert_booking_locks_released(env):
         ("duplicate-winner", "query", 0),
         pytest.param("duplicate-winner", "query", 0.75, id="duplicate-winner-query-slow-setup"),
         ("eligibility", "query", 0),
+        pytest.param("eligibility", "query", 0.75, id="eligibility-query-slow-setup"),
         ("flush", "query", 0),
+        pytest.param("flush", "query", 0.75, id="flush-query-slow-setup"),
         ("committed-key", "request", 0),
         ("eligibility", "request", 0),
+        pytest.param("eligibility", "request", 0.75, id="eligibility-request-slow-setup"),
     ],
 )
 async def test_query_budget_cancels_database_work_and_cleans_transaction(
@@ -82,12 +85,18 @@ async def test_query_budget_cancels_database_work_and_cleans_transaction(
 ):
     env, _, starts_at = booking_env
     payload = _request(env, starts_at)
+    target_budget = 0.25
     replay = stage in {"committed-key", "duplicate-winner"}
+    setup_settings = auth_settings.model_copy(
+        update={"db_query_timeout_seconds": 10.0, "db_lock_timeout_seconds": 5.0}
+    )
     # Force escaped exception repr, as binary UUID values can do with random fixtures.
     key = 'timeout-"quoted"-key' if stage == "duplicate-winner" else "timeout-key"
     if replay:
         async with env.factory() as seed:
-            receipt, _ = await _create(seed, env, payload, auth_settings, key=key)
+            receipt, _ = await _create(
+                seed, env, payload, setup_settings, key=key, request_budget=15.0
+            )
             if stage == "duplicate-winner":
                 async with seed.begin():
                     row = await seed.get(Appointment, receipt.id)
@@ -95,19 +104,22 @@ async def test_query_budget_cancels_database_work_and_cleans_transaction(
                     row.status = "CANCELLED"
                     row.cancelled_at = await users.utc_now(seed)
     settings = auth_settings.model_copy(
-        update={"db_query_timeout_seconds": 0.25 if limiter == "query" else 3.0}
+        update={
+            "db_query_timeout_seconds": target_budget if limiter == "query" else 30.0,
+            "db_lock_timeout_seconds": 5.0,
+        }
     )
     reads = 0
-    request_budget = 0.25 if limiter == "request" else 3.0
+    request_budget = target_budget if limiter == "request" else 30.0
     if stage == "duplicate-winner":
         # Reaching the winner read requires a complete write/unique-error cycle.
         # Lock, write and request budgets must not expire before that target read.
-        # Only the winner lookup under test retains the 250 ms query budget.
+        # Only the winner lookup under test retains the target query budget.
         read_settings = settings
         settings = settings.model_copy(
             update={"db_query_timeout_seconds": 10.0, "db_lock_timeout_seconds": 5.0}
         )
-        request_budget = 15.0
+        request_budget = 30.0
         original_read = booking._read_committed_key
 
         async def read_with_short_budget(db, **kwargs):
@@ -123,7 +135,6 @@ async def test_query_budget_cancels_database_work_and_cleans_transaction(
     active_request_scopes: list[tuple[float, asyncio.Timeout]] = []
     supplied_deadlines: list[float] = []
     expired_target: list[asyncio.Timeout] = []
-    target_budget = 0.25
 
     @asynccontextmanager
     async def tracked_query_timeout(seconds: float) -> AsyncIterator[asyncio.Timeout]:
@@ -219,13 +230,16 @@ async def test_query_budget_cancels_database_work_and_cleans_transaction(
 
             monkeypatch.setattr(db, "flush", slow_flush)
         with pytest.raises(AppError) as caught:
-            await _create(
-                db,
-                env,
-                payload,
-                settings,
-                key=key,
-                request_budget=request_budget,
+            await asyncio.wait_for(
+                _create(
+                    db,
+                    env,
+                    payload,
+                    settings,
+                    key=key,
+                    request_budget=request_budget,
+                ),
+                timeout=15.0,
             )
         assert (caught.value.status_code, caught.value.code) == (503, "SERVICE_UNAVAILABLE")
         if setup_delay:
@@ -294,17 +308,30 @@ async def test_configured_lock_budget_aborts_before_mysql_server_timeout(
 
 
 @pytest.mark.parametrize("server_committed", [False, True], ids=["before-commit", "after-commit"])
+@pytest.mark.parametrize("setup_delay", [0, 0.75], ids=["normal-setup", "slow-setup"])
 async def test_query_timeout_during_commit_invalidates_without_retrying_writes(
-    booking_env, auth_settings, monkeypatch, server_committed
+    booking_env, auth_settings, monkeypatch, server_committed, setup_delay
 ):
     env, _, starts_at = booking_env
     payload = _request(env, starts_at)
-    settings = auth_settings.model_copy(update={"db_query_timeout_seconds": 0.25})
+    # The query budget covers the entire write attempt, including setup before commit.
+    # Give that real database work room on busy runners, then stall commit until the
+    # service's query timeout cancels it. The watchdog expires before the request
+    # deadline, so a missing query timeout fails instead of passing via request timeout.
+    settings = auth_settings.model_copy(
+        update={"db_query_timeout_seconds": 5.0, "db_lock_timeout_seconds": 5.0}
+    )
     dialect = env.factory.kw["bind"].sync_engine.dialect
     original_commit = dialect.do_commit
     targets = set()
     entered = asyncio.Event()
     write_commits = 0
+
+    original_lock = booking.appointments.lock_service_settings
+
+    async def delayed_setup(db):
+        await asyncio.sleep(setup_delay)
+        return await original_lock(db)
 
     def mark_write_connection(session):
         if any(isinstance(row, Appointment) for row in session.identity_map.values()):
@@ -319,13 +346,13 @@ async def test_query_timeout_during_commit_invalidates_without_retrying_writes(
         entered.set()
         if server_committed:
             original_commit(connection)
-        await_only(asyncio.sleep(0.8))
-        if not server_committed:
-            original_commit(connection)
+        await_only(asyncio.Event().wait())
 
     event.listen(Session, "before_commit", mark_write_connection)
     try:
         with monkeypatch.context() as patch:
+            if setup_delay:
+                patch.setattr(booking.appointments, "lock_service_settings", delayed_setup)
             patch.setattr(dialect, "do_commit", pause_commit)
             async with env.factory() as db:
                 invalidations = 0
@@ -338,7 +365,9 @@ async def test_query_timeout_during_commit_invalidates_without_retrying_writes(
 
                 patch.setattr(db, "invalidate", invalidate)
                 with pytest.raises(AppError) as caught:
-                    await _create(db, env, payload, settings)
+                    await asyncio.wait_for(
+                        _create(db, env, payload, settings, request_budget=30.0), timeout=15.0
+                    )
                 assert (caught.value.status_code, caught.value.code) == (503, "SERVICE_UNAVAILABLE")
                 assert entered.is_set()
                 assert write_commits == 1

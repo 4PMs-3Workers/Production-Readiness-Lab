@@ -54,11 +54,13 @@ jobs:
       - run: .venv/bin/python -m pip install -r requirements-dev.txt
       - name: Install backend package (editable)
         run: .venv/bin/python -m pip install -e .
+      - name: Install independent off-host monitor package
+        run: .venv/bin/python -m pip install -e tools/infra/offhost
       - name: Verify worker module entry point without starting database resources
         run: .venv/bin/python -m app.worker --help
       - run: npm install --global pyright@1.1.407
-      - run: .venv/bin/python -m black --check src/backend tests/backend tools/scripts/export_openapi.py tools/scripts/seed_demo.py tools/backup
-      - run: .venv/bin/python -m ruff check src/backend tests/backend tools/scripts/export_openapi.py tools/scripts/seed_demo.py tools/backup
+      - run: .venv/bin/python -m black --check src/backend tests/backend tools/scripts/export_openapi.py tools/scripts/seed_demo.py tools/backup tools/infra/offhost
+      - run: .venv/bin/python -m ruff check src/backend tests/backend tools/scripts/export_openapi.py tools/scripts/seed_demo.py tools/backup tools/infra/offhost
       - name: Release tooling quality checks
         run: |
           .venv/bin/python -m black --check tools/deploy/release*.py tests/backend/unit/test_release*.py tests/release
@@ -66,6 +68,10 @@ jobs:
           .venv/bin/python -m black --check tools/deploy/rollout*.py tests/backend/unit/test_rollout*.py tests/backend/unit/rollout_fixtures.py tests/backend/unit/smoke_fixtures.py tests/rollout
           .venv/bin/python -m ruff check tools/deploy/rollout*.py tests/backend/unit/test_rollout*.py tests/backend/unit/rollout_fixtures.py tests/backend/unit/smoke_fixtures.py tests/rollout
       - run: pyright
+      - name: Verify Linux monitor installer syntax and CLI packaging
+        run: |
+          sh -n tools/infra/offhost/install.sh
+          .venv/bin/offhost-probe --help
 
       # --- Migration smoke tests ---
       # Create the dedicated CI migration database first.

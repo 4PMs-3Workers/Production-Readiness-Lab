@@ -473,7 +473,8 @@ def test_containerized_demo_upload_is_limited_to_sanitized_review_artifacts() ->
     workflow = yaml.safe_load(workflow_text)
     job = workflow["jobs"]["compose-acceptance"]
 
-    assert job["timeout-minutes"] == 45
+    # Cover the observed 39-minute acceptance plus cold browser/tool setup.
+    assert job["timeout-minutes"] == 60
     assert job["env"]["PR_HEAD_SHA"] == (
         "${{ inputs.pr_head_sha || github.event.pull_request.head.sha || github.sha }}"
     )

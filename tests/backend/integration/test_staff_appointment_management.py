@@ -736,10 +736,25 @@ async def test_staff_outcome_requires_time_strictly_after_end_and_is_idempotent(
 
 
 @pytest.mark.parametrize("state", ["CANCELLED", "CHANGE_PENDING"])
+@pytest.mark.parametrize("lock_delay", [0, 1.25], ids=["normal", "slow-lock-step"])
 async def test_staff_outcome_rejects_cancelled_and_pending_change(
-    availability_env, monkeypatch, state
+    availability_env, monkeypatch, state, lock_delay
 ):
     env = availability_env
+    monkeypatch.setattr(
+        env.app.state,
+        "settings",
+        env.app.state.settings.model_copy(
+            update={"db_query_timeout_seconds": 10.0, "db_lock_timeout_seconds": 5.0}
+        ),
+    )
+    original_lock = staff_appointments.appointments.lock_appointment
+
+    async def delayed_lock(db, appointment_id):
+        await asyncio.sleep(lock_delay)
+        return await original_lock(db, appointment_id)
+
+    monkeypatch.setattr(staff_appointments.appointments, "lock_appointment", delayed_lock)
     appointment_id = UUID(int=315)
     starts_at = datetime(2026, 10, 17, 18, tzinfo=UTC)
     await _seed(env, appointment_id=appointment_id, staff_id=env.staff_id, starts_at=starts_at)
@@ -767,7 +782,10 @@ async def test_staff_outcome_rejects_cancelled_and_pending_change(
     monkeypatch.setattr(cancellation.users, "utc_now", after_end)
     with pytest.raises(AppError) as error:
         await _record_outcome(env, appointment_id, "COMPLETED")
-    assert (error.value.status_code, error.value.code) == (409, "APPOINTMENT_STATE_CONFLICT")
+    assert (error.value.status_code, error.value.code) == (
+        409,
+        "APPOINTMENT_STATE_CONFLICT",
+    ), type(error.value.__context__).__name__
     async with env.factory() as db:
         row = await db.get(Appointment, appointment_id)
         assert (row.status, row.outcome_at, row.outcome_by) == (state, None, None)

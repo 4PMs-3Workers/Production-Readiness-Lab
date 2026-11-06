@@ -100,7 +100,7 @@ Browser và API dùng cùng origin. Health, metrics và dashboard được truy 
 
 OpenTelemetry Collector thu thập telemetry. Prometheus lưu metrics, Loki lưu logs, Tempo lưu traces; Grafana cung cấp dashboard. Trong Compose local/demo hiện tại, Alertmanager cũng chạy trong cùng stack và gửi webhook tới local receiver nội bộ.
 
-Repository chưa triển khai probe, evaluator hoặc kênh thông báo độc lập ngoài Docker host. Alert target có thể được phát khi Prometheus, Alertmanager và đường receiver còn hoạt động; khi host hoặc chính đường đánh giá/cảnh báo dừng, không có bảo đảm phát hiện hay gửi thông báo. Muốn giám sát host outage cần bổ sung và kiểm chứng riêng một monitor ngoài host.
+Repository cung cấp package độc lập tại `tools/infra/offhost/`: probe HTTPS, evaluator có ngưỡng firing/resolved, state JSON nguyên tử có giới hạn và webhook retry có event ID ổn định. Monitor tự lập lịch và không gọi Prometheus/Alertmanager. Mẫu cấu hình dùng receiver loopback chỉ để thử; triển khai thật phải cung cấp đích HTTPS và chạy service trên host/network độc lập. Chạy cùng máy chỉ tách tiến trình, không chứng minh sống sót khi mất máy vật lý. Xem [runbook probe ngoài host](../tasks/observability-runbook.md#independent-https-probe-issue-48).
 
 ### 2.7. Công nghệ và đóng gói
 
@@ -115,7 +115,7 @@ Repository chưa triển khai probe, evaluator hoặc kênh thông báo độc l
 | Triển khai | Docker Compose trên máy chủ Linux/VM | Container, network, volume và health check. |
 | CI/CD | GitHub Actions và container registry | Kiểm tra, đóng gói, deploy và rollback. |
 | Telemetry | OpenTelemetry Collector, Prometheus, Loki, Tempo | Thu thập và lưu metrics/logs/traces. |
-| Theo dõi | Grafana, Alertmanager trong Compose; chưa có probe ngoài host | Dashboard và cảnh báo nội bộ khi telemetry stack còn hoạt động. |
+| Theo dõi | Grafana/Alertmanager trong Compose; package probe Python độc lập tùy chọn | Dashboard nội bộ và cảnh báo HTTPS ngoài host khi được triển khai riêng. |
 
 Phiên bản package được khóa bằng lockfile; image được khóa bằng digest. Mỗi request hoặc giao dịch worker có một session riêng.
 
@@ -538,7 +538,7 @@ flowchart TB
     end
 ```
 
-Sơ đồ mô tả topology local/demo hiện có: ứng dụng và toàn bộ evaluator/alert receiver ở cùng host. Không có đường probe hoặc notification độc lập để phát hiện host outage.
+Sơ đồ mô tả topology local/demo: ứng dụng và evaluator/receiver Alertmanager cùng host. Package probe tại `tools/infra/offhost/` cung cấp một đường kiểm tra HTTPS và delivery riêng khi được cài đặt trên host/network khác; sơ đồ Compose không tự cài đặt hay xác nhận vị trí triển khai đó.
 
 ### 8.2. Thu thập telemetry
 
@@ -564,7 +564,7 @@ Phạm vi SLI là request đến các route nghiệp vụ đã công bố dướ
 - **Availability:** số request trong phạm vi hoàn tất thành công chia cho tổng request trong phạm vi.
 - **Độ trễ:** số request thành công trong phạm vi hoàn tất trong ≤500 ms chia cho tổng request thành công trong phạm vi.
 - **Không có mẫu:** hiển thị không đủ dữ liệu; không suy ra availability 100%.
-- **Mất telemetry:** khoảng dữ liệu không có chỉ là unknown; không suy ra hệ thống khỏe. Hiện chưa có probe ngoài host để đối chiếu outage khi cả Compose host mất kết nối.
+- **Mất telemetry:** khoảng dữ liệu không có chỉ là unknown; không suy ra hệ thống khỏe. Probe Issue #48 bổ sung đường kiểm tra HTTPS riêng khi được triển khai ngoài host; cấu hình Compose không tự triển khai đường này.
 
 | Mục tiêu thiết kế cần nghiệm thu | Điểm đo / cách xác minh |
 |---|---|
@@ -628,7 +628,7 @@ Local và demo dùng Docker Compose. Cả ứng dụng và telemetry/Alertmanage
 3. Xác minh cấu hình, khả năng tương thích migration và release ổn định trước đó; lưu manifest của release đang chạy.
 4. Chạy migration bằng một job triển khai riêng; dừng phát hành nếu migration thất bại.
 5. Triển khai frontend, API và worker bằng digest; API và worker dùng cùng digest backend.
-6. Kiểm tra readiness, smoke test qua gateway và bộ đếm scan worker thực sự tiến triển trong cùng container; heartbeat đơn lẻ không đủ. Chỉ kiểm tra probe ngoài host nếu môi trường đã triển khai nó; repository hiện chưa cung cấp probe độc lập.
+6. Kiểm tra readiness, smoke test qua gateway và bộ đếm scan worker thực sự tiến triển trong cùng container; heartbeat đơn lẻ không đủ. Kiểm tra probe ngoài host chỉ khi môi trường đã triển khai package Issue #48 trên host/network độc lập; cấu hình local/demo không tự khởi chạy monitor.
 
 Deploy và rollback chạy tuần tự để tránh hai thao tác phát hành cạnh tranh. Nếu smoke test thất bại và có release ổn định trước đó, pipeline quay lại digest tương ứng của frontend/backend, cập nhật cả API và worker. Database giữ dữ liệu đã commit.
 
@@ -673,7 +673,7 @@ Máy chủ đơn có thể gián đoạn khi deploy. Zero downtime hoặc chịu
 
 Công cụ diễn tập yêu cầu `LAB_MODE`, TTL và kiểm tra release; dùng dữ liệu và tài khoản lab. Trạng thái kích hoạt được lưu bền ngoài tiến trình API để tồn tại qua restart. Khi hết TTL, kết thúc diễn tập hoặc rollback baseline, hành vi gây lỗi phải được gỡ bỏ. Dashboard, công cụ diễn tập và endpoint vận hành dùng quyền hạ tầng.
 
-Khi công cụ diễn tập được triển khai, mỗi lần chạy cần ghi kịch bản, người thực hiện, thời điểm bắt đầu/kết thúc, release, alert firing/resolved và kết quả kiểm tra dữ liệu. Kịch bản DB mất kết nối, worker dừng, telemetry gián đoạn và release gây lỗi cần thực hiện theo môi trường. Host/gateway outage cần một probe ngoài host; repository hiện chưa cung cấp đường này. Bài Task 8 chỉ xác nhận luồng nghiệp vụ trong các trạng thái telemetry được nêu ở bằng chứng, không chứng minh host outage, release rollback hay backup/restore.
+Khi công cụ diễn tập được triển khai, mỗi lần chạy cần ghi kịch bản, người thực hiện, thời điểm bắt đầu/kết thúc, release, alert firing/resolved và kết quả kiểm tra dữ liệu. Kịch bản DB mất kết nối, worker dừng, telemetry gián đoạn và release gây lỗi cần thực hiện theo môi trường. Issue #48 cung cấp mã probe và notification path; bằng chứng chạy local không chứng minh monitor đang nằm ngoài host ứng dụng. Host/gateway outage phải được diễn tập giữa hai máy độc lập và ghi riêng detection latency, delivery latency, recovery và resolved event. Bài Task 8 không thay thế xác nhận host loss, release rollback hay backup/restore.
 
 ## 10. Kiểm chứng và quản lý cấu hình
 

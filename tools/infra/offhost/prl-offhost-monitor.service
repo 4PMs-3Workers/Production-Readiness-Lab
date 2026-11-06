@@ -1,0 +1,28 @@
+[Unit]
+Description=Independent Production Readiness Lab HTTPS monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=prlmonitor
+Group=prlmonitor
+EnvironmentFile=-/etc/prl-offhost/secrets.env
+ExecStart=/opt/prl-offhost/venv/bin/offhost-probe run --config /etc/prl-offhost/probe.toml
+Restart=on-failure
+RestartSec=2s
+UMask=0077
+StateDirectory=prl-offhost
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target
