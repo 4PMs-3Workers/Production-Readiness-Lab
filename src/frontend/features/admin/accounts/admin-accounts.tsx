@@ -7,6 +7,7 @@ import { ApiFeedback } from '@/features/api/api-feedback';
 import { Pagination } from '@/features/api/api-booking-fields';
 import type { AdminAccount, AccountFields, AccountRole } from '@/services/admin-contracts';
 import { AccountForm } from './account-form';
+import { AccountRecovery } from './account-recovery';
 import { accountChanges } from './account-fields';
 import { useAdminAccountMutation } from './use-admin-account-mutation';
 import styles from './admin-accounts.module.css';
@@ -78,6 +79,7 @@ export function AdminAccounts() {
       kind: mode,
       targetId: account?.id,
       label: account?.email ?? fields.email,
+      fields: { ...fields },
       revokesSelf,
     };
     const result = await mutation.run(operation, (options) => {
@@ -157,26 +159,26 @@ export function AdminAccounts() {
                   ? ' Mật khẩu không thể kiểm tra từ danh sách hoặc thời điểm cập nhật.'
                   : ''}
               </p>
-              <button
-                type="button"
-                onClick={() => {
-                  setReviewStarted(true);
-                  resource.retry();
-                }}
-              >
-                Tải lại để xem xét
-              </button>
-              {reviewStarted && resource.state.status === 'success' && (
+              {!reviewStarted && (
                 <button
                   type="button"
                   onClick={() => {
+                    setReviewStarted(true);
+                  }}
+                >
+                  Tải lại để xem xét
+                </button>
+              )}
+              {reviewStarted && (
+                <AccountRecovery
+                  operation={mutation.state.operation}
+                  onReviewed={() => {
                     mutation.clear();
                     setReviewStarted(false);
                     setEditor(null);
+                    resource.retry();
                   }}
-                >
-                  Tôi đã xem dữ liệu, bắt đầu thao tác mới
-                </button>
+                />
               )}
             </>
           )}

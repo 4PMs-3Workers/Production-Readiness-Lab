@@ -3,12 +3,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApi } from '@/features/api/api-provider';
 import { ApiError, errorMessage } from '@/services/api/errors';
-import type { AdminAccount, AdminWriteOptions } from '@/services/admin-contracts';
+import type { AccountFields, AdminAccount, AdminWriteOptions } from '@/services/admin-contracts';
 
 export interface AccountOperation {
   kind: 'create' | 'update' | 'password';
   targetId?: string;
   label: string;
+  fields: AccountFields;
   revokesSelf?: boolean;
 }
 type MutationState =

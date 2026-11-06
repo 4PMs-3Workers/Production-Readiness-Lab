@@ -18,7 +18,11 @@ beforeEach(() => {
   fetcher = vi.fn<typeof fetch>(async (path, init) => {
     if (String(path).endsWith('/auth/me')) return Response.json(actor);
     if (String(path).endsWith('/auth/csrf'))
-      return Response.json({ user_id: actor.id, csrf_token: 'csrf', session_generation: actor.session_generation });
+      return Response.json({
+        user_id: actor.id,
+        csrf_token: 'csrf',
+        session_generation: actor.session_generation,
+      });
     if (init?.method)
       return Response.json({ ...account, updated_at: '2026-11-06T01:00:00.123457Z' });
     return Response.json({ items: [account], page: 1, page_size: 20, total: 1 });
@@ -74,6 +78,132 @@ describe('admin guard', () => {
   );
 });
 describe('admin account screen', () => {
+  it('reads the stable target across pages without active filters and compares every profile field', async () => {
+    let recovery = false;
+    const held = deferred<Response>();
+    const original = fetcher.getMockImplementation()!;
+    fetcher.mockImplementation((path, init) => {
+      const url = new URL(String(path), 'http://test');
+      if (init?.method === 'PATCH') return Promise.reject(new TypeError('lost receipt'));
+      if (url.searchParams.get('page_size') === '100') {
+        recovery = true;
+        expect(url.searchParams.has('role')).toBe(false);
+        expect(url.searchParams.has('is_active')).toBe(false);
+        expect(url.searchParams.has('search')).toBe(false);
+        if (url.searchParams.get('page') === '1') return held.promise;
+        return Promise.resolve(
+          Response.json({
+            items: [
+              {
+                ...account,
+                email: 'renamed@example.invalid',
+                faculty: 'Khoa hiện tại',
+                major: 'Ngành hiện tại',
+                gender: 'FEMALE',
+              },
+            ],
+            page: 2,
+            page_size: 100,
+            total: 101,
+          }),
+        );
+      }
+      if (url.searchParams.has('role'))
+        return Promise.resolve(Response.json({ items: [], page: 1, page_size: 20, total: 0 }));
+      return original(path, init);
+    });
+    render(<AdminAccounts />);
+    await edit();
+    fireEvent.change(screen.getByLabelText('Khoa'), { target: { value: 'Khoa đã gửi' } });
+    fireEvent.change(screen.getByLabelText('Ngành'), { target: { value: 'Ngành đã gửi' } });
+    fireEvent.change(screen.getByLabelText('Giới tính'), { target: { value: 'MALE' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
+    await screen.findByText(/Chưa xác định kết quả/);
+    fireEvent.change(screen.getByLabelText('Lọc vai trò'), { target: { value: 'ADMIN' } });
+    await screen.findByText('Không có tài khoản phù hợp bộ lọc.');
+    expect(
+      screen.queryByRole('button', { name: 'Tôi đã xem dữ liệu, bắt đầu thao tác mới' }),
+    ).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Tải lại để xem xét' }));
+    await waitFor(() => expect(recovery).toBe(true));
+    expect(
+      screen.queryByRole('button', { name: 'Tôi đã xem dữ liệu, bắt đầu thao tác mới' }),
+    ).not.toBeInTheDocument();
+    await act(async () =>
+      held.resolve(
+        Response.json({
+          items: [{ ...account, id: actor.id }],
+          page: 1,
+          page_size: 100,
+          total: 101,
+        }),
+      ),
+    );
+    const comparison = await screen.findByRole('region', { name: 'Đối chiếu tài khoản' });
+    await within(comparison).findByText('renamed@example.invalid');
+    for (const [field, sent, current] of [
+      ['Khoa', 'Khoa đã gửi', 'Khoa hiện tại'],
+      ['Ngành', 'Ngành đã gửi', 'Ngành hiện tại'],
+      ['Giới tính', 'MALE', 'FEMALE'],
+    ]) {
+      const row = within(comparison).getByRole('row', { name: `${field} ${sent} ${current}` });
+      expect(row).toBeVisible();
+    }
+    expect(writes()).toHaveLength(1);
+    await userEvent.click(
+      within(comparison).getByRole('button', { name: 'Tôi đã xem dữ liệu, bắt đầu thao tác mới' }),
+    );
+    expect(screen.getByRole('button', { name: 'Tạo tài khoản' })).toBeEnabled();
+  });
+  it('keeps recovery blocked after a failed target read and requires exact normalized email for create', async () => {
+    let attempts = 0;
+    const original = fetcher.getMockImplementation()!;
+    fetcher.mockImplementation((path, init) => {
+      if (init?.method === 'POST') return Promise.reject(new TypeError('lost receipt'));
+      const url = new URL(String(path), 'http://test');
+      if (url.searchParams.get('page_size') === '100') {
+        expect(url.searchParams.get('search')).toBe('new@example.invalid');
+        return ++attempts === 1
+          ? Promise.reject(new TypeError('unavailable'))
+          : Promise.resolve(
+              Response.json({
+                items: [{ ...account, email: 'new@example.invalid.extra' }],
+                page: 1,
+                page_size: 100,
+                total: 1,
+              }),
+            );
+      }
+      return original(path, init);
+    });
+    render(<AdminAccounts />);
+    await userEvent.click(screen.getByRole('button', { name: 'Tạo tài khoản' }));
+    const form = screen.getByRole('form', { name: 'Thông tin tài khoản' });
+    fireEvent.change(within(form).getByLabelText('Email'), {
+      target: { value: ' NEW@Example.Invalid ' },
+    });
+    fireEvent.change(within(form).getByLabelText('Tên'), { target: { value: 'New account' } });
+    fireEvent.change(within(form).getByLabelText('Mật khẩu mới'), {
+      target: { value: 'fictional secret' },
+    });
+    await userEvent.click(within(form).getByRole('button', { name: 'Tạo tài khoản' }));
+    await screen.findByText(/Chưa xác định kết quả/);
+    await userEvent.click(screen.getByRole('button', { name: 'Tải lại để xem xét' }));
+    const comparison = await screen.findByRole('region', { name: 'Đối chiếu tài khoản' });
+    await within(comparison).findByRole('alert');
+    expect(
+      within(comparison).queryByRole('button', {
+        name: 'Tôi đã xem dữ liệu, bắt đầu thao tác mới',
+      }),
+    ).not.toBeInTheDocument();
+    await userEvent.click(within(comparison).getByRole('button', { name: 'Tải lại để xem xét' }));
+    await within(comparison).findByText(
+      /Không tìm thấy tài khoản có email chính xác new@example.invalid/,
+    );
+    expect(within(comparison).queryByText('new@example.invalid.extra')).not.toBeInTheDocument();
+    expect(within(comparison).queryByText('fictional secret')).not.toBeInTheDocument();
+    expect(writes()).toHaveLength(1);
+  });
   it.each([{ role: ['STUDENT'] }, { gender: ['MALE'] }])(
     'keeps malformed successful write responses unknown: %j',
     async (invalid) => {
@@ -263,7 +393,7 @@ describe('admin account screen', () => {
     act(() => {
       window.dispatchEvent(new Event('focus'));
     });
-    await act(async () => csrf.resolve(Response.json({ user_id: actor.id, csrf_token: 'csrf', session_generation: actor.session_generation })));
+    await act(async () => csrf.resolve(Response.json({ user_id: actor.id, csrf_token: 'csrf' })));
     expect(writes()).toHaveLength(0);
     expect(screen.getByLabelText('Tên', { exact: true })).toHaveValue('Draft');
   });
