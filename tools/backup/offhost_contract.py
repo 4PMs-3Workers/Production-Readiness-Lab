@@ -243,4 +243,13 @@ def point_key(config: RemoteConfig, backup_id: str) -> str:
 
 def payload_key(config: RemoteConfig, point: Completion) -> str:
     point.require(config, point.backup_id)
-    return f"{config.scope}points/{point.backup_id}/blobs/{point.encrypted_sha256}.age"
+    return blob_key(config, point.backup_id, point.encrypted_sha256)
+
+
+def blob_key(config: RemoteConfig, backup_id: str, sha256: str) -> str:
+    import re
+
+    point_key(config, backup_id)
+    if not re.fullmatch(r"[0-9a-f]{64}", sha256):
+        raise RemoteError(Code.IDENTITY)
+    return f"{config.scope}points/{backup_id}/blobs/{sha256}.age"
