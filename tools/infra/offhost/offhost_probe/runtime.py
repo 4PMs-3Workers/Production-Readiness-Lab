@@ -327,7 +327,12 @@ class MonitorRunner:
                 checks = dict(current.checks)
                 if event.check_name in checks:
                     if not event.firing and event.check_name not in self.configured_names:
-                        checks.pop(event.check_name)
+                        if any(item.check_name == event.check_name for item in pending):
+                            checks[event.check_name] = replace(
+                                checks[event.check_name], notified_firing=False
+                            )
+                        else:
+                            checks.pop(event.check_name)
                     else:
                         checks[event.check_name] = replace(
                             checks[event.check_name], notified_firing=event.firing

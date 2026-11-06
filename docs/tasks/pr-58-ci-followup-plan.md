@@ -68,3 +68,31 @@ probe must deliver the second resolution in order. Also verify queue-full
 backpressure, capacity-versus-check validation, the full backend unit suite, the
 off-host TLS integration suite, Black, Ruff, and Pyright. CI completion remains
 specific to the pushed final SHA; results from `789c08b` do not verify the fix.
+
+### Third team lead review pass (2026-11-06)
+
+The follow-up review confirmed the repeated-outage fix and identified two
+remaining timing paths plus a retired-check lifecycle gap. Add regression tests
+for each before changing implementation; validate both push and PR workflows on
+the final pushed SHA.
+
+1. **Notification deadline reset between batches:** `_process_notifications()`
+   must use one `delivery_cycle_timeout_seconds` deadline across all batches in
+   a run. A one-slot queue with eight retiring resolutions must not receive a
+   fresh deadline after each acknowledgement; pending events remain durable and
+   delivery health stays degraded when the shared budget expires.
+2. **Pre-probe time in the detection SLA:** pre-probe delivery can shift the
+   final probe beyond the old bound. Validate
+   `failure_threshold * max(interval, timeout + delivery_cycle_timeout) + timeout + delivery_cycle_timeout`.
+   Cover the 55s interval, 12s probe timeout, 10s delivery budget, and threshold
+   of three, which must be rejected because its worst-case bound is 187s.
+3. **Retired check with queued later firing:** acknowledging an older resolution
+   must not delete check state while a later firing remains in the outbox. Keep
+   the state, acknowledge that firing, queue and deliver its final resolution,
+   then prune the retired state. Exercise a full two-slot outbox and assert the
+   receiver observes `resolved → firing → resolved`.
+
+Record the timing fix as `fix(offhost): enforce one delivery deadline per cycle`
+and the retired-state fix as a separate runtime/test commit. Update the branch
+guidance whenever another CI failure reveals a reusable fixture, ordering,
+deadline, or state-lifecycle constraint.

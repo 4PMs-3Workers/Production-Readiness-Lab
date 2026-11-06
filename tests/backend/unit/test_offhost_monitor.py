@@ -247,6 +247,54 @@ def test_runner_resolves_removed_firing_checks_before_pruning_state(tmp_path):
     assert all(not event.firing for event in notifier.events)
 
 
+def test_runner_retains_removed_check_until_its_last_resolution_is_delivered(tmp_path):
+    path = config_file(tmp_path)
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            'state_path = "state.json"',
+            'state_path = "state.json"\n' "max_pending_notifications = 2\n" "delivery_retries = 0",
+        ),
+        encoding="utf-8",
+    )
+    config = load_config(path)
+    timestamp = "2026-11-05T00:00:00+00:00"
+    store = StateStore(
+        config.state_path,
+        max_bytes=config.max_state_bytes,
+        max_pending=config.max_pending_notifications,
+    )
+    store.save(
+        MonitorState(
+            checks={
+                "oldcheck": CheckState(
+                    firing=True,
+                    notified_firing=True,
+                    transition_sequence=2,
+                    last_evaluation_at=timestamp,
+                )
+            },
+            pending=(
+                PendingNotification("a" * 64, "oldcheck", False, timestamp),
+                PendingNotification("b" * 64, "oldcheck", True, timestamp),
+            ),
+        )
+    )
+    notifier = FakeNotifier(True)
+    runner = MonitorRunner(
+        config,
+        transport=FakeTransport(True),
+        notifier=notifier,
+        store=store,
+        clock=lambda: datetime(2026, 11, 5, tzinfo=UTC),
+    )
+
+    summary = asyncio.run(runner.run_once())
+
+    assert [event.firing for event in notifier.events] == [False, True, False]
+    assert "oldcheck" not in summary.state.checks
+    assert summary.state.pending == ()
+
+
 def test_runner_bounds_retired_check_states_when_notification_queue_is_full(tmp_path):
     extra_checks = "\n".join(
         f'[[checks]]\nname = "new{index}"\nurl = "https://example.test/{index}"\n'
