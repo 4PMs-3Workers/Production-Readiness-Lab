@@ -62,7 +62,7 @@ async function update(page: Page, name = 'Tên đã cập nhật') {
 async function reset(page: Page, email: string, secret: string) {
   await find(page, email);
   await page.getByRole('button', { name: `Đặt lại mật khẩu ${email}`, exact: true }).click();
-  await page.getByLabel('Mật khẩu mới').fill(secret);
+  await page.getByLabel('Mật khẩu mới', { exact: true }).fill(secret);
   await page.getByRole('button', { name: 'Tiếp tục đặt lại mật khẩu' }).click();
   await page.getByRole('button', { name: 'Xác nhận thay đổi' }).click();
 }
@@ -79,6 +79,109 @@ async function authenticatedContext(page: Page, context: BrowserContext, name: s
 
 test.beforeEach(() => {
   harness('reset');
+});
+test('Unicode email and full code-point passwords work after admin create, email edit and reset', async ({
+  page,
+  context,
+}) => {
+  await login(page);
+  const email = 'nguyễn@frontend.example.invalid';
+  const edited = 'mới@frontend.example.invalid';
+  const createdPassword = '😀'.repeat(513);
+  const resetPassword = ` ${'🔐'.repeat(1022)} `;
+  await page.getByRole('button', { name: 'Tạo tài khoản', exact: true }).click();
+  await page.getByLabel('Email', { exact: true }).fill(email);
+  await page.getByRole('textbox', { name: 'Tên', exact: true }).fill('Unicode credential fixture');
+  await page.getByLabel('Mật khẩu mới').fill(createdPassword);
+  await page
+    .getByRole('form', { name: 'Thông tin tài khoản' })
+    .getByRole('button', { name: 'Tạo tài khoản', exact: true })
+    .click();
+  await expect(page.getByText('Đã tạo tài khoản.')).toBeVisible();
+  const other = await context.browser()!.newContext({ baseURL: new URL(page.url()).origin });
+  const tab = await other.newPage();
+  const authenticate = async (address: string, secret: string) => {
+    await tab.goto('/login');
+    await tab.getByLabel('Email', { exact: true }).fill(` ${address.toUpperCase()} `);
+    await tab.getByLabel('Mật khẩu', { exact: true }).fill(secret);
+    expect((await tab.getByLabel('Mật khẩu', { exact: true }).inputValue()) === secret).toBe(true);
+    await tab.getByRole('button', { name: 'Đăng nhập', exact: true }).click();
+    await expect(tab).toHaveURL(/\/home$/);
+  };
+  try {
+    await authenticate(email, createdPassword);
+    await tab.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
+    await edit(page, email);
+    await page.getByLabel('Email', { exact: true }).fill(edited);
+    await page.getByRole('button', { name: 'Lưu thay đổi' }).click();
+    await expect(page.getByText('Đã lưu tài khoản.')).toBeVisible();
+    await authenticate(edited, createdPassword);
+    await reset(page, edited, resetPassword);
+    await expect(
+      page.getByText('Đã đặt lại mật khẩu. Các phiên đăng nhập cũ đã kết thúc.'),
+    ).toBeVisible();
+    await tab.goto('/login');
+    await authenticate(edited, resetPassword);
+  } finally {
+    await other.close();
+  }
+});
+test('shared-cookie logout and login as the same ADMIN clears the old tab draft and confirmation', async ({
+  page,
+  context,
+}) => {
+  harness('seed-admin');
+  await login(page);
+  await edit(page);
+  await page.getByLabel('Vai trò', { exact: true }).selectOption('ADMIN');
+  await page.getByRole('button', { name: 'Lưu thay đổi' }).click();
+  await expect(page.getByRole('button', { name: 'Xác nhận thay đổi' })).toBeVisible();
+  // Rechecking the same session preserves the draft/confirmation.
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByRole('button', { name: 'Xác nhận thay đổi' })).toBeVisible();
+  const tab = await context.newPage();
+  await tab.goto('/admin/accounts');
+  await tab.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
+  await expect(tab).toHaveURL(/\/login/);
+  await login(tab);
+  await page.bringToFront();
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByRole('form', { name: 'Thông tin tài khoản' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Xác nhận thay đổi' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Quản lý tài khoản' })).toBeVisible();
+  expect(inspect((await account(page, 'target@frontend.example.invalid')).id).audits).toHaveLength(
+    0,
+  );
+  await tab.close();
+});
+test('deactivating the only filtered row on page two refetches page one', async ({ page }) => {
+  harness('seed-admin');
+  await login(page);
+  await page.getByLabel('Lọc vai trò').selectOption('STUDENT');
+  await page.getByLabel('Lọc trạng thái').selectOption('true');
+  await page.getByLabel('Tìm theo tên hoặc email').fill('paging');
+  await page.getByRole('button', { name: 'Tìm kiếm', exact: true }).click();
+  // Remove one of 22 fixtures first, leaving exactly 21 filtered rows.
+  await page
+    .getByRole('button', { name: 'Sửa paging00@frontend.example.invalid', exact: true })
+    .click();
+  await page.getByLabel('Trạng thái', { exact: true }).selectOption('false');
+  await page.getByRole('button', { name: 'Lưu thay đổi' }).click();
+  await page.getByRole('button', { name: 'Xác nhận thay đổi' }).click();
+  await expect(page.getByText('Trang 1 · 21 kết quả')).toBeVisible();
+  await page.getByRole('button', { name: 'Trang sau' }).click();
+  await expect(page.getByText('Trang 2 · 21 kết quả')).toBeVisible();
+  await page
+    .getByRole('button', { name: 'Sửa paging21@frontend.example.invalid', exact: true })
+    .click();
+  await page.getByLabel('Trạng thái', { exact: true }).selectOption('false');
+  await page.getByRole('button', { name: 'Lưu thay đổi' }).click();
+  await page.getByRole('button', { name: 'Xác nhận thay đổi' }).click();
+  await expect(page.getByText('Trang 1 · 20 kết quả')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Trang sau' })).toBeDisabled();
+  await expect(
+    page.getByRole('list', { name: 'Danh sách tài khoản' }).getByRole('listitem'),
+  ).toHaveCount(20);
 });
 test('real ADMIN shell, reload, server filtering, pagination and mobile keyboard entry', async ({
   page,
@@ -350,7 +453,13 @@ for (const kind of ['create', 'update', 'password'] as const)
     await expect(page.getByText(/Chưa xác định kết quả/)).toBeVisible();
     const target = await account(page, email);
     expect(inspect(target.id).audits).toHaveLength(1);
+    // Recovery must remain useful even when the visible list excludes the target.
+    await page.getByLabel('Lọc vai trò').selectOption('ADMIN');
+    await expect(page.getByRole('button', { name: `Sửa ${email}`, exact: true })).toHaveCount(0);
     await page.getByRole('button', { name: 'Tải lại để xem xét' }).click();
+    const comparison = page.getByRole('region', { name: 'Đối chiếu tài khoản' });
+    await expect(comparison.getByText(`ID: ${target.id}`, { exact: true })).toBeVisible();
+    await expect(comparison.getByRole('table')).toBeVisible();
     await expect(
       page.getByRole('button', { name: 'Tôi đã xem dữ liệu, bắt đầu thao tác mới' }),
     ).toBeVisible();
