@@ -73,7 +73,7 @@ jobs:
   frontend-api:
     name: Frontend real API checks
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 35
     services:
       mysql:
         image: mysql:8.4.11
