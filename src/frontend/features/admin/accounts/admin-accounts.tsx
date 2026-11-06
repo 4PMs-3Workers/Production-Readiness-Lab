@@ -32,10 +32,10 @@ export function AdminAccounts() {
   const blocked = mutation.state.phase === 'conflict' || mutation.state.phase === 'unknown';
   const missing = 'errorCode' in mutation.state && mutation.state.errorCode === 'ACCOUNT_NOT_FOUND';
   const load = useCallback(
-    (signal: AbortSignal) => {
+    async (signal: AbortSignal) => {
       if (verifying || !actorId)
         return Promise.reject(new DOMException('Session verification', 'AbortError'));
-      return services.listAdminAccounts(
+      const page = await services.listAdminAccounts(
         {
           page: query.page,
           role: (query.role || undefined) as AccountRole | undefined,
@@ -44,6 +44,13 @@ export function AdminAccounts() {
         },
         { signal, expectedUserId: actorId, expectedSessionGeneration: generation },
       );
+      const lastPage = Math.max(1, Math.ceil(page.total / page.pageSize));
+      if (page.page > lastPage) {
+        // A mutation may remove the final row on this page. Refetch using the
+        // server total before displaying an empty result for these filters.
+        setQuery((current) => (current === query ? { ...current, page: lastPage } : current));
+      }
+      return page;
     },
     [services, query, actorId, verifying, generation],
   );

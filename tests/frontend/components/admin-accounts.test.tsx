@@ -204,6 +204,44 @@ describe('admin account screen', () => {
     expect(within(comparison).queryByText('fictional secret')).not.toBeInTheDocument();
     expect(writes()).toHaveLength(1);
   });
+  it.each([20, 0])('returns to a valid page after mutation leaves total %i', async (total) => {
+    let saved = false;
+    const original = fetcher.getMockImplementation()!;
+    fetcher.mockImplementation(async (path, init) => {
+      if (init?.method === 'PATCH') {
+        saved = true;
+        return Response.json({ ...account, is_active: false });
+      }
+      if (String(path).includes('/admin/accounts?')) {
+        const page = Number(new URL(String(path), 'http://test').searchParams.get('page'));
+        return Response.json({
+          items: saved && (page === 2 || total === 0) ? [] : [account],
+          page,
+          page_size: 20,
+          total: saved ? total : 21,
+        });
+      }
+      return original(path, init);
+    });
+    render(<AdminAccounts />);
+    await screen.findByText('Trang 1 · 21 kết quả');
+    fireEvent.change(screen.getByLabelText('Lọc trạng thái'), { target: { value: 'true' } });
+    await userEvent.click(await screen.findByRole('button', { name: 'Trang sau' }));
+    await screen.findByText('Trang 2 · 21 kết quả');
+    await edit();
+    fireEvent.change(screen.getByLabelText('Trạng thái', { exact: true }), {
+      target: { value: 'false' },
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Xác nhận thay đổi' }));
+    await screen.findByText(`Trang 1 · ${total} kết quả`);
+    if (total) {
+      expect(screen.getByRole('button', { name: `Sửa ${account.email}` })).toBeVisible();
+      expect(screen.queryByText('Không có tài khoản phù hợp bộ lọc.')).not.toBeInTheDocument();
+    } else expect(screen.getByText('Không có tài khoản phù hợp bộ lọc.')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Trang sau' })).toBeDisabled();
+    expect(writes()).toHaveLength(1);
+  });
   it.each([{ role: ['STUDENT'] }, { gender: ['MALE'] }])(
     'keeps malformed successful write responses unknown: %j',
     async (invalid) => {
