@@ -9,6 +9,7 @@ from tools.backup.offhost_contract import (
     Code,
     Completion,
     RemoteError,
+    Retirement,
     blob_key,
     canonical,
     contract,
@@ -30,7 +31,12 @@ def read_point(remote: S3, backup_id: str) -> tuple[Completion, str] | None:
     existing = remote.get(point_key(remote.config, backup_id))
     if existing is None:
         return None
-    point = contract(existing[0], Completion)
+    try:
+        point = contract(existing[0], Completion)
+    except RemoteError:
+        retired = contract(existing[0], Retirement)
+        retired.point.require(remote.config, backup_id)
+        raise RemoteError(Code.CONFLICT) from None
     point.require(remote.config, backup_id)
     return point, existing[1]
 

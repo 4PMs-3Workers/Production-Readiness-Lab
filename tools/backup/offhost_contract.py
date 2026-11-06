@@ -246,6 +246,20 @@ def payload_key(config: RemoteConfig, point: Completion) -> str:
     return blob_key(config, point.backup_id, point.encrypted_sha256)
 
 
+class Retirement(Versioned):
+    format: Literal["prl-offhost-retirement"] = "prl-offhost-retirement"
+    format_version: Literal[1] = 1
+    state: Literal["retired"] = "retired"
+    point: Completion
+    retired_at: str
+
+    @model_validator(mode="after")
+    def ordered(self):
+        if not timestamp(self.point.verified_at) <= timestamp(self.retired_at) <= datetime.now(UTC):
+            raise ValueError()
+        return self
+
+
 def blob_key(config: RemoteConfig, backup_id: str, sha256: str) -> str:
     import re
 

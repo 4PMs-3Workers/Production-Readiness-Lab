@@ -1,17 +1,25 @@
 from dataclasses import replace
+from uuid import uuid4
 
 import pytest
 from botocore.exceptions import EndpointConnectionError
 from tests.backend.unit.test_backup_storage import fixture_artifact, populate
 from tests.backend.unit.test_offhost_escrow import escrow_fixture
-from tools.backup.offhost_contract import Code, RemoteError, payload_key, point_key, source_identity
+from tools.backup.offhost_contract import (
+    Code,
+    RemoteConfig,
+    RemoteError,
+    payload_key,
+    point_key,
+    source_identity,
+)
 from tools.backup.offhost_io import Deadline
 from tools.backup.offhost_lab import age_keys
 from tools.backup.offhost_retrieve import retrieve
 from tools.backup.offhost_s3 import S3
 from tools.backup.offhost_upload import upload
 
-from app.backup.storage import load_artifact, staging
+from app.backup.storage import load_artifact, staging, write_private
 
 
 def source(store_lab, age_executable, tmp_path):
@@ -104,6 +112,13 @@ def test_wrong_identity_key_and_corrupt_remote_payload_never_fall_back(
     with pytest.raises(RemoteError):
         retrieve(target, remote, backup_id, age_executable, wrong)
     assert not (target.store / backup_id).exists()
+    with pytest.raises(RemoteError):
+        retrieve(target, remote, backup_id, age_executable, tmp_path / "missing-key")
+    store_lab.admin.delete_object(
+        Bucket=remote.config.bucket, Key=payload_key(remote.config, point)
+    )
+    with pytest.raises(RemoteError):
+        retrieve(target, remote, backup_id, age_executable, identity)
     store_lab.admin.put_object(
         Bucket=remote.config.bucket, Key=payload_key(remote.config, point), Body=b"corrupt"
     )
@@ -127,3 +142,47 @@ def test_actual_store_retention_preserves_last_point_and_unrelated_prefix(
     response = store_lab.admin.get_object(Bucket=remote.config.bucket, Key=unrelated)
     with response["Body"] as handle:
         assert handle.read() == b"keep"
+
+
+def test_store_conditional_retirement_and_pruning_keep_the_last_verified_point(
+    store_lab, age_executable, tmp_path
+):
+    from tools.backup.offhost_retention import inventory, retain
+    from tools.backup.offhost_upload import read_point
+
+    local, remote, backup_id, escrow, _ = source(store_lab, age_executable, tmp_path)
+    values = [upload(local, remote, backup_id, escrow, age_executable, tmp_path / "work")]
+    initial = load_artifact(local, backup_id)
+    for _ in range(2):
+        value = initial.model_dump(mode="json")
+        value["backup_id"] = "prl-backup-20261028T120000Z-" + uuid4().hex
+        with staging(local, value["backup_id"]) as owned:
+            for path in (local.store / backup_id).glob("*.jsonl"):
+                write_private(owned.path / path.name, path.read_bytes())
+            manifest = owned.publish(value)
+        values.append(
+            upload(local, remote, manifest.backup_id, escrow, age_executable, tmp_path / "work")
+        )
+    key = point_key(remote.config, values[0].backup_id)
+    with pytest.raises(RemoteError, match=Code.CONFLICT.value):
+        remote.replace(key, b"must-not-replace", '"incorrect-etag"')
+    remote.config = RemoteConfig.model_validate(dict(remote.config.model_dump(), keep_count=1))
+    assert retain(remote, tmp_path / "work")["removed_count"] == 2
+    remaining, _ = inventory(remote)
+    assert [point.backup_id for point, _ in remaining] == [values[-1].backup_id]
+    assert retain(remote, tmp_path / "work")["removed_count"] == 0
+    with pytest.raises(RemoteError, match=Code.CONFLICT.value):
+        read_point(remote, values[0].backup_id)
+    assert load_artifact(local, backup_id).backup_id == backup_id
+
+
+def test_invalid_source_identity_is_refused_before_remote_publication(
+    store_lab, age_executable, tmp_path
+):
+    local, remote, backup_id, escrow, _ = source(store_lab, age_executable, tmp_path)
+    remote.config = RemoteConfig.model_validate(
+        dict(remote.config.model_dump(), source_id="0" * 64)
+    )
+    with pytest.raises(RemoteError, match=Code.IDENTITY.value):
+        upload(local, remote, backup_id, escrow, age_executable, tmp_path / "work")
+    assert remote.get(point_key(remote.config, backup_id)) is None

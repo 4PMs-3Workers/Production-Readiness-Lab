@@ -47,6 +47,7 @@ include = [
     "tools/scripts/seed_demo.py",
     "tools/backup",
     "tests/recovery",
+    "tests/offhost",
     "tools/deploy/release.py",
     "tools/deploy/release_manifest.py",
     "tools/deploy/release_images.py",

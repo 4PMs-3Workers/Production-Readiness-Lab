@@ -3,6 +3,7 @@
 import base64
 import hashlib
 import os
+import re
 import time
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from tools.backup.offhost_contract import (
     Credentials,
     RemoteConfig,
     RemoteError,
+    Retirement,
     contract,
     private_file,
 )
@@ -196,15 +198,37 @@ class S3:
                 raise RemoteError(Code.INTEGRITY)
             token = next_token
 
-    def delete(self, key: str, etag: str) -> None:
+    def replace(self, key: str, value: bytes, etag: str) -> None:
         self.key(key)
+        if len(value) > MAX_CONTRACT:
+            raise RemoteError(Code.INTEGRITY)
         self.retry(
-            lambda: self.client.delete_object(
+            lambda: self.client.put_object(
                 Bucket=self.config.bucket,
                 Key=key,
+                Body=value,
+                ContentLength=len(value),
                 IfMatch=etag,
+                ChecksumSHA256=base64.b64encode(hashlib.sha256(value).digest()).decode(),
             )
         )
+
+    def delete(self, key: str) -> None:
+        self.key(key)
+        relative = key.removeprefix(self.config.scope + "points/")
+        match = re.fullmatch(
+            r"(prl-backup-\d{8}T\d{6}Z-[0-9a-f]{32})/blobs/([0-9a-f]{64})\.age", relative
+        )
+        if match is None:
+            raise RemoteError(Code.IDENTITY)
+        marker = self.get(self.config.scope + "points/" + match[1] + "/complete.json")
+        if marker is None:
+            raise RemoteError(Code.IDENTITY)
+        retired = contract(marker[0], Retirement)
+        retired.point.require(self.config, match[1])
+        if retired.point.encrypted_sha256 != match[2]:
+            raise RemoteError(Code.IDENTITY)
+        self.retry(lambda: self.client.delete_object(Bucket=self.config.bucket, Key=key))
 
 
 class TransferReader(BoundedReader):

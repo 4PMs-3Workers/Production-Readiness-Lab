@@ -37,7 +37,7 @@ def test_unrelated_prefix_is_refused_before_any_store_request(tmp_path, operatio
         elif operation == "put":
             remote.put("unrelated/keep", b"x")
         elif operation == "delete":
-            remote.delete("unrelated/keep", '"etag"')
+            remote.delete("unrelated/keep")
         else:
             remote.download("unrelated/keep", tmp_path / "out", "a" * 64, 1)
     assert not store.calls

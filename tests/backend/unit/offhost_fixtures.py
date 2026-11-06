@@ -28,6 +28,10 @@ class Store:
         key = request["Key"]
         if request.get("IfNoneMatch") == "*" and key in self.objects:
             raise client_error(412)
+        if "IfMatch" in request and (
+            key not in self.objects or request["IfMatch"] != self.etag(self.objects[key])
+        ):
+            raise client_error(412)
         value = request["Body"]
         self.objects[key] = value if isinstance(value, bytes) else value.read()
         return {}
@@ -55,7 +59,11 @@ class Store:
     def delete_object(self, **request):
         self.called("delete", request)
         key = request["Key"]
-        if key in self.objects and request.get("IfMatch") != self.etag(self.objects[key]):
+        if (
+            key in self.objects
+            and "IfMatch" in request
+            and request["IfMatch"] != self.etag(self.objects[key])
+        ):
             raise client_error(412)
         self.objects.pop(key, None)
         return {}

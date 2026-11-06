@@ -84,7 +84,7 @@ def test_invalid_inventory_aborts_before_any_deletion(tmp_path, fault):
     assert not any(operation == "delete" for operation, _ in remote.client.calls)
 
 
-def test_count_boundary_and_new_point_after_inventory_are_safe(tmp_path):
+def test_count_boundary_is_inclusive(tmp_path):
     remote, values, now = points(tmp_path, keep=3)
     # No age pressure: all three requested points remain, including the boundary.
     remote.config = RemoteConfig.model_validate(dict(remote.config.model_dump(), max_age_days=100))
@@ -94,3 +94,31 @@ def test_count_boundary_and_new_point_after_inventory_are_safe(tmp_path):
     assert all(
         point_key(remote.config, point.backup_id) in remote.client.objects for point in values[1:]
     )
+
+
+def test_crash_after_retirement_resumes_cleanup_without_resurrecting_point(tmp_path, monkeypatch):
+    from tools.backup.offhost_contract import Code
+    from tools.backup.offhost_upload import read_point
+
+    remote, values, now = points(tmp_path)
+    original = remote.delete
+    monkeypatch.setattr(
+        remote, "delete", lambda key: (_ for _ in ()).throw(RemoteError(Code.TRANSPORT))
+    )
+    with pytest.raises(RemoteError):
+        retain(remote, tmp_path / "work", now=now)
+    with pytest.raises(RemoteError, match=Code.CONFLICT.value):
+        read_point(remote, values[0].backup_id)
+    assert payload_key(remote.config, values[0]) in remote.client.objects
+    monkeypatch.setattr(remote, "delete", original)
+    retain(remote, tmp_path / "work", now=now)
+    assert payload_key(remote.config, values[0]) not in remote.client.objects
+    assert read_point(remote, values[-1].backup_id) is not None
+
+
+def test_active_payload_cannot_be_deleted_without_its_retirement_receipt(tmp_path):
+    remote, values, _ = points(tmp_path)
+    with pytest.raises(RemoteError):
+        remote.delete(payload_key(remote.config, values[0]))
+    assert payload_key(remote.config, values[0]) in remote.client.objects
+    assert not any(operation == "delete" for operation, _ in remote.client.calls)
