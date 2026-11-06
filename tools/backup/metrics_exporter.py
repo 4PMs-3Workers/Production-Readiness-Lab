@@ -247,7 +247,7 @@ class BackupMetricsExporter:
             and copy.configuration_sha256 is not None
             and (copy.environment, copy.store) == (config.environment, config.store)
         )
-        remote = copy.status if binding_valid else "unknown"
+        remote = copy.status if binding_valid and copy is not None else "unknown"
         if copy is not None and not copy.configured:
             remote = "not_configured"
         set_value(

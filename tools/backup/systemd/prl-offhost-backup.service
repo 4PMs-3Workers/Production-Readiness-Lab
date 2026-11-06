@@ -1,0 +1,23 @@
+[Unit]
+Description=Verified local backup and encrypted off-host recovery copy
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/prl/backup-job.env
+EnvironmentFile=/etc/prl/offhost-job.env
+WorkingDirectory=/opt/production-readiness-lab
+ExecStart=/opt/production-readiness-lab/.venv/bin/python -m tools.backup.scheduled
+# Default local 1300s + upload 900s + retention 900s + bounded cleanup.
+TimeoutStartSec=4000
+TimeoutStopSec=20
+KillMode=control-group
+MemoryMax=512M
+CPUQuota=100%
+TasksMax=64
+UMask=0077
+NoNewPrivileges=true
+StandardOutput=journal
+StandardError=journal

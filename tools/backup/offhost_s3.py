@@ -6,7 +6,7 @@ import os
 import time
 from pathlib import Path
 
-import boto3
+from boto3.session import Session
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 from tools.backup.offhost_contract import (
@@ -38,7 +38,7 @@ class S3:
             secret = contract(private_file(credentials, 32768), Credentials)
             if config.ca_file is not None:
                 private_file(Path(config.ca_file), MAX_CONTRACT, secret=False)
-            client = boto3.session.Session(
+            client = Session(
                 aws_access_key_id=secret.access_key,
                 aws_secret_access_key=secret.secret_key,
                 aws_session_token=secret.session_token,

@@ -32,9 +32,13 @@ def retrieve(
     backup_id: str,
     executable: Path,
     identity: Path,
+    *,
+    temporary_root: Path | None = None,
 ) -> tuple[Completion, Path]:
     with operation_lock(target):
-        return retrieve_locked(target, remote, backup_id, executable, identity)
+        return retrieve_locked(
+            target, remote, backup_id, executable, identity, temporary_root=temporary_root
+        )
 
 
 def retrieve_locked(
@@ -43,6 +47,8 @@ def retrieve_locked(
     backup_id: str,
     executable: Path,
     identity: Path,
+    *,
+    temporary_root: Path | None = None,
 ) -> tuple[Completion, Path]:
     config, deadline = remote.config, remote.deadline
     # No local artifact is considered until a remote completion and payload succeed.
@@ -51,7 +57,9 @@ def retrieve_locked(
         raise RemoteError(Code.INTEGRITY)
     point = published[0]
     root = store_root(target, create=True)
-    with tempfile.TemporaryDirectory(prefix=".partial-offhost-", dir=root) as temporary:
+    with tempfile.TemporaryDirectory(
+        prefix=".partial-offhost-", dir=temporary_root or root
+    ) as temporary:
         work = Path(temporary)
         encrypted, package = work / "payload.age", work / "package.tar.gz"
         remote.download(

@@ -50,7 +50,8 @@ def test_retry_is_bounded_and_403_is_never_treated_as_missing(monkeypatch):
     key = remote.config.scope + "points/owned/complete.json"
     store.failures = [client_error(503), client_error(429)]
     remote.put(key, b"complete")
-    assert len(delays) == 2 and remote.get(key)[0] == b"complete"
+    result = remote.get(key)
+    assert result is not None and len(delays) == 2 and result[0] == b"complete"
     store.failures = [client_error(403)]
     with pytest.raises(RemoteError, match=Code.TRANSPORT.value):
         remote.get(key)
