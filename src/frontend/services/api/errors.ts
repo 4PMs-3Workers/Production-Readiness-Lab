@@ -1,4 +1,15 @@
 const messages: Record<string, string> = {
+  EMAIL_ALREADY_EXISTS: 'Email đã được sử dụng bởi một tài khoản khác.',
+  ACCOUNT_VERSION_CONFLICT:
+    'Tài khoản đã được cập nhật ở phiên khác. Hãy tải lại và xem xét trước khi lưu lại.',
+  LAST_ACTIVE_ADMIN: 'Phải còn ít nhất một tài khoản ADMIN đang hoạt động.',
+  LAST_ACTIVE_STAFF: 'Phải còn ít nhất một tài khoản STAFF đang hoạt động.',
+  STAFF_HAS_OCCUPYING_APPOINTMENTS:
+    'Không thể ngừng hoạt động STAFF còn lịch UPCOMING hoặc CHANGE_PENDING.',
+  ROLE_CHANGE_REFERENCED:
+    'Không thể đổi vai trò vì tài khoản đã có dữ liệu tham chiếu hoặc lịch sử.',
+  STUDENT_PROFILE_ROLE_REQUIRED: 'Thông tin sinh viên chỉ áp dụng cho vai trò STUDENT.',
+  ACCOUNT_NOT_FOUND: 'Không tìm thấy tài khoản. Hãy tải lại danh sách.',
   INVALID_CREDENTIALS: 'Email hoặc mật khẩu chưa đúng.',
   LOGIN_THROTTLED: 'Bạn đã thử đăng nhập nhiều lần. Vui lòng chờ rồi thử lại.',
   INVALID_SESSION: 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.',

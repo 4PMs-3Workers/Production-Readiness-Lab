@@ -41,6 +41,15 @@ import type {
   ProposalWriteOptions,
 } from '@/services/proposal-contracts';
 import { isBusinessDate } from '@/lib/business-time';
+import type {
+  AdminAccessOptions,
+  AdminWriteOptions,
+  AdminAccountQuery,
+  AccountCreateBody,
+  AccountUpdateBody,
+  AccountPasswordBody,
+} from '@/services/admin-contracts';
+import { parseAdminAccount, parseAdminAccountPage } from './admin-account-mapping';
 import { ApiError, BookingRejection } from './errors';
 import { parseBookingContext } from './booking-context';
 import {
@@ -410,8 +419,8 @@ export class ApiServices {
     headers: Record<string, string> = {},
     expectedUserId?: string,
     onDispatch?: () => void,
-    method: 'POST' | 'PUT' | 'DELETE' = 'POST',
-    expectedRole: 'STUDENT' | 'STAFF' = 'STUDENT',
+    method: 'POST' | 'PUT' | 'DELETE' | 'PATCH' = 'POST',
+    expectedRole: SessionUser['role'] = 'STUDENT',
   ): Promise<T> {
     const signal = AbortSignal.any([
       this.scope.signal,
@@ -456,6 +465,85 @@ export class ApiServices {
 
   async me(options?: ServiceRequestOptions) {
     return user(await this.request<WireUser>('/auth/me', options));
+  }
+  private async verifyAdmin(options: AdminAccessOptions) {
+    options.signal?.throwIfAborted();
+    const actor = await this.me(options);
+    options.signal?.throwIfAborted();
+    if (actor.id !== options.expectedUserId || actor.role !== 'ADMIN') {
+      this.invalidateSession();
+      throw new ApiError('ACCOUNT_CHANGED', 401);
+    }
+  }
+  async listAdminAccounts(query: AdminAccountQuery, options: AdminAccessOptions) {
+    const scoped = {
+      ...options,
+      signal: AbortSignal.any([this.scope.signal, ...(options.signal ? [options.signal] : [])]),
+    };
+    const params = new URLSearchParams({
+      page: String(query.page),
+      page_size: String(query.pageSize ?? 20),
+    });
+    if (query.role) params.set('role', query.role);
+    if (query.isActive !== undefined) params.set('is_active', String(query.isActive));
+    if (query.search?.trim()) params.set('search', query.search.trim());
+    await this.verifyAdmin(scoped);
+    const data = await this.request<unknown>(`/admin/accounts?${params}`, scoped);
+    await this.verifyAdmin(scoped);
+    return parseAdminAccountPage(data);
+  }
+  async createAdminAccount(body: AccountCreateBody, options: AdminWriteOptions) {
+    const payload = { ...body };
+    return parseAdminAccount(
+      await this.write<unknown>(
+        '/admin/accounts',
+        payload,
+        options,
+        {},
+        options.expectedUserId,
+        options.onDispatch,
+        'POST',
+        'ADMIN',
+      ),
+    );
+  }
+  async updateAdminAccount(id: string, body: AccountUpdateBody, options: AdminWriteOptions) {
+    const payload = { ...body };
+    const account = parseAdminAccount(
+      await this.write<unknown>(
+        `/admin/accounts/${encodeURIComponent(id)}`,
+        payload,
+        options,
+        {},
+        options.expectedUserId,
+        options.onDispatch,
+        'PATCH',
+        'ADMIN',
+      ),
+    );
+    requireContract(account.id === id);
+    return account;
+  }
+  async resetAdminAccountPassword(
+    id: string,
+    body: AccountPasswordBody,
+    options: AdminWriteOptions,
+  ) {
+    const payload = { ...body };
+    const account = parseAdminAccount(
+      await this.write<unknown>(
+        `/admin/accounts/${encodeURIComponent(id)}/password`,
+        payload,
+        options,
+        {},
+        options.expectedUserId,
+        options.onDispatch,
+        'POST',
+        'ADMIN',
+      ),
+    );
+    requireContract(account.id === id);
+    return account;
   }
   async login(credentials: LoginCredentials, options?: ServiceRequestOptions) {
     return user(
