@@ -114,3 +114,31 @@ separate steps. #51 remains open until its reviewed PR is merged and accepted.
 The account UI consumes #49's existing API and grants; #52 catalog/settings,
 consultation-content browsing, SSO, email resets and account deletion are outside
 this delivery.
+
+## CI follow-up: COMMIT timeout fault placement
+
+The initial push [backend run](https://github.com/4PMs-3Workers/Production-Readiness-Lab/actions/runs/42161481060)
+failed `test_query_timeout_during_commit_invalidates_without_retrying_writes`
+before reaching its COMMIT hook (`entered` was false). The same source passed
+the PR backend run. The 250 ms attempt budget included all SQL preparation, so a
+contended runner could cancel setup instead of the COMMIT fault being tested.
+
+The test now tracks the production-requested query scope with bounded setup
+headroom, then arms its original 250 ms budget at the intended pre-COMMIT or
+post-server-COMMIT pause. It asserts that this query scope actually expires,
+the pause does not complete, exactly one write commit is attempted, the
+connection is invalidated, locks are released, and persisted bundle/replay
+results match whether the server committed. A 750 ms setup variant protects
+both commit outcomes against the original failure. Runtime timeout settings and
+application code are unchanged.
+
+Local checks on MySQL 8.4.13:
+
+- Full `tests/backend/integration/test_booking_timeouts.py`: **14 passed**, no skips.
+- Both commit outcomes with normal/slow setup, repeated twice: **4 passed + 4 passed**.
+- Black, Ruff and targeted Pyright: passed, 0 errors/warnings.
+
+```text
+python -m pytest --require-mysql tests/backend/integration/test_booking_timeouts.py -q
+python -m pytest --require-mysql tests/backend/integration/test_booking_timeouts.py -k test_query_timeout_during_commit_invalidates_without_retrying_writes -q
+```

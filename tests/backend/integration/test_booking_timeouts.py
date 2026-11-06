@@ -294,8 +294,9 @@ async def test_configured_lock_budget_aborts_before_mysql_server_timeout(
 
 
 @pytest.mark.parametrize("server_committed", [False, True], ids=["before-commit", "after-commit"])
+@pytest.mark.parametrize("setup_delay", [0, 0.75], ids=["normal-setup", "slow-setup"])
 async def test_query_timeout_during_commit_invalidates_without_retrying_writes(
-    booking_env, auth_settings, monkeypatch, server_committed
+    booking_env, auth_settings, monkeypatch, server_committed, setup_delay
 ):
     env, _, starts_at = booking_env
     payload = _request(env, starts_at)
@@ -304,7 +305,34 @@ async def test_query_timeout_during_commit_invalidates_without_retrying_writes(
     original_commit = dialect.do_commit
     targets = set()
     entered = asyncio.Event()
+    setup_completed = asyncio.Event()
+    pause_completed = asyncio.Event()
     write_commits = 0
+    active_query_scopes: list[tuple[float, asyncio.Timeout]] = []
+    expired_target: list[asyncio.Timeout] = []
+
+    @asynccontextmanager
+    async def tracked_query_timeout(seconds: float) -> AsyncIterator[asyncio.Timeout]:
+        # The configured attempt budget also covers SQL setup. Give setup bounded
+        # headroom, then arm that same production scope at the COMMIT fault.
+        async with asyncio.timeout(max(seconds, 15.0)) as scope:
+            active_query_scopes.append((seconds, scope))
+            try:
+                yield scope
+            finally:
+                active_query_scopes.pop()
+
+    test_clock = SimpleNamespace(**vars(asyncio))
+    test_clock.timeout = tracked_query_timeout
+    monkeypatch.setattr(booking, "asyncio", test_clock)
+    original_attempt = booking._run_attempt_with_commit_safety
+
+    async def delayed_setup(*args, **kwargs):
+        await asyncio.sleep(setup_delay)
+        setup_completed.set()
+        return await original_attempt(*args, **kwargs)
+
+    monkeypatch.setattr(booking, "_run_attempt_with_commit_safety", delayed_setup)
 
     def mark_write_connection(session):
         if any(isinstance(row, Appointment) for row in session.identity_map.values()):
@@ -317,9 +345,19 @@ async def test_query_timeout_during_commit_invalidates_without_retrying_writes(
             return original_commit(connection)
         write_commits += 1
         entered.set()
+        candidates = [
+            scope
+            for seconds, scope in active_query_scopes
+            if seconds == settings.db_query_timeout_seconds
+        ]
+        assert len(candidates) == 1, "The production query timeout must enclose COMMIT"
+        scope = candidates[0]
         if server_committed:
             original_commit(connection)
+        expired_target.append(scope)
+        scope.reschedule(asyncio.get_running_loop().time() + settings.db_query_timeout_seconds)
         await_only(asyncio.sleep(0.8))
+        pause_completed.set()
         if not server_committed:
             original_commit(connection)
 
@@ -338,9 +376,12 @@ async def test_query_timeout_during_commit_invalidates_without_retrying_writes(
 
                 patch.setattr(db, "invalidate", invalidate)
                 with pytest.raises(AppError) as caught:
-                    await _create(db, env, payload, settings)
+                    await _create(db, env, payload, settings, request_budget=15.0)
                 assert (caught.value.status_code, caught.value.code) == (503, "SERVICE_UNAVAILABLE")
+                assert setup_completed.is_set()
                 assert entered.is_set()
+                assert len(expired_target) == 1 and expired_target[0].expired()
+                assert not pause_completed.is_set()
                 assert write_commits == 1
                 assert invalidations == 1
                 assert not db.in_transaction()
