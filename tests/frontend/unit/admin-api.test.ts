@@ -160,5 +160,7 @@ describe('admin account contract', () => {
     expect(accountValidation({ ...account, email: 'a@@example.invalid' })).toBeTruthy();
     expect(accountValidation(account, '')).toBeTruthy();
     expect(accountValidation({ ...account, name: '   ' })).toBeTruthy();
+    expect(accountValidation({ ...account, name: '😀'.repeat(150) })).toBeNull();
+    expect(accountValidation({ ...account, name: '😀'.repeat(151) })).toBeTruthy();
   });
 });

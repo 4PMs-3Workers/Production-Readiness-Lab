@@ -74,6 +74,75 @@ describe('admin guard', () => {
   );
 });
 describe('admin account screen', () => {
+  it('ignores an old filter response after the query changes', async () => {
+    const held = deferred<Response>();
+    const original = fetcher.getMockImplementation()!;
+    fetcher.mockImplementation((path, init) =>
+      String(path).includes('role=STAFF') ? held.promise : original(path, init),
+    );
+    render(<AdminAccounts />);
+    await screen.findByRole('button', { name: `Sửa ${account.email}` });
+    fireEvent.change(screen.getByLabelText('Lọc vai trò'), { target: { value: 'STAFF' } });
+    await waitFor(() =>
+      expect(fetcher.mock.calls.some((c) => String(c[0]).includes('role=STAFF'))).toBe(true),
+    );
+    fireEvent.change(screen.getByLabelText('Lọc vai trò'), { target: { value: 'ADMIN' } });
+    await screen.findByRole('button', { name: `Sửa ${account.email}` });
+    await act(async () =>
+      held.resolve(
+        Response.json({
+          items: [{ ...account, name: 'Stale private row' }],
+          page: 1,
+          page_size: 20,
+          total: 1,
+        }),
+      ),
+    );
+    expect(screen.queryByText('Stale private row')).not.toBeInTheDocument();
+  });
+  it('hides private content while verifying and keeps the same-identity draft after verification', async () => {
+    const view = render(
+      <AdminSessionGate>
+        <AdminAccounts />
+      </AdminSessionGate>,
+    );
+    await edit();
+    fireEvent.change(screen.getByLabelText('Tên', { exact: true }), {
+      target: { value: 'Draft remains' },
+    });
+    context.value.session = { status: 'authenticated', user: actor, verifying: true };
+    view.rerender(
+      <AdminSessionGate>
+        <AdminAccounts />
+      </AdminSessionGate>,
+    );
+    expect(screen.getByLabelText('Tên', { exact: true })).not.toBeVisible();
+    context.value.session = { status: 'authenticated', user: actor, verifying: false };
+    view.rerender(
+      <AdminSessionGate>
+        <AdminAccounts />
+      </AdminSessionGate>,
+    );
+    expect(screen.getByLabelText('Tên', { exact: true })).toHaveValue('Draft remains');
+    expect(writes()).toHaveLength(0);
+  });
+  it('shows missing-target recovery without leaving a stale editable form', async () => {
+    const original = fetcher.getMockImplementation()!;
+    fetcher.mockImplementation((path, init) =>
+      init?.method === 'PATCH'
+        ? Promise.resolve(Response.json({ error: { code: 'ACCOUNT_NOT_FOUND' } }, { status: 404 }))
+        : original(path, init),
+    );
+    render(<AdminAccounts />);
+    await edit();
+    fireEvent.change(screen.getByLabelText('Tên', { exact: true }), {
+      target: { value: 'Changed' },
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
+    await screen.findByRole('button', { name: 'Tải lại danh sách' });
+    expect(screen.queryByRole('form', { name: 'Thông tin tài khoản' })).not.toBeInTheDocument();
+    expect(writes()).toHaveLength(1);
+  });
   it('uses real filters, resets page, handles empty and never client-filters data', async () => {
     render(<AdminAccounts />);
     await screen.findByRole('button', { name: `Sửa ${account.email}` });
