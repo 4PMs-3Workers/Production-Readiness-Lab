@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useApi } from './api-provider';
 import { safeReturnPath } from './session-gate';
 import { safeStaffReturnPath } from '@/features/staff/staff-session-gate';
+import { safeAdminReturnPath } from '@/features/admin/admin-session-gate';
 import { errorMessage } from '@/services/api/errors';
 import styles from '../login/login.module.css';
 
@@ -39,9 +40,11 @@ export function ApiLogin() {
       );
       if (!controller.signal.aborted)
         router.replace(
-          user.role === 'STAFF'
-            ? safeStaffReturnPath(params.get('returnTo'))
-            : safeReturnPath(params.get('returnTo')),
+          user.role === 'ADMIN'
+            ? safeAdminReturnPath(params.get('returnTo'))
+            : user.role === 'STAFF'
+              ? safeStaffReturnPath(params.get('returnTo'))
+              : safeReturnPath(params.get('returnTo')),
         );
     } catch (cause) {
       if (!controller.signal.aborted) setError(errorMessage(cause));
@@ -73,7 +76,7 @@ export function ApiLogin() {
             ? 'Bạn có thể tiếp tục sử dụng dịch vụ tư vấn.'
             : session.user.role === 'STAFF'
               ? 'Bạn có thể tiếp tục quản lý lịch tư vấn được giao.'
-              : 'Vai trò của bạn chưa có cổng làm việc phù hợp.'}
+              : 'Bạn có thể tiếp tục quản lý tài khoản nội bộ.'}
         </p>
         {session.user.role === 'STUDENT' && (
           <Link className="primary-link" href={safeReturnPath(params.get('returnTo'))}>
@@ -83,6 +86,11 @@ export function ApiLogin() {
         {session.user.role === 'STAFF' && (
           <Link className="primary-link" href={safeStaffReturnPath(params.get('returnTo'))}>
             Vào cổng nhân viên →
+          </Link>
+        )}
+        {session.user.role === 'ADMIN' && (
+          <Link className="primary-link" href={safeAdminReturnPath(params.get('returnTo'))}>
+            Vào cổng quản trị →
           </Link>
         )}
         <button

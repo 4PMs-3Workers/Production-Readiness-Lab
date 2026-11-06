@@ -20,9 +20,22 @@ export function PortalShell({
     | 'appointments'
     | 'preferences'
     | 'unavailability'
-    | 'notifications';
-  audience?: 'student' | 'staff';
+    | 'notifications'
+    | 'accounts';
+  audience?: 'student' | 'staff' | 'admin';
 }) {
+  const portalHome =
+    audience === 'admin'
+      ? '/admin/accounts'
+      : audience === 'staff'
+        ? '/staff/appointments'
+        : '/home';
+  const portalTitle =
+    audience === 'admin'
+      ? 'CỔNG QUẢN TRỊ'
+      : audience === 'staff'
+        ? 'CỔNG NHÂN VIÊN'
+        : 'CỔNG THÔNG TIN SINH VIÊN';
   const staffSections = {
     appointments: 'Lịch được giao',
     preferences: 'Nhu cầu tiếp nhận',
@@ -35,17 +48,19 @@ export function PortalShell({
     section === 'unavailability' ||
     section === 'notifications';
   const sectionTitle =
-    audience === 'staff' && staffActive
-      ? staffSections[section]
-      : section === 'home'
-        ? 'Không gian sinh viên'
-        : section === 'history'
-          ? 'Lịch đã đặt'
-          : section === 'profile'
-            ? 'Thông tin sinh viên'
-            : section === 'notifications'
-              ? 'Thông báo'
-              : 'Đặt lịch tư vấn';
+    audience === 'admin'
+      ? 'Quản lý tài khoản'
+      : audience === 'staff' && staffActive
+        ? staffSections[section]
+        : section === 'home'
+          ? 'Không gian sinh viên'
+          : section === 'history'
+            ? 'Lịch đã đặt'
+            : section === 'profile'
+              ? 'Thông tin sinh viên'
+              : section === 'notifications'
+                ? 'Thông báo'
+                : 'Đặt lịch tư vấn';
   return (
     <div className={styles.portal}>
       <a className="skip-link" href="#main-content">
@@ -53,11 +68,13 @@ export function PortalShell({
       </a>
       <header className={styles.header}>
         <Link
-          href={audience === 'staff' ? '/staff/appointments' : '/home'}
+          href={portalHome}
           aria-label={
-            audience === 'staff'
-              ? 'HUS — Cổng tư vấn — Trang nhân viên'
-              : 'HUS — Cổng tư vấn sinh viên — Trang chủ'
+            audience === 'admin'
+              ? 'HUS — Cổng quản trị — Trang chủ'
+              : audience === 'staff'
+                ? 'HUS — Cổng tư vấn — Trang nhân viên'
+                : 'HUS — Cổng tư vấn sinh viên — Trang chủ'
           }
         >
           <Image
@@ -71,16 +88,30 @@ export function PortalShell({
           />
         </Link>
         <div className={styles.headerTitle}>
-          <strong>{audience === 'staff' ? 'CỔNG NHÂN VIÊN' : 'CỔNG THÔNG TIN SINH VIÊN'}</strong>
+          <strong>{portalTitle}</strong>
           <span>Dịch vụ tư vấn và hỗ trợ sinh viên</span>
         </div>
         <PortalAccount />
       </header>
       <aside className={styles.sidebar}>
         <div className={styles.sidebarHeading}>
-          {audience === 'staff' ? 'KHÔNG GIAN NHÂN VIÊN' : 'KHÔNG GIAN SINH VIÊN'}
+          {audience === 'admin'
+            ? 'KHÔNG GIAN QUẢN TRỊ'
+            : audience === 'staff'
+              ? 'KHÔNG GIAN NHÂN VIÊN'
+              : 'KHÔNG GIAN SINH VIÊN'}
         </div>
-        {audience === 'staff' ? (
+        {audience === 'admin' ? (
+          <nav aria-label="Điều hướng quản trị">
+            <Link
+              href="/admin/accounts"
+              className={`${styles.navLink} ${styles.activeLink}`}
+              aria-current="page"
+            >
+              Quản lý tài khoản
+            </Link>
+          </nav>
+        ) : audience === 'staff' ? (
           <nav aria-label="Điều hướng nhân viên">
             <Link
               className={`${styles.navLink} ${section === 'appointments' ? styles.activeLink : ''}`}
@@ -206,20 +237,30 @@ export function PortalShell({
             i
           </span>
           <strong>
-            {audience === 'staff' ? 'Hỗ trợ sinh viên hiệu quả' : 'Luôn có người đồng hành'}
+            {audience === 'admin'
+              ? 'Quản lý tài khoản nội bộ'
+              : audience === 'staff'
+                ? 'Hỗ trợ sinh viên hiệu quả'
+                : 'Luôn có người đồng hành'}
           </strong>
           <p>
-            {audience === 'staff'
-              ? 'Thông tin lịch và trạng thái tiếp nhận được cập nhật từ hệ thống.'
-              : 'Chọn một cuộc hẹn để trao đổi về học tập, nghiên cứu và định hướng của bạn.'}
+            {audience === 'admin'
+              ? 'Thay đổi quyền, trạng thái và mật khẩu kết thúc các phiên đăng nhập của tài khoản được cập nhật.'
+              : audience === 'staff'
+                ? 'Thông tin lịch và trạng thái tiếp nhận được cập nhật từ hệ thống.'
+                : 'Chọn một cuộc hẹn để trao đổi về học tập, nghiên cứu và định hướng của bạn.'}
           </p>
         </div>
         {audience === 'student' && <PortalProfile />}
       </aside>
       <div className={styles.workspace}>
         <div className={styles.breadcrumb}>
-          <Link href={audience === 'staff' ? '/staff/appointments' : '/home'}>
-            {audience === 'staff' ? 'Không gian nhân viên' : 'Trang chủ'}
+          <Link href={portalHome}>
+            {audience === 'admin'
+              ? 'Không gian quản trị'
+              : audience === 'staff'
+                ? 'Không gian nhân viên'
+                : 'Trang chủ'}
           </Link>{' '}
           <span aria-hidden="true">/</span> <strong>{sectionTitle}</strong>
         </div>
@@ -227,7 +268,14 @@ export function PortalShell({
           {children}
         </main>
         <footer className={styles.footer}>
-          <span>HUS · {audience === 'staff' ? 'Cổng nhân viên' : 'Cổng tư vấn sinh viên'}</span>
+          <span>
+            HUS ·{' '}
+            {audience === 'admin'
+              ? 'Cổng quản trị'
+              : audience === 'staff'
+                ? 'Cổng nhân viên'
+                : 'Cổng tư vấn sinh viên'}
+          </span>
           <span>Production Readiness Lab{isMockMode() ? ' · Bản demo' : ''}</span>
         </footer>
       </div>
