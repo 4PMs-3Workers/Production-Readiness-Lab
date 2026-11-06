@@ -207,7 +207,7 @@ class Completion(Versioned):
     release_sha256: Digest
     bundle_sha256: Digest
     encrypted_sha256: Digest
-    encrypted_bytes: int = Field(gt=0, le=4 * 1024**3 + 1024**2)
+    encrypted_bytes: int = Field(gt=0, le=4 * 1024**3 + 16 * 1024**2)
     snapshot: SnapshotPoint
     backup_completed_at: str
     verified_at: str
@@ -230,7 +230,7 @@ class Completion(Versioned):
             self.backup_id != backup_id
             or self.source_id != config.source_id
             or self.configuration_sha256 != config.identity
-            or self.encrypted_bytes > config.max_bytes + 1024**2
+            or self.encrypted_bytes > config.max_bytes + 16 * 1024**2
         ):
             raise RemoteError(Code.IDENTITY)
 
