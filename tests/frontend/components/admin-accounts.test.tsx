@@ -74,6 +74,27 @@ describe('admin guard', () => {
   );
 });
 describe('admin account screen', () => {
+  it.each([{ role: ['STUDENT'] }, { gender: ['MALE'] }])(
+    'keeps malformed successful write responses unknown: %j',
+    async (invalid) => {
+      const original = fetcher.getMockImplementation()!;
+      fetcher.mockImplementation((path, init) =>
+        init?.method === 'PATCH'
+          ? Promise.resolve(Response.json({ ...account, ...invalid }))
+          : original(path, init),
+      );
+      render(<AdminAccounts />);
+      await edit();
+      fireEvent.change(screen.getByLabelText('Tên', { exact: true }), {
+        target: { value: 'Changed' },
+      });
+      await userEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
+      await screen.findByText(/Chưa xác định kết quả/);
+      expect(screen.queryByText('Đã lưu tài khoản.')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Tạo tài khoản' })).toBeDisabled();
+      expect(writes()).toHaveLength(1);
+    },
+  );
   it('ignores an old filter response after the query changes', async () => {
     const held = deferred<Response>();
     const original = fetcher.getMockImplementation()!;

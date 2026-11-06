@@ -16,13 +16,15 @@ export function parseAdminAccount(value: unknown): AdminAccount {
       uuid.test(data.id) &&
       typeof data.email === 'string' &&
       typeof data.name === 'string' &&
-      ['STUDENT', 'STAFF', 'ADMIN'].includes(String(data.role)) &&
+      typeof data.role === 'string' &&
+      ['STUDENT', 'STAFF', 'ADMIN'].includes(data.role) &&
       typeof data.is_active === 'boolean' &&
       [data.student_code, data.faculty, data.major].every(
         (v) => v === null || typeof v === 'string',
       ) &&
       (data.gender === null ||
-        ['MALE', 'FEMALE', 'OTHER', 'UNDISCLOSED'].includes(String(data.gender))) &&
+        (typeof data.gender === 'string' &&
+          ['MALE', 'FEMALE', 'OTHER', 'UNDISCLOSED'].includes(data.gender))) &&
       [data.created_at, data.updated_at].every(
         (v) => typeof v === 'string' && timestamp.test(v) && Number.isFinite(Date.parse(v)),
       ),

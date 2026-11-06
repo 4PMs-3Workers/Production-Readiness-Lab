@@ -33,9 +33,11 @@ describe('admin account contract', () => {
   });
   it.each([
     { role: 'ROOT' },
+    { role: ['STUDENT'] },
     { is_active: 'true' },
     { updated_at: 'bad' },
     { gender: 'bad' },
+    { gender: ['MALE'] },
     { faculty: undefined },
   ])('rejects malformed account %j', (invalid) => {
     expect(() => parseAdminAccount({ ...account, ...invalid })).toThrow();
