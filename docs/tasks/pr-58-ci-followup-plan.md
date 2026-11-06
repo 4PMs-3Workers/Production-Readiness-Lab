@@ -27,6 +27,8 @@ Observed on head `c0c447f` in both push and pull-request workflows.
    whole job, retain operation-level test deadlines, and report test names and
    slowest durations. Commit:
    `ci(containers): budget cold acceptance runs and report timings`.
+   Keep the workflow's Python contract test aligned with the 60-minute policy;
+   run the complete unit suite after configuration changes.
 
 Verify focused regressions and Black/Ruff/Pyright locally. Run real MySQL and
 Linux rollout acceptance when Docker is available; otherwise require both push

@@ -28,6 +28,10 @@ before changing code or reporting completion.
    gates. Do not turn expected 409/503 outcomes into interchangeable results.
 4. Keep changes scoped and commit each completed logical correction with its
    directly related tests. Review the complete diff before pushing.
+5. Workflow/configuration files have Python contract-test consumers. Search for
+   those consumers before editing and update the intended contract together.
+   Run the complete backend unit suite after workflow changes; YAML parsing alone
+   missed the existing 45-minute assertion when the job budget became 60 minutes.
 
 ## Failure mechanisms already encountered
 
