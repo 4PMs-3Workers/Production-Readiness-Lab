@@ -16,9 +16,14 @@ export default class SafeReporter implements Reporter {
   printsToStdio() {
     return true;
   }
-  onStdOut(_chunk: string | Buffer) {}
-  onStdErr(_chunk: string | Buffer) {}
-  onError(_error: TestError) {
+  onStdOut(chunk: string | Buffer) {
+    void chunk;
+  }
+  onStdErr(chunk: string | Buffer) {
+    void chunk;
+  }
+  onError(error: TestError) {
+    void error;
     this.globalErrors++;
   }
   onTestEnd(_test: TestCase, result: TestResult) {
