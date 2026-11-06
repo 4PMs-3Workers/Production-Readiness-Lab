@@ -1,6 +1,7 @@
 ﻿"""Real HTTP/session/transaction checks against an Alembic-created MySQL schema."""
 
 import hashlib
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -16,6 +17,28 @@ CREDENTIALS = {"email": "student@example.invalid", "password": "  Good-password!
 
 async def sign_in(client):
     return await client.post("/api/v1/auth/login", json=CREDENTIALS, headers=ORIGIN)
+
+
+@pytest.mark.parametrize("escaped", [False, True])
+async def test_unicode_credential_limits_fit_login_body_budget(auth_env, escaped):
+    client, factory, user_id, app = auth_env
+    email = "😀" * 238 + "@example.invalid"
+    password = " " + "🔐" * 1022 + " "
+    assert len(email) == 254 and len(password) == 1024
+    async with factory.begin() as db:
+        user = await db.get(User, user_id)
+        assert user is not None
+        user.email = email
+        user.password_hash = await app.state.passwords.hash(password)
+    body = json.dumps({"email": email, "password": password}, ensure_ascii=escaped).encode("utf-8")
+    assert 4096 < len(body) <= app.state.settings.login_max_body_bytes
+    response = await client.post(
+        "/api/v1/auth/login",
+        content=body,
+        headers=ORIGIN | {"Content-Type": "application/json"},
+    )
+    assert response.status_code == 200
+    assert response.json()["id"] == str(user_id)
 
 
 async def test_login_me_csrf_logout_and_cookie_replay(auth_env):
