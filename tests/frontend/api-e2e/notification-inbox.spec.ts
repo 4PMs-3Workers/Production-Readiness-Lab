@@ -21,8 +21,7 @@ async function login(page: Page, account: 'student' | 'staff' | 'other' | 'other
     await expect(page.getByRole('heading', { name: /Chào mừng,/ })).toBeVisible();
   else if (account === 'staff' || account === 'otherstaff')
     await expect(page.getByRole('heading', { name: 'Lịch được giao' })).toBeVisible();
-  else
-    await expect(page.getByRole('heading', { name: 'Tài khoản chưa được hỗ trợ' })).toBeVisible();
+  else await expect(page.getByRole('heading', { name: 'Quản lý tài khoản' })).toBeVisible();
 }
 
 async function logout(page: Page) {
