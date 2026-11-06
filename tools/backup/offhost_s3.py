@@ -140,7 +140,7 @@ class S3:
 
         self.retry(action)
 
-    def download(self, key: str, target: Path, sha256: str, size: int) -> None:
+    def download(self, key: str, target: Path, sha256: str, size: int) -> str:
         self.key(key)
         if (
             not 0 < size <= self.config.max_bytes + 16 * 1024**2
@@ -168,13 +168,14 @@ class S3:
                     os.fsync(output.fileno())
                 if count != size or checksum.hexdigest() != sha256:
                     raise RemoteError(Code.INTEGRITY)
+                return response["ETag"]
             except BaseException:
                 target.unlink(missing_ok=True)
                 raise
             finally:
                 response["Body"].close()
 
-        self.retry(action)
+        return self.retry(action)
 
     def inventory(self) -> list[str]:
         prefix, keys, token = self.config.scope + "points/", [], None

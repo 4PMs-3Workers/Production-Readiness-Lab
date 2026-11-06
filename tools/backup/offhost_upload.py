@@ -35,10 +35,10 @@ def read_point(remote: S3, backup_id: str) -> tuple[Completion, str] | None:
     return point, existing[1]
 
 
-def verify_remote(remote: S3, point: Completion, scratch: Path) -> None:
+def verify_remote(remote: S3, point: Completion, scratch: Path) -> str:
     target = scratch / "remote-readback.age"
     try:
-        remote.download(
+        return remote.download(
             payload_key(remote.config, point), target, point.encrypted_sha256, point.encrypted_bytes
         )
     finally:
