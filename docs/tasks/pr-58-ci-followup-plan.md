@@ -53,7 +53,9 @@ and pull-request workflows on the final head.
    state. If the bounded outbox cannot reserve one event for each configured
    check, defer probing and report degraded/capacity-limited status; do not
    persist a partial evaluation. Attempt due deliveries before applying the
-   capacity gate, and prove probing resumes after delivery frees space. Commit:
+   capacity gate, and prove probing resumes after delivery frees space. Keep at
+   most one delivery-cycle budget per run; persist new transitions for the next
+   run when pre-probe delivery already consumed the budget. Commit:
    `fix(offhost): preserve ordered transitions under outbox backpressure`.
 2. **Initial wait in detection latency:** include time to the first failed
    probe and the actual serial cycle duration in the validated three-minute

@@ -749,7 +749,9 @@ def test_runner_preserves_repeated_transitions_for_one_check_across_restart(tmp_
 def test_runner_applies_backpressure_when_outbox_cannot_hold_a_check_transition(tmp_path):
     path = config_file(tmp_path)
     path.write_text(
-        path.read_text(encoding="utf-8").replace(
+        path.read_text(encoding="utf-8")
+        .replace("failure_threshold = 3", "failure_threshold = 1")
+        .replace(
             'state_path = "state.json"',
             'state_path = "state.json"\nmax_pending_notifications = 2',
         ),
@@ -809,9 +811,10 @@ def test_runner_applies_backpressure_when_outbox_cannot_hold_a_check_transition(
 
     assert resumed.capacity_limited is False
     assert len(resumed.results) == 1
-    assert resumed.state.pending == ()
+    assert [event.firing for event in resumed.state.pending] == [True]
+    assert resumed.state.delivery_health == "degraded"
     assert [event.firing for event in notifier.events] == [True, False]
-    assert transport.calls == 1
+    assert (transport.calls, resumed.state.delivery_attempts_total) == (1, 2)
 
 
 @pytest.mark.asyncio

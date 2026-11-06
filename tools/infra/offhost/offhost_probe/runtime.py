@@ -113,14 +113,23 @@ class MonitorRunner:
         return len(set(self.state.checks) | self.configured_names) > self.store.max_check_states
 
     async def run_once(self) -> RunSummary:
-        self.state = await self._process_notifications(self.state)
-        self.capacity_limited = self._would_exceed_state_capacity()
+        notifications_processed = False
         if self.capacity_limited:
-            return self._capacity_limited_summary()
+            self.state = await self._process_notifications(self.state)
+            notifications_processed = True
+            self.capacity_limited = self._would_exceed_state_capacity()
+            if self.capacity_limited:
+                return self._capacity_limited_summary()
         if self.config.max_pending_notifications - len(self.state.pending) < len(
             self.config.checks
         ):
-            return self._capacity_limited_summary()
+            if not notifications_processed:
+                self.state = await self._process_notifications(self.state)
+                notifications_processed = True
+            if self.config.max_pending_notifications - len(self.state.pending) < len(
+                self.config.checks
+            ):
+                return self._capacity_limited_summary()
         started = self.clock()
         if started.tzinfo is None or started.utcoffset() is None:
             raise ValueError("Monitor clock must be timezone-aware")
@@ -183,9 +192,12 @@ class MonitorRunner:
             ),
         )
         state = self._queue_notifications(state)
+        if notifications_processed and state.pending:
+            state = replace(state, delivery_health="degraded")
         self.state = state
         self.store.save(state)
-        self.state = await self._process_notifications(self.state)
+        if not notifications_processed:
+            self.state = await self._process_notifications(self.state)
         summary = RunSummary(
             self.state.last_probe_completed_at or completed.isoformat(timespec="milliseconds"),
             results,
