@@ -13,6 +13,12 @@ Observed on head `c0c447f` in both push and pull-request workflows.
    Use one target-budget value for configuration, scope selection, and deadline
    injection; retain separate setup allowances and transaction/lock assertions.
    Commit: `test(booking): align injected timeout with configured query budget`.
+3. **Staff outcome state coverage:** a contended push runner returned a service
+   timeout before the expected state conflict. Scope larger query/lock budgets to
+   that business-state test and exercise both cancelled and pending states with
+   a 1.25-second lock step. Keep the 409 and no-write assertions, and include the
+   causal exception type if they fail. Commit:
+   `test(staff): isolate outcome state assertions from query timing`.
 
 Verify focused regressions and Black/Ruff/Pyright locally. Run real MySQL and
 Linux rollout acceptance when Docker is available; otherwise require both push
