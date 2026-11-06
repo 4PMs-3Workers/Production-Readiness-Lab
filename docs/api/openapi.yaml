@@ -423,6 +423,38 @@ components:
       - created_at
       title: AppointmentListItem
       type: object
+    AuthenticatedUser:
+      properties:
+        email:
+          title: Email
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        name:
+          title: Name
+          type: string
+        role:
+          enum:
+          - STUDENT
+          - STAFF
+          - ADMIN
+          title: Role
+          type: string
+        session_generation:
+          description: Public session marker. Stable within a session; cannot authenticate
+            requests.
+          title: Session Generation
+          type: string
+      required:
+      - id
+      - email
+      - name
+      - role
+      - session_generation
+      title: AuthenticatedUser
+      type: object
     AvailabilityResponse:
       properties:
         date:
@@ -483,6 +515,9 @@ components:
         csrf_token:
           title: Csrf Token
           type: string
+        session_generation:
+          title: Session Generation
+          type: string
         user_id:
           format: uuid
           title: User Id
@@ -490,6 +525,7 @@ components:
       required:
       - csrf_token
       - user_id
+      - session_generation
       title: CsrfResponse
       type: object
     ErrorDetail:
@@ -1081,32 +1117,6 @@ components:
       - resolved_at
       - resolved_by
       title: ProposalResolution
-      type: object
-    PublicUser:
-      properties:
-        email:
-          title: Email
-          type: string
-        id:
-          format: uuid
-          title: Id
-          type: string
-        name:
-          title: Name
-          type: string
-        role:
-          enum:
-          - STUDENT
-          - STAFF
-          - ADMIN
-          title: Role
-          type: string
-      required:
-      - id
-      - email
-      - name
-      - role
-      title: PublicUser
       type: object
     PurposeItem:
       properties:
@@ -3702,7 +3712,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PublicUser'
+                $ref: '#/components/schemas/AuthenticatedUser'
           description: Successful Response
           headers:
             Cache-Control:
@@ -3971,7 +3981,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PublicUser'
+                $ref: '#/components/schemas/AuthenticatedUser'
           description: Successful Response
           headers:
             Cache-Control:

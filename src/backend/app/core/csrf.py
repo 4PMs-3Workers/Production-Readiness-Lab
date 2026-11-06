@@ -9,6 +9,14 @@ from app.api.auth_errors import auth_error
 from app.core.session_tokens import new_session_token, valid_session_token
 
 
+def session_generation(session_id: UUID, secret: str) -> str:
+    """Stable public session marker, purpose-separated from credentials and CSRF."""
+    digest = hmac.new(
+        secret.encode("utf-8"), b"prl-session-generation-v1" + session_id.bytes, hashlib.sha256
+    ).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+
+
 def _signature(session_id: UUID, nonce: str, secret: str) -> str:
     message = b"prl-csrf-v1" + session_id.bytes + base64.urlsafe_b64decode(nonce + "=")
     digest = hmac.new(secret.encode("utf-8"), message, hashlib.sha256).digest()
