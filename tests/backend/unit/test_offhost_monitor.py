@@ -117,6 +117,23 @@ def test_load_config_includes_wait_for_first_probe_in_detection_bound(tmp_path):
         load_config(path)
 
 
+def test_load_config_includes_pre_probe_delivery_in_detection_bound(tmp_path):
+    path = config_file(tmp_path)
+    text = path.read_text(encoding="utf-8")
+    text = text.replace("interval_seconds = 30", "interval_seconds = 55")
+    text = text.replace("timeout_seconds = 10", "timeout_seconds = 12")
+    text = text.replace("connect_timeout_seconds = 4", "connect_timeout_seconds = 6")
+    text = text.replace("read_timeout_seconds = 4", "read_timeout_seconds = 6")
+    text = text.replace(
+        'state_path = "state.json"',
+        'state_path = "state.json"\ndelivery_cycle_timeout_seconds = 10',
+    )
+    path.write_text(text, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="configuration"):
+        load_config(path)
+
+
 def test_load_config_requires_outbox_capacity_for_each_configured_check(tmp_path):
     path = config_file(
         tmp_path,
@@ -858,6 +875,50 @@ async def test_cycle_timeout_keeps_earlier_delivery_acknowledgement_and_attempts
     assert durable.delivery_attempts_total == 2
     assert durable.last_delivery_outcome == "timeout"
     assert result == durable
+
+
+@pytest.mark.asyncio
+async def test_notification_batches_share_one_delivery_cycle_deadline(tmp_path):
+    path = config_file(tmp_path)
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            'state_path = "state.json"',
+            'state_path = "state.json"\n'
+            "max_pending_notifications = 1\n"
+            "delivery_cycle_timeout_seconds = 1\n"
+            "delivery_retries = 0",
+        ),
+        encoding="utf-8",
+    )
+    config = load_config(path)
+    retired = {
+        f"old{index}": CheckState(firing=True, notified_firing=True, transition_sequence=1)
+        for index in range(8)
+    }
+    store = StateStore(
+        config.state_path,
+        max_bytes=config.max_state_bytes,
+        max_pending=config.max_pending_notifications,
+    )
+    store.save(MonitorState(checks=retired))
+
+    class SlowNotifier:
+        async def deliver(self, event):
+            await asyncio.sleep(0.15)
+            return DeliveryResult(True, "accepted")
+
+    runner = MonitorRunner(
+        config,
+        transport=FakeTransport(True),
+        notifier=SlowNotifier(),
+        store=store,
+    )
+
+    summary = await runner._process_notifications(runner.state)
+
+    assert summary.delivery_attempts_total < len(retired)
+    assert summary.pending
+    assert summary.delivery_health == "degraded"
 
 
 def test_runner_recovers_pending_firing_delivery_after_restart_and_resolves(tmp_path):

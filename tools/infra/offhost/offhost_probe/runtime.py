@@ -229,26 +229,25 @@ class MonitorRunner:
 
     async def _process_notifications(self, state: MonitorState) -> MonitorState:
         self.state = state
-        for _ in range(9):
-            queued = self._queue_notifications(self.state)
-            if queued != self.state:
-                self.store.save(queued)
-                self.state = queued
-            if not self.state.pending:
-                break
-            try:
-                async with asyncio.timeout(self.config.delivery_cycle_timeout_seconds):
+        try:
+            async with asyncio.timeout(self.config.delivery_cycle_timeout_seconds):
+                for _ in range(9):
+                    queued = self._queue_notifications(self.state)
+                    if queued != self.state:
+                        self.store.save(queued)
+                        self.state = queued
+                    if not self.state.pending:
+                        break
                     self.state = await self._deliver_pending(self.state)
-            except TimeoutError:
-                self.state = replace(
-                    self.state,
-                    delivery_health="degraded",
-                    last_delivery_outcome="timeout",
-                )
-                self.store.save(self.state)
-                break
-            if self.state.pending:
-                break
+                    if self.state.pending:
+                        break
+        except TimeoutError:
+            self.state = replace(
+                self.state,
+                delivery_health="degraded",
+                last_delivery_outcome="timeout",
+            )
+            self.store.save(self.state)
         return self.state
 
     def _queue_notifications(self, state: MonitorState) -> MonitorState:
