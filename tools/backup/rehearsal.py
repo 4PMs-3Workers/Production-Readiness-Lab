@@ -10,10 +10,12 @@ import os
 import re
 import secrets
 import time
+from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import Protocol
 from urllib.parse import quote
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 from tests.containers.test_compose_acceptance import (
@@ -28,6 +30,8 @@ from tests.containers.test_compose_acceptance import (
 )
 from tools.backup.evidence import write_report
 from tools.backup.recovery_config import render
+
+from app.schemas.appointments import AppointmentCancelResponse
 
 FINGERPRINT = """
 import asyncio, hashlib, json, os, time
@@ -69,6 +73,7 @@ class RecoveryStack(ComposeAcceptance):
     def __init__(self, scratch: Path, *, recovered: bool = False):
         self.recovered = recovered
         self.database = "prl"
+        self.deployment_root = DEPLOY
         scratch.mkdir(mode=0o700, parents=True)
         super().__init__(scratch)
         self.owned_image_tag = self.image_tag
@@ -170,6 +175,13 @@ class RecoveryStack(ComposeAcceptance):
         )
         appointment_count, audit_count, notification_count = map(int, self.sql(sql).split())
         return appointment_count, audit_count, notification_count
+
+    def appointment_status(self, appointment: str) -> str:
+        identifier = str(UUID(appointment))
+        return self.sql(
+            f"SELECT status FROM `{self.database}`.appointments "
+            f"WHERE id=UNHEX(REPLACE('{identifier}','-',''));"
+        )
 
 
 def request(client: httpx.Client, method: str, path: str, expected: int, **kwargs):
@@ -306,6 +318,17 @@ def application_smoke(stack: RecoveryStack, persisted: str, later: str) -> dict:
         ).json()
         if cancelled != replay_cancel or stack.effects(appointment) != (1, 2, 4):
             raise AcceptanceFailure("Cancellation replay duplicated effects or changed the result")
+        receipt = AppointmentCancelResponse.model_validate_json(json.dumps(cancelled), strict=True)
+        detail = request(client, "GET", f"/api/v1/appointments/{appointment}", 200).json()
+        if (
+            str(receipt.id) != appointment
+            or detail.get("id") != appointment
+            or detail.get("status") != "CANCELLED"
+            or datetime.fromisoformat(detail["cancelled_at"].replace("Z", "+00:00"))
+            != receipt.cancelled_at
+            or stack.appointment_status(appointment) != "CANCELLED"
+        ):
+            raise AcceptanceFailure("Cancellation was not independently persisted")
         request(client, "POST", "/api/v1/auth/logout", 204, headers=headers)
         request(client, "GET", "/api/v1/appointments", 401)
     return {
@@ -345,7 +368,22 @@ def images(stack: RecoveryStack) -> dict:
     return result
 
 
-def run(scratch: Path) -> dict:
+class RecoveryTransfer(Protocol):
+    recovery_volume: str
+
+    def publish(self, source: RecoveryStack, backup: dict, source_images: dict) -> None: ...
+    def freeze_source(self, source: RecoveryStack) -> None: ...
+    def isolate(self, source: RecoveryStack) -> None: ...
+    def retrieve(self, target: RecoveryStack, backup_id: str) -> None: ...
+    def resume_source_for_verification(self, source: RecoveryStack) -> None: ...
+
+
+def run(
+    scratch: Path,
+    *,
+    stack_factory: Callable[..., RecoveryStack] = RecoveryStack,
+    transport: RecoveryTransfer | None = None,
+) -> dict:
     if require_success(invoke(["git", "status", "--porcelain"]), "Clean checkout check failed"):
         raise AcceptanceFailure("A clean committed checkout is required for source provenance")
     scratch.mkdir(parents=True, mode=0o700, exist_ok=True)
@@ -355,7 +393,7 @@ def run(scratch: Path) -> dict:
     created = False
     try:
         stage("prepare_source")
-        source = RecoveryStack(scratch / "source")
+        source = stack_factory(scratch / "source")
         source.database = "prl"
         source.env["PRL_BACKUP_VOLUME"] = storage
         source.operations_config()
@@ -397,18 +435,24 @@ def run(scratch: Path) -> dict:
             or backup["image_id"] != source_images["api"]
         ):
             raise AcceptanceFailure("Backup release identity differs from the running source")
+        if transport is not None:
+            transport.publish(source, backup, source_images)
         later = book(source)
         incident = source.sql("SELECT DATE_FORMAT(UTC_TIMESTAMP(6), '%Y-%m-%dT%H:%i:%s.%fZ');")
+        if transport is not None:
+            transport.freeze_source(source)
         source_fingerprint = source.fingerprint()
+        if transport is not None:
+            transport.isolate(source)
         stage("provision_separate_recovery")
         recovery_start, clock_start = now(), time.monotonic()
-        recovered = RecoveryStack(scratch / "recovered", recovered=True)
+        recovered = stack_factory(scratch / "recovered", recovered=True)
         recovered.database = "prl_restore_" + uuid4().hex[:20]
         recovered.image_tag = source.image_tag
         recovered.student_password = source.student_password
         recovered.env.update(
             PRL_IMAGE_TAG=source.image_tag,
-            PRL_BACKUP_VOLUME=storage,
+            PRL_BACKUP_VOLUME=transport.recovery_volume if transport is not None else storage,
             PRL_BACKEND_IMAGE_ID=source_images["api"],
         )
         runtime_file = Path(recovered.env_files["PRL_RUNTIME_ENV_FILE"])
@@ -417,6 +461,8 @@ def run(scratch: Path) -> dict:
         )
         runtime_file.write_text(runtime, encoding="utf-8")
         recovered.operations_config(target=recovered.database)
+        if transport is not None:
+            transport.retrieve(recovered, backup["backup_id"])
         require_success(
             recovered.compose("up", "-d", "--wait", "--wait-timeout", "180", "mysql", timeout=240),
             "Isolated recovery database startup failed",
@@ -451,7 +497,7 @@ def run(scratch: Path) -> dict:
         if validation["table_counts"] != verified["table_counts"]:
             raise AcceptanceFailure("Read-only verification disagrees with the restore report")
         grants = (
-            (DEPLOY / "mysql/grants.sql")
+            (getattr(recovered, "deployment_root", DEPLOY) / "mysql/grants.sql")
             .read_text(encoding="utf-8")
             .replace("prl.", f"`{recovered.database}`.")
         )
@@ -481,6 +527,8 @@ def run(scratch: Path) -> dict:
         stage("real_recovered_application_smoke")
         smoke = application_smoke(recovered, persisted, later)
         smoke_passed, duration = now(), time.monotonic() - clock_start
+        if transport is not None:
+            transport.resume_source_for_verification(source)
         if source.fingerprint() != source_fingerprint:
             raise AcceptanceFailure("Source data changed during isolated recovery and smoke")
         status = source.operation("status")
