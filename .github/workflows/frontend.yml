@@ -55,7 +55,7 @@ jobs:
       - name: Production build
         run: npm --workspace src/frontend run build
       - name: Install Playwright Chromium and system dependencies
-        run: npx --no-install playwright install --with-deps chromium
+        run: bash tools/scripts/install-playwright-ci.sh
       - name: Desktop and mobile E2E tests
         id: e2e
         run: npm --workspace src/frontend run test:e2e
@@ -113,7 +113,8 @@ jobs:
           python -m black --check tools/scripts/frontend_e2e_backend.py
           python -m ruff check tools/scripts/frontend_e2e_backend.py
       - run: npm --workspace src/frontend run build
-      - run: npx --no-install playwright install --with-deps chromium
+      - name: Install Playwright Chromium and system dependencies
+        run: bash tools/scripts/install-playwright-ci.sh
       - name: Real MySQL desktop and mobile E2E (no skipping)
         id: api-e2e
         run: npm --workspace src/frontend run test:e2e:api

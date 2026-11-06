@@ -185,3 +185,29 @@ The real API suite now contains **114 cases**, including **40 ADMIN cases**, acr
 desktop and mobile. CI's required no-skip behavior and existing timeout remain
 unchanged. No fixture credentials, hashes, session tokens or account payloads
 are included in this verification record.
+
+## CI follow-up after review fixes
+
+On `0c91c5e`, PR CI passed 2087 backend tests, 409 frontend unit/component tests,
+66 mock E2E and all 114 real API E2E. The push frontend check instead stopped
+during Chromium dependency installation: the hosted runner's Microsoft APT feed
+returned HTTP 403, causing `apt-get` to exit 100 before browser tests started.
+The installer now makes at most three attempts with 10 seconds between failures,
+then returns the final nonzero exit code. Both frontend jobs and container
+acceptance use the same helper. Browser tests and package-signature verification
+are unchanged. Stubbed installer probes verify immediate success, recovery after
+a transient failure, and permanent failure after exactly three attempts.
+
+The push backend run also failed the existing finite-sweep test (2086 passed):
+only one of two old candidates expired, but the test did not capture the
+candidate's reason. A controlled 1.25-second transition delay reproduces this
+symptom with `DEADLINE_EXCEEDED` under its one-second query budget. This is a
+timing-sensitivity reproduction, not proof of the unrecorded CI candidate reason.
+The fairness test now has bounded test-only query/request headroom, checks both
+normal/delayed transitions, asserts exact candidate IDs and outcomes, and verifies
+the newly due proposal stays PENDING until the next sweep. Production worker
+budgets and transitions are unchanged; dedicated timeout/failure tests still run.
+
+Local MySQL verification: batches plus worker failure tests **18 passed**; both
+finite-sweep variants repeated twice **2 passed + 2 passed**. Black, Ruff,
+workflow YAML parsing, shell syntax and installer behavior probes passed.

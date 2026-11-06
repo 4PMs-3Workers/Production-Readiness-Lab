@@ -7,7 +7,9 @@ from tests.backend.integration.worker.helpers import add_proposal, side_effect_c
 
 from app.models import Appointment, ChangeProposal
 from app.repositories import users
+from app.services import change_proposals
 from app.worker.batch import BatchRunner
+from app.worker.models import CandidateResult, Outcome
 from app.worker.processing import process_candidate
 
 pytestmark = pytest.mark.mysql
@@ -55,31 +57,64 @@ async def test_small_batches_pass_poison_rows_and_wrap_to_recover_them(worker_en
     assert await side_effect_counts(env) == (3, 6)
 
 
+@pytest.mark.parametrize("transition_delay", [0.0, 1.25])
 async def test_finite_sweep_excludes_newly_due_rows_until_old_failed_rows_can_be_revisited(
-    worker_env, monkeypatch, worker_reports
+    worker_env, monkeypatch, worker_reports, transition_delay
 ):
     env = worker_env
-    await add_proposal(env, expiry=env.now - timedelta(seconds=2))
-    await add_proposal(env, expiry=env.now - timedelta(seconds=1))
+    first_id, _ = await add_proposal(env, expiry=env.now - timedelta(seconds=2))
+    second_id, _ = await add_proposal(env, expiry=env.now - timedelta(seconds=1))
     now = env.now
 
     async def clock(db):
         return now
 
     monkeypatch.setattr(users, "utc_now", clock)
+    original_lock = change_proposals._lock_context
+    results: list[CandidateResult] = []
+
+    async def delayed_lock(*args, **kwargs):
+        if transition_delay and not results:
+            await asyncio.sleep(transition_delay)
+        return await original_lock(*args, **kwargs)
+
+    async def observed_processor(*args):
+        result = await process_candidate(*args)
+        results.append(result)
+        return result
+
+    monkeypatch.setattr(change_proposals, "_lock_context", delayed_lock)
     runner = BatchRunner(
         env.factory,
-        env.settings.model_copy(update={"worker_batch_size": 1}),
+        # This checks finite-cohort fairness, not production timeout enforcement.
+        # Keep real expiry transactions but allow bounded runner/setup headroom.
+        env.settings.model_copy(
+            update={
+                "worker_batch_size": 1,
+                "db_query_timeout_seconds": 5.0,
+                "request_timeout_seconds": 10.0,
+            }
+        ),
         reporter=worker_reports(),
+        processor=observed_processor,
     )
     await runner.run_batch()
     new_id, _ = await add_proposal(env, expiry=env.now + timedelta(seconds=1))
     now += timedelta(seconds=2)
     await runner.run_batch()
     await runner.run_batch()
+    assert [(result.outcome, result.reason) for result in results] == [
+        (Outcome.EXPIRED, None),
+        (Outcome.EXPIRED, None),
+    ]
+    assert [result.proposal_id for result in results] == [first_id, second_id]
     assert runner.cursor is None and runner.state.expired == 2
+    async with env.factory() as db:
+        newly_due = await db.get(ChangeProposal, new_id)
+        assert newly_due is not None and newly_due.status == "PENDING"
     await runner.run_batch()
     assert runner.cursor and runner.cursor.proposal_id == new_id
+    assert results[-1].outcome == Outcome.EXPIRED and results[-1].reason is None
     assert await side_effect_counts(env) == (3, 6)
 
 

@@ -77,7 +77,7 @@ jobs:
           docker compose version
 
       - name: Install Playwright Chromium and Linux dependencies
-        run: npx --no-install playwright install --with-deps chromium
+        run: bash tools/scripts/install-playwright-ci.sh
 
       - name: Run required zero-skip container acceptance
         run: |
