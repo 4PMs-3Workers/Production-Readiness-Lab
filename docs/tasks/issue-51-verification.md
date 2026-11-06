@@ -142,3 +142,46 @@ Local checks on MySQL 8.4.13:
 python -m pytest --require-mysql tests/backend/integration/test_booking_timeouts.py -q
 python -m pytest --require-mysql tests/backend/integration/test_booking_timeouts.py -k test_query_timeout_during_commit_invalidates_without_retrying_writes -q
 ```
+
+## PR #61 review follow-up
+
+The six findings on `d6fc40a` are addressed by the review-fix commits through
+`72baca574ea4653bac5bbacc9a03d8b96f20aebc`. The following documentation commit
+does not change runtime or test code. Earlier results above describe the initial
+implementation and timeout follow-up, not this revised source.
+
+| Finding | Resulting behavior and regression coverage |
+| --- | --- |
+| Recovery | Reads independently of visible filters; matches stable ID or exact normalized create email; shows submitted/current account and student-profile fields side by side. Empty, failed and wrong-account reads keep acknowledgement locked. Pages beyond the first require user action, as required by the plan. Password uncertainty remains explicit. |
+| Sign-in compatibility | Native email syntax and UTF-16 truncation removed. Tests cover Unicode email, 513-emoji create credentials, email edits and a 1024-code-point reset password including surrounding spaces. |
+| Replaced session | Purpose-separated HMAC public marker on login, me and CSRF distinguishes sessions of the same ADMIN. Provider/gate clear prior drafts/confirmations; read and write-preflight fences reject stale generations. Same-session verification preserves drafts. Marker cannot authenticate requests. |
+| CI evidence | Both frontend suites upload only allowlisted JSON summaries. Test titles, step arguments, raw errors/stdout/stderr, attachments, HTML and raw test-results are excluded. An intentionally failing Playwright probe confirms failure exit/status are retained without copying its canary diagnostics into summary or console. |
+| Enum receipts | Non-string role/gender values are rejected; malformed 2xx receipts leave the dispatched write unknown. |
+| Pagination | A refreshed out-of-range page is clamped using server total and page size, then refetched. Tests cover deactivating the sole row on page 2 and a genuinely empty result set. |
+
+The maximum-Unicode browser regression exposed an additional cause of the
+credential incompatibility: the prior 4096-byte login body cap rejected a
+schema-valid password. The default and Compose login cap are now 16384 bytes,
+enough for 254 email plus 1024 password code points even with JSON surrogate
+escapes. It remains below the 32768-byte business API cap. UTF-8 and escaped-JSON
+boundary tests authenticate successfully, while oversized, chunked, prefixed and
+slash-redirect requests still exercise the byte guard. No migration, database
+grant or new route is introduced.
+
+Local verification on the environment recorded above:
+
+- Frontend format, lint, route generation, TypeScript and production API build: passed.
+- Full frontend unit/component suite: **409 passed**, no skips.
+- Auth endpoints, auth HTTP and HTTP body-limit regression suite: **95 passed**, no skips.
+- Earlier auth/session/CSRF regression run: **52 passed**; unit auth/CSRF/OpenAPI run: **29 passed**.
+- Black and Ruff on the backend: passed; repository Pyright: **0 errors/warnings**.
+- Final API production build: `KCk4JOGRVdkF9FPmXiq4y`.
+- Final-build desktop/mobile targeted API E2E: **14 passed**, no skips, covering
+  Unicode credentials, shared-cookie session replacement, recovery despite
+  excluding filters, page shrink and expiry.
+- Browser acceptance and complete CI results are recorded on PR #61 for the final head.
+
+The real API suite now contains **114 cases**, including **40 ADMIN cases**, across
+desktop and mobile. CI's required no-skip behavior and existing timeout remain
+unchanged. No fixture credentials, hashes, session tokens or account payloads
+are included in this verification record.

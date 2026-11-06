@@ -84,7 +84,11 @@ the version token and resubmits the prior changes.
 After a timeout, service error or lost write receipt, the result can be unknown.
 Use **Tải lại để xem xét** to inspect current server data before explicitly
 starting a new operation. Search/filter/pagination remain read-only during this
-review. Matching fields or a newer version do not attribute a change to the
+review. Recovery reads independently of the visible list's filters, matches the
+stable account ID (or exact normalized email for create), and displays submitted
+and current profile fields side by side. Additional pages require an explicit
+action; an empty page or another account never unlocks acknowledgement.
+Matching fields or a newer version do not attribute a change to the
 original request. In particular, an account reread cannot prove which password
 was installed. Any later reset requires re-entering the password and confirming
 a new reset; it is not an automatic retry. The recovery notice is in memory for
@@ -94,7 +98,16 @@ replay previous writes.
 Passwords are cleared on submission and are not saved in browser storage,
 recovery metadata, URLs or logs. Session changes clear the previous identity's
 account data and drafts; returning to a tab rechecks the session before allowing
-further actions.
+further actions. Login, `/auth/me` and `/auth/csrf` return a public
+`session_generation` marker derived from the session with a purpose-separated
+HMAC. It is stable within one session, changes on same-account login, and cannot
+authenticate or authorize a request. Admin reads and write preflight check this
+marker as well as user ID/role; replacing the session clears old drafts and
+confirmations. Revalidating the same session preserves them.
+
+API sign-in accepts normalized email lengths of 1–254 Unicode code points and
+passwords of 1–1024 code points, without native email syntax validation or
+UTF-16 truncation. Password whitespace is preserved.
 
 ## Frontend acceptance tests
 
@@ -116,6 +129,11 @@ revocation, concurrent edits and committed writes whose HTTP receipts are lost.
 mutated fixture accounts, and permits bounded test-only inspection. Missing
 MySQL/build/server/browser prerequisites fail the required suite rather than
 silently skipping it. Real API tracing and automatic screenshots remain off.
+In CI both frontend suites use an allowlisted reporter containing only run
+status, global-error count and attempt index/status/retry. The workflow uploads
+only `frontend-safe/summary.json` or `frontend-api-safe/summary.json` under
+`playwright-report/`; step parameters, titles, raw errors/output, attachments,
+HTML and `test-results/` are excluded. Local HTML diagnostics remain local.
 
 The API deployment prerequisites from #49 still apply, including the existing
 column-level `UPDATE(id)` grant on `service_settings` for the locking read. The
