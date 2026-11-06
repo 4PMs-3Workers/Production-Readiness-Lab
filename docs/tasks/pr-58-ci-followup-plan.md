@@ -40,3 +40,28 @@ Verify focused regressions and Black/Ruff/Pyright locally. Run real MySQL and
 Linux rollout acceptance when Docker is available; otherwise require both push
 and pull-request CI to verify those paths before reporting completion. Preserve
 all existing monitor fixes and pushed history. Do not merge or deploy.
+
+### Second team lead review pass (2026-11-06)
+
+The latest review on `789c08b` found a repeated-transition loss and an omitted
+initial probe wait. Add regressions before fixes and verify both the branch-push
+and pull-request workflows on the final head.
+
+1. **Repeated transitions for one check:** an unresolved event for a check must
+   not suppress a later firing or resolution transition for that same check.
+   Append all evaluator transitions in order in the same atomic save as check
+   state. If the bounded outbox cannot reserve one event for each configured
+   check, defer probing and report degraded/capacity-limited status; do not
+   persist a partial evaluation. Commit:
+   `fix(offhost): preserve ordered transitions under outbox backpressure`.
+2. **Initial wait in detection latency:** include time to the first failed
+   probe and the actual serial cycle duration in the validated three-minute
+   bound. Test a 300-second interval with threshold one. Commit:
+   `fix(offhost): include initial probe wait in detection bound`.
+
+The regression scenario must deliver the initial firing, then preserve a
+pending resolution and a second firing through a crash; after restart, a healthy
+probe must deliver the second resolution in order. Also verify queue-full
+backpressure, capacity-versus-check validation, the full backend unit suite, the
+off-host TLS integration suite, Black, Ruff, and Pyright. CI completion remains
+specific to the pushed final SHA; results from `789c08b` do not verify the fix.

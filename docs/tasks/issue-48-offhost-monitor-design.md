@@ -35,5 +35,5 @@ The command has `run`, `status`, and `receiver` modes. `run` owns its schedule a
 ## Assumptions and verification
 
 - The operator supplies HTTPS checks and explicit deployment notification settings; the default receiver is local and test-only.
-- A 30-second interval with three consecutive failures fires within 90 seconds under ordinary scheduling, below the three-minute target; scheduling delay and delivery latency are measured separately.
+- The configured fault-to-firing bound includes the worst-case wait for the first probe, each serial monitor cycle, and the final probe timeout. With the sample values, the conservative bound is `3 * max(30, 10 + 30) + 10 = 130` seconds, below the three-minute target. If notification backpressure prevents a safe evaluation, probe health is degraded and the bound does not apply until probing resumes.
 - Unit tests use a fake clock and injected transport. TLS/network integration tests use local HTTPS servers and generated certificates. A subprocess drill checks the loopback receiver and firing/resolved behavior. Physical-host-loss proof remains an environment-level drill.

@@ -43,7 +43,9 @@ before changing code or reporting completion.
 | State assertions on slow CI | A one-second query budget or 0.5-second lock budget can expire before a state conflict is reached. Give the particular business-state test explicit bounded allowances and inject a slow database step. Keep dedicated timeout tests and all no-write assertions. Include causal exception types in failures; a bare 503 alone does not prove which timeout or database error occurred. |
 | Whole container job | A successful acceptance run took about 39 minutes, and a cold push runner spent 8.5 minutes on setup. The original 45-minute job cap cancelled the full suite. The job has a 60-minute total budget; operation-level deadlines and zero-skip requirements remain active. Verbose test names and slow-test timings identify future stalls. |
 | Fault injection and healthy recovery | Keep the resource-exhaustion trigger and its short acquisition timeout. Give healthy recovery its own bounded query/lock/request allowance and a delayed real step regression. Use the same pool, preserve leak/side-effect assertions, and include the full safe result classification when recovery fails. |
-| Notification durability | Persist evaluator transitions with pending events atomically, and retain the latest persisted acknowledgement/attempt state across cancellation. Keep the crash/restart and partial-cycle regressions. |
+| Notification durability | Persist every evaluator transition in order with its check state in one atomic save. Allow multiple queued events for the same check; compare a check with the last queued state instead of suppressing by check name. Retain the latest persisted acknowledgement/attempt state across cancellation. Test repeated outage/recovery transitions through crash/restart. |
+| Notification queue backpressure | Reserve one outbox slot per configured check before probing, require queue capacity for all checks at config load, and defer an evaluation with explicit degraded/capacity-limited state when that reserve is unavailable. Never persist only part of a probe batch's transitions. |
+| Monitor detection latency | Bound fault-to-firing from an arbitrary fault time, including the wait for the first probe: `failure_threshold * max(interval, timeout + delivery_cycle_timeout) + timeout`. Test long intervals with threshold one and slow serial cycles; report the SLA as suspended during explicit outbox backpressure. |
 
 ## Evidence required before completion
 
@@ -51,6 +53,9 @@ before changing code or reporting completion.
   different Python from PATH and mistake missing dependencies for test failures.
 - Run focused regressions and required Black/Ruff/Pyright checks. Broaden tests
   when a change, failure, or unresolved risk calls for it.
+- After monitor runtime/configuration changes, run the full backend unit suite,
+  the off-host monitor integration suite, and monitor-specific Black/Ruff checks
+  before pushing. A focused regression alone does not establish CI readiness.
 - If Docker Linux is unavailable locally, report that limit and obtain real
   MySQL, rollback, recovery, and container evidence from GitHub Actions.
 - Check the final pushed SHA. All applicable push and PR workflows must finish
