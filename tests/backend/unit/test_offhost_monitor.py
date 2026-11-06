@@ -783,12 +783,14 @@ def test_runner_applies_backpressure_when_outbox_cannot_hold_a_check_transition(
             return await super().probe(check, policy)
 
     transport = CountingTransport()
+    now = [datetime(2026, 11, 5, tzinfo=UTC)]
+    notifier = FakeNotifier(True)
     runner = MonitorRunner(
         config,
         transport=transport,
-        notifier=FakeNotifier(True),
+        notifier=notifier,
         store=store,
-        clock=lambda: datetime(2026, 11, 5, tzinfo=UTC),
+        clock=lambda: now[0],
     )
 
     summary = asyncio.run(runner.run_once())
@@ -801,6 +803,15 @@ def test_runner_applies_backpressure_when_outbox_cannot_hold_a_check_transition(
     assert summary.state.evaluations_total == 0
     assert summary.state.pending == pending
     assert transport.calls == 0
+
+    now[0] += timedelta(minutes=2)
+    resumed = asyncio.run(runner.run_once())
+
+    assert resumed.capacity_limited is False
+    assert len(resumed.results) == 1
+    assert resumed.state.pending == ()
+    assert [event.firing for event in notifier.events] == [True, False]
+    assert transport.calls == 1
 
 
 @pytest.mark.asyncio

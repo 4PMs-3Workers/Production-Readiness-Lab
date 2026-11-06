@@ -113,11 +113,10 @@ class MonitorRunner:
         return len(set(self.state.checks) | self.configured_names) > self.store.max_check_states
 
     async def run_once(self) -> RunSummary:
+        self.state = await self._process_notifications(self.state)
+        self.capacity_limited = self._would_exceed_state_capacity()
         if self.capacity_limited:
-            self.state = await self._process_notifications(self.state)
-            self.capacity_limited = self._would_exceed_state_capacity()
-            if self.capacity_limited:
-                return self._capacity_limited_summary()
+            return self._capacity_limited_summary()
         if self.config.max_pending_notifications - len(self.state.pending) < len(
             self.config.checks
         ):
