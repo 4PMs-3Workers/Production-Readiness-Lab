@@ -54,6 +54,13 @@ LOSS = RUNTIME / "lose-next-response"
 HOLD = RUNTIME / "hold-next-response"
 HELD = RUNTIME / "held-response"
 PASSWORD = os.getenv("FRONTEND_E2E_PASSWORD", "Fictional-e2e-password!42")
+BASE_ACCOUNTS = (
+    ("student", "STUDENT", "Sinh viên kiểm thử A"),
+    ("other", "STUDENT", "Sinh viên kiểm thử B"),
+    ("staff", "STAFF", "Cố vấn kiểm thử"),
+    ("otherstaff", "STAFF", "Cố vấn kiểm thử B"),
+    ("admin", "ADMIN", "Quản trị kiểm thử"),
+)
 
 
 def admin_url():
@@ -128,13 +135,7 @@ async def prepare():
             passwords = await PasswordService.create(PasswordPolicy(), 2)
             encoded = await passwords.hash(PASSWORD)
             async with async_sessionmaker(engine).begin() as db:
-                for name, role, display in (
-                    ("student", "STUDENT", "Sinh viên kiểm thử A"),
-                    ("other", "STUDENT", "Sinh viên kiểm thử B"),
-                    ("staff", "STAFF", "Cố vấn kiểm thử"),
-                    ("otherstaff", "STAFF", "Cố vấn kiểm thử B"),
-                    ("admin", "ADMIN", "Quản trị kiểm thử"),
-                ):
+                for name, role, display in BASE_ACCOUNTS:
                     db.add(
                         User(
                             id=UUID(fixture[name]),
@@ -227,14 +228,31 @@ class ProbeCommittedResponse:
     async def __call__(self, scope: Scope, receive: Receive, send: Send):
         if (
             scope["type"] != "http"
-            or scope["method"] != "POST"
+            or scope["method"] not in {"POST", "PATCH"}
             or not (
-                scope["path"] in {"/api/v1/appointments", "/api/v1/staff/me/unavailability"}
-                or re.fullmatch(r"/api/v1/notifications/[a-f0-9-]{36}/read", scope["path"])
-                or re.fullmatch(
-                    r"/api/v1/(?:staff/me/)?appointments/[a-f0-9-]{36}/change-proposals"
-                    r"(?:/[a-f0-9-]{36}/(?:accept|decline))?",
-                    scope["path"],
+                (
+                    scope["method"] == "PATCH"
+                    and re.fullmatch(r"/api/v1/admin/accounts/[a-f0-9-]{36}", scope["path"])
+                )
+                or (
+                    scope["method"] == "POST"
+                    and (
+                        scope["path"]
+                        in {
+                            "/api/v1/appointments",
+                            "/api/v1/staff/me/unavailability",
+                            "/api/v1/admin/accounts",
+                        }
+                        or re.fullmatch(
+                            r"/api/v1/admin/accounts/[a-f0-9-]{36}/password", scope["path"]
+                        )
+                        or re.fullmatch(r"/api/v1/notifications/[a-f0-9-]{36}/read", scope["path"])
+                        or re.fullmatch(
+                            r"/api/v1/(?:staff/me/)?appointments/[a-f0-9-]{36}/change-proposals"
+                            r"(?:/[a-f0-9-]{36}/(?:accept|decline))?",
+                            scope["path"],
+                        )
+                    )
                 )
             )
             or not (LOSS.exists() or HOLD.exists())
@@ -318,6 +336,30 @@ async def operate(args):
                     Session,
                 ):
                     await db.execute(delete(model))
+                baseline_ids = [UUID(fixture[name]) for name, _, _ in BASE_ACCOUNTS]
+                await db.execute(
+                    delete(StaffPurpose).where(StaffPurpose.staff_id.not_in(baseline_ids))
+                )
+                await db.execute(delete(User).where(User.id.not_in(baseline_ids)))
+                passwords = await PasswordService.create(PasswordPolicy(), 2)
+                encoded = await passwords.hash(PASSWORD)
+                for name, role, display in BASE_ACCOUNTS:
+                    await db.execute(
+                        update(User)
+                        .where(User.id == UUID(fixture[name]))
+                        .values(
+                            email=f"{name}@frontend.example.invalid",
+                            name=display,
+                            role=role,
+                            is_active=True,
+                            password_hash=encoded,
+                            student_code=f"TEST-{name.upper()}" if role == "STUDENT" else None,
+                            faculty="Khoa kiểm thử" if role == "STUDENT" else None,
+                            major="Ngành kiểm thử" if role == "STUDENT" else None,
+                            gender="UNDISCLOSED" if role == "STUDENT" else None,
+                            updated_at=datetime.now(UTC),
+                        )
+                    )
                 await db.execute(
                     update(Purpose)
                     .where(Purpose.id == UUID(fixture["purpose"]))
@@ -336,6 +378,101 @@ async def operate(args):
                 LOSS.unlink(missing_ok=True)
                 HOLD.unlink(missing_ok=True)
                 HELD.unlink(missing_ok=True)
+            elif args.action == "seed-admin":
+                baseline = await db.get(User, UUID(fixture["student"]))
+                assert baseline is not None
+                for name, role, active in [
+                    ("admin2", "ADMIN", True),
+                    ("target", "STUDENT", True),
+                    ("inactive", "STUDENT", False),
+                ] + [(f"paging{index:02}", "STUDENT", True) for index in range(22)]:
+                    db.add(
+                        User(
+                            id=uuid4(),
+                            email=f"{name}@frontend.example.invalid",
+                            name=f"Tài khoản {name}",
+                            role=role,
+                            is_active=active,
+                            password_hash=baseline.password_hash,
+                            student_code="ADMIN-E2E-TARGET" if name == "target" else None,
+                        )
+                    )
+            elif args.action == "admin-last-staff":
+                await db.execute(
+                    update(User)
+                    .where(User.id == UUID(fixture["otherstaff"]))
+                    .values(is_active=False)
+                )
+            elif args.action == "inspect-admin":
+                account = await db.get(User, UUID(args.id))
+                if account is None:
+                    raise RuntimeError("Account must exist in the owned test schema")
+                events = (
+                    await db.scalars(
+                        select(AuditEvent).where(
+                            AuditEvent.entity_type == "USER",
+                            AuditEvent.entity_id == str(account.id),
+                        )
+                    )
+                ).all()
+                allowed_keys = {
+                    "changed_fields",
+                    "role",
+                    "is_active",
+                    "from_role",
+                    "to_role",
+                    "sessions_revoked",
+                }
+                allowed_fields = {
+                    "name",
+                    "email",
+                    "role",
+                    "is_active",
+                    "student_code",
+                    "faculty",
+                    "major",
+                    "gender",
+                }
+                for event in events:
+                    metadata = event.event_metadata
+                    assert set(metadata) <= allowed_keys
+                    for key, value in metadata.items():
+                        if key == "changed_fields":
+                            assert isinstance(value, list) and set(value) <= allowed_fields
+                        elif key in {"is_active", "sessions_revoked"}:
+                            assert isinstance(value, bool)
+                        else:
+                            assert value in {"STUDENT", "STAFF", "ADMIN"}
+                sessions = (
+                    await db.scalars(select(Session).where(Session.user_id == account.id))
+                ).all()
+                print(
+                    json.dumps(
+                        {
+                            "id": str(account.id),
+                            "email": account.email,
+                            "name": account.name,
+                            "role": account.role,
+                            "is_active": account.is_active,
+                            "student_code": account.student_code,
+                            "updated_at": account.updated_at.isoformat(),
+                            "audits": [
+                                {
+                                    "action": event.action,
+                                    "actor": str(event.actor_id),
+                                    "entity": event.entity_id,
+                                }
+                                for event in events
+                            ],
+                            "revoked_sessions": sum(row.revoked_at is not None for row in sessions),
+                            "active_sessions": sum(
+                                row.revoked_at is None and row.expires_at > datetime.now(UTC)
+                                for row in sessions
+                            ),
+                            "metadata_safe": True,
+                        }
+                    )
+                )
             elif args.action == "settings-off":
                 setting = await db.get(ServiceSetting, 1)
                 if setting is None:
@@ -751,6 +888,9 @@ def main():
         choices=(
             "serve",
             "reset",
+            "seed-admin",
+            "inspect-admin",
+            "admin-last-staff",
             "expire",
             "inspect",
             "history",
