@@ -20,6 +20,7 @@ export function AdminAccounts() {
   const actorId =
     session.status === 'authenticated' && session.user.role === 'ADMIN' ? session.user.id : '';
   const verifying = session.status !== 'authenticated' || Boolean(session.verifying);
+  const generation = session.status === 'authenticated' ? session.user.sessionGeneration : '';
   const [query, setQuery] = useState({ page: 1, role: '', active: '', search: '' });
   const [search, setSearch] = useState('');
   const [editor, setEditor] = useState<Editor | null>(null);
@@ -40,10 +41,10 @@ export function AdminAccounts() {
           isActive: query.active ? query.active === 'true' : undefined,
           search: query.search,
         },
-        { signal, expectedUserId: actorId },
+        { signal, expectedUserId: actorId, expectedSessionGeneration: generation },
       );
     },
-    [services, query, actorId, verifying],
+    [services, query, actorId, verifying, generation],
   );
   const resource = useApiResource(
     `admin:${actorId}:${revision}:${JSON.stringify(query)}:${verifying}`,

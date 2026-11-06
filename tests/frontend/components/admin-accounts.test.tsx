@@ -18,7 +18,7 @@ beforeEach(() => {
   fetcher = vi.fn<typeof fetch>(async (path, init) => {
     if (String(path).endsWith('/auth/me')) return Response.json(actor);
     if (String(path).endsWith('/auth/csrf'))
-      return Response.json({ user_id: actor.id, csrf_token: 'csrf' });
+      return Response.json({ user_id: actor.id, csrf_token: 'csrf', session_generation: actor.session_generation });
     if (init?.method)
       return Response.json({ ...account, updated_at: '2026-11-06T01:00:00.123457Z' });
     return Response.json({ items: [account], page: 1, page_size: 20, total: 1 });
@@ -27,7 +27,7 @@ beforeEach(() => {
     services: new ApiServices(fetcher),
     session: {
       status: 'authenticated',
-      user: { ...actor, displayName: actor.name },
+      user: { ...actor, displayName: actor.name, sessionGeneration: actor.session_generation },
       verifying: false,
     },
     revision: 0,
@@ -131,14 +131,14 @@ describe('admin account screen', () => {
     fireEvent.change(screen.getByLabelText('Tên', { exact: true }), {
       target: { value: 'Draft remains' },
     });
-    context.value.session = { status: 'authenticated', user: actor, verifying: true };
+    context.value.session = { status: 'authenticated', user: { ...actor, sessionGeneration: actor.session_generation }, verifying: true };
     view.rerender(
       <AdminSessionGate>
         <AdminAccounts />
       </AdminSessionGate>,
     );
     expect(screen.getByLabelText('Tên', { exact: true })).not.toBeVisible();
-    context.value.session = { status: 'authenticated', user: actor, verifying: false };
+    context.value.session = { status: 'authenticated', user: { ...actor, sessionGeneration: actor.session_generation }, verifying: false };
     view.rerender(
       <AdminSessionGate>
         <AdminAccounts />
@@ -263,7 +263,7 @@ describe('admin account screen', () => {
     act(() => {
       window.dispatchEvent(new Event('focus'));
     });
-    await act(async () => csrf.resolve(Response.json({ user_id: actor.id, csrf_token: 'csrf' })));
+    await act(async () => csrf.resolve(Response.json({ user_id: actor.id, csrf_token: 'csrf', session_generation: actor.session_generation })));
     expect(writes()).toHaveLength(0);
     expect(screen.getByLabelText('Tên', { exact: true })).toHaveValue('Draft');
   });

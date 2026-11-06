@@ -9,19 +9,58 @@ import {
 } from '@/features/admin/accounts/account-fields';
 import { accountFixture as account, adminActor as actor, deferred } from '../admin-fixtures';
 
-const options = { expectedUserId: actor.id };
+const options = { expectedUserId: actor.id, expectedSessionGeneration: actor.session_generation };
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 function fixture() {
   const fetcher = vi.fn<typeof fetch>(async (path) =>
     String(path).endsWith('/auth/me')
       ? json(actor)
       : String(path).endsWith('/auth/csrf')
-        ? json({ user_id: actor.id, csrf_token: 'test-csrf' })
+        ? json({
+            user_id: actor.id,
+            csrf_token: 'test-csrf',
+            session_generation: actor.session_generation,
+          })
         : json(account),
   );
   return { fetcher, services: new ApiServices(fetcher) };
 }
 describe('admin account contract', () => {
+  it.each(['csrf', 'preflight', 'read-before', 'read-after'])(
+    'rejects a replaced session of the same ADMIN during %s',
+    async (boundary) => {
+      const { services, fetcher } = fixture();
+      let reads = 0;
+      fetcher.mockImplementation(async (path) => {
+        if (String(path).endsWith('/auth/csrf'))
+          return json({
+            user_id: actor.id,
+            csrf_token: 'csrf',
+            session_generation: boundary === 'csrf' ? 'b'.repeat(43) : actor.session_generation,
+          });
+        if (String(path).endsWith('/auth/me'))
+          return json({
+            ...actor,
+            session_generation:
+              boundary === 'preflight' || boundary === 'read-before' || ++reads === 2
+                ? 'b'.repeat(43)
+                : actor.session_generation,
+          });
+        return json({ items: [account], page: 1, page_size: 20, total: 1 });
+      });
+      const dispatched = vi.fn();
+      const result = boundary.startsWith('read')
+        ? services.listAdminAccounts({ page: 1 }, options)
+        : services.updateAdminAccount(
+            account.id,
+            { name: 'Changed', expected_updated_at: account.updated_at },
+            { ...options, onDispatch: dispatched },
+          );
+      await expect(result).rejects.toMatchObject({ code: 'ACCOUNT_CHANGED' });
+      expect(dispatched).not.toHaveBeenCalled();
+      expect(fetcher.mock.calls.every(([, init]) => !init?.method)).toBe(true);
+    },
+  );
   it('preserves microseconds and drops unexpected secret fields', () => {
     const mapped = parseAdminAccount({
       ...account,
@@ -123,7 +162,13 @@ describe('admin account contract', () => {
     async (role) => {
       const { services, fetcher } = fixture();
       fetcher
-        .mockResolvedValueOnce(json({ user_id: actor.id, csrf_token: 'csrf' }))
+        .mockResolvedValueOnce(
+          json({
+            user_id: actor.id,
+            csrf_token: 'csrf',
+            session_generation: actor.session_generation,
+          }),
+        )
         .mockResolvedValueOnce(json({ ...actor, role }));
       const dispatch = vi.fn();
       await expect(

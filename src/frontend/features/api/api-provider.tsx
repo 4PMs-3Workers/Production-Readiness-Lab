@@ -66,7 +66,10 @@ export function ApiProvider({
       const previous = previousUser.current;
       const pending = intents.snapshot();
       if (
-        (previous && (previous.id !== user.id || previous.role !== user.role)) ||
+        (previous &&
+          (previous.id !== user.id ||
+            previous.role !== user.role ||
+            previous.sessionGeneration !== user.sessionGeneration)) ||
         (pending && (pending.userId !== user.id || user.role !== 'STUDENT'))
       )
         clearPrivate();

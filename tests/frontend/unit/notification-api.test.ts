@@ -6,6 +6,7 @@ const user = {
   id: 'student-a',
   name: 'Sinh viên A',
   email: 'student@example.invalid',
+  session_generation: 'a'.repeat(43),
   role: 'STUDENT',
 };
 const notification = {

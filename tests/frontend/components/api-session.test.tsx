@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -26,6 +26,7 @@ const user = {
   id: STUDENT_A,
   name: 'Fictional Student A',
   email: 'a@example.invalid',
+  session_generation: 'a'.repeat(43),
   role: 'STUDENT',
 };
 const error = (code: string, status: number) => Response.json({ error: { code } }, { status });
@@ -57,11 +58,54 @@ function PrivateView() {
 }
 
 describe('API session boundaries', () => {
+  it.each(['nguyễn@example.invalid', '😀'.repeat(250)])(
+    'submits backend-valid email without native email or UTF-16 restrictions: %s',
+    async (email) => {
+      const fetcher = vi.fn<typeof fetch>(async (path) =>
+        String(path).endsWith('/auth/me') ? error('INVALID_SESSION', 401) : json(user),
+      );
+      render(
+        <ApiProvider services={new ApiServices(fetcher)}>
+          <ApiLogin />
+        </ApiProvider>,
+      );
+      await screen.findByLabelText('Email');
+      fireEvent.change(screen.getByLabelText('Email'), { target: { value: ` ${email} ` } });
+      const password = ` ${'😀'.repeat(1022)} `;
+      fireEvent.change(screen.getByLabelText('Mật khẩu'), { target: { value: password } });
+      await userEvent.click(screen.getByRole('button', { name: /Đăng nhập/ }));
+      await waitFor(() =>
+        expect(fetcher.mock.calls.some(([path]) => String(path).endsWith('/auth/login'))).toBe(
+          true,
+        ),
+      );
+      const call = fetcher.mock.calls.find(([path]) => String(path).endsWith('/auth/login'))!;
+      expect(JSON.parse(String(call[1]?.body))).toEqual({ email, password });
+    },
+  );
+  it.each([
+    ['a'.repeat(255), 'valid'],
+    ['valid', '😀'.repeat(1025)],
+  ])('rejects credentials outside LoginRequest bounds', async (email, password) => {
+    const fetcher = vi.fn<typeof fetch>(async () => error('INVALID_SESSION', 401));
+    render(
+      <ApiProvider services={new ApiServices(fetcher)}>
+        <ApiLogin />
+      </ApiProvider>,
+    );
+    await screen.findByLabelText('Email');
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: email } });
+    fireEvent.change(screen.getByLabelText('Mật khẩu'), { target: { value: password } });
+    fireEvent.submit(screen.getByRole('form', { name: 'Đăng nhập' }));
+    expect(screen.getByRole('alert')).toHaveTextContent(/cần có từ/);
+    expect(fetcher.mock.calls.every(([path]) => !String(path).endsWith('/auth/login'))).toBe(true);
+  });
   it('makes a staff write recoverable after focus failure aborts it and the session recovers', async () => {
     const staff = {
       id: STAFF_A,
       name: 'Fictional Staff A',
       email: 'staff-a@example.invalid',
+      session_generation: 'a'.repeat(43),
       role: 'STAFF',
     };
     const appointment: StaffAppointmentDetail = {
@@ -155,6 +199,7 @@ describe('API session boundaries', () => {
       id: STAFF_A,
       name: 'Fictional Staff A',
       email: 'staff-a@example.invalid',
+      session_generation: 'a'.repeat(43),
       role: 'STAFF',
     };
     let switched = false;

@@ -38,6 +38,7 @@ function renderInbox() {
         id: ownerAtRequest,
         name: ownerAtRequest,
         email: `${ownerAtRequest}@example.invalid`,
+        session_generation: 'a'.repeat(43),
         role: 'STUDENT',
       });
       if (delayMe) {

@@ -44,7 +44,7 @@ export function AdminSessionGate({ children }: { children: ReactNode }) {
     <>
       {session.verifying && <p role="status">Đang kiểm tra phiên đăng nhập…</p>}
       <div
-        key={`${session.user.id}:${revision}`}
+        key={`${session.user.id}:${session.user.sessionGeneration}:${revision}`}
         hidden={session.verifying}
         inert={session.verifying}
       >

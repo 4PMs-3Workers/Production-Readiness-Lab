@@ -39,6 +39,7 @@ export interface AccountPasswordBody {
 }
 export interface AdminAccessOptions extends ServiceRequestOptions {
   readonly expectedUserId: string;
+  readonly expectedSessionGeneration: string;
 }
 export interface AdminWriteOptions extends AdminAccessOptions {
   readonly onDispatch?: () => void;

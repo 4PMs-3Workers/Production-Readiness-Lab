@@ -8,6 +8,7 @@ const wireUser = {
   id: 'student-a',
   name: 'Student A',
   email: 'a@example.invalid',
+  session_generation: 'a'.repeat(43),
   role: 'STUDENT',
 };
 const body = {
@@ -32,6 +33,7 @@ describe('real HTTP services', () => {
       id: 'student-a',
       displayName: 'Student A',
       email: 'a@example.invalid',
+      sessionGeneration: 'a'.repeat(43),
       role: 'STUDENT',
     });
     expect(fetcher).toHaveBeenCalledWith(

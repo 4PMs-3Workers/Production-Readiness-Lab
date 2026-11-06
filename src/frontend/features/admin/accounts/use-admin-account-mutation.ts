@@ -25,7 +25,10 @@ export function useAdminAccountMutation() {
   const { session, revision, refreshSession } = useApi();
   const [state, setState] = useState<MutationState>({ phase: 'idle' });
   const active = useRef<{ controller: AbortController; dispatched: boolean } | null>(null);
-  const owner = session.status === 'authenticated' ? `${session.user.id}:${revision}` : '';
+  const owner =
+    session.status === 'authenticated'
+      ? `${session.user.id}:${session.user.sessionGeneration}:${revision}`
+      : '';
   const current = useRef({
     owner,
     verifying: session.status === 'authenticated' && session.verifying,
@@ -67,6 +70,7 @@ export function useAdminAccountMutation() {
     try {
       const account = await write({
         expectedUserId: session.user.id,
+        expectedSessionGeneration: session.user.sessionGeneration,
         signal: request.controller.signal,
         onDispatch: () => {
           request.controller.signal.throwIfAborted();

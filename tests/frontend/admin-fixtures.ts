@@ -5,6 +5,7 @@ export const adminActor = {
   name: 'Quản trị mẫu',
   email: 'admin@example.invalid',
   role: 'ADMIN' as const,
+  session_generation: 'a'.repeat(43),
 };
 export const accountFixture: AdminAccount = {
   id: '22222222-2222-4222-8222-222222222222',
