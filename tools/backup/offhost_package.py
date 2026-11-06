@@ -23,6 +23,7 @@ from app.backup.storage import capacity, sync_directory
 def safe_name(name: str) -> bool:
     return bool(
         name in {"release.json", "escrow.json", "images.tar"}
+        or re.fullmatch(r"images/[a-z][a-z0-9_]{0,31}\.tar", name)
         or re.fullmatch(r"backup/(?:manifest\.json|COMPLETE|[A-Za-z][A-Za-z0-9_]*\.jsonl)", name)
         or (
             re.fullmatch(r"configuration/(?:tools|src|Dockerfile)[A-Za-z0-9_./-]*", name)
@@ -60,7 +61,6 @@ class Package(Versioned):
                 "backup/COMPLETE",
                 "release.json",
                 "escrow.json",
-                "images.tar",
             }
             <= self.files.keys()
             or not all(safe_name(name) for name in self.files)
