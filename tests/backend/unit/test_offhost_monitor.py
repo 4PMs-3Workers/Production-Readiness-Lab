@@ -82,7 +82,7 @@ def test_load_config_rejects_oversized_configuration(tmp_path):
         load_config(path)
 
 
-@pytest.mark.parametrize(("failure_threshold", "valid"), [(2, True), (3, False), (10, False)])
+@pytest.mark.parametrize(("failure_threshold", "valid"), [(1, True), (2, False), (10, False)])
 def test_load_config_bounds_detection_latency_by_serial_probe_cycles(
     tmp_path, failure_threshold, valid
 ):
@@ -104,6 +104,17 @@ def test_load_config_bounds_detection_latency_by_serial_probe_cycles(
     else:
         with pytest.raises(ValueError, match="configuration"):
             load_config(path)
+
+
+def test_load_config_includes_wait_for_first_probe_in_detection_bound(tmp_path):
+    path = config_file(tmp_path)
+    text = path.read_text(encoding="utf-8")
+    text = text.replace("interval_seconds = 30", "interval_seconds = 300")
+    text = text.replace("failure_threshold = 3", "failure_threshold = 1")
+    path.write_text(text, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="configuration"):
+        load_config(path)
 
 
 def test_load_config_requires_outbox_capacity_for_each_configured_check(tmp_path):
