@@ -467,6 +467,45 @@ for (const kind of ['create', 'update', 'password'] as const)
     if (kind === 'password')
       await expect(page.getByText(/Mật khẩu không thể kiểm tra/)).toBeVisible();
   });
+test('uncommitted create can finish a no-match review before a deliberate new create', async ({
+  page,
+}) => {
+  await login(page);
+  const email = 'uncommitted@frontend.example.invalid';
+  const posted: string[] = [];
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/v1/admin/accounts')
+      posted.push(r.method());
+  });
+  await page.getByRole('button', { name: 'Tạo tài khoản', exact: true }).click();
+  const create = async () => {
+    const form = page.getByRole('form', { name: 'Thông tin tài khoản' });
+    await form.getByLabel('Email', { exact: true }).fill(email);
+    await form.getByLabel('Tên', { exact: true }).fill('No-match review fixture');
+    await form.getByLabel('Mật khẩu mới', { exact: true }).fill(password);
+    await form.getByRole('button', { name: 'Tạo tài khoản', exact: true }).click();
+  };
+  await page.route('**/api/v1/admin/accounts', (route) => route.abort('failed'), { times: 1 });
+  await create();
+  await expect(page.getByText(/Chưa xác định kết quả/)).toBeVisible();
+  await page.getByRole('button', { name: 'Tải lại để xem xét' }).click();
+  await expect(page.getByText(/Đã xem hết kết quả tra cứu/)).toBeVisible();
+  await page
+    .getByRole('button', { name: 'Tôi đã xem kết quả không khớp, bắt đầu thao tác mới' })
+    .click();
+  expect(posted).toHaveLength(1);
+  const absent = await (
+    await page.request.get('/api/v1/admin/accounts', { params: { search: email } })
+  ).json();
+  expect(absent.items).toEqual([]);
+  await expect(page.getByText('Đã tạo tài khoản.')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Tạo tài khoản', exact: true }).click();
+  await expect(page.getByLabel('Mật khẩu mới', { exact: true })).toHaveValue('');
+  await create();
+  await expect(page.getByText('Đã tạo tài khoản.')).toBeVisible();
+  expect(posted).toHaveLength(2);
+  expect(inspect((await account(page, email)).id).audits).toHaveLength(1);
+});
 test('a held committed response cannot populate another identity after logout/login', async ({
   page,
 }) => {

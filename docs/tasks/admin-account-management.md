@@ -87,7 +87,11 @@ starting a new operation. Search/filter/pagination remain read-only during this
 review. Recovery reads independently of the visible list's filters, matches the
 stable account ID (or exact normalized email for create), and displays submitted
 and current profile fields side by side. Additional pages require an explicit
-action; an empty page or another account never unlocks acknowledgement.
+action; a partial or failed read never unlocks acknowledgement. After all create
+lookup pages have been reviewed without an exact email match, an explicit
+no-match acknowledgement may clear recovery and start a new intent. This does
+not prove the original request failed and does not resend it. Update/password
+recovery still requires the affected account read-back.
 Matching fields or a newer version do not attribute a change to the
 original request. In particular, an account reread cannot prove which password
 was installed. Any later reset requires re-entering the password and confirming
@@ -104,6 +108,9 @@ HMAC. It is stable within one session, changes on same-account login, and cannot
 authenticate or authorize a request. Admin reads and write preflight check this
 marker as well as user ID/role; replacing the session clears old drafts and
 confirmations. Revalidating the same session preserves them.
+Replacing a session of the same STUDENT aborts old requests while suspending and
+retaining an unresolved booking's original body/idempotency key for same-request
+recovery. Switching user or role clears it.
 
 API sign-in accepts normalized email lengths of 1–254 Unicode code points and
 passwords of 1–1024 code points, without native email syntax validation or
@@ -130,7 +137,13 @@ mutated fixture accounts, and permits bounded test-only inspection. Missing
 MySQL/build/server/browser prerequisites fail the required suite rather than
 silently skipping it. Real API tracing and automatic screenshots remain off.
 In CI both frontend suites use an allowlisted reporter containing only run
-status, global-error count and attempt index/status/retry. The workflow uploads
+status, global-error count and attempt index/case ID/project/status/retry. Case IDs
+contain a sanitized source basename, line/column and SHA-256 of Playwright's test
+ID; they are stable across workers and retries. Projects are restricted to the
+four configured desktop/mobile project names, with `unknown` for others. To
+reproduce a failure, use its source file/line with the appropriate config and
+`--project` (for example, `playwright test --config src/frontend/playwright.api.config.ts admin-portal.spec.ts:83 --project api-desktop`). The hash distinguishes parameterized cases at the same location.
+The workflow uploads
 only `frontend-safe/summary.json` or `frontend-api-safe/summary.json` under
 `playwright-report/`; step parameters, titles, raw errors/output, attachments,
 HTML and `test-results/` are excluded. Local HTML diagnostics remain local.

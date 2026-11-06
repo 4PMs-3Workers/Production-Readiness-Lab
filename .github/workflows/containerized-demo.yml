@@ -25,7 +25,9 @@ jobs:
   compose-acceptance:
     name: Container, business, telemetry, and lifecycle acceptance
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    # Acceptance takes about 39 minutes; cold browser/tool setup can take 9 more.
+    # Keep operation-level deadlines in the tests and allow the complete cold run.
+    timeout-minutes: 60
     env:
       CI: 'true'
       NEXT_TELEMETRY_DISABLED: '1'
@@ -81,7 +83,7 @@ jobs:
 
       - name: Run required zero-skip container acceptance
         run: |
-          python -m pytest tests/containers -q --tb=short --junitxml=build/containerized-demo-tests.xml
+          python -m pytest tests/containers -vv --durations=20 --tb=short --junitxml=build/containerized-demo-tests.xml
           python - <<'PY'
           from xml.etree import ElementTree
 

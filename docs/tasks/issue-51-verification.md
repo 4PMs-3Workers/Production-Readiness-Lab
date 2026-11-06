@@ -150,14 +150,14 @@ The six findings on `d6fc40a` are addressed by the review-fix commits through
 does not change runtime or test code. Earlier results above describe the initial
 implementation and timeout follow-up, not this revised source.
 
-| Finding | Resulting behavior and regression coverage |
-| --- | --- |
-| Recovery | Reads independently of visible filters; matches stable ID or exact normalized create email; shows submitted/current account and student-profile fields side by side. Empty, failed and wrong-account reads keep acknowledgement locked. Pages beyond the first require user action, as required by the plan. Password uncertainty remains explicit. |
-| Sign-in compatibility | Native email syntax and UTF-16 truncation removed. Tests cover Unicode email, 513-emoji create credentials, email edits and a 1024-code-point reset password including surrounding spaces. |
-| Replaced session | Purpose-separated HMAC public marker on login, me and CSRF distinguishes sessions of the same ADMIN. Provider/gate clear prior drafts/confirmations; read and write-preflight fences reject stale generations. Same-session verification preserves drafts. Marker cannot authenticate requests. |
-| CI evidence | Both frontend suites upload only allowlisted JSON summaries. Test titles, step arguments, raw errors/stdout/stderr, attachments, HTML and raw test-results are excluded. An intentionally failing Playwright probe confirms failure exit/status are retained without copying its canary diagnostics into summary or console. |
-| Enum receipts | Non-string role/gender values are rejected; malformed 2xx receipts leave the dispatched write unknown. |
-| Pagination | A refreshed out-of-range page is clamped using server total and page size, then refetched. Tests cover deactivating the sole row on page 2 and a genuinely empty result set. |
+| Finding               | Resulting behavior and regression coverage                                                                                                                                                                                                                                                                                                          |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Recovery              | Reads independently of visible filters; matches stable ID or exact normalized create email; shows submitted/current account and student-profile fields side by side. Empty, failed and wrong-account reads keep acknowledgement locked. Pages beyond the first require user action, as required by the plan. Password uncertainty remains explicit. |
+| Sign-in compatibility | Native email syntax and UTF-16 truncation removed. Tests cover Unicode email, 513-emoji create credentials, email edits and a 1024-code-point reset password including surrounding spaces.                                                                                                                                                          |
+| Replaced session      | Purpose-separated HMAC public marker on login, me and CSRF distinguishes sessions of the same ADMIN. Provider/gate clear prior drafts/confirmations; read and write-preflight fences reject stale generations. Same-session verification preserves drafts. Marker cannot authenticate requests.                                                     |
+| CI evidence           | Both frontend suites upload only allowlisted JSON summaries. Test titles, step arguments, raw errors/stdout/stderr, attachments, HTML and raw test-results are excluded. An intentionally failing Playwright probe confirms failure exit/status are retained without copying its canary diagnostics into summary or console.                        |
+| Enum receipts         | Non-string role/gender values are rejected; malformed 2xx receipts leave the dispatched write unknown.                                                                                                                                                                                                                                              |
+| Pagination            | A refreshed out-of-range page is clamped using server total and page size, then refetched. Tests cover deactivating the sole row on page 2 and a genuinely empty result set.                                                                                                                                                                        |
 
 The maximum-Unicode browser regression exposed an additional cause of the
 credential incompatibility: the prior 4096-byte login body cap rejected a
@@ -211,3 +211,51 @@ budgets and transitions are unchanged; dedicated timeout/failure tests still run
 Local MySQL verification: batches plus worker failure tests **18 passed**; both
 finite-sweep variants repeated twice **2 passed + 2 passed**. Black, Ruff,
 workflow YAML parsing, shell syntax and installer behavior probes passed.
+
+## Follow-up review of c263837
+
+Four additional findings are addressed in one follow-up commit:
+
+- Both gateway overlays inherit the shared 16384-byte login cap, matching the
+  backend. Exact/slash Nginx boundary tests now accept 16384 bytes and reject 16385. Real Compose acceptance seeds a valid 1024-emoji ADMIN password and
+  authenticates it through the gateway, then verifies `/auth/me` succeeds.
+- Completed no-match create reviews have an explicit acknowledgement/new-intent
+  action. Failed and partially read searches stay blocked. No password or write
+  is replayed; known-account update/reset reviews retain exact-target checks.
+- Replacement sessions of the same STUDENT retain unresolved booking body/key
+  through `suspendForSessionLoss`, while aborting old requests. Different users
+  and roles still clear the intent; ADMIN generation isolation remains intact.
+- Safe E2E attempts now contain stable case IDs and allowlisted project IDs in
+  stdout/JSON. No raw titles, inputs, errors/output or attachments are copied.
+
+Local verification: full frontend suite **415 passed**; targeted real API browser
+regressions **12 passed** across desktop/mobile. An actual Playwright probe ran
+two failing cases in two projects with parallel workers and retries: four case
+identities remained stable across eight attempts, sensitive diagnostics were
+absent, and exit status remained failure. Python acceptance helper tests **2
+passed**; Ruff and Pyright passed. Final-build reruns and CI results are recorded
+on PR #61. Final production build `_6etO9ZToySeqQwWMjpR6` also passed all four
+new desktop/mobile booking-session and no-match-create cases. Docker Linux
+engine was unavailable locally after a startup
+attempt; real Nginx/Compose acceptance is therefore required in CI, not reported
+as locally passed.
+
+During this follow-up, develop advanced to `5f44bb9` (PR #58), producing a
+conflict in the booking COMMIT-timeout regression. The integration preserves
+develop's indefinite COMMIT pause and independent 15-second watchdog, plus the
+admin branch's tracked query scope armed at the COMMIT boundary. Setup delay is
+injected only once inside the settings-lock setup. No runtime budgets change.
+The follow-up commit includes the develop integration so no extra fix commit is
+added; full timeout integration and frontend checks were rerun after resolution.
+
+The two new replacement-session E2E cases initially timed out on CI. The test
+now keeps tab A backgrounded during B's logout/login by suppressing OS-generated
+window-focus events, then explicitly focuses A only after B is authenticated.
+It asserts A observed no 401, the verified user is unchanged but session
+generation differs, and replay retains the original booking/key. This controls
+the before-401 precondition across headless OS window-activation behavior;
+it does not mock auth responses or retry the booking automatically.
+The test also waits for the real logout POST to return 204 and the anonymous
+form to render before navigating/logging in again. A controlled pre-dispatch
+gate proves the old session remains valid while logout is pending, covering the
+click-versus-completion navigation race without a timing sleep.

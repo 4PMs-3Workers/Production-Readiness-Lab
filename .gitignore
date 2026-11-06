@@ -27,6 +27,7 @@ ENV/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+tools/infra/offhost/build/
 .coverage
 .coverage.*
 coverage.xml

@@ -118,6 +118,7 @@ class ComposeAcceptance:
         self.seed_passwords = {
             role: secrets.token_urlsafe(30) for role in ("ADMIN", "STAFF", "STUDENT")
         }
+        self.seed_passwords["ADMIN"] = "🔐" * 1024
         self.student_email = "nhien.nguyen@demo.example.invalid"
         self.student_password = self.seed_passwords["STUDENT"]
         self.worker_student_email = "linh.tran@demo.example.invalid"
@@ -570,6 +571,18 @@ class ComposeAcceptance:
             return str(csrf.json()["csrf_token"])
         except (httpx.HTTPError, KeyError, ValueError):
             raise AcceptanceFailure("A seeded acceptance account could not authenticate") from None
+
+    def unicode_login_through_gateway(self) -> None:
+        email = "khue.nguyen@demo.example.invalid"
+        password = self.seed_passwords["ADMIN"]
+        request = httpx.Request(
+            "POST", self.origin + "/api/v1/auth/login", json={"email": email, "password": password}
+        )
+        assert 4096 < len(request.content) <= 16384
+        with self.api_client() as client:
+            self.login(client, email, password)
+            me = client.get("/api/v1/auth/me")
+            assert me.status_code == 200 and me.json()["role"] == "ADMIN"
 
     def create_worker_case(self) -> tuple[str, str, str, str]:
         with self.api_client() as student:
@@ -1146,6 +1159,7 @@ def test_real_compose_smoke_and_lifecycle_acceptance(tmp_path: Path) -> None:
     stack = ComposeAcceptance(tmp_path)
     try:
         stack.start()
+        stack.unicode_login_through_gateway()
         worker_appointment, proposal_id, staff_name, booking_date = stack.create_worker_case()
         stack.run_playwright(worker_appointment, staff_name, booking_date)
         stack.expire_worker_case(worker_appointment, proposal_id)

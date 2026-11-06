@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useApi } from '@/features/api/api-provider';
 import { useApiResource } from '@/features/api/use-api-resource';
 import { ApiFeedback } from '@/features/api/api-feedback';
@@ -39,6 +39,13 @@ export function AccountRecovery({
   const actor = session.status === 'authenticated' && !session.verifying ? session.user.id : '';
   const generation = session.status === 'authenticated' ? session.user.sessionGeneration : '';
   const [page, setPage] = useState(1);
+  const review = useRef<{
+    owner: string;
+    operation: AccountOperation;
+    total: number;
+    pageSize: number;
+    pages: Set<number>;
+  } | null>(null);
   const load = useCallback(
     async (signal: AbortSignal) => {
       if (!actor) throw new DOMException('Session verification', 'AbortError');
@@ -57,7 +64,30 @@ export function AccountRecovery({
       const account = result.items.find((row) =>
         operation.targetId ? row.id === operation.targetId : row.email === email,
       );
-      return { account, page: result };
+      signal.throwIfAborted();
+      const owner = `${actor}:${generation}`;
+      if (
+        review.current?.owner !== owner ||
+        review.current.operation !== operation ||
+        review.current.total !== result.total ||
+        review.current.pageSize !== result.pageSize
+      )
+        review.current = {
+          owner,
+          operation,
+          total: result.total,
+          pageSize: result.pageSize,
+          pages: new Set(),
+        };
+      const reviewedPages = review.current.pages;
+      reviewedPages.add(result.page);
+      const lastPage = Math.max(1, Math.ceil(result.total / result.pageSize));
+      const noMatchReviewed =
+        operation.kind === 'create' &&
+        !account &&
+        reviewedPages.size === lastPage &&
+        [...reviewedPages].every((p) => p >= 1 && p <= lastPage);
+      return { account, page: result, noMatchReviewed };
     },
     [services, actor, operation, generation, page],
   );
@@ -115,6 +145,18 @@ export function AccountRecovery({
             <button type="button" onClick={onReviewed}>
               Tôi đã xem dữ liệu, bắt đầu thao tác mới
             </button>
+          )}
+          {resource.state.data.noMatchReviewed && (
+            <>
+              <p>
+                Đã xem hết kết quả tra cứu và chưa tìm thấy email chính xác. Điều này không chứng
+                minh yêu cầu tạo trước đã thất bại. Bắt đầu thao tác mới sẽ bỏ trạng thái recovery,
+                không gửi lại yêu cầu cũ.
+              </p>
+              <button type="button" onClick={onReviewed}>
+                Tôi đã xem kết quả không khớp, bắt đầu thao tác mới
+              </button>
+            </>
           )}
         </>
       )}

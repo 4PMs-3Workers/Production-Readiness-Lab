@@ -631,11 +631,29 @@ test.describe('saved appointment timezone fallback', () => {
   });
 });
 
-for (const recovery of ['csrf-rejected', 'same-student', 'different-student'] as const) {
+for (const recovery of [
+  'csrf-rejected',
+  'same-student',
+  'different-student',
+  'same-student-new-session',
+] as const) {
   test(`a lost committed receipt survives ${recovery} without a duplicate appointment`, async ({
     page,
     context,
   }) => {
+    if (recovery === 'same-student-new-session') {
+      // Keep A backgrounded throughout B's logout/login. Headless window
+      // activation differs by OS; only the explicit focus below should verify A.
+      await page.addInitScript(() => {
+        window.addEventListener(
+          'focus',
+          (event) => {
+            if (event.isTrusted && event.target === window) event.stopImmediatePropagation();
+          },
+          { capture: true },
+        );
+      });
+    }
     await login(page);
     await selectBooking(page);
     const posted: { key: string | undefined; body: string | null }[] = [];
@@ -669,6 +687,64 @@ for (const recovery of ['csrf-rejected', 'same-student', 'different-student'] as
       await retry.click();
       expect((await (await rejection).json()).error.code).toBe('INVALID_CSRF');
       await expect(retry).toBeVisible();
+    } else if (recovery === 'same-student-new-session') {
+      const originalSession = await (await context.request.get('/api/v1/auth/me')).json();
+      let observed401 = 0;
+      page.on('response', (response) => {
+        if (response.status() === 401) observed401++;
+      });
+      const tab = await context.newPage();
+      let releaseLogout!: () => void;
+      const logoutGate = new Promise<void>((resolve) => {
+        releaseLogout = resolve;
+      });
+      let logoutArrived!: () => void;
+      const logoutStarted = new Promise<void>((resolve) => {
+        logoutArrived = resolve;
+      });
+      try {
+        await tab.goto('/login');
+        await tab.route(
+          '**/api/v1/auth/logout',
+          async (route) => {
+            logoutArrived();
+            await logoutGate;
+            await route.continue();
+          },
+          { times: 1 },
+        );
+        const loggedOut = tab.waitForResponse(
+          (r) =>
+            r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/v1/auth/logout',
+        );
+        await tab.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
+        await logoutStarted;
+        // Clicking is not completion: reloading now would still see the old session.
+        expect((await context.request.get('/api/v1/auth/me')).status()).toBe(200);
+        releaseLogout();
+        expect((await loggedOut).status()).toBe(204);
+        await expect(tab.getByLabel('Email', { exact: true })).toBeVisible();
+        await login(tab);
+        expect(observed401).toBe(0);
+        const verified = page.waitForResponse(
+          (r) => new URL(r.url()).pathname === '/api/v1/auth/me',
+        );
+        await page.bringToFront();
+        await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+        const replacementSession = await (await verified).json();
+        expect(
+          replacementSession.id === originalSession.id && replacementSession.role === 'STUDENT',
+        ).toBe(true);
+        expect(replacementSession.session_generation !== originalSession.session_generation).toBe(
+          true,
+        );
+        await expect(retry).toBeVisible();
+        expect(observed401).toBe(0);
+        expect(posted).toHaveLength(1);
+      } finally {
+        releaseLogout();
+        await tab.close();
+      }
     } else {
       harness('expire', '--user', 'student');
       await retry.click();

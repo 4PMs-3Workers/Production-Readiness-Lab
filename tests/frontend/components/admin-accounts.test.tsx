@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiServices } from '@/services/api/client';
 import { AdminAccounts } from '@/features/admin/accounts/admin-accounts';
+import { AccountRecovery } from '@/features/admin/accounts/account-recovery';
 import { AdminSessionGate, safeAdminReturnPath } from '@/features/admin/admin-session-gate';
 import { accountFixture as account, adminActor as actor, deferred } from '../admin-fixtures';
 
@@ -78,6 +79,50 @@ describe('admin guard', () => {
   );
 });
 describe('admin account screen', () => {
+  it('does not clear a no-match create review until all result pages were explicitly read', async () => {
+    const original = fetcher.getMockImplementation()!;
+    fetcher.mockImplementation((path, init) => {
+      const url = new URL(String(path), 'http://test');
+      if (url.pathname.endsWith('/admin/accounts')) {
+        const page = Number(url.searchParams.get('page'));
+        return Promise.resolve(
+          Response.json({
+            items: page === 1 ? [{ ...account, email: 'new@example.invalid.extra' }] : [],
+            page,
+            page_size: 100,
+            total: 101,
+          }),
+        );
+      }
+      return original(path, init);
+    });
+    const reviewed = vi.fn();
+    render(
+      <AccountRecovery
+        operation={{
+          kind: 'create',
+          fields: { ...account, email: 'new@example.invalid' },
+          label: 'new@example.invalid',
+        }}
+        onReviewed={reviewed}
+      />,
+    );
+    await screen.findByText('Trang 1 · 101 kết quả');
+    expect(
+      screen.queryByRole('button', { name: 'Tôi đã xem kết quả không khớp, bắt đầu thao tác mới' }),
+    ).not.toBeInTheDocument();
+    expect(
+      fetcher.mock.calls.filter(([path]) => String(path).includes('page_size=100')),
+    ).toHaveLength(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Trang sau' }));
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: 'Tôi đã xem kết quả không khớp, bắt đầu thao tác mới',
+      }),
+    );
+    expect(reviewed).toHaveBeenCalledOnce();
+    expect(writes()).toHaveLength(0);
+  });
   it('reads the stable target across pages without active filters and compares every profile field', async () => {
     let recovery = false;
     const held = deferred<Response>();
@@ -165,60 +210,73 @@ describe('admin account screen', () => {
     );
     expect(screen.getByRole('button', { name: 'Tạo tài khoản' })).toBeEnabled();
   });
-  it('keeps recovery blocked after a failed target read and requires exact normalized email for create', async () => {
-    let attempts = 0;
-    const original = fetcher.getMockImplementation()!;
-    fetcher.mockImplementation((path, init) => {
-      if (init?.method === 'POST') return Promise.reject(new TypeError('lost receipt'));
-      const url = new URL(String(path), 'http://test');
-      if (url.searchParams.get('page_size') === '100') {
-        expect(url.searchParams.get('search')).toBe('new@example.invalid');
-        return ++attempts === 1
-          ? Promise.reject(new TypeError('unavailable'))
-          : Promise.resolve(
-              Response.json({
-                items: [{ ...account, email: 'new@example.invalid.extra' }],
-                page: 1,
-                page_size: 100,
-                total: 1,
-              }),
-            );
-      }
-      return original(path, init);
-    });
-    render(<AdminAccounts />);
-    await userEvent.click(screen.getByRole('button', { name: 'Tạo tài khoản' }));
-    const form = screen.getByRole('form', { name: 'Thông tin tài khoản' });
-    fireEvent.change(within(form).getByLabelText('Email'), {
-      target: { value: ' NEW@Example.Invalid ' },
-    });
-    fireEvent.change(within(form).getByLabelText('Tên'), { target: { value: 'New account' } });
-    fireEvent.change(within(form).getByLabelText('Mật khẩu mới'), {
-      target: { value: 'fictional secret' },
-    });
-    await userEvent.click(within(form).getByRole('button', { name: 'Tạo tài khoản' }));
-    await screen.findByText(/Chưa xác định kết quả/);
-    await userEvent.click(screen.getByRole('button', { name: 'Tải lại để xem xét' }));
-    const comparison = await screen.findByRole('region', { name: 'Đối chiếu tài khoản' });
-    await within(comparison).findByRole('alert');
-    expect(
-      within(comparison).queryByRole('button', {
-        name: 'Tôi đã xem dữ liệu, bắt đầu thao tác mới',
-      }),
-    ).not.toBeInTheDocument();
-    await userEvent.click(within(comparison).getByRole('button', { name: 'Tải lại để xem xét' }));
-    await within(comparison).findByText(
-      /Chưa tìm thấy tài khoản có email chính xác new@example.invalid/,
-    );
-    expect(
-      within(comparison).queryByRole('button', {
-        name: 'Tôi đã xem dữ liệu, bắt đầu thao tác mới',
-      }),
-    ).not.toBeInTheDocument();
-    expect(within(comparison).queryByText('new@example.invalid.extra')).not.toBeInTheDocument();
-    expect(within(comparison).queryByText('fictional secret')).not.toBeInTheDocument();
-    expect(writes()).toHaveLength(1);
-  });
+  it.each([0, 1])(
+    'allows explicit new intent after completed no-match create review (total %i)',
+    async (total) => {
+      let attempts = 0;
+      const original = fetcher.getMockImplementation()!;
+      fetcher.mockImplementation((path, init) => {
+        if (init?.method === 'POST') return Promise.reject(new TypeError('lost receipt'));
+        const url = new URL(String(path), 'http://test');
+        if (url.searchParams.get('page_size') === '100') {
+          expect(url.searchParams.get('search')).toBe('new@example.invalid');
+          return ++attempts === 1
+            ? Promise.reject(new TypeError('unavailable'))
+            : Promise.resolve(
+                Response.json({
+                  items: total ? [{ ...account, email: 'new@example.invalid.extra' }] : [],
+                  page: 1,
+                  page_size: 100,
+                  total,
+                }),
+              );
+        }
+        return original(path, init);
+      });
+      render(<AdminAccounts />);
+      await userEvent.click(screen.getByRole('button', { name: 'Tạo tài khoản' }));
+      const form = screen.getByRole('form', { name: 'Thông tin tài khoản' });
+      fireEvent.change(within(form).getByLabelText('Email'), {
+        target: { value: ' NEW@Example.Invalid ' },
+      });
+      fireEvent.change(within(form).getByLabelText('Tên'), { target: { value: 'New account' } });
+      fireEvent.change(within(form).getByLabelText('Mật khẩu mới'), {
+        target: { value: 'fictional secret' },
+      });
+      await userEvent.click(within(form).getByRole('button', { name: 'Tạo tài khoản' }));
+      await screen.findByText(/Chưa xác định kết quả/);
+      await userEvent.click(screen.getByRole('button', { name: 'Tải lại để xem xét' }));
+      const comparison = await screen.findByRole('region', { name: 'Đối chiếu tài khoản' });
+      await within(comparison).findByRole('alert');
+      expect(
+        within(comparison).queryByRole('button', {
+          name: 'Tôi đã xem dữ liệu, bắt đầu thao tác mới',
+        }),
+      ).not.toBeInTheDocument();
+      await userEvent.click(within(comparison).getByRole('button', { name: 'Tải lại để xem xét' }));
+      await within(comparison).findByText(
+        /Chưa tìm thấy tài khoản có email chính xác new@example.invalid/,
+      );
+      expect(
+        within(comparison).queryByRole('button', {
+          name: 'Tôi đã xem dữ liệu, bắt đầu thao tác mới',
+        }),
+      ).not.toBeInTheDocument();
+      expect(within(comparison).queryByText('new@example.invalid.extra')).not.toBeInTheDocument();
+      expect(within(comparison).queryByText('fictional secret')).not.toBeInTheDocument();
+      expect(writes()).toHaveLength(1);
+      await userEvent.click(
+        within(comparison).getByRole('button', {
+          name: 'Tôi đã xem kết quả không khớp, bắt đầu thao tác mới',
+        }),
+      );
+      expect(screen.getByRole('button', { name: 'Tạo tài khoản' })).toBeEnabled();
+      expect(screen.queryByText('Đã tạo tài khoản.')).not.toBeInTheDocument();
+      expect(writes()).toHaveLength(1);
+      await userEvent.click(screen.getByRole('button', { name: 'Tạo tài khoản' }));
+      expect(screen.getByLabelText('Mật khẩu mới')).toHaveValue('');
+    },
+  );
   it.each([20, 0])('returns to a valid page after mutation leaves total %i', async (total) => {
     let saved = false;
     const original = fetcher.getMockImplementation()!;

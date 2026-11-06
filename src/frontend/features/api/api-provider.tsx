@@ -72,7 +72,15 @@ export function ApiProvider({
             previous.sessionGeneration !== user.sessionGeneration)) ||
         (pending && (pending.userId !== user.id || user.role !== 'STUDENT'))
       )
-        clearPrivate();
+        clearPrivate(
+          Boolean(
+            previous &&
+            previous.id === user.id &&
+            previous.role === 'STUDENT' &&
+            user.role === 'STUDENT' &&
+            pending?.userId === user.id,
+          ),
+        );
       previousUser.current = user;
       if (user.role === 'STUDENT' || user.role === 'STAFF')
         proposalIntents.bindAccount(user.id, user.role);

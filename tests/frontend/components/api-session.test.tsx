@@ -58,6 +58,82 @@ function PrivateView() {
 }
 
 describe('API session boundaries', () => {
+  it.each(['same-student', 'different-student', 'different-role'])(
+    'handles a replacement session before observing 401: %s',
+    async (replacement) => {
+      let active = user;
+      const posted: RequestInit[] = [];
+      const services = new ApiServices(
+        vi.fn<typeof fetch>(async (path, init) => {
+          if (String(path).endsWith('/auth/me')) return json(active);
+          if (String(path).endsWith('/auth/csrf'))
+            return json({ csrf_token: 'csrf', user_id: active.id });
+          posted.push(init!);
+          if (posted.length === 1) throw new TypeError('lost receipt');
+          return json({ id: 'receipt', status: 'UPCOMING', created_at: '2026-10-18T01:00:00Z' });
+        }),
+      );
+      let api!: ReturnType<typeof useApi>;
+      function Capture() {
+        const value = useApi();
+        useEffect(() => {
+          api = value;
+        }, [value]);
+        return null;
+      }
+      render(
+        <ApiProvider services={services}>
+          <Capture />
+        </ApiProvider>,
+      );
+      await waitFor(() => expect(api.session.status).toBe('authenticated'));
+      act(() => {
+        api.intents.prepare(user.id, {
+          purpose_id: 'p',
+          staff_id: 's',
+          starts_at: '2026-11-07T01:00:00Z',
+          description: 'unchanged draft',
+        });
+      });
+      await act(async () => {
+        await api.intents.submit(services, user.id).catch(() => {});
+      });
+      const old = api.intents.snapshot()!;
+      expect(old.phase).toBe('unknown');
+      const revision = api.revision;
+      const aborts = vi.spyOn(services, 'clearSession');
+      active = {
+        ...user,
+        session_generation: 'b'.repeat(43),
+        ...(replacement === 'different-student'
+          ? { id: STUDENT_B }
+          : replacement === 'different-role'
+            ? { role: 'STAFF' }
+            : {}),
+      };
+      await act(async () => {
+        window.dispatchEvent(new Event('focus'));
+      });
+      await waitFor(() => expect(api.revision).toBeGreaterThan(revision));
+      expect(aborts).toHaveBeenCalled();
+      expect(posted).toHaveLength(1);
+      if (replacement !== 'same-student') {
+        expect(api.intents.snapshot()).toBeNull();
+        return;
+      }
+      expect(api.intents.snapshot()).toMatchObject({
+        key: old.key,
+        body: old.body,
+        phase: 'unknown',
+      });
+      await act(async () => {
+        await api.intents.submit(services, user.id);
+      });
+      expect(posted).toHaveLength(2);
+      expect(posted[1].body).toBe(posted[0].body);
+      expect(new Headers(posted[1].headers).get('Idempotency-Key')).toBe(old.key);
+    },
+  );
   it.each(['nguyễn@example.invalid', '😀'.repeat(250)])(
     'submits backend-valid email without native email or UTF-16 restrictions: %s',
     async (email) => {
