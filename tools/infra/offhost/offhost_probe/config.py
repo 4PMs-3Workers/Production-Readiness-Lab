@@ -173,6 +173,9 @@ def load_config(path: str | Path) -> MonitorConfig:
         )
         seen.add(name)
 
+    if max_pending < len(checks):
+        raise ValueError("Monitor configuration is invalid")
+
     if max_state_bytes < StateStore.worst_case_bytes(max_pending):
         raise ValueError("Monitor configuration is invalid")
 

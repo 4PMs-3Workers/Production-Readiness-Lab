@@ -117,19 +117,11 @@ class MonitorRunner:
             self.state = await self._process_notifications(self.state)
             self.capacity_limited = self._would_exceed_state_capacity()
             if self.capacity_limited:
-                self.state = replace(self.state, probe_health="degraded")
-                self.store.save(self.state)
-                now = self.clock()
-                summary = RunSummary(
-                    now.isoformat(timespec="milliseconds"),
-                    (),
-                    0,
-                    self.state,
-                    capacity_limited=True,
-                )
-                if self.on_summary is not None:
-                    self.on_summary(summary)
-                return summary
+                return self._capacity_limited_summary()
+        if self.config.max_pending_notifications - len(self.state.pending) < len(
+            self.config.checks
+        ):
+            return self._capacity_limited_summary()
         started = self.clock()
         if started.tzinfo is None or started.utcoffset() is None:
             raise ValueError("Monitor clock must be timezone-aware")
@@ -178,6 +170,19 @@ class MonitorRunner:
             probe_health="healthy" if all(result.success for result in results) else "degraded",
             delivery_health=self.state.delivery_health,
         )
+        state = replace(
+            state,
+            pending=state.pending
+            + tuple(
+                PendingNotification(
+                    transition.event_id,
+                    transition.check_name,
+                    transition.firing,
+                    transition.occurred_at,
+                )
+                for transition in transitions
+            ),
+        )
         state = self._queue_notifications(state)
         self.state = state
         self.store.save(state)
@@ -187,6 +192,25 @@ class MonitorRunner:
             results,
             len(transitions),
             self.state,
+        )
+        if self.on_summary is not None:
+            self.on_summary(summary)
+        return summary
+
+    def _capacity_limited_summary(self) -> RunSummary:
+        self.state = replace(
+            self.state,
+            probe_health="degraded",
+            delivery_health="degraded",
+        )
+        self.store.save(self.state)
+        now = self.clock()
+        summary = RunSummary(
+            now.isoformat(timespec="milliseconds"),
+            (),
+            0,
+            self.state,
+            capacity_limited=True,
         )
         if self.on_summary is not None:
             self.on_summary(summary)
@@ -218,10 +242,11 @@ class MonitorRunner:
 
     def _queue_notifications(self, state: MonitorState) -> MonitorState:
         pending = list(state.pending)
-        pending_names = {event.check_name for event in pending}
+        latest_pending_state = {event.check_name: event.firing for event in pending}
         queue_full = False
         for name, check in sorted(state.checks.items()):
-            if check.firing == check.notified_firing or name in pending_names:
+            expected_state = latest_pending_state.get(name, check.notified_firing)
+            if check.firing == expected_state:
                 continue
             if len(pending) >= self.config.max_pending_notifications:
                 queue_full = True
@@ -233,7 +258,7 @@ class MonitorRunner:
                 f"{name}:{check.transition_sequence}:{int(check.firing)}:{occurred_at}".encode()
             ).hexdigest()
             pending.append(PendingNotification(event_id, name, check.firing, occurred_at))
-            pending_names.add(name)
+            latest_pending_state[name] = check.firing
         return replace(
             state,
             pending=tuple(pending),

@@ -106,6 +106,29 @@ def test_load_config_bounds_detection_latency_by_serial_probe_cycles(
             load_config(path)
 
 
+def test_load_config_requires_outbox_capacity_for_each_configured_check(tmp_path):
+    path = config_file(
+        tmp_path,
+        extra="""
+[[checks]]
+name = "worker"
+url = "https://example.test/worker/ready"
+expected_statuses = [200]
+max_response_bytes = 1024
+""",
+    )
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            'state_path = "state.json"',
+            'state_path = "state.json"\nmax_pending_notifications = 1',
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="configuration"):
+        load_config(path)
+
+
 def test_build_runner_adds_custom_ca_without_replacing_system_trust(tmp_path, monkeypatch):
     ca_path = tmp_path / "private-ca.pem"
     ca_path.write_text("test certificate bundle", encoding="utf-8")
@@ -235,9 +258,11 @@ def test_runner_bounds_retired_check_states_when_notification_queue_is_full(tmp_
 
     summary = asyncio.run(runner.run_once())
 
-    assert len(summary.state.checks) == 80
+    assert len(summary.state.checks) == 72
     assert len(summary.state.pending) == 64
     assert summary.state.delivery_health == "degraded"
+    assert summary.capacity_limited is True
+    assert not ({check.name for check in config.checks} & set(summary.state.checks))
 
 
 def test_load_config_rejects_state_budget_too_small_for_bounded_notification_queue(tmp_path):
@@ -562,7 +587,10 @@ def test_runner_persists_transition_outbox_before_crash_and_recovers_after_probe
         path.read_text(encoding="utf-8")
         .replace("failure_threshold = 3", "failure_threshold = 1")
         .replace("recovery_threshold = 2", "recovery_threshold = 1")
-        .replace("delivery_retries = 2", "delivery_retries = 0"),
+        .replace(
+            'state_path = "state.json"',
+            'state_path = "state.json"\ndelivery_retries = 0',
+        ),
         encoding="utf-8",
     )
     config = load_config(path)
@@ -617,6 +645,151 @@ def test_runner_persists_transition_outbox_before_crash_and_recovers_after_probe
     assert recovered_notifier.events[0].event_id == firing_id
     assert recovered_notifier.events[0].firing is True
     assert [event.firing for event in recovered_notifier.events] == [True, False]
+
+
+def test_runner_preserves_repeated_transitions_for_one_check_across_restart(tmp_path):
+    path = config_file(tmp_path)
+    path.write_text(
+        path.read_text(encoding="utf-8")
+        .replace("failure_threshold = 3", "failure_threshold = 1")
+        .replace("recovery_threshold = 2", "recovery_threshold = 1")
+        .replace(
+            'state_path = "state.json"',
+            'state_path = "state.json"\ndelivery_retries = 0',
+        ),
+        encoding="utf-8",
+    )
+    config = load_config(path)
+    backing_store = StateStore(
+        config.state_path,
+        max_bytes=config.max_state_bytes,
+        max_pending=config.max_pending_notifications,
+    )
+    now = [datetime(2026, 11, 5, tzinfo=UTC)]
+    notifier = FakeNotifier(True)
+    runner = MonitorRunner(
+        config,
+        transport=FakeTransport(False),
+        notifier=notifier,
+        store=backing_store,
+        clock=lambda: now[0],
+    )
+    asyncio.run(runner.run_once())
+
+    notifier.delivered = False
+    now[0] += timedelta(seconds=1)
+    runner.transport = FakeTransport(True)
+    asyncio.run(runner.run_once())
+    now[0] += timedelta(seconds=1)
+    runner.transport = FakeTransport(False)
+
+    class CrashAfterEvaluationStore(StateStore):
+        def __init__(self):
+            super().__init__(
+                config.state_path,
+                max_bytes=config.max_state_bytes,
+                max_pending=config.max_pending_notifications,
+            )
+            self.saves = 0
+
+        def load(self) -> MonitorState:
+            return backing_store.load()
+
+        def save(self, state: MonitorState) -> None:
+            self.saves += 1
+            backing_store.save(state)
+            if self.saves == 2:
+                raise RuntimeError("simulated crash after transition persistence")
+
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        asyncio.run(
+            MonitorRunner(
+                config,
+                transport=runner.transport,
+                notifier=notifier,
+                store=CrashAfterEvaluationStore(),
+                clock=lambda: now[0],
+            ).run_once()
+        )
+
+    durable = backing_store.load()
+    assert [event.firing for event in durable.pending] == [False, True]
+    assert durable.checks["gateway"].firing is True
+
+    now[0] += timedelta(minutes=1)
+    recovered_notifier = FakeNotifier(True)
+    recovered = MonitorRunner(
+        config,
+        transport=FakeTransport(True),
+        notifier=recovered_notifier,
+        store=backing_store,
+        clock=lambda: now[0],
+    )
+    summary = asyncio.run(recovered.run_once())
+
+    assert summary.state.checks["gateway"].firing is False
+    assert [event.firing for event in notifier.events] == [True, False]
+    assert [event.firing for event in recovered_notifier.events] == [False, True, False]
+    delivered = [notifier.events[0], *recovered_notifier.events]
+    assert [event.firing for event in delivered] == [True, False, True, False]
+    assert len({event.event_id for event in delivered}) == 4
+
+
+def test_runner_applies_backpressure_when_outbox_cannot_hold_a_check_transition(tmp_path):
+    path = config_file(tmp_path)
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            'state_path = "state.json"',
+            'state_path = "state.json"\nmax_pending_notifications = 2',
+        ),
+        encoding="utf-8",
+    )
+    config = load_config(path)
+    pending = tuple(
+        PendingNotification(
+            event_id,
+            "gateway",
+            firing,
+            "2026-11-05T00:00:00+00:00",
+            next_attempt_at="2026-11-05T00:01:00+00:00",
+        )
+        for event_id, firing in (("a" * 64, True), ("b" * 64, False))
+    )
+    store = StateStore(
+        config.state_path,
+        max_bytes=config.max_state_bytes,
+        max_pending=config.max_pending_notifications,
+    )
+    store.save(MonitorState(pending=pending))
+
+    class CountingTransport(FakeTransport):
+        def __init__(self):
+            super().__init__(False)
+            self.calls = 0
+
+        async def probe(self, check, policy):
+            self.calls += 1
+            return await super().probe(check, policy)
+
+    transport = CountingTransport()
+    runner = MonitorRunner(
+        config,
+        transport=transport,
+        notifier=FakeNotifier(True),
+        store=store,
+        clock=lambda: datetime(2026, 11, 5, tzinfo=UTC),
+    )
+
+    summary = asyncio.run(runner.run_once())
+
+    assert summary.capacity_limited is True
+    assert summary.results == ()
+    assert summary.state.probe_health == "degraded"
+    assert summary.state.delivery_health == "degraded"
+    assert summary.state.probe_attempts_total == 0
+    assert summary.state.evaluations_total == 0
+    assert summary.state.pending == pending
+    assert transport.calls == 0
 
 
 @pytest.mark.asyncio
