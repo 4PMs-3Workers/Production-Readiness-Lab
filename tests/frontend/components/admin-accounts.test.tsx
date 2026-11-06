@@ -140,6 +140,16 @@ describe('admin account screen', () => {
       ),
     );
     const comparison = await screen.findByRole('region', { name: 'Đối chiếu tài khoản' });
+    await within(comparison).findByText(/Chưa tìm thấy tài khoản có ID/);
+    expect(
+      within(comparison).queryByRole('button', {
+        name: 'Tôi đã xem dữ liệu, bắt đầu thao tác mới',
+      }),
+    ).not.toBeInTheDocument();
+    expect(
+      fetcher.mock.calls.filter(([path]) => String(path).includes('page_size=100')),
+    ).toHaveLength(1);
+    await userEvent.click(within(comparison).getByRole('button', { name: 'Trang sau' }));
     await within(comparison).findByText('renamed@example.invalid');
     for (const [field, sent, current] of [
       ['Khoa', 'Khoa đã gửi', 'Khoa hiện tại'],
@@ -198,8 +208,13 @@ describe('admin account screen', () => {
     ).not.toBeInTheDocument();
     await userEvent.click(within(comparison).getByRole('button', { name: 'Tải lại để xem xét' }));
     await within(comparison).findByText(
-      /Không tìm thấy tài khoản có email chính xác new@example.invalid/,
+      /Chưa tìm thấy tài khoản có email chính xác new@example.invalid/,
     );
+    expect(
+      within(comparison).queryByRole('button', {
+        name: 'Tôi đã xem dữ liệu, bắt đầu thao tác mới',
+      }),
+    ).not.toBeInTheDocument();
     expect(within(comparison).queryByText('new@example.invalid.extra')).not.toBeInTheDocument();
     expect(within(comparison).queryByText('fictional secret')).not.toBeInTheDocument();
     expect(writes()).toHaveLength(1);
@@ -299,14 +314,22 @@ describe('admin account screen', () => {
     fireEvent.change(screen.getByLabelText('Tên', { exact: true }), {
       target: { value: 'Draft remains' },
     });
-    context.value.session = { status: 'authenticated', user: { ...actor, sessionGeneration: actor.session_generation }, verifying: true };
+    context.value.session = {
+      status: 'authenticated',
+      user: { ...actor, sessionGeneration: actor.session_generation },
+      verifying: true,
+    };
     view.rerender(
       <AdminSessionGate>
         <AdminAccounts />
       </AdminSessionGate>,
     );
     expect(screen.getByLabelText('Tên', { exact: true })).not.toBeVisible();
-    context.value.session = { status: 'authenticated', user: { ...actor, sessionGeneration: actor.session_generation }, verifying: false };
+    context.value.session = {
+      status: 'authenticated',
+      user: { ...actor, sessionGeneration: actor.session_generation },
+      verifying: false,
+    };
     view.rerender(
       <AdminSessionGate>
         <AdminAccounts />

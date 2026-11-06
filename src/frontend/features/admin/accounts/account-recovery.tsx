@@ -1,9 +1,10 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useApi } from '@/features/api/api-provider';
 import { useApiResource } from '@/features/api/use-api-resource';
 import { ApiFeedback } from '@/features/api/api-feedback';
+import { Pagination } from '@/features/api/api-booking-fields';
 import type { AccountFields } from '@/services/admin-contracts';
 import type { AccountOperation } from './use-admin-account-mutation';
 import styles from './admin-accounts.module.css';
@@ -37,30 +38,28 @@ export function AccountRecovery({
   const { services, session, revision } = useApi();
   const actor = session.status === 'authenticated' && !session.verifying ? session.user.id : '';
   const generation = session.status === 'authenticated' ? session.user.sessionGeneration : '';
+  const [page, setPage] = useState(1);
   const load = useCallback(
     async (signal: AbortSignal) => {
       if (!actor) throw new DOMException('Session verification', 'AbortError');
-      // The API has no GET-by-ID. Scan independent of the visible list's filters,
-      // using stable identity even if another admin has changed the target email.
+      // No GET-by-ID exists. Read independently of the main list's filters and
+      // require an exact match. Additional pages require an explicit user action.
       const email = operation.fields.email.trim().toLowerCase();
       const search = operation.targetId ? undefined : Array.from(email).slice(0, 100).join('');
-      for (let page = 1; ; page++) {
-        const result = await services.listAdminAccounts(
-          { page, pageSize: 100, search },
-          {
-            signal,
-            expectedUserId: actor,
-            expectedSessionGeneration: generation,
-          },
-        );
-        const account = result.items.find((row) =>
-          operation.targetId ? row.id === operation.targetId : row.email === email,
-        );
-        if (account) return account;
-        if (page * result.pageSize >= result.total) return null;
-      }
+      const result = await services.listAdminAccounts(
+        { page, pageSize: 100, search },
+        {
+          signal,
+          expectedUserId: actor,
+          expectedSessionGeneration: generation,
+        },
+      );
+      const account = result.items.find((row) =>
+        operation.targetId ? row.id === operation.targetId : row.email === email,
+      );
+      return { account, page: result };
     },
-    [services, actor, operation, generation],
+    [services, actor, operation, generation, page],
   );
   const resource = useApiResource(`recovery:${actor}:${revision}`, load);
   return (
@@ -73,18 +72,19 @@ export function AccountRecovery({
         />
       ) : (
         <>
-          {resource.state.data ? (
+          {resource.state.data.account ? (
             <>
-              <p>ID: {resource.state.data.id}</p>
-              <p>Thời điểm cập nhật hiện tại: {resource.state.data.updated_at}</p>
+              <p>ID: {resource.state.data.account.id}</p>
+              <p>Thời điểm cập nhật hiện tại: {resource.state.data.account.updated_at}</p>
             </>
           ) : (
             <p>
-              Không tìm thấy tài khoản{' '}
+              Chưa tìm thấy tài khoản{' '}
               {operation.targetId
                 ? `có ID ${operation.targetId}`
                 : `có email chính xác ${operation.fields.email}`}{' '}
-              trong dữ liệu vừa đọc. Điều này không xác nhận kết quả yêu cầu trước.
+              trên trang vừa đọc. Hãy đọc trang khác hoặc kiểm tra lại. Điều này không xác nhận tài
+              khoản không tồn tại hay kết quả yêu cầu trước.
             </p>
           )}
           <table>
@@ -102,17 +102,20 @@ export function AccountRecovery({
                   <th scope="row">{label}</th>
                   <td>{display(operation.fields[key])}</td>
                   <td>
-                    {resource.state.status === 'success' && resource.state.data
-                      ? display(resource.state.data[key])
-                      : 'Không tìm thấy'}
+                    {resource.state.status === 'success' && resource.state.data.account
+                      ? display(resource.state.data.account[key])
+                      : 'Chưa tìm thấy'}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-          <button type="button" onClick={onReviewed}>
-            Tôi đã xem dữ liệu, bắt đầu thao tác mới
-          </button>
+          <Pagination page={resource.state.data.page} onPage={setPage} />
+          {resource.state.data.account && (
+            <button type="button" onClick={onReviewed}>
+              Tôi đã xem dữ liệu, bắt đầu thao tác mới
+            </button>
+          )}
         </>
       )}
       <button

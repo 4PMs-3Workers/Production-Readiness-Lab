@@ -32,6 +32,7 @@ export default class SafeReporter implements Reporter {
       status: result.status,
       retry: result.retry,
     });
+    process.stdout.write(`E2E attempt ${this.attempts.length}: ${result.status}\n`);
   }
   onEnd(result: FullResult) {
     const summary = {
