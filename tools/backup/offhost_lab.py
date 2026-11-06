@@ -275,7 +275,9 @@ class StoreLab:
         )
         raise RemoteError(Code.TRANSPORT)
 
-    def configure(self, source_id: str, recipient: str, path: Path) -> tuple[RemoteConfig, Path]:
+    def configure(
+        self, source_id: str, recipient: str, path: Path, *, request_seconds: int | None = None
+    ) -> tuple[RemoteConfig, Path]:
         config = RemoteConfig(
             endpoint=self.endpoint,
             region="us-east-1",
@@ -286,9 +288,14 @@ class StoreLab:
             source_id=source_id,
             recipient=recipient,
             ca_file=str(self.ca),
-            request_seconds=2,
             max_seconds=900,
         )
+        # Image escrow uses the normal bounded operational budget. Small fault
+        # fixtures can request a shorter budget without constraining bulk copies.
+        if request_seconds is not None:
+            config = RemoteConfig.model_validate(
+                dict(config.model_dump(), request_seconds=request_seconds)
+            )
         write_private(
             path, json.dumps(dict(access_key=self.access, secret_key=self.secret)).encode()
         )

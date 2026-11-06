@@ -18,7 +18,7 @@ def package_files(tmp_path):
         "backup/users.jsonl",
         "release.json",
         "escrow.json",
-        "images.tar",
+        "images/backend.tar",
     ):
         path = tmp_path / name.replace("/", "-")
         path.write_bytes((name + "-private-payload").encode())

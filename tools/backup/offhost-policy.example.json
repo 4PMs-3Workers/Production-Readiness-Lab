@@ -1,0 +1,25 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket"],
+      "Resource": "arn:aws:s3:::REPLACE_BUCKET",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": ["managed-backups/production/REPLACE_SOURCE_ID/points/*"]
+        }
+      }
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject"],
+      "Resource": "arn:aws:s3:::REPLACE_BUCKET/managed-backups/production/REPLACE_SOURCE_ID/points/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::REPLACE_BUCKET/managed-backups/production/REPLACE_SOURCE_ID/points/*/blobs/*.age"
+    }
+  ]
+}

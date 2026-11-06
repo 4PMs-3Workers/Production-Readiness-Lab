@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
+import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 from uuid import uuid4
@@ -18,7 +20,13 @@ from tools.backup.offhost_contract import (
     contract,
     source_identity,
 )
-from tools.backup.offhost_escrow import Escrow, capture
+from tools.backup.offhost_escrow import (
+    Escrow,
+    capture,
+    image_overlay,
+    materialize_configuration,
+    release_at,
+)
 from tools.backup.offhost_io import Deadline, directory
 from tools.backup.offhost_io import run as command
 from tools.backup.offhost_lab import StoreLab, age_keys
@@ -31,6 +39,37 @@ from tools.deploy.release_manifest import Manifest, write
 from app.backup.config import BackupConfig
 from app.backup.manifest import BACKUP_ID
 from app.backup.storage import load_artifact, write_private
+
+
+def cli_report(args: list[str], operation: str, deadline: Deadline) -> Report:
+    """Preserve only the CLI's validated finite reason when an operation fails."""
+    with tempfile.TemporaryFile() as output:
+        try:
+            completed = subprocess.run(
+                args,
+                stdin=subprocess.DEVNULL,
+                stdout=output,
+                stderr=subprocess.DEVNULL,
+                timeout=deadline.remaining(),
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            raise RemoteError(Code.TIMEOUT) from None
+        except OSError:
+            raise RemoteError(Code.CONFIGURATION) from None
+        if output.tell() > 16384:
+            raise RemoteError(Code.INTEGRITY)
+        output.seek(0)
+        report = contract(output.read(16385), Report)
+    if (
+        report.operation != operation
+        or report.success != (completed.returncode == 0)
+        or report.application_rehearsal_verified
+    ):
+        raise RemoteError(Code.INTEGRITY)
+    if not report.success:
+        raise RemoteError(report.reason or Code.INTEGRITY)
+    return report
 
 
 class ImmutableRecoveryStack(RecoveryStack):
@@ -122,6 +161,8 @@ class RemoteRecovery:
             [
                 "docker",
                 "run",
+                "--pull",
+                "never",
                 "-d",
                 "--name",
                 name,
@@ -182,10 +223,7 @@ class RemoteRecovery:
             args += ["--escrow", str(self.source_escrow)]
         if release is not None:
             args += ["--release", str(release)]
-        report = contract(capture(args, Deadline(960), 16384), Report)
-        if not report.success or report.application_rehearsal_verified:
-            raise RemoteError(Code.INTEGRITY)
-        return report
+        return cli_report(args, operation, Deadline(960))
 
     def publish(self, source: RecoveryStack, backup: dict, source_images: dict) -> None:
         directory(self.local_store)
@@ -275,18 +313,7 @@ class RemoteRecovery:
         path = self.scratch / (
             "target-images.yaml" if stack.recovered else "verification-images.yaml"
         )
-        lines = ["services:"]
-        names = {
-            name: self.escrow.images[key].local_id for name, key in self.manifest.services.items()
-        }
-        names.update(
-            {name: self.escrow.images[name].local_id for name in self.manifest.vendor_images}
-        )
-        for name, image in sorted(names.items()):
-            lines += [f"  {name}:", f"    image: {image}", "    pull_policy: never"]
-            if name in self.manifest.services:
-                lines += ["    build: !reset null"]
-        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        path.write_bytes(image_overlay(self.escrow, self.manifest))
         stack.base += ["-f", str(path)]
 
     def retrieve(self, target: RecoveryStack, backup_id: str) -> None:
@@ -297,7 +324,14 @@ class RemoteRecovery:
         escrow_path = self.recovery_store / ".offhost-escrow" / backup_id
         self.escrow = contract((escrow_path / "escrow.json").read_bytes(), Escrow)
         self.overrides(target)
-        downloaded = escrow_path / "configuration/tools/deploy"
+        public_configuration = target.scratch / "retrieved-configuration"
+        materialize_configuration(
+            escrow_path,
+            release_at(escrow_path / "release.json"),
+            public_configuration,
+            Deadline(30),
+        )
+        downloaded = public_configuration / "tools/deploy"
         for index, value in enumerate(target.base):
             selected = Path(value)
             if selected.is_absolute() and selected.is_relative_to(DEPLOY):

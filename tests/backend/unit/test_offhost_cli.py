@@ -79,3 +79,36 @@ def test_scheduled_binding_cannot_read_an_unrelated_host_directory(tmp_path, mon
         scheduled.bind_store(
             dict(PRL_OFFHOST_LOCAL_STORE=str(tmp_path / "expected"), PRL_BACKUP_VOLUME="owned")
         )
+
+
+def test_import_rechecks_download_receipt_before_loading_or_rendering_images(tmp_path, monkeypatch):
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    from tests.backend.unit.test_offhost_retrieve import uploaded
+    from tools.backup.offhost_retrieve import retrieve
+
+    _, target, remote, point = uploaded(tmp_path, monkeypatch)
+    _, escrow_path = retrieve(target, remote, point.backup_id, tmp_path / "age", tmp_path / "key")
+    calls = []
+    monkeypatch.setattr(offhost, "import_images", lambda *args: calls.append(True))
+    output = tmp_path / "recovered-images.yaml"
+    args = SimpleNamespace(
+        operation="import-images",
+        local_store=target.store,
+        backup_id=point.backup_id,
+        output_overlay=output,
+        output_configuration=tmp_path / "runtime-configuration",
+    )
+    result = offhost.perform(args, remote.config, tmp_path, datetime.now(UTC))
+    assert result["images_imported"] == 4 and result["recovery_overlay_written"] is True
+    assert result["recovery_configuration_written"] is True
+    assert (tmp_path / "runtime-configuration/tools/deploy/mysql/10-identities.sh").is_file()
+    assert "pull_policy: never" in output.read_text()
+    assert calls == [True]
+    data = point.model_dump(mode="json")
+    data["backup_manifest_sha256"] = "0" * 64
+    (escrow_path / "POINT.json").write_bytes(canonical(data))
+    with pytest.raises(RemoteError):
+        offhost.perform(args, remote.config, tmp_path, datetime.now(UTC))
+    assert calls == [True]

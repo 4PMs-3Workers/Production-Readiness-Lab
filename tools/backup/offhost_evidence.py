@@ -5,10 +5,10 @@ from pathlib import Path
 from typing import Literal, Self
 
 from pydantic import model_validator
-from tools.backup.evidence import RecoveryFacts
+from tools.backup.evidence import RecoveryFacts, Seconds
 from tools.backup.offhost_contract import Completion
 
-from app.backup.manifest import Digest, StrictModel
+from app.backup.manifest import Digest, StrictModel, timestamp
 
 COMMANDS = [
     "buildx immutable fixture images; simulated publication/review metadata",
@@ -47,6 +47,8 @@ class OffhostEvidence(RecoveryFacts):
     release_configuration_sha256: Digest
     isolation: Isolation
     persisted_cancellation_verified: Literal[True]
+    service_rto_clock: Literal["monotonic-recovery-start-through-smoke"]
+    incident_to_smoke_wall_seconds: Seconds
     commands: list[str]
 
     @model_validator(mode="before")
@@ -67,6 +69,14 @@ class OffhostEvidence(RecoveryFacts):
             or point.backup_manifest_sha256 != self.backup.manifest_sha256
             or point.snapshot != self.backup.snapshot
             or point.backup_completed_at != self.backup.completed_at
+            or timestamp(self.timing.incident_at) > timestamp(self.timing.recovery_started_at)
+            or abs(
+                self.incident_to_smoke_wall_seconds
+                - (
+                    timestamp(self.timing.smoke_passed_at) - timestamp(self.timing.incident_at)
+                ).total_seconds()
+            )
+            > 0.000001
         ):
             raise ValueError("Remote point, service recovery and source identity disagree")
         return self
@@ -91,6 +101,11 @@ def evidence(
             isolation=checks,
             release_configuration_sha256=configuration_sha256,
             persisted_cancellation_verified=True,
+            service_rto_clock="monotonic-recovery-start-through-smoke",
+            incident_to_smoke_wall_seconds=(
+                timestamp(service["timing"]["smoke_passed_at"])
+                - timestamp(service["timing"]["incident_at"])
+            ).total_seconds(),
             commands=COMMANDS,
         )
     )

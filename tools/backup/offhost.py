@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import logging
 import os
 import signal
@@ -27,7 +28,13 @@ from tools.backup.offhost_contract import (
     load_config,
     private_file,
 )
-from tools.backup.offhost_escrow import import_images, prepare, verify
+from tools.backup.offhost_escrow import (
+    image_overlay,
+    import_images,
+    materialize_configuration,
+    prepare,
+    verify,
+)
 from tools.backup.offhost_io import Deadline, directory
 from tools.backup.offhost_retention import inventory, retain
 from tools.backup.offhost_retrieve import retrieve
@@ -36,7 +43,7 @@ from tools.backup.offhost_upload import upload, verify_remote
 
 from app.backup.config import BackupConfig, BackupError
 from app.backup.monitoring import record_remote_copy
-from app.backup.storage import load_artifact
+from app.backup.storage import load_artifact, write_private
 
 OPERATIONS = ("prepare", "upload", "retrieve", "retain", "status", "import-images")
 
@@ -65,6 +72,8 @@ class Report(Versioned):
     ignored_entries: int | None = Field(default=None, ge=0)
     point_count: int | None = Field(default=None, ge=0)
     images_imported: int | None = Field(default=None, ge=0)
+    recovery_overlay_written: bool | None = None
+    recovery_configuration_written: bool | None = None
 
 
 class Parser(argparse.ArgumentParser):
@@ -86,6 +95,8 @@ def arguments(argv):
         parser.add_argument("--" + flag, type=Path, default=os.environ.get(variable))
     parser.add_argument("--release", type=Path)
     parser.add_argument("--backup-id")
+    parser.add_argument("--output-overlay", type=Path)
+    parser.add_argument("--output-configuration", type=Path)
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.config is None or args.local_store is None or not args.local_store.is_absolute():
@@ -102,6 +113,16 @@ def arguments(argv):
         raise RemoteError(Code.KEY)
     if args.operation == "retrieve" and args.identity is None:
         raise RemoteError(Code.KEY)
+    if args.output_overlay is not None and (
+        args.operation != "import-images" or not args.output_overlay.is_absolute()
+    ):
+        raise RemoteError(Code.CONFIGURATION)
+    if args.output_configuration is not None and (
+        args.operation != "import-images"
+        or not args.output_configuration.is_absolute()
+        or args.output_configuration.resolve().is_relative_to(args.local_store.resolve())
+    ):
+        raise RemoteError(Code.CONFIGURATION)
     return args
 
 
@@ -145,12 +166,29 @@ def perform(args, config, work: Path, started: datetime) -> dict:
         path = args.local_store / ".offhost-escrow" / args.backup_id
         point = contract(private_file(path / "POINT.json", 1024**2), Completion)
         point.require(config, args.backup_id)
-        escrow, _, _ = verify(path, manifest, config.max_bytes, deadline)
-        import_images(path, escrow, deadline)
+        escrow, release, _ = verify(path, manifest, config.max_bytes, deadline)
+        if (
+            hashlib.sha256(
+                (local.store / args.backup_id / "manifest.json").read_bytes()
+            ).hexdigest()
+            != point.backup_manifest_sha256
+            or manifest.snapshot != point.snapshot
+            or manifest.image_id != point.backend_image_id
+            or manifest.source_sha != point.source_sha
+            or escrow.release_sha256 != point.release_sha256
+        ):
+            raise RemoteError(Code.IDENTITY)
+        imported = import_images(path, escrow, deadline)
+        if args.output_configuration is not None:
+            materialize_configuration(path, release, args.output_configuration, deadline)
+        if args.output_overlay is not None:
+            write_private(args.output_overlay, image_overlay(escrow, release, imported))
         return dict(
             backup_id=point.backup_id,
             source_sha=point.source_sha,
             images_imported=len(escrow.images),
+            recovery_overlay_written=args.output_overlay is not None,
+            recovery_configuration_written=args.output_configuration is not None,
         )
     remote = S3(config, deadline, credentials=args.credentials)
     if args.operation in {"upload", "retrieve", "status"}:

@@ -34,7 +34,7 @@ def source(store_lab, age_executable, tmp_path):
         manifest = owned.publish(value)
     identity, recipient = age_keys(age_executable, tmp_path / "independent-vault")
     config, credentials = store_lab.configure(
-        source_identity(manifest), recipient, tmp_path / "credentials.json"
+        source_identity(manifest), recipient, tmp_path / "credentials.json", request_seconds=2
     )
     return (
         local,

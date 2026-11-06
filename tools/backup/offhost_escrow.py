@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import tarfile
 import tempfile
 from pathlib import Path
@@ -32,7 +33,7 @@ from tools.deploy.release_manifest import (
 
 from app.backup.manifest import Digest, Manifest, StrictModel, no_duplicate_keys
 from app.backup.schema import migration_contract
-from app.backup.storage import write_private
+from app.backup.storage import sync_directory, write_private
 
 
 class EscrowImage(StrictModel):
@@ -285,7 +286,8 @@ def verify(
     return escrow, release, files
 
 
-def import_images(path: Path, escrow: Escrow, deadline: Deadline) -> None:
+def import_images(path: Path, escrow: Escrow, deadline: Deadline) -> dict[str, str]:
+    imported = {}
     for name, image in escrow.images.items():
         archive = path / "images" / f"{name}.tar"
         if digest(archive, image.bytes, deadline) != (image.sha256, image.bytes):
@@ -294,6 +296,80 @@ def import_images(path: Path, escrow: Escrow, deadline: Deadline) -> None:
             raise RemoteError(Code.IMAGE)
         run(["docker", "image", "load", "--input", str(archive)], deadline)
         # No registry/network fallback is permitted during import.
-        observed = inspect(image.local_id, deadline)
-        if observed.get("id") != image.local_id:
+        try:
+            observed = inspect(image.local_id, deadline)
+        except RemoteError:
+            # Classic and containerd-backed stores expose different local IDs.
+            # The exported archive's verified OCI config digest is portable.
+            observed = inspect(image.config_id, deadline)
+        if observed.get("id") not in {image.local_id, image.config_id}:
             raise RemoteError(Code.IMAGE)
+        imported[name] = observed["id"]
+    return imported
+
+
+def image_overlay(
+    escrow: Escrow, release: Release, imported: dict[str, str] | None = None
+) -> bytes:
+    """Recovery consumes the verified imported IDs with no registry/build fallback."""
+    resolved = (
+        imported
+        if imported is not None
+        else {name: image.local_id for name, image in escrow.images.items()}
+    )
+    if set(resolved) != set(escrow.images) or any(
+        value not in {escrow.images[name].local_id, escrow.images[name].config_id}
+        for name, value in resolved.items()
+    ):
+        raise RemoteError(Code.IMAGE)
+    names = {name: resolved[key] for name, key in release.services.items()}
+    names.update({name: resolved[name] for name in release.vendor_images})
+    if release.configuration.observability:
+        names.update(
+            backup_metrics_exporter=resolved["backend"],
+            gateway_log_rotate=resolved["gateway"],
+        )
+    lines = ["# Generated only after receipt, archive and image verification.", "services:"]
+    for name, image in sorted(names.items()):
+        lines += [f"  {name}:", f"    image: {image}", "    pull_policy: never"]
+        if name in release.services or name == "backup_metrics_exporter":
+            lines += ["    build: !reset null"]
+    return ("\n".join(lines) + "\n").encode()
+
+
+def materialize_configuration(
+    path: Path, release: Release, target: Path, deadline: Deadline
+) -> None:
+    """Copy only verified nonsecret configuration for read-only mounts by service UIDs."""
+    from tools.backup.offhost_package import safe_name
+
+    if (
+        not target.is_absolute()
+        or target.exists()
+        or target.is_symlink()
+        or any(parent.is_symlink() for parent in target.parents)
+        or target.resolve().is_relative_to(path.resolve())
+    ):
+        raise RemoteError(Code.CONFIGURATION)
+    target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".configuration-", dir=target.parent) as temporary:
+        working = Path(temporary)
+        if working.resolve().parent != target.parent.resolve():
+            raise RemoteError(Code.CONFIGURATION)
+        for item in release.configuration.files:
+            name = "configuration/" + item.path
+            if not safe_name(name):
+                raise RemoteError(Code.IMAGE)
+            source = path / name
+            if digest(source, 16 * 1024**2, deadline)[0] != item.sha256:
+                raise RemoteError(Code.IMAGE)
+            output = working / item.path
+            output.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+            write_private(output, source.read_bytes())
+            output.chmod(0o644)
+        # Canonical payloads stay private. Only this allowlisted public tree is
+        # readable by MySQL UID999 and Nginx UID101 through read-only bind mounts.
+        working.chmod(0o755)
+        sync_directory(working)
+        os.rename(working, target)
+        sync_directory(target.parent)

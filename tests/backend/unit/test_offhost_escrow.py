@@ -1,13 +1,22 @@
 import hashlib
 import io
 import json
+import os
 import tarfile
 
 import pytest
 from tests.backend.unit.rollout_fixtures import release
 from tests.backend.unit.test_backup_manifest import sample_manifest
-from tools.backup.offhost_contract import RemoteError, canonical
-from tools.backup.offhost_escrow import Escrow, archive_config, verify
+from tools.backup.offhost_contract import Code, RemoteError, canonical
+from tools.backup.offhost_escrow import (
+    Escrow,
+    archive_config,
+    image_overlay,
+    import_images,
+    materialize_configuration,
+    release_at,
+    verify,
+)
 from tools.backup.offhost_io import Deadline
 from tools.deploy.release_manifest import ROOT, Spec, parse, proof
 from tools.deploy.release_manifest import Manifest as Release
@@ -147,3 +156,52 @@ def test_mutable_tagged_image_archives_are_refused_before_loading(tmp_path):
     image_archive(path, tags=["unrelated:do-not-overwrite"])
     with pytest.raises(RemoteError):
         archive_config(path, Deadline(5))
+
+
+def test_import_resolves_config_identity_without_accepting_a_different_image(tmp_path, monkeypatch):
+    escrow, _ = escrow_fixture(tmp_path)
+    data = escrow.model_dump(mode="json")
+    for index, image in enumerate(data["images"].values()):
+        image["local_id"] = "sha256:" + f"{index + 1:064x}"
+    escrow = Escrow.model_validate_json(json.dumps(data))
+    configs = {image.config_id for image in escrow.images.values()}
+    calls = []
+
+    def lookup(reference, deadline):
+        if reference not in configs:
+            raise RemoteError(Code.IMAGE)
+        return dict(id=reference)
+
+    monkeypatch.setattr("tools.backup.offhost_escrow.inspect", lookup)
+    monkeypatch.setattr(
+        "tools.backup.offhost_escrow.run", lambda args, deadline: calls.append(args)
+    )
+    imported = import_images(tmp_path, escrow, Deadline(5))
+    assert len(calls) == 4 and set(imported.values()) == configs
+    selected = release_at(tmp_path / "release.json")
+    assert b"pull_policy: never" in image_overlay(escrow, selected, imported)
+    imported["backend"] = "sha256:" + "f" * 64
+    with pytest.raises(RemoteError):
+        image_overlay(escrow, selected, imported)
+
+
+def test_runtime_configuration_copy_is_public_allowlist_and_leaves_escrow_private(tmp_path):
+    source, target = tmp_path / "escrow", tmp_path / "runtime"
+    source.mkdir(mode=0o700)
+    escrow_fixture(source)
+    selected = release_at(source / "release.json")
+    secret = source / "private-credentials.env"
+    secret.write_text("private-do-not-copy", encoding="utf-8")
+    original = source / "configuration/tools/deploy/mysql/10-identities.sh"
+    raw = original.read_bytes()
+    materialize_configuration(source, selected, target, Deadline(10))
+    public = target / "tools/deploy/mysql/10-identities.sh"
+    assert public.read_bytes() == raw
+    assert not (target / secret.name).exists()
+    if os.name != "nt":
+        assert original.stat().st_mode & 0o077 == 0
+        assert public.stat().st_mode & 0o777 == 0o644
+        assert public.parent.stat().st_mode & 0o777 == 0o755
+    with pytest.raises(RemoteError):
+        materialize_configuration(source, selected, target, Deadline(10))
+    assert public.read_bytes() == raw

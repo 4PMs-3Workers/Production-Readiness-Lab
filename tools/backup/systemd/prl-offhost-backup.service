@@ -6,6 +6,9 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+User=prl-backup
+Group=prl-backup
+SupplementaryGroups=docker
 EnvironmentFile=/etc/prl/backup-job.env
 EnvironmentFile=/etc/prl/offhost-job.env
 WorkingDirectory=/opt/production-readiness-lab
