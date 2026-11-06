@@ -29,6 +29,12 @@ Observed on head `c0c447f` in both push and pull-request workflows.
    `ci(containers): budget cold acceptance runs and report timings`.
    Keep the workflow's Python contract test aligned with the 60-minute policy;
    run the complete unit suite after configuration changes.
+5. **Worker pool recovery:** the exhausted-pool phase passes, but healthy
+   recovery can exceed the default one-second query budget. Keep the 50 ms pool
+   failure and one-second failure watchdog, and give only recovery explicit
+   request/query/lock allowances. Exercise delayed real schema validation and
+   retain zero checked-out connections and exact side-effect counts. Commit:
+   `test(worker): isolate pool recovery from fault-injection timing`.
 
 Verify focused regressions and Black/Ruff/Pyright locally. Run real MySQL and
 Linux rollout acceptance when Docker is available; otherwise require both push

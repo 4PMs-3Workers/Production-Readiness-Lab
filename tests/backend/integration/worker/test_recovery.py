@@ -14,6 +14,7 @@ from tests.backend.integration.worker.test_failures import assert_locks_released
 
 from app.core.database import create_database_engine
 from app.repositories import appointments, users
+from app.worker import processing
 from app.worker.batch import BatchRunner, ScanFailure
 from app.worker.models import FailureReason, Outcome
 from app.worker.processing import process_candidate
@@ -35,8 +36,9 @@ raise SystemExit(main(["--once"]))
 
 
 @pytest.mark.parametrize("operation", ["scan", "candidate"])
+@pytest.mark.parametrize("recovery_delay", [0, 1.25], ids=["normal", "slow-recovery-schema"])
 async def test_exhausted_pool_times_out_without_leaks_then_recovers(
-    worker_env, operation, worker_reports
+    worker_env, operation, recovery_delay, worker_reports, monkeypatch
 ):
     env = worker_env
     identifier, _ = await add_proposal(env)
@@ -68,8 +70,26 @@ async def test_exhausted_pool_times_out_without_leaks_then_recovers(
                     )
             assert pool.checkedout() == 1
         assert pool.checkedout() == 0 and await side_effect_counts(env) == (0, 0)
-        result = await process_candidate(factory, identifier, env.settings, "worker.pool-recovered")
-        assert result.outcome == Outcome.EXPIRED and pool.checkedout() == 0
+        # Pool exhaustion is the injected failure. Recovery must have enough
+        # time for real schema validation, locks, writes, commit, and cleanup.
+        recovery_settings = env.settings.model_copy(
+            update={
+                "request_timeout_seconds": 15.0,
+                "db_query_timeout_seconds": 10.0,
+                "db_lock_timeout_seconds": 5.0,
+            }
+        )
+        original_validate = processing.validate_schema
+
+        async def delayed_validate(db, settings):
+            await asyncio.sleep(recovery_delay)
+            return await original_validate(db, settings)
+
+        monkeypatch.setattr(processing, "validate_schema", delayed_validate)
+        result = await process_candidate(
+            factory, identifier, recovery_settings, "worker.pool-recovered"
+        )
+        assert result.outcome == Outcome.EXPIRED and pool.checkedout() == 0, result
         assert await side_effect_counts(env) == (1, 2)
     finally:
         await engine.dispose()
