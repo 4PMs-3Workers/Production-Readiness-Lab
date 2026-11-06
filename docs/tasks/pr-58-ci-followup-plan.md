@@ -19,6 +19,12 @@ Observed on head `c0c447f` in both push and pull-request workflows.
    a 1.25-second lock step. Keep the 409 and no-write assertions, and include the
    causal exception type if they fail. Commit:
    `test(staff): isolate outcome state assertions from query timing`.
+4. **Cold container job budget:** the successful PR run took 39 minutes for
+   acceptance, while push setup consumed 8.5 minutes before the same suite. The
+   45-minute job cap cancelled push before completion. Allow 60 minutes for the
+   whole job, retain operation-level test deadlines, and report test names and
+   slowest durations. Commit:
+   `ci(containers): budget cold acceptance runs and report timings`.
 
 Verify focused regressions and Black/Ruff/Pyright locally. Run real MySQL and
 Linux rollout acceptance when Docker is available; otherwise require both push
