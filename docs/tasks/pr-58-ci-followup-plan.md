@@ -1,5 +1,7 @@
 # PR #58 remaining CI failures
 
+Continuation requirements: [agent guidance for this branch](pr-58-agent-guidance.md).
+
 Observed on head `c0c447f` in both push and pull-request workflows.
 
 1. **MySQL bootstrap initializer:** the sourced runtime-user script enables
