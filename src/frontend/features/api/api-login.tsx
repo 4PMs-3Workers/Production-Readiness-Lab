@@ -27,6 +27,15 @@ export function ApiLogin() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending.current) return;
+    const normalizedEmail = email.trim().toLowerCase();
+    if (Array.from(normalizedEmail).length < 1 || Array.from(normalizedEmail).length > 254) {
+      setError('Email cần có từ 1 đến 254 ký tự.');
+      return;
+    }
+    if (Array.from(password).length < 1 || Array.from(password).length > 1024) {
+      setError('Mật khẩu cần có từ 1 đến 1024 ký tự.');
+      return;
+    }
     const controller = new AbortController();
     pending.current = controller;
     setBusy(true);
@@ -35,7 +44,7 @@ export function ApiLogin() {
     setPassword('');
     try {
       const user = await login(
-        { email: email.trim(), password: submitted },
+        { email: normalizedEmail, password: submitted },
         { signal: controller.signal },
       );
       if (!controller.signal.aborted)
@@ -120,10 +129,10 @@ export function ApiLogin() {
             <label htmlFor="api-email">Email</label>
             <input
               id="api-email"
-              type="email"
+              type="text"
+              inputMode="email"
               autoComplete="username"
               required
-              maxLength={254}
               value={email}
               onChange={(event) => setEmail(event.target.value)}
             />
@@ -135,7 +144,6 @@ export function ApiLogin() {
               type="password"
               autoComplete="current-password"
               required
-              maxLength={1024}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
             />
