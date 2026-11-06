@@ -341,6 +341,53 @@ def test_runner_bounds_retired_check_states_when_notification_queue_is_full(tmp_
     assert not ({check.name for check in config.checks} & set(summary.state.checks))
 
 
+def test_runner_recovers_orphan_pending_firing_at_full_check_state_capacity(tmp_path):
+    path = config_file(tmp_path)
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            'state_path = "state.json"',
+            'state_path = "state.json"\n' "max_pending_notifications = 64\n" "delivery_retries = 0",
+        ),
+        encoding="utf-8",
+    )
+    config = load_config(path)
+    timestamp = "2026-11-05T00:00:00+00:00"
+    retired = {
+        f"retired{index:03d}": CheckState(notified_firing=True, transition_sequence=1)
+        for index in range(80)
+    }
+    store = StateStore(
+        config.state_path,
+        max_bytes=config.max_state_bytes,
+        max_pending=config.max_pending_notifications,
+    )
+    store.save(
+        MonitorState(
+            checks=retired,
+            pending=(PendingNotification("a" * 64, "orphan", True, timestamp),),
+        )
+    )
+    notifier = FakeNotifier(True)
+    runner = MonitorRunner(
+        config,
+        transport=FakeTransport(True),
+        notifier=notifier,
+        store=store,
+        clock=lambda: datetime(2026, 11, 5, tzinfo=UTC),
+    )
+
+    summary = asyncio.run(runner._process_notifications(runner.state))
+
+    assert [event.firing for event in notifier.events if event.check_name == "orphan"] == [
+        True,
+        False,
+    ]
+    assert len(notifier.events) == 82
+    assert summary.checks == {}
+    assert summary.pending == ()
+    assert store.load() == summary
+
+
 def test_load_config_rejects_state_budget_too_small_for_bounded_notification_queue(tmp_path):
     path = config_file(tmp_path)
     text = path.read_text(encoding="utf-8")
@@ -423,7 +470,7 @@ def test_runner_defers_new_checks_until_saturated_retired_states_can_drain(tmp_p
     assert summary.results == ()
     assert summary.state.probe_health == "degraded"
     assert summary.state.probe_attempts_total == 0
-    assert len(summary.state.checks) == 80
+    assert len(set(summary.state.checks) | {check.name for check in config.checks}) <= 80
     assert len(summary.state.pending) == 64
 
     notifier.delivered = True
@@ -967,6 +1014,46 @@ async def test_notification_batches_share_one_delivery_cycle_deadline(tmp_path):
     assert summary.delivery_attempts_total < len(retired)
     assert summary.pending
     assert summary.delivery_health == "degraded"
+
+
+@pytest.mark.asyncio
+async def test_notification_batches_drain_all_retired_checks_within_cycle_budget(tmp_path):
+    path = config_file(tmp_path)
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            'state_path = "state.json"',
+            'state_path = "state.json"\n'
+            "max_pending_notifications = 1\n"
+            "delivery_cycle_timeout_seconds = 30\n"
+            "delivery_retries = 0",
+        ),
+        encoding="utf-8",
+    )
+    config = load_config(path)
+    retired = {
+        f"old{index}": CheckState(firing=True, notified_firing=True, transition_sequence=1)
+        for index in range(10)
+    }
+    store = StateStore(
+        config.state_path,
+        max_bytes=config.max_state_bytes,
+        max_pending=config.max_pending_notifications,
+    )
+    store.save(MonitorState(checks=retired))
+    notifier = FakeNotifier(True)
+    runner = MonitorRunner(
+        config,
+        transport=FakeTransport(True),
+        notifier=notifier,
+        store=store,
+    )
+
+    summary = await runner._process_notifications(runner.state)
+
+    assert len(notifier.events) == 10
+    assert summary.checks == {}
+    assert summary.pending == ()
+    assert summary.delivery_health == "healthy"
 
 
 def test_runner_recovers_pending_firing_delivery_after_restart_and_resolves(tmp_path):

@@ -91,8 +91,16 @@ the final pushed SHA.
    the state, acknowledge that firing, queue and deliver its final resolution,
    then prune the retired state. Exercise a full two-slot outbox and assert the
    receiver observes `resolved → firing → resolved`.
+4. **Implicit backlog larger than the batch loop:** the state store accepts 80
+   check states. Do not cap one delivery cycle at nine batches; a one-slot
+   outbox must drain ten fast retired-check resolutions without leaving an
+   implicit resolution while health reports healthy. Derive the batch bound
+   from state capacity and retain the shared time deadline. Orphan pending
+   firing events must not expand the reconstructed check map past that limit;
+   when no state slot is available, persist their final resolution together
+   with acknowledgement of the last firing event.
 
 Record the timing fix as `fix(offhost): enforce one delivery deadline per cycle`
-and the retired-state fix as a separate runtime/test commit. Update the branch
-guidance whenever another CI failure reveals a reusable fixture, ordering,
-deadline, or state-lifecycle constraint.
+the retired-state and bounded-backlog fixes as separate runtime/test commits.
+Update the branch guidance whenever another CI failure reveals a reusable
+fixture, ordering, deadline, or state-lifecycle constraint.

@@ -88,10 +88,11 @@ class MonitorRunner:
                 and pending.firing
                 and pending.check_name not in checks
             ):
-                checks[pending.check_name] = CheckState(
-                    notified_firing=True,
-                    last_evaluation_at=pending.occurred_at,
-                )
+                if len(set(checks) | self.configured_names) < store.max_check_states:
+                    checks[pending.check_name] = CheckState(
+                        notified_firing=True,
+                        last_evaluation_at=pending.occurred_at,
+                    )
         self.state = replace(
             persisted,
             checks=checks,
@@ -231,7 +232,7 @@ class MonitorRunner:
         self.state = state
         try:
             async with asyncio.timeout(self.config.delivery_cycle_timeout_seconds):
-                for _ in range(9):
+                for _ in range(self.store.max_check_states + 1):
                     queued = self._queue_notifications(self.state)
                     if queued != self.state:
                         self.store.save(queued)
@@ -337,6 +338,22 @@ class MonitorRunner:
                         checks[event.check_name] = replace(
                             checks[event.check_name], notified_firing=event.firing
                         )
+                elif (
+                    event.firing
+                    and event.check_name not in self.configured_names
+                    and not any(item.check_name == event.check_name for item in pending)
+                ):
+                    resolution_id = hashlib.sha256(
+                        f"{event.event_id}:retired-resolution".encode()
+                    ).hexdigest()
+                    pending.append(
+                        PendingNotification(
+                            resolution_id,
+                            event.check_name,
+                            False,
+                            completed_at,
+                        )
+                    )
                 current = replace(
                     current,
                     checks=checks,
