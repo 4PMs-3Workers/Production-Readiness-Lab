@@ -28,6 +28,12 @@ class RemoteCopyState(StrictModel):
     configured: bool
     status: Literal["not_configured", "unknown", "pending", "success", "failure"]
     last_verified_at: datetime | None
+    configuration_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    environment: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9-]{0,31}$")
+    store: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9-]{0,31}$")
+    operation_started_at: datetime | None = None
+    updated_at: datetime | None = None
+    recovery_point_at: datetime | None = None
 
 
 class BackupMonitorState(StrictModel):
@@ -64,6 +70,9 @@ class BackupMonitorState(StrictModel):
             self.last_scheduled_job_started_at,
             self.last_scheduled_job_finished_at,
             self.remote_copy.last_verified_at if self.remote_copy else None,
+            self.remote_copy.operation_started_at if self.remote_copy else None,
+            self.remote_copy.updated_at if self.remote_copy else None,
+            self.remote_copy.recovery_point_at if self.remote_copy else None,
         ]
         for value in values:
             if value is not None and (
@@ -497,5 +506,74 @@ def record_job_finish(
             )
 
         _update_state(config.store / STATE_FILENAME, state, update)
+    except Exception:
+        pass
+
+
+def record_remote_copy(
+    config: BackupConfig,
+    *,
+    environment: str,
+    store: str,
+    configuration_sha256: str,
+    status: Literal["unknown", "pending", "success", "failure"],
+    started_at: datetime,
+    verified_at: datetime | None = None,
+    recovery_point_at: datetime | None = None,
+) -> None:
+    """Nonblocking telemetry only: never convert local success into remote/app success."""
+    try:
+        now = datetime.now(UTC)
+        fallback = BackupMonitorState(
+            schema_version=1,
+            updated_at=now,
+            monitor_initialized_at=now,
+            last_verified_backup_at=None,
+            artifact_integrity_verified=None,
+            application_rehearsal_verified=False,
+            last_job_operation=None,
+            last_job_started_at=None,
+            last_job_finished_at=None,
+            last_job_result=None,
+            last_job_reason=None,
+            minimum_free_bytes=config.min_free_bytes,
+        )
+
+        def update(current):
+            previous = current.remote_copy
+            same = previous is not None and (
+                previous.configuration_sha256,
+                previous.environment,
+                previous.store,
+            ) == (configuration_sha256, environment, store)
+            if (
+                same
+                and previous.operation_started_at is not None
+                and previous.operation_started_at > started_at
+            ):
+                return current
+            last = previous.last_verified_at if same else None
+            point = previous.recovery_point_at if same else None
+            if status == "success":
+                if verified_at is None or recovery_point_at is None:
+                    return current
+                last = max(value for value in (last, verified_at) if value is not None)
+                point = max(value for value in (point, recovery_point_at) if value is not None)
+            remote = RemoteCopyState(
+                configured=True,
+                status=status,
+                last_verified_at=last,
+                configuration_sha256=configuration_sha256,
+                environment=environment,
+                store=store,
+                operation_started_at=started_at,
+                updated_at=now,
+                recovery_point_at=point,
+            )
+            return current.model_copy(
+                update=dict(updated_at=max(current.updated_at, now), remote_copy=remote)
+            )
+
+        _update_state(config.store / STATE_FILENAME, fallback, update)
     except Exception:
         pass
