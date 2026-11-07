@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -325,6 +326,14 @@ def verify(
 class ImportedImage:
     runtime_id: str
     archive: ArchiveImage
+    vendor_reference: str | None = None
+
+    def matches_runtime(self) -> bool:
+        known = {self.archive.config_id}
+        known.update(
+            item.digest for item in (self.archive.target, self.archive.selected) if item is not None
+        )
+        return self.runtime_id in known
 
 
 def daemon_config_id(reference: str, deadline: Deadline) -> str:
@@ -382,9 +391,42 @@ def target_image(archived: ArchiveImage, deadline: Deadline) -> ImportedImage:
     raise RemoteError(Code.IMAGE)
 
 
-def import_images(path: Path, escrow: Escrow, deadline: Deadline) -> dict[str, ImportedImage]:
-    imported = {}
+def installed_vendor_images(release: Release, deadline: Deadline) -> dict[str, ImportedImage]:
+    """Authenticate installed vendor images using the archived release's pins."""
+    verified = {}
+    with tempfile.TemporaryDirectory(prefix="prl-installed-vendors-") as scratch:
+        output = Path(scratch) / "vendor.tar"
+        for name, reference in release.vendor_images.items():
+            observed = inspect(reference, deadline)
+            identifier = observed.get("id")
+            if (
+                not isinstance(identifier, str)
+                or not re.fullmatch(r"sha256:[0-9a-f]{64}", identifier)
+                or (observed.get("os"), observed.get("arch")) != ("linux", "amd64")
+            ):
+                raise RemoteError(Code.IMAGE)
+            run(["docker", "image", "save", "--output", str(output), identifier], deadline)
+            archived = inspect_archive(output, deadline)
+            vendor_proof(reference, archived, deadline)
+            imported = ImportedImage(identifier, archived, reference)
+            if not imported.matches_runtime():
+                raise RemoteError(Code.IMAGE)
+            verified[name] = imported
+            output.unlink()
+    return verified
+
+
+def import_images(
+    path: Path,
+    escrow: Escrow,
+    deadline: Deadline,
+    *,
+    installed_vendors: dict[str, ImportedImage] | None = None,
+) -> dict[str, ImportedImage]:
+    imported = dict(installed_vendors or {})
     for name, image in escrow.images.items():
+        if name in imported:
+            continue
         archive = path / "images" / f"{name}.tar"
         if digest(archive, image.bytes, deadline) != (image.sha256, image.bytes):
             raise RemoteError(Code.IMAGE)
@@ -407,16 +449,12 @@ def image_overlay(
             raise RemoteError(Code.IMAGE)
         resolved = {}
         for name, value in imported.items():
-            known = {value.archive.config_id}
-            known.update(
-                item.digest
-                for item in (value.archive.target, value.archive.selected)
-                if item is not None
-            )
-            if (
-                value.archive.config_id != escrow.images[name].config_id
-                or value.runtime_id not in known
-            ):
+            if not value.matches_runtime():
+                raise RemoteError(Code.IMAGE)
+            if value.vendor_reference is not None:
+                if value.vendor_reference != release.vendor_images.get(name):
+                    raise RemoteError(Code.IMAGE)
+            elif value.archive.config_id != escrow.images[name].config_id:
                 raise RemoteError(Code.IMAGE)
             resolved[name] = value.runtime_id
     names = {name: resolved[key] for name, key in release.services.items()}
