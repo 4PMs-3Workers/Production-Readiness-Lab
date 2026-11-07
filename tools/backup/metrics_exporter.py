@@ -27,6 +27,7 @@ class MonitorConfig:
     job_runtime_seconds: int
     job_grace_seconds: int
     stale_seconds: int
+    remote_configuration_sha256: str | None = None
 
 
 def _seconds(values: Mapping[str, str], key: str, *, allow_zero: bool = False) -> int:
@@ -46,6 +47,7 @@ def parse_config(values: Mapping[str, str]) -> MonitorConfig | None:
         )
         if not LABEL.fullmatch(environment) or not LABEL.fullmatch(store):
             raise ValueError()
+        remote_digest = values.get("BACKUP_MONITOR_REMOTE_CONFIGURATION_SHA256", "")
         result = MonitorConfig(
             environment=environment,
             store=store,
@@ -54,6 +56,9 @@ def parse_config(values: Mapping[str, str]) -> MonitorConfig | None:
             job_runtime_seconds=_seconds(values, "BACKUP_MONITOR_JOB_RUNTIME_SECONDS"),
             job_grace_seconds=_seconds(values, "BACKUP_MONITOR_JOB_GRACE_SECONDS", allow_zero=True),
             stale_seconds=_seconds(values, "BACKUP_MONITOR_STALE_SECONDS"),
+            remote_configuration_sha256=(
+                remote_digest if re.fullmatch(r"[0-9a-f]{64}", remote_digest) else None
+            ),
         )
         if (
             result.job_runtime_seconds + result.job_grace_seconds
@@ -244,7 +249,8 @@ class BackupMetricsExporter:
         copy = state.remote_copy
         binding_valid = (
             copy is not None
-            and copy.configuration_sha256 is not None
+            and config.remote_configuration_sha256 is not None
+            and copy.configuration_sha256 == config.remote_configuration_sha256
             and (copy.environment, copy.store) == (config.environment, config.store)
         )
         remote = copy.status if binding_valid and copy is not None else "unknown"
@@ -257,7 +263,7 @@ class BackupMetricsExporter:
         )
         set_value(
             "prl_backup_remote_copy_binding_valid",
-            "Whether remote state belongs to the configured environment/store.",
+            "Whether remote state belongs to the configured environment, store and digest.",
             int(binding_valid),
         )
         if binding_valid and copy is not None:

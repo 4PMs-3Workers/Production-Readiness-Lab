@@ -268,7 +268,15 @@ daily schedule and retention values are examples, not selected production RPOs.
 
 Monitoring reuses #46's state file and nonblocking state lock. Set exactly the
 same finite `environment`/`store` labels in remote configuration and the exporter.
-Mismatched/unbound input is `unknown`. Failed/pending transfers retain the last
+Set `BACKUP_MONITOR_REMOTE_CONFIGURATION_SHA256` to the active configuration's
+identity. From the host with the private configuration, print only that digest:
+
+```sh
+.venv/bin/python -c 'import os; from pathlib import Path; from tools.backup.offhost_contract import load_config; print(load_config(Path(os.environ["PRL_OFFHOST_CONFIG"])).identity)'
+```
+
+Update the exporter digest when changing stores. Mismatched or unbound input is
+`unknown`. Failed/pending transfers retain the last
 verified point's timestamps without changing local success or rehearsal flags.
 
 | Signal                                                   | Meaning                                             |

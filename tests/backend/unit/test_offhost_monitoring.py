@@ -48,13 +48,25 @@ def test_local_remote_and_rehearsal_results_remain_distinct_across_failures(tmp_
     assert after.last_verified_backup_at == before.last_verified_backup_at
     assert after.last_job_result == before.last_job_result
     assert after.application_rehearsal_verified is False
-    metrics = BackupMetricsExporter(valid_environment(), path).render()
+    env = dict(valid_environment(), BACKUP_MONITOR_REMOTE_CONFIGURATION_SHA256="a" * 64)
+    metrics = BackupMetricsExporter(env, path).render()
     assert (
         'prl_backup_remote_copy_state{environment="demo",state="failure",'
         'store="backup-storage"} 1.0' in metrics
     )
     assert "prl_backup_remote_recovery_point_timestamp_seconds" in metrics
     assert "a" * 64 not in metrics
+    env["BACKUP_MONITOR_REMOTE_CONFIGURATION_SHA256"] = "b" * 64
+    stale = BackupMetricsExporter(env, path).render()
+    assert (
+        'prl_backup_remote_copy_binding_valid{environment="demo",store="backup-storage"} 0.0'
+        in stale
+    )
+    assert (
+        'prl_backup_remote_copy_state{environment="demo",state="unknown",'
+        'store="backup-storage"} 1.0' in stale
+    )
+    assert "prl_backup_remote_recovery_point_timestamp_seconds" not in stale
 
 
 def test_new_store_binding_and_late_job_cannot_reuse_or_overwrite_success(tmp_path):
