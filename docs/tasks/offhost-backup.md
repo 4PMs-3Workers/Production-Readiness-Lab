@@ -89,8 +89,7 @@ selected manifest when the Docker export does not already contain that proof.
 Keep those small proof files with the image archives. The recovery tool validates
 the vendor pin, image configuration and ordered filesystem layer hashes offline.
 Legacy points remain readable and are excluded from automatic remote retirement.
-If a legacy archive lacks vendor proof, use independently verified digest-pinned
-vendor images when restoring its retrieved snapshot.
+Use the legacy import procedure below for points without archived vendor proof.
 
 Copy [the configuration template](../../tools/backup/offhost.config.example.json)
 outside the checkout, replace every placeholder and set file mode 0600. The
@@ -227,24 +226,88 @@ environment files separately. The output must be a fresh path outside the backup
 store; existing configuration is never overwritten.
 The generated overlay uses the verified imported identity. A classic Docker store
 uses the archive's configuration digest. A containerd store uses its verified
-OCI manifest or index descriptor. Use a Docker version that exports the OCI
-layout for cross-store recovery.
+OCI manifest or index descriptor after the tool re-exports the selected platform
+and checks its configuration digest. Use Docker Engine 28 or later for
+cross-store recovery. Allow temporary space for one additional image export.
+
+### Import a retained v1 point without vendor proof
+
+After retrieval, inspect the reviewed release manifest and provision its exact
+vendor images on the recovery engine. The following Bash example uses `jq`,
+Docker and Skopeo. The digest-qualified vendor sources must be reachable when
+the installed image export lacks the pinned manifest metadata.
+
+```bash
+escrow="$PRL_OFFHOST_LOCAL_STORE/.offhost-escrow/$BACKUP_ID"
+test "$(jq -er .format_version "$escrow/POINT.json")" = 1 || exit 1
+(
+  set -o pipefail
+  jq -er '.vendor_images[]' "$escrow/release.json" |
+    while IFS= read -r vendor; do
+      docker image pull --platform linux/amd64 "$vendor" || exit 1
+    done
+) || exit 1
+
+python -m tools.backup.offhost import-images --backup-id "$BACKUP_ID" \
+  --use-installed-vendors \
+  --output-overlay /etc/prl-recovery/recovered-images.yaml \
+  --output-configuration /etc/prl-recovery/runtime-configuration
+```
+
+This mode checks each installed vendor image's exported config and layers against
+the release digest. It loads only the verified application archives and uses the
+installed vendor IDs in the same recovery overlay. Continue with the Compose
+procedure below. Newer receipts require the archived vendor proof.
+
+### Restore and verify with the retained release
 
 The retrieval host verifies snapshot integrity using the retained release and
 its receipts. Run restore and verification inside the archived backend so the
 existing strict migration and schema checks use that release.
 
-Use the retrieved Compose/configuration tree with the existing
-[recovery runbook](mysql-recovery-runbook.md). Supply new target environment files
-and a separate empty MySQL 8.4 database. Apply the generated image overlay last.
-`DATABASE_URL` may identify the expected original database on an unavailable host;
-the restore workflow connects only through `RESTORE_DATABASE_URL`. For example,
-with the private environment already loaded:
+Follow the database and grant setup in the [recovery runbook](mysql-recovery-runbook.md#5-restore-thủ-công-vào-môi-trường-riêng).
+For this local Compose example, set a distinct `PRL_RECOVERY_PROJECT`,
+`PRL_HTTP_PORT` and fresh `PRL_BACKUP_VOLUME` name. Load the five private target
+environment-file paths from the runbook. The backup env file's `DATABASE_URL`
+identifies the original database. Set its `RESTORE_DATABASE_URL` to the
+`prl_migration` role in the separate, empty target database.
 
-```sh
-export BACKUP_STORE="$PRL_OFFHOST_LOCAL_STORE"
-python -m app.backup restore --backup-id "$BACKUP_ID" --target-database "$TARGET_DATABASE"
-python -m app.backup verify --backup-id "$BACKUP_ID" --target-database "$TARGET_DATABASE"
+Create the labeled volume from the retrieved store on the recovery Docker host.
+The store, snapshot and lock must be accessible to UID10001 in the backup
+container. On a native Linux engine, run retrieval as the dedicated UID10001
+account that owns the recovery store and private recovery inputs.
+Use the source SHA and backend image ID from the receipt as backup
+identity inputs. The image overlay separately selects the verified runtime IDs.
+
+```bash
+escrow="$PRL_OFFHOST_LOCAL_STORE/.offhost-escrow/$BACKUP_ID"
+PRL_SOURCE_SHA=$(jq -er .source_sha "$escrow/POINT.json") || exit 1
+PRL_BACKEND_IMAGE_ID=$(jq -er .backend_image_id "$escrow/POINT.json") || exit 1
+export PRL_SOURCE_SHA PRL_BACKEND_IMAGE_ID PRL_BACKUP_VOLUME
+docker volume create --label prl.backup.storage=1 --opt type=none --opt o=bind \
+  --opt "device=$PRL_OFFHOST_LOCAL_STORE" "$PRL_BACKUP_VOLUME"
+
+deploy=/etc/prl-recovery/runtime-configuration/tools/deploy
+rdc() {
+  docker compose --project-name "$PRL_RECOVERY_PROJECT" \
+    -f "$deploy/compose.yaml" -f "$deploy/compose.local.yaml" \
+    -f "$deploy/compose.backup.yaml" -f "$deploy/compose.recovery.yaml" \
+    -f /etc/prl-recovery/recovered-images.yaml "$@"
+}
+```
+
+Use the isolated subnet, gateway address and Nginx setup in the recovery runbook
+with the retrieved configuration as the template. Start only the recovered
+MySQL service with `rdc up -d --no-build --pull never --wait mysql`. Create the
+empty database and restore grants in that service as the runbook describes.
+Then run both operations inside the recovered Compose `backup` service, whose
+volume mounts the recovered store at `/backups`.
+
+```bash
+rdc --profile backup run --rm --no-deps --pull never -T backup \
+  restore --backup-id "$BACKUP_ID" --target-database "$TARGET_DATABASE"
+rdc --profile backup run --rm --no-deps --pull never -T backup \
+  verify --backup-id "$BACKUP_ID" --target-database "$TARGET_DATABASE"
 ```
 
 Run schema/row verification before application smoke changes target data. Apply
