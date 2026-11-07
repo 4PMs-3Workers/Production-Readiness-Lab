@@ -27,6 +27,7 @@ from tools.backup.offhost_contract import (
     contract,
     load_config,
     private_file,
+    source_identity,
 )
 from tools.backup.offhost_escrow import (
     image_overlay,
@@ -162,7 +163,7 @@ def perform(args, config, work: Path, started: datetime) -> dict:
         os.rename(staged, args.escrow)
         return dict(source_sha=escrow.source_sha, release_sha256=escrow.release_sha256)
     if args.operation == "import-images":
-        manifest = load_artifact(local, args.backup_id, deadline=deadline.expires)
+        manifest = load_artifact(local, args.backup_id, compatible=False, deadline=deadline.expires)
         path = args.local_store / ".offhost-escrow" / args.backup_id
         point = contract(private_file(path / "POINT.json", 1024**2), Completion)
         point.require(config, args.backup_id)
@@ -173,6 +174,8 @@ def perform(args, config, work: Path, started: datetime) -> dict:
             ).hexdigest()
             != point.backup_manifest_sha256
             or manifest.snapshot != point.snapshot
+            or manifest.completed_at != point.backup_completed_at
+            or source_identity(manifest) != point.source_id
             or manifest.image_id != point.backend_image_id
             or manifest.source_sha != point.source_sha
             or escrow.release_sha256 != point.release_sha256

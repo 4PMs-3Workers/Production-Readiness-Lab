@@ -75,7 +75,9 @@ def retrieve_locked(
         validation = directory(work / "validation")
         os.rename(decoded / "backup", validation / backup_id)
         candidate = replace(target, store=validation, source_sha=point.source_sha)
-        manifest = load_artifact(candidate, backup_id, deadline=deadline.expires)
+        # The receipt binds the archived release. Runtime compatibility is checked
+        # later by restore inside the recovered backend, using that release's schema.
+        manifest = load_artifact(candidate, backup_id, compatible=False, deadline=deadline.expires)
         artifact = validation / backup_id
         if (
             source_identity(manifest) != config.source_id
@@ -108,7 +110,10 @@ def retrieve_locked(
         final = root / backup_id
         if final.exists() or final.is_symlink():
             existing = load_artifact(
-                replace(target, source_sha=point.source_sha), backup_id, deadline=deadline.expires
+                replace(target, source_sha=point.source_sha),
+                backup_id,
+                compatible=False,
+                deadline=deadline.expires,
             )
             if existing != manifest:
                 raise RemoteError(Code.CONFLICT)

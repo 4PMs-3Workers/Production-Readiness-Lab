@@ -7,6 +7,7 @@ from tools.backup.offhost_contract import Code, RemoteError, payload_key, point_
 from tools.backup.offhost_retrieve import retrieve
 from tools.backup.offhost_upload import upload
 
+from app.backup.config import BackupError, Reason
 from app.backup.storage import load_artifact
 
 
@@ -33,6 +34,23 @@ def test_retrieval_uses_only_remote_input_and_original_restore_verification(tmp_
     assert (escrow / "configuration/tools/deploy/compose.yaml").is_file()
     assert load_artifact(target, point.backup_id).image_id == point.backend_image_id
     assert retrieve(target, remote, point.backup_id, tmp_path / "age", tmp_path / "key")[0] == point
+
+
+def test_retrieval_survives_new_migration_checkout_but_runtime_check_stays_strict(
+    tmp_path, monkeypatch
+):
+    _, target, remote, point = uploaded(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "app.backup.manifest.migration_contract", lambda: ("future_revision", "f" * 64)
+    )
+    for _ in range(2):
+        assert (
+            retrieve(target, remote, point.backup_id, tmp_path / "age", tmp_path / "key")[0]
+            == point
+        )
+    with pytest.raises(BackupError) as error:
+        load_artifact(target, point.backup_id)
+    assert error.value.reason is Reason.INCOMPATIBLE
 
 
 @pytest.mark.parametrize("fault", ["missing-point", "missing-payload", "corrupt", "missing-key"])

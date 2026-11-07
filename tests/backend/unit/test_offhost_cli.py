@@ -100,6 +100,9 @@ def test_import_rechecks_download_receipt_before_loading_or_rendering_images(tmp
         output_overlay=output,
         output_configuration=tmp_path / "runtime-configuration",
     )
+    monkeypatch.setattr(
+        "app.backup.manifest.migration_contract", lambda: ("future_revision", "f" * 64)
+    )
     result = offhost.perform(args, remote.config, tmp_path, datetime.now(UTC))
     assert result["images_imported"] == 4 and result["recovery_overlay_written"] is True
     assert result["recovery_configuration_written"] is True
