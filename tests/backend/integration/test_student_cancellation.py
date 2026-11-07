@@ -15,13 +15,49 @@ from app.models import Appointment, AuditEvent, ChangeProposal, Notification, Se
 from app.schemas import appointments as schemas
 
 
-async def cancel(env, appointment_id, settings, *, reason=None, student_id=None, db=None):
+@pytest.fixture
+def policy_settings(auth_settings):
+    # Policy/atomicity tests need bounded allowances independent of runner latency.
+    # Dedicated timeout tests retain their own short settings below.
+    return auth_settings.model_copy(
+        update={
+            "db_query_timeout_seconds": 10.0,
+            "db_lock_timeout_seconds": 5.0,
+            "request_timeout_seconds": 20.0,
+        }
+    )
+
+
+def delay_policy_lock(monkeypatch, setup_delay):
+    from app.repositories import appointments
+
+    lock_settings = appointments.lock_service_settings
+    delays = []
+
+    async def slow_lock(db):
+        delays.append(setup_delay)
+        await asyncio.sleep(setup_delay)
+        return await lock_settings(db)
+
+    monkeypatch.setattr(appointments, "lock_service_settings", slow_lock)
+    return delays
+
+
+async def cancel(
+    env, appointment_id, settings, *, reason=None, student_id=None, db=None, request_budget=5.0
+):
     from app.services import cancellation
 
     if db is None:
         async with env.factory() as session:
             return await cancel(
-                env, appointment_id, settings, reason=reason, student_id=student_id, db=session
+                env,
+                appointment_id,
+                settings,
+                reason=reason,
+                student_id=student_id,
+                db=session,
+                request_budget=request_budget,
             )
     return await cancellation.cancel_appointment(
         db,
@@ -30,7 +66,7 @@ async def cancel(env, appointment_id, settings, *, reason=None, student_id=None,
         context=_context(student_id or env.student_id),
         request_id="cancel-test",
         settings=settings,
-        deadline=asyncio.get_running_loop().time() + 5,
+        deadline=asyncio.get_running_loop().time() + request_budget,
     )
 
 
@@ -87,8 +123,9 @@ async def test_cancel_rejects_extra_and_duplicate_queries_without_writes(booking
 
 
 @pytest.mark.parametrize("status", ["UPCOMING", "CHANGE_PENDING"])
+@pytest.mark.parametrize("setup_delay", [0.0, 0.75])
 async def test_cancellation_commits_bundle_and_resolves_proposal(
-    booking_env, auth_settings, status
+    booking_env, policy_settings, monkeypatch, status, setup_delay
 ):
     env, _, start = booking_env
     appointment_id = await seed(env, start, status)
@@ -103,7 +140,20 @@ async def test_cancellation_commits_bundle_and_resolves_proposal(
                     expires_at=start,
                 )
             )
-    receipt = await cancel(env, appointment_id, auth_settings, reason="private reason")
+    delays = delay_policy_lock(monkeypatch, setup_delay)
+    try:
+        receipt = await cancel(
+            env,
+            appointment_id,
+            policy_settings,
+            reason="private reason",
+            request_budget=policy_settings.request_timeout_seconds,
+        )
+    except AppError as error:
+        raise AssertionError(
+            (error.status_code, error.code, type(error.__context__).__name__)
+        ) from None
+    assert delays == [setup_delay]
     assert receipt.status == "CANCELLED"
     assert set(receipt.model_dump()) == {"id", "status", "cancelled_at"}
     async with env.factory() as db:
@@ -142,8 +192,9 @@ async def test_terminal_outcomes_conflict_without_side_effects(booking_env, auth
 
 
 @pytest.mark.parametrize("offset,allowed", [(-1, True), (0, False), (1, False)])
+@pytest.mark.parametrize("setup_delay", [0.0, 0.75])
 async def test_cutoff_is_strict_local_midnight(
-    booking_env, auth_settings, monkeypatch, offset, allowed
+    booking_env, policy_settings, monkeypatch, offset, allowed, setup_delay
 ):
     from tests.backend.integration.test_booking_service import ZONE
 
@@ -156,13 +207,36 @@ async def test_cutoff_is_strict_local_midnight(
     async def clock(_db):
         return now + timedelta(microseconds=offset)
 
+    delays = delay_policy_lock(monkeypatch, setup_delay)
     monkeypatch.setattr(users, "utc_now", clock)
     if allowed:
-        assert (await cancel(env, appointment_id, auth_settings)).status == "CANCELLED"
+        assert (
+            await cancel(
+                env,
+                appointment_id,
+                policy_settings,
+                request_budget=policy_settings.request_timeout_seconds,
+            )
+        ).status == "CANCELLED"
     else:
         with pytest.raises(AppError) as error:
-            await cancel(env, appointment_id, auth_settings)
-        assert error.value.code == "CANCELLATION_DEADLINE_PASSED"
+            await cancel(
+                env,
+                appointment_id,
+                policy_settings,
+                request_budget=policy_settings.request_timeout_seconds,
+            )
+        assert (error.value.status_code, error.value.code) == (
+            409,
+            "CANCELLATION_DEADLINE_PASSED",
+        ), type(error.value.__context__).__name__
+    assert delays == [setup_delay]
+    async with env.factory() as db:
+        row = await db.get(Appointment, appointment_id)
+        assert row.status == ("CANCELLED" if allowed else "UPCOMING")
+        assert row.cancelled_at == (now + timedelta(microseconds=offset) if allowed else None)
+        assert await db.scalar(select(func.count()).select_from(AuditEvent)) == int(allowed)
+        assert await db.scalar(select(func.count()).select_from(Notification)) == 2 * int(allowed)
 
 
 async def test_owned_cancelled_replay_preserves_original_without_writes_or_policy(

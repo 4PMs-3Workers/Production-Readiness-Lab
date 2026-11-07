@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the configured encrypted off-host backup job
+
+[Timer]
+# Operator must align schedule/monitoring thresholds with the chosen environment RPO.
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=300
+Unit=prl-offhost-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -671,6 +671,19 @@ Máy chủ đơn có thể gián đoạn khi deploy. Zero downtime hoặc chịu
 
 ### 9.5. Diễn tập sự cố
 
+Transport [off-host backup](../tasks/offhost-backup.md) dùng một backend S3-compatible
+qua HTTPS xác thực certificate và mã hóa age X25519. Mỗi recovery point giữ backup
+đã kiểm tra cùng image bất biến, migration trong backend image và cấu hình công khai
+đã xác minh. Completion chỉ xuất hiện sau remote readback; retirement có điều kiện
+giữ điểm tốt cuối cùng và không đụng prefix khác. Local integrity, remote-copy và
+application rehearsal là ba trạng thái riêng trong monitoring/evidence.
+
+Lab tự động dừng source/registry, retrieve từ remote vào store mới và chạy
+restore/verify cùng gateway smoke trên target độc lập. Storage/credentials/private
+key phải được cung cấp ngoài failure domain duy nhất của source khi triển khai
+thật. Lab cùng Docker host không phải số đo mất host production; PITR, replication,
+HA và cutover live database không được suy ra từ kết quả này.
+
 Công cụ diễn tập yêu cầu `LAB_MODE`, TTL và kiểm tra release; dùng dữ liệu và tài khoản lab. Trạng thái kích hoạt được lưu bền ngoài tiến trình API để tồn tại qua restart. Khi hết TTL, kết thúc diễn tập hoặc rollback baseline, hành vi gây lỗi phải được gỡ bỏ. Dashboard, công cụ diễn tập và endpoint vận hành dùng quyền hạ tầng.
 
 Khi công cụ diễn tập được triển khai, mỗi lần chạy cần ghi kịch bản, người thực hiện, thời điểm bắt đầu/kết thúc, release, alert firing/resolved và kết quả kiểm tra dữ liệu. Kịch bản DB mất kết nối, worker dừng, telemetry gián đoạn và release gây lỗi cần thực hiện theo môi trường. Issue #48 cung cấp mã probe và notification path; bằng chứng chạy local không chứng minh monitor đang nằm ngoài host ứng dụng. Host/gateway outage phải được diễn tập giữa hai máy độc lập và ghi riêng detection latency, delivery latency, recovery và resolved event. Bài Task 8 không thay thế xác nhận host loss, release rollback hay backup/restore.

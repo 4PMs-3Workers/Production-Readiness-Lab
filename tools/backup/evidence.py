@@ -88,8 +88,7 @@ class Timing(StrictModel):
     rto_service_seconds: Annotated[float, Field(gt=0, allow_inf_nan=False)]
 
 
-class Evidence(StrictModel):
-    evidence_version: Literal[1]
+class RecoveryFacts(StrictModel):
     accepted: Literal[True]
     source_sha: Sha
     pr_head_sha: Sha | None
@@ -102,18 +101,16 @@ class Evidence(StrictModel):
     target_migrated: Literal[False]
     target_seeded: Literal[False]
     timing: Timing
-    commands: list[str]
 
     @model_validator(mode="after")
     def consistent(self) -> Self:
         expected_tables = set(Base.metadata.tables) | {"alembic_version"}
         revision, digest = migration_contract()
         if (
-            self.source_images != self.recovered_images
-            or self.source_images.api != self.source_images.worker
+            self.source_images.api != self.source_images.worker
+            or self.recovered_images.api != self.recovered_images.worker
             or self.source_images.api != self.backup.image_id
             or self.source_sha != self.backup.source_sha
-            or self.commands != COMMANDS
             or self.backup.schema_revision != revision
             or self.backup.migration_sha256 != digest
             or set(self.validation.table_counts) != expected_tables
@@ -142,6 +139,17 @@ class Evidence(StrictModel):
             or abs(timing.rpo_observed_max_seconds - high) > 0.000001
         ):
             raise ValueError("Observed data-loss interval does not match the snapshot")
+        return self
+
+
+class Evidence(RecoveryFacts):
+    evidence_version: Literal[1]
+    commands: list[str]
+
+    @model_validator(mode="after")
+    def reviewed_commands(self) -> Self:
+        if self.commands != COMMANDS or self.source_images != self.recovered_images:
+            raise ValueError("Recovery commands do not match the local rehearsal contract")
         return self
 
 

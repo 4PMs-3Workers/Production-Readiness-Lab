@@ -7,8 +7,10 @@ set -eu
 : "${PRL_SEED_PASSWORD:?Missing seed password}"
 # Encode secrets rather than interpolating them into SQL quoting. mysql_process_sql
 # consumes stdin without printing it. Root remains socket-local (no MYSQL_ROOT_HOST).
+bootstrap_socket="${SOCKET:-/var/run/mysqld/mysqld.sock}"
 mysql_process_sql() {
-    MYSQL_PWD="$MYSQL_ROOT_PASSWORD" timeout 30s mysql --protocol=socket -uroot --connect-timeout=5
+    MYSQL_PWD="$MYSQL_ROOT_PASSWORD" timeout 30s mysql --no-defaults --protocol=socket \
+        --host=localhost --socket="$bootstrap_socket" -uroot --connect-timeout=5
 }
 create_identity() {
     local identity="$1" password_hex

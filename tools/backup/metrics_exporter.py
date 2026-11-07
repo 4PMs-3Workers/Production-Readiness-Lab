@@ -27,6 +27,7 @@ class MonitorConfig:
     job_runtime_seconds: int
     job_grace_seconds: int
     stale_seconds: int
+    remote_configuration_sha256: str | None = None
 
 
 def _seconds(values: Mapping[str, str], key: str, *, allow_zero: bool = False) -> int:
@@ -46,6 +47,7 @@ def parse_config(values: Mapping[str, str]) -> MonitorConfig | None:
         )
         if not LABEL.fullmatch(environment) or not LABEL.fullmatch(store):
             raise ValueError()
+        remote_digest = values.get("BACKUP_MONITOR_REMOTE_CONFIGURATION_SHA256", "")
         result = MonitorConfig(
             environment=environment,
             store=store,
@@ -54,6 +56,9 @@ def parse_config(values: Mapping[str, str]) -> MonitorConfig | None:
             job_runtime_seconds=_seconds(values, "BACKUP_MONITOR_JOB_RUNTIME_SECONDS"),
             job_grace_seconds=_seconds(values, "BACKUP_MONITOR_JOB_GRACE_SECONDS", allow_zero=True),
             stale_seconds=_seconds(values, "BACKUP_MONITOR_STALE_SECONDS"),
+            remote_configuration_sha256=(
+                remote_digest if re.fullmatch(r"[0-9a-f]{64}", remote_digest) else None
+            ),
         )
         if (
             result.job_runtime_seconds + result.job_grace_seconds
@@ -241,7 +246,45 @@ class BackupMetricsExporter:
                 ("none",),
             )
         remote_statuses = ("not_configured", "unknown", "pending", "success", "failure")
-        remote = state.remote_copy.status if state.remote_copy is not None else "unknown"
+        copy = state.remote_copy
+        binding_valid = (
+            copy is not None
+            and config.remote_configuration_sha256 is not None
+            and copy.configuration_sha256 == config.remote_configuration_sha256
+            and (copy.environment, copy.store) == (config.environment, config.store)
+        )
+        remote = copy.status if binding_valid and copy is not None else "unknown"
+        if copy is not None and not copy.configured:
+            remote = "not_configured"
+        set_value(
+            "prl_backup_remote_copy_configured",
+            "Whether off-host copy is configured.",
+            int(copy is not None and copy.configured),
+        )
+        set_value(
+            "prl_backup_remote_copy_binding_valid",
+            "Whether remote state belongs to the configured environment, store and digest.",
+            int(binding_valid),
+        )
+        if binding_valid and copy is not None:
+            if copy.last_verified_at is not None:
+                set_value(
+                    "prl_backup_remote_copy_last_verified_timestamp_seconds",
+                    "Unix timestamp of the last verified remote completion.",
+                    copy.last_verified_at.timestamp(),
+                )
+            if copy.recovery_point_at is not None:
+                set_value(
+                    "prl_backup_remote_recovery_point_timestamp_seconds",
+                    "Conservative snapshot timestamp of the latest verified remote recovery point.",
+                    copy.recovery_point_at.timestamp(),
+                )
+            if copy.updated_at is not None:
+                set_value(
+                    "prl_backup_remote_copy_state_timestamp_seconds",
+                    "Unix timestamp when remote-copy state was last produced.",
+                    copy.updated_at.timestamp(),
+                )
         for status in remote_statuses:
             set_value(
                 "prl_backup_remote_copy_state",

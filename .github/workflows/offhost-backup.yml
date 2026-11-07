@@ -1,0 +1,69 @@
+name: Encrypted off-host recovery
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+      pr_head_sha:
+        default: ''
+        type: string
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: ['feature/**', 'fixbug/**', 'hotfix/**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: offhost-backup-${{ inputs.source_sha && github.run_id || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offhost:
+    name: Required encrypted transport and remote-only application recovery
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      RUN_OFFHOST_TESTS: '1'
+      NEXT_TELEMETRY_DISABLED: '1'
+      PR_HEAD_SHA: ${{ inputs.pr_head_sha || github.event.pull_request.head.sha || github.sha }}
+      PRL_OFFHOST_AGE: ${{ github.workspace }}/build/offhost-tools/age/age
+      PRL_OFFHOST_MINIO_BINARY: ${{ github.workspace }}/build/offhost-tools/minio/minio
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/release-tools
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.24.8'
+          cache: false
+      - name: Install pinned age and fixed-source isolated S3 fixture
+        run: |
+          python -m tools.backup.install_age --directory "$GITHUB_WORKSPACE/build/offhost-tools/age"
+          python -m tools.backup.install_minio_lab --directory "$GITHUB_WORKSPACE/build/offhost-tools/minio"
+      - name: Check off-host tooling and acceptance quality
+        run: |
+          python -m black --check tools/backup src/backend/app/backup tests/offhost tests/backend/unit/test_offhost*.py tests/backend/unit/offhost_fixtures.py
+          python -m ruff check tools/backup src/backend/app/backup tests/offhost tests/backend/unit/test_offhost*.py tests/backend/unit/offhost_fixtures.py
+      - name: Required HTTPS store, crypto, deadline and real recovered gateway proof
+        run: |
+          python -m pytest tests/offhost -q --tb=short --junitxml=build/offhost-tests.xml
+          python - <<'PY'
+          from xml.etree import ElementTree
+          root = ElementTree.parse("build/offhost-tests.xml").getroot()
+          if sum(int(suite.get("skipped", "0")) for suite in root.iter("testsuite")):
+              raise SystemExit("Required off-host acceptance must not skip")
+          PY
+      - name: Preserve only successful strict sanitized off-host proof
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: offhost-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/offhost-review/rehearsal.json
+          if-no-files-found: error
+          retention-days: 14
