@@ -28,6 +28,27 @@ GZIP_LAYERS = {OCI + "layer.v1.tar+gzip", "application/vnd.docker.image.rootfs.d
 IMAGE_NAMES = {"org.opencontainers.image.ref.name", "io.containerd.image.name"}
 MAX_METADATA = 1024**2
 MAX_LAYER_BYTES = 4 * 1024**3
+INDEX_FIELDS = ("schemaVersion", "mediaType", "artifactType", "manifests", "subject", "annotations")
+MANIFEST_FIELDS = (
+    "schemaVersion",
+    "mediaType",
+    "artifactType",
+    "config",
+    "layers",
+    "subject",
+    "annotations",
+)
+DESCRIPTOR_FIELDS = (
+    "mediaType",
+    "digest",
+    "size",
+    "urls",
+    "annotations",
+    "data",
+    "platform",
+    "artifactType",
+)
+PLATFORM_FIELDS = ("architecture", "os", "os.version", "os.features", "variant", "features")
 
 
 def sha(raw: bytes) -> str:
@@ -44,6 +65,14 @@ def json_value(raw: bytes):
     return json.loads(raw, object_pairs_hook=no_duplicate_keys)
 
 
+def record(value, fields: tuple[str, ...]) -> dict:
+    """Disallow noncanonical aliases that Go would decode into a typed field."""
+    aliases = {field.casefold(): field for field in fields}
+    if not isinstance(value, dict) or any(aliases.get(key.casefold(), key) != key for key in value):
+        raise ValueError()
+    return value
+
+
 @dataclass(frozen=True)
 class Descriptor:
     digest: str
@@ -52,8 +81,11 @@ class Descriptor:
 
     @classmethod
     def read(cls, value: dict) -> Descriptor:
+        value = record(value, DESCRIPTOR_FIELDS)
         if IMAGE_NAMES & (value.get("annotations") or {}).keys() or value.get("urls"):
             raise ValueError()
+        if value.get("platform") is not None:
+            record(value["platform"], PLATFORM_FIELDS)
         digest, size, media_type = value["digest"], value["size"], value["mediaType"]
         blob_path(digest)
         if type(size) is not int or not 0 <= size <= MAX_LAYER_BYTES:
@@ -62,6 +94,7 @@ class Descriptor:
 
 
 def platform_manifest(index: dict) -> Descriptor:
+    index = record(index, INDEX_FIELDS)
     if index.get("schemaVersion") != 2 or IMAGE_NAMES & (index.get("annotations") or {}).keys():
         raise ValueError()
     candidates = []
@@ -76,7 +109,7 @@ def platform_manifest(index: dict) -> Descriptor:
 
 
 def manifest_content(raw: bytes) -> tuple[Descriptor, list[Descriptor]]:
-    value = json_value(raw)
+    value = record(json_value(raw), MANIFEST_FIELDS)
     if (
         value.get("schemaVersion") != 2
         or value.get("mediaType") not in MANIFESTS
@@ -136,7 +169,7 @@ class ImageTar:
             return None, None, {}
         if json_value(self.metadata("oci-layout")) != {"imageLayoutVersion": "1.0.0"}:
             raise ValueError()
-        index = json_value(self.metadata("index.json"))
+        index = record(json_value(self.metadata("index.json")), INDEX_FIELDS)
         if (
             index.get("schemaVersion") != 2
             or IMAGE_NAMES & (index.get("annotations") or {}).keys()
