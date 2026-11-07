@@ -1,0 +1,54 @@
+{
+  "submission_source_commit": "15526cbac4b48ae8c6f2430e8cd50931fb78872b",
+  "experimental_branch": "codex/bt3-23001952-vt071-student-mutants-20261102",
+  "experimental_restored_head": "721ffc04cf51fb80ed9a9312b2a7ffdc66392995",
+  "mutants": [
+    {
+      "mutant": "owner",
+      "commit": "0203961808aea43b475c5f1fed6f63e5ca7d412e",
+      "test": "test_export_real_login_scope_contract_and_inactive_catalog",
+      "expected": "KILLED",
+      "observed": "KILLED",
+      "exit_code": 1
+    },
+    {
+      "mutant": "overflow",
+      "commit": "cda5c4b7d67d70eb2dae6f898f75e074adfd5225",
+      "test": "test_export_rejects_overflow_instead_of_truncation",
+      "expected": "KILLED",
+      "observed": "KILLED",
+      "exit_code": 1
+    },
+    {
+      "mutant": "role_primary",
+      "commit": "db9d1eff35ee5651aee83a71d2a7537df3fc3374",
+      "test": "test_export_real_session_role_is_denied",
+      "expected": "SURVIVED",
+      "observed": "SURVIVED",
+      "exit_code": 0
+    },
+    {
+      "mutant": "role_all",
+      "commit": "10c0fb4b220849d3875a22131332824afc026f51",
+      "test": "test_export_real_session_role_is_denied",
+      "expected": "KILLED",
+      "observed": "KILLED",
+      "exit_code": 1
+    },
+    {
+      "mutant": "source_and_unique",
+      "commit": "f70e9d5c36994621f81e9e1a18244f1e5e2d7612",
+      "test": "test_export_source_cardinality_after_retry",
+      "expected": "KILLED",
+      "observed": "KILLED",
+      "exit_code": 1
+    }
+  ],
+  "submission_restore_diff": "",
+  "experimental_branch_scope": "published remote branch",
+  "experimental_branch_url": "https://github.com/4PMs-3Workers/Production-Readiness-Lab/tree/codex/bt3-23001952-vt071-student-mutants-20261102",
+  "local_experimental_branch": "codex/bt3-23001952-vt071-mutants-verified",
+  "local_experimental_branch_scope": "helper-created local name; not a published navigation target",
+  "metadata_role": "Navigation metadata normalized after execution; commit IDs and outcomes unchanged",
+  "original_metadata_archive_path": "raw-evidence.zip:mutants/review-mutants.json"
+}

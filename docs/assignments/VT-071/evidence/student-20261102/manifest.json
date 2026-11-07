@@ -1,0 +1,105 @@
+{
+  "execution_attribution": "Student self-execution, reported in chat and cross-checked against local files; Codex collected/checked these files without rerunning tests.",
+  "source_commit": "15526cbac4b48ae8c6f2430e8cd50931fb78872b",
+  "archive": "raw-evidence.zip",
+  "archive_bytes": 168192,
+  "archive_sha256": "503565d12feb89d1f846fc6ba93d32ea7c7b50cdd39a2d9fa6c6db2b7b55d60b",
+  "uncompressed_bytes": 2041090,
+  "files": [
+    {
+      "archive_path": "coverage/coverage-full.json",
+      "bytes": 836920,
+      "sha256": "54e4574d34257a934ef7c3f021f6cab7eae6d27ffea8e63c5bb9243fac7d2e3e"
+    },
+    {
+      "archive_path": "coverage/diff-coverage.json",
+      "bytes": 1943,
+      "sha256": "085568cfca92ada32c6ee16a588998f09c2361d107d878d9ffff1870aa0b026d"
+    },
+    {
+      "archive_path": "mutants/review-mutant-overflow.patch.txt",
+      "bytes": 710,
+      "sha256": "97a0bef3de29616d28e88cbba611366e0856e71551e087ce9912d99412935eef"
+    },
+    {
+      "archive_path": "mutants/review-mutant-overflow.txt",
+      "bytes": 2693,
+      "sha256": "151891b2bad7cfe37545f64fc4d66537a98836c977d6050e790b50b203096952"
+    },
+    {
+      "archive_path": "mutants/review-mutant-owner.patch.txt",
+      "bytes": 841,
+      "sha256": "bd73148b7600ba4b2702a2dedcc3499916f41746610154f9c80db317fc943889"
+    },
+    {
+      "archive_path": "mutants/review-mutant-owner.txt",
+      "bytes": 2630,
+      "sha256": "5c3661bf26280e1c7c24e0420d3bcf562a60b9be735747a398284f959331e561"
+    },
+    {
+      "archive_path": "mutants/review-mutant-role_all.patch.txt",
+      "bytes": 1288,
+      "sha256": "8625b56f51ee5d4b4583522433d341af1b712117bfdf812adedfeb332183e743"
+    },
+    {
+      "archive_path": "mutants/review-mutant-role_all.txt",
+      "bytes": 4365,
+      "sha256": "b4c7eef90e142e9e32aa23b221ea79ca61aae8ca044b578473165e1bc145e803"
+    },
+    {
+      "archive_path": "mutants/review-mutant-role_primary.patch.txt",
+      "bytes": 1101,
+      "sha256": "8362913726ee4f774e3119555593e3bdc5014e46df19d2dd1389f0a1184f0f7b"
+    },
+    {
+      "archive_path": "mutants/review-mutant-role_primary.txt",
+      "bytes": 115,
+      "sha256": "6277d0032a482d8e1eff6818ae3b8fc2582314193541150ca47e6b7eab37d7ac"
+    },
+    {
+      "archive_path": "mutants/review-mutant-source_and_unique.patch.txt",
+      "bytes": 1441,
+      "sha256": "1e8ee9ac16bc2d9cbb7711a668ffd0ce4a158dec94bc65700efed2c758e2470d"
+    },
+    {
+      "archive_path": "mutants/review-mutant-source_and_unique.txt",
+      "bytes": 3712,
+      "sha256": "807d0ed640c72a5d916401e485bd36b54c43dff81a2df7a5cde11e51d9e3d32a"
+    },
+    {
+      "archive_path": "mutants/review-mutants.json",
+      "bytes": 1543,
+      "sha256": "00830235d492ce1284907118a48760180a73da69f7ff532b216f67510693bcb3"
+    },
+    {
+      "archive_path": "mutants/runner.txt",
+      "bytes": 1986,
+      "sha256": "992dca81eb0282e5f8f521ca9d2648794d97e55c954e4fd2993a3d6ec3188340"
+    },
+    {
+      "archive_path": "pool/production-performance.json",
+      "bytes": 606658,
+      "sha256": "58306f6a372a54909709ed0deec3f26ed3d622f009d76757cec237cce9286bc2"
+    },
+    {
+      "archive_path": "pool/production-pytest.txt",
+      "bytes": 572694,
+      "sha256": "b731a61d54066ccf65fcf8b8ada8c74f21b75f630fc0b66313d2e78c4dd85e4b"
+    },
+    {
+      "archive_path": "terminal/functional.txt",
+      "bytes": 206,
+      "sha256": "e42ef2e5a155f5898e61bdfdb00cbd1eaa35a928e90fbbe06fc5d845fea63b10"
+    },
+    {
+      "archive_path": "terminal/head.txt",
+      "bytes": 42,
+      "sha256": "5c923b79a153155a7204971ba007eab57f13efa7ea4df460d654c51680aff633"
+    },
+    {
+      "archive_path": "terminal/tc18.txt",
+      "bytes": 202,
+      "sha256": "b18145bcc99ecf8c77e0559144cc1f00b2d4b2341ca80e8c53d83ead800bead7"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+Codex hỗ trợ tôi phân tích repository, tạo patch, test và evidence ban đầu. Ngày 02/11/2026, tôi tự chạy tại commit 15526cb trên bản sao dùng Python và MySQL thử nghiệm. Log được lưu riêng với các lượt Codex. Ngày 03/11, tôi xác nhận đã đọc diff bốn file production và trả lời xong bộ câu hỏi vấn đáp.
+
+Bộ chức năng và OpenAPI có 41 test pass; TC18 chạy riêng cũng pass. Oracle của TC18 kiểm tra cả số dòng CSV, ID lịch ban đầu và số bản ghi database sau create, cancel, retry. Một status thành công riêng lẻ chưa đủ để xác nhận tính đúng của dữ liệu xuất.
+
+Tôi chạy script mutation trên nhánh thí nghiệm và nhận bốn mutant bị bắt, một mutant sống. M3 sống phù hợp với việc query guard vẫn kiểm tra role; survivor không tự động có nghĩa là thiếu test. M5 thất bại ở hai dòng CSV thay vì một dòng, khác oracle receipt/status của TC13. Sau thí nghiệm, source được khôi phục.
+
+Lượt chạy coverage cho service đạt 34/34 dòng và 8/8 arcs; diff coverage đạt 50/50 dòng thực thi thay đổi. Các số này hỗ trợ đánh giá phần đã chạy, nhưng không chứng minh mọi trạng thái hoặc mọi lỗi tích hợp đều được kiểm tra.
+
+Với pool 5+5 và queue 0,5 giây, lượt tải của tôi có 312/560 lỗi 503 tại auth, trước export; log xác nhận pool queue timeout. Vì vậy, test tải fail dù các test chức năng pass. Số khác lượt Codex không phải bằng chứng cải thiện vì chưa có thí nghiệm kiểm soát nguyên nhân.
+
+Giới hạn của lần kiểm chứng là một lượt tải, chung session và cùng máy host. Bước tiếp theo cần đo wait/hold, thử từng lựa chọn cấu hình và giữ các oracle quyền, scope, cardinality. Tôi tiếp tục khai báo phần AI hỗ trợ và chịu trách nhiệm đối chiếu nội dung với evidence thực tế.

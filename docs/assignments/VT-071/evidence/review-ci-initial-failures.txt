@@ -1,0 +1,22 @@
+PR #55, head c664a5de9ad6eb3d2b085c3438f49cfc714cfb3b
+Retrieved via GitHub connector; excerpts from actual failed jobs.
+
+https://github.com/4PMs-3Workers/Production-Readiness-Lab/actions/runs/41319098793/job/124885302131
+2026-11-01T15:03:05.8722420Z   /home/runner/work/Production-Readiness-Lab/Production-Readiness-Lab/tests/backend/integration/test_appointment_export_load_pool.py:217:21 - error: Argument of type "(url: Unknown, *, connect_args: Unknown, **_pool_options: Unknown) -> AsyncEngine" cannot be assigned to parameter "telemetry_factory" of type "TelemetryFactory | None" in function "create_app"
+2026-11-01T15:03:05.8737263Z   /home/runner/work/Production-Readiness-Lab/Production-Readiness-Lab/tests/backend/unit/test_appointment_export.py:56:19 - error: Argument of type "datetime" cannot be assigned to parameter "starts_at" of type "UtcTimestamp" in function "__init__"
+2026-11-01T15:03:05.8740688Z   /home/runner/work/Production-Readiness-Lab/Production-Readiness-Lab/tests/backend/unit/test_appointment_export.py:57:17 - error: Argument of type "datetime" cannot be assigned to parameter "ends_at" of type "UtcTimestamp" in function "__init__"
+2026-11-01T15:03:05.8743901Z   /home/runner/work/Production-Readiness-Lab/Production-Readiness-Lab/tests/backend/unit/test_appointment_export.py:60:20 - error: Argument of type "datetime" cannot be assigned to parameter "created_at" of type "UtcTimestamp" in function "__init__"
+2026-11-01T15:03:05.8746842Z   /home/runner/work/Production-Readiness-Lab/Production-Readiness-Lab/tests/backend/unit/test_appointment_export.py:109:19 - error: Argument of type "datetime" cannot be assigned to parameter "starts_at" of type "UtcTimestamp" in function "__init__"
+2026-11-01T15:03:05.8749503Z   /home/runner/work/Production-Readiness-Lab/Production-Readiness-Lab/tests/backend/unit/test_appointment_export.py:110:17 - error: Argument of type "datetime" cannot be assigned to parameter "ends_at" of type "UtcTimestamp" in function "__init__"
+2026-11-01T15:03:05.8753507Z   /home/runner/work/Production-Readiness-Lab/Production-Readiness-Lab/tests/backend/unit/test_appointment_export.py:113:20 - error: Argument of type "datetime" cannot be assigned to parameter "created_at" of type "UtcTimestamp" in function "__init__"
+2026-11-01T15:03:05.8755344Z 7 errors, 0 warnings, 0 informations
+
+https://github.com/4PMs-3Workers/Production-Readiness-Lab/actions/runs/41319098583/job/124885301303
+2026-11-01T15:02:32.6452293Z No known vulnerabilities found
+2026-11-01T15:02:32.7262016Z dependency advisory gate: blocked (1 findings)
+2026-11-01T15:02:32.7262896Z unhandled: npm minimatch 10.2.6 [development] (GHSA-G3HV-75WG-M249)
+
+https://github.com/4PMs-3Workers/Production-Readiness-Lab/actions/runs/41319094121/job/124885288128
+2026-11-01T15:02:39.7813573Z No known vulnerabilities found
+2026-11-01T15:02:39.8759263Z dependency advisory gate: blocked (1 findings)
+2026-11-01T15:02:39.8760210Z unhandled: npm minimatch 10.2.6 [development] (GHSA-G3HV-75WG-M249)

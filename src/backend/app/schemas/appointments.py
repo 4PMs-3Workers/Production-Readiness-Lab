@@ -65,6 +65,14 @@ class AppointmentListQuery(PaginationParams):
     status: AppointmentStatus | None = None
 
 
+class AppointmentExportQuery(BaseModel):
+    """Export an owned history snapshot; callers cannot select owner or page."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: AppointmentStatus | None = None
+
+
 class AppointmentListItem(BaseModel):
     """Student-visible history fields, excluding private persistence metadata."""
 

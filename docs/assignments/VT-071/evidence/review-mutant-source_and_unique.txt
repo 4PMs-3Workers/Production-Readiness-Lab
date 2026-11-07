@@ -1,0 +1,26 @@
+F                                                                        [100%]
+================================== FAILURES ===================================
+_________________ test_export_source_cardinality_after_retry __________________
+tests\backend\integration\test_appointment_export.py:324: in test_export_source_cardinality_after_retry
+    assert len(exported) == 1, f"Expected one source row, got {len(exported)} CSV rows"
+E   AssertionError: Expected one source row, got 2 CSV rows
+E   assert 2 == 1
+E    +  where 2 = len([{'duration_minutes': '30', 'ends_at': '2026-11-02T01:30:00Z', 'id': 'f2573032-e707-4c89-8400-250c20d5222a', 'location..._minutes': '30', 'ends_at': '2026-11-02T01:30:00Z', 'id': '5834b9ea-4f19-46f5-9d42-6cd3b1f898b2', 'location': '', ...}])
+---------------------------- Captured stderr setup ----------------------------
+INFO  [alembic.runtime.migration] Context impl MySQLImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> a1b2c3d4e5f6, Initial schema — all 11 application tables.
+INFO  [alembic.runtime.migration] Running upgrade a1b2c3d4e5f6 -> 20261016_1200_audit_reqid128, Expand audit request IDs to match the gateway contract.
+INFO  [alembic.runtime.migration] Running upgrade 20261016_1200_audit_reqid128 -> 20261017_2350_student_profile, Add optional student profile fields without changing existing account data.
+INFO  [alembic.runtime.migration] Running upgrade 20261017_2350_student_profile -> 20261019_1200_proposal_replay, Persist proposal creation receipts and optimistic creation contexts.
+---------------------------- Captured stdout call -----------------------------
+{"timestamp":"2026-11-01T10:08:53.653633Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","trace_id":"2d889abad52341123fd6677198868fb0","duration_seconds":0.2332641999964835,"response_complete":true,"request_id":"aae9649cb88cb9dec8e715c6a5b84c75","route":"/api/v1/auth/login","status":200,"method":"POST"}
+{"timestamp":"2026-11-01T10:08:53.722077Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","trace_id":"b96a6be1cef3e5c74bca7076dac6da7d","duration_seconds":0.06501140000182204,"response_complete":true,"request_id":"31ff9185726b540b446f6f1432987fea","route":"/api/v1/appointments","status":201,"method":"POST"}
+{"timestamp":"2026-11-01T10:08:53.764754Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","trace_id":"f9a7a769a4608ddab06f5a3a741d611c","duration_seconds":0.038068900001235306,"response_complete":true,"request_id":"4ae9a8bf27df7a9da859f90ed61e1620","route":"/api/v1/appointments/{appointment_id}/cancel","status":200,"method":"POST"}
+{"timestamp":"2026-11-01T10:08:53.815357Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","trace_id":"632dd3b03202a640582bc6ff08fbd532","duration_seconds":0.05158119999396149,"response_complete":true,"request_id":"4a8f2edfa471335a4602c0b316fea960","route":"/api/v1/appointments","status":201,"method":"POST"}
+{"timestamp":"2026-11-01T10:08:53.845880Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","trace_id":"e3fce26e32c1b3d729f17a1bdc941d33","duration_seconds":0.025287600001320243,"response_complete":true,"request_id":"4ccaf5ab69a4694e34a319c7e3479c9c","route":"/api/v1/appointments/export","status":200,"method":"GET"}
+=========================== short test summary info ===========================
+FAILED tests/backend/integration/test_appointment_export.py::test_export_source_cardinality_after_retry
+1 failed in 3.12s
+
+EXIT_CODE=1

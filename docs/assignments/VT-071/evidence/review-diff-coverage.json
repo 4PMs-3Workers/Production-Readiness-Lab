@@ -1,0 +1,99 @@
+{
+  "baseline": "aa8c5b0be057754f9b3409c8699537d4aeb887b9",
+  "denominator": "added lines intersect executable statements",
+  "files": [
+    {
+      "file": "src/backend/app/api/appointments.py",
+      "executable_changed": 6,
+      "covered": 6,
+      "missing_lines": [],
+      "changed_lines": [
+        30,
+        212,
+        229,
+        236,
+        237,
+        240
+      ],
+      "branch_arcs_from_changed_lines": 0,
+      "missing_branch_arcs": []
+    },
+    {
+      "file": "src/backend/app/repositories/appointments.py",
+      "executable_changed": 7,
+      "covered": 7,
+      "missing_lines": [],
+      "changed_lines": [
+        19,
+        85,
+        89,
+        90,
+        91,
+        92,
+        93
+      ],
+      "branch_arcs_from_changed_lines": 2,
+      "missing_branch_arcs": []
+    },
+    {
+      "file": "src/backend/app/schemas/appointments.py",
+      "executable_changed": 3,
+      "covered": 3,
+      "missing_lines": [],
+      "changed_lines": [
+        68,
+        71,
+        73
+      ],
+      "branch_arcs_from_changed_lines": 0,
+      "missing_branch_arcs": []
+    },
+    {
+      "file": "src/backend/app/services/appointment_export.py",
+      "executable_changed": 34,
+      "covered": 34,
+      "missing_lines": [],
+      "changed_lines": [
+        3,
+        4,
+        5,
+        6,
+        8,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        17,
+        18,
+        31,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        45,
+        46,
+        47,
+        48,
+        51,
+        54,
+        55,
+        58,
+        59,
+        60,
+        61
+      ],
+      "branch_arcs_from_changed_lines": 8,
+      "missing_branch_arcs": []
+    }
+  ],
+  "covered": 50,
+  "executable_changed": 50,
+  "line_percent": 100.0
+}
