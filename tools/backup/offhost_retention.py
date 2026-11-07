@@ -1,0 +1,128 @@
+"""Conservative scoped retention; verify all candidates before deleting exact objects."""
+
+import re
+import tempfile
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+from tools.backup.offhost_contract import (
+    Code,
+    Completion,
+    RemoteError,
+    Retirement,
+    canonical,
+    contract,
+    payload_key,
+    point_key,
+)
+from tools.backup.offhost_io import directory
+from tools.backup.offhost_s3 import S3
+from tools.backup.offhost_upload import read_point, verify_remote
+
+from app.backup.manifest import BACKUP_ID, timestamp
+
+
+def records(remote: S3) -> tuple[list[tuple[Completion, str]], list[Retirement], int]:
+    result, retired, ignored = [], [], 0
+    prefix = remote.config.scope + "points/"
+    for key in remote.inventory():
+        relative = key.removeprefix(prefix)
+        parts = relative.split("/")
+        if len(parts) == 2 and parts[1] == "complete.json" and BACKUP_ID.fullmatch(parts[0]):
+            raw = remote.get(key)
+            if raw is None:
+                raise RemoteError(Code.CONFLICT)
+            try:
+                point = contract(raw[0], Completion)
+            except RemoteError:
+                retirement = contract(raw[0], Retirement)
+                retirement.point.require(remote.config, parts[0])
+                retired.append(retirement)
+            else:
+                point.require(remote.config, parts[0])
+                result.append((point, raw[1]))
+        elif not re.fullmatch(
+            r"prl-backup-\d{8}T\d{6}Z-[0-9a-f]{32}/blobs/[0-9a-f]{64}\.age", relative
+        ):
+            ignored += 1
+    return result, retired, ignored
+
+
+def inventory(remote: S3) -> tuple[list[tuple[Completion, str]], int]:
+    points, _, ignored = records(remote)
+    return points, ignored
+
+
+def retain(remote: S3, scratch: Path, *, now: datetime | None = None) -> dict:
+    started = datetime.now(UTC) if now is None else now
+    if started.tzinfo != UTC or started > datetime.now(UTC):
+        raise RemoteError(Code.CONFIGURATION)
+    points, retired, ignored = records(remote)
+    points.sort(
+        key=lambda item: (
+            item[0].snapshot.established_after,
+            item[0].backup_completed_at,
+            item[0].backup_id,
+        ),
+        reverse=True,
+    )
+    if not points:
+        if retired:
+            raise RemoteError(Code.INTEGRITY)
+        return dict(removed_count=0, preserved_count=0, ignored_entries=ignored)
+    cutoff = started - timedelta(days=remote.config.max_age_days)
+    directory(scratch)
+    with tempfile.TemporaryDirectory(prefix="retention-", dir=scratch) as temporary:
+        work = Path(temporary)
+        # A corrupt/unknown completion or payload aborts the entire plan before deletion.
+        for point, _ in points:
+            verify_remote(remote, point, work)
+        verified = [(point, etag) for point, etag in points if point.format_version == 2]
+        if not verified:
+            return dict(removed_count=0, preserved_count=len(points), ignored_entries=ignored)
+        guard, guard_etag = verified[0]
+        for retirement in retired:
+            if read_point(remote, guard.backup_id) != (guard, guard_etag):
+                raise RemoteError(Code.CONFLICT)
+            # Resume cleanup after a crash following the retirement commit.
+            remote.delete(payload_key(remote.config, retirement.point))
+        candidates = [
+            (point, etag)
+            for index, (point, etag) in enumerate(verified)
+            if index > 0
+            and timestamp(point.verified_at) <= started
+            and (index >= remote.config.keep_count or timestamp(point.backup_completed_at) < cutoff)
+        ]
+        # Retire oldest eligible points first so interruption preserves newer history.
+        candidates.reverse()
+        removed = 0
+        for point, etag in candidates:
+            remote.deadline.remaining()
+            current_guard = read_point(remote, guard.backup_id)
+            current = read_point(remote, point.backup_id)
+            if current_guard != (guard, guard_etag) or current != (point, etag):
+                raise RemoteError(Code.CONFLICT)
+            verify_remote(remote, guard, work)
+            # Conditional PUT is supported by the selected S3-compatible store.
+            # Do not rely on nonportable conditional DELETE. The permanent CAS
+            # tombstone fences duplicate uploads before its immutable blob is removed.
+            retirement = Retirement(
+                point=point,
+                retired_at=datetime.now(UTC)
+                .isoformat(timespec="microseconds")
+                .replace("+00:00", "Z"),
+            )
+            key = point_key(remote.config, point.backup_id)
+            try:
+                remote.replace(key, canonical(retirement), etag)
+            except RemoteError as error:
+                if error.code != Code.CONFLICT:
+                    raise
+                observed = remote.get(key)
+                if observed is None or contract(observed[0], Retirement).point != point:
+                    raise RemoteError(Code.CONFLICT) from None
+            remote.delete(payload_key(remote.config, point))
+            removed += 1
+        return dict(
+            removed_count=removed, preserved_count=len(points) - removed, ignored_entries=ignored
+        )

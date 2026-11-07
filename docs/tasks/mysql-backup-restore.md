@@ -65,6 +65,12 @@ tính kiểm chứng cho môi trường lab/demo, chưa có bằng chứng throu
 
 ## Restore và xác minh
 
+Khi cần bản sao ngoài host, dùng [transport HTTPS S3 + age](offhost-backup.md).
+Transport giữ nguyên snapshot/manifest này, thêm encrypted application escrow,
+retrieve có xác minh và trạng thái remote riêng; không tự biến local success thành
+remote hoặc application-rehearsal success. Source local và staging giải mã vẫn
+cần filesystem private được mã hóa theo môi trường.
+
 `restore --backup-id <id> --target-database <name>` bắt buộc có
 `RESTORE_DATABASE_URL` trỏ đúng tên đích. Luôn từ chối tên source/current database,
 kể cả trên server riêng; không có cờ force/overwrite. Đích phải rỗng, MySQL 8.4,

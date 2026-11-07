@@ -505,6 +505,12 @@ Cấu hình stack local/demo, các dashboard, bằng chứng nghiệm thu và gi
 
 ## MySQL backup và recovery (Issue #36)
 
+Transport [off-host HTTPS S3 + age](docs/tasks/offhost-backup.md) bổ sung bản sao
+mã hóa, escrow image/migration/configuration, retrieve vào target riêng và trạng
+thái remote cho monitoring. Workflow `Encrypted off-host recovery` kiểm chứng
+source bị cô lập, schema/rows và gateway smoke thực; cấu hình storage/key độc lập
+vẫn là đầu vào môi trường, không phải deployment hay số đo production.
+
 Backup online MySQL 8.4/InnoDB giữ schema, dữ liệu và Alembic revision trong cùng
 snapshot, có manifest/checksum và completion nguyên tử. Restore bắt buộc database
 riêng rỗng, verify toàn bộ schema/rows/ràng buộc trước khi chạy smoke ứng dụng thật.

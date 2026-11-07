@@ -1,0 +1,20 @@
+{
+  "format_version": 1,
+  "backend": "s3-age",
+  "endpoint": "https://s3.example.invalid",
+  "region": "us-east-1",
+  "bucket": "prl-recovery",
+  "prefix": "managed-backups",
+  "environment": "production",
+  "store": "backup-storage",
+  "source_id": "REPLACE_WITH_VERIFIED_SOURCE_ID_SHA256",
+  "recipient": "REPLACE_WITH_AGE_X25519_PUBLIC_RECIPIENT",
+  "ca_file": null,
+  "max_seconds": 900,
+  "request_seconds": 10,
+  "attempts": 3,
+  "max_bytes": 4294967296,
+  "min_free_bytes": 67108864,
+  "keep_count": 7,
+  "max_age_days": 30
+}
