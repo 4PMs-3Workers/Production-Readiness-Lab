@@ -3,7 +3,6 @@
 import hashlib
 import json
 import os
-import tarfile
 import tempfile
 from pathlib import Path
 from typing import Annotated
@@ -19,8 +18,15 @@ from tools.backup.offhost_contract import (
     contract,
     private_file,
 )
+from tools.backup.offhost_image_archive import (
+    ArchiveImage,
+    inspect_archive,
+    json_value,
+    platform_manifest,
+    verify_vendor,
+)
 from tools.backup.offhost_io import Deadline, digest, directory, run
-from tools.backup.offhost_package import Entry, PlainTarInfo
+from tools.backup.offhost_package import Entry
 from tools.deploy.release_images import local_image_identity
 from tools.deploy.release_manifest import (
     ROOT,
@@ -86,45 +92,49 @@ def inspect(reference: str, deadline: Deadline) -> dict:
 
 
 def archive_config(path: Path, deadline: Deadline) -> tuple[str, dict]:
-    """Inspect without extraction; ID-only saves must not carry mutable RepoTags."""
+    image = inspect_archive(path, deadline)
+    return image.config_id, image.config
+
+
+def vendor_proof(reference: str, image: ArchiveImage, deadline: Deadline) -> bytes | None:
+    pinned = reference.rsplit("@", 1)[1]
+    if pinned in image.pinned_records:
+        verify_vendor(reference, image, image.pinned_records)
+        return None
+    repository = reference.rsplit("@", 1)[0]
+
+    def fetch(digest: str) -> bytes:
+        return capture(["skopeo", "inspect", "--raw", f"docker://{repository}@{digest}"], deadline)
+
     try:
-        with tarfile.open(path, "r:", tarinfo=PlainTarInfo) as archive:
-            members = {}
-            for item in archive:
-                deadline.remaining()
-                if (
-                    item.name in members
-                    or len(members) >= 20000
-                    or item.name.startswith("/")
-                    or ".." in item.name.split("/")
-                    or not (item.isfile() or item.isdir())
-                ):
-                    raise ValueError()
-                members[item.name] = item
-
-            def read(name):
-                item = members[name]
-                if not item.isfile() or item.size > 1024**2:
-                    raise ValueError()
-                stream = archive.extractfile(item)
-                if stream is None:
-                    raise ValueError()
-                with stream:
-                    return stream.read(1024**2 + 1)
-
-            manifest = json.loads(read("manifest.json"), object_pairs_hook=no_duplicate_keys)
-            if len(manifest) != 1 or manifest[0].get("RepoTags") not in (None, []):
-                raise ValueError()
-            config_raw = read(manifest[0]["Config"])
-            config = json.loads(config_raw, object_pairs_hook=no_duplicate_keys)
-            if config.get("os") != "linux" or config.get("architecture") != "amd64":
-                raise ValueError()
-            for name in manifest[0]["Layers"]:
-                if name not in members or not members[name].isfile():
-                    raise ValueError()
-            return "sha256:" + hashlib.sha256(config_raw).hexdigest(), config
-    except (tarfile.TarError, OSError, ValueError, KeyError, TypeError):
+        top = fetch(pinned)
+        records = {pinned: top}
+        if "manifests" in json_value(top):
+            selected = platform_manifest(json_value(top))
+            records[selected.digest] = fetch(selected.digest)
+        verify_vendor(reference, image, records)
+        raw = canonical({key: value.decode("utf-8") for key, value in records.items()})
+        if len(raw) > 1024**2:
+            raise ValueError()
+        return raw
+    except (KeyError, TypeError, AttributeError, ValueError):
         raise RemoteError(Code.IMAGE) from None
+
+
+def archived_vendor_proof(
+    proof: Path, reference: str, image: ArchiveImage, *, required: bool
+) -> bytes | None:
+    if proof.exists() or proof.is_symlink():
+        raw = private_file(proof, 1024**2)
+        try:
+            records = {key: value.encode("utf-8") for key, value in json_value(raw).items()}
+        except (ValueError, TypeError, AttributeError):
+            raise RemoteError(Code.IMAGE) from None
+        verify_vendor(reference, image, records)
+        return raw
+    if required or reference.rsplit("@", 1)[1] in image.pinned_records:
+        verify_vendor(reference, image, image.pinned_records)
+    return None
 
 
 def release_at(path: Path) -> Release:
@@ -202,9 +212,13 @@ def prepare(release_file: Path, destination: Path, maximum: int, deadline: Deadl
         total += size
         if total > maximum:
             raise RemoteError(Code.IMAGE)
-        config_id, _ = archive_config(path, deadline)
-        if name in release.images and config_id != release.images[name].image_id:
-            raise RemoteError(Code.IMAGE)
+        archived = inspect_archive(path, deadline)
+        config_id = archived.config_id
+        if name in release.images:
+            if config_id != release.images[name].image_id:
+                raise RemoteError(Code.IMAGE)
+        elif (pin := vendor_proof(reference, archived, deadline)) is not None:
+            write_private(destination / "images" / f"{name}.pin.json", pin)
         images[name] = dict(
             reference=reference, local_id=local["id"], config_id=config_id, sha256=sha, bytes=size
         )
@@ -237,7 +251,12 @@ def prepare(release_file: Path, destination: Path, maximum: int, deadline: Deadl
 
 
 def verify(
-    path: Path, backup: Manifest, maximum: int, deadline: Deadline
+    path: Path,
+    backup: Manifest,
+    maximum: int,
+    deadline: Deadline,
+    *,
+    require_vendor_pin: bool = True,
 ) -> tuple[Escrow, Release, dict[str, tuple[Path, Entry]]]:
     escrow_raw = private_file(path / "escrow.json", 1024**2)
     release_raw = private_file(path / "release.json", 1024**2)
@@ -270,7 +289,8 @@ def verify(
             image.bytes,
         ):
             raise RemoteError(Code.IMAGE)
-        config_id, config = archive_config(archive, deadline)
+        archived = inspect_archive(archive, deadline)
+        config_id, config = archived.config_id, archived.config
         if config_id != image.config_id or (
             name in release.images
             and (
@@ -283,6 +303,14 @@ def verify(
         ):
             raise RemoteError(Code.IMAGE)
         files[f"images/{name}.tar"] = (archive, Entry(bytes=image.bytes, sha256=image.sha256))
+        if name in release.vendor_images:
+            proof = path / "images" / f"{name}.pin.json"
+            raw = archived_vendor_proof(proof, expected, archived, required=require_vendor_pin)
+            if raw is not None:
+                files[f"images/{name}.pin.json"] = (
+                    proof,
+                    Entry(bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest()),
+                )
     for item in release.configuration.files:
         name = "configuration/" + item.path
         from tools.backup.offhost_package import safe_name

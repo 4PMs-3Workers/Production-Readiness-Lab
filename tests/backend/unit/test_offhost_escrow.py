@@ -17,6 +17,7 @@ from tools.backup.offhost_escrow import (
     release_at,
     verify,
 )
+from tools.backup.offhost_image_archive import OCI, sha
 from tools.backup.offhost_io import Deadline
 from tools.deploy.release_manifest import ROOT, Spec, parse, proof
 from tools.deploy.release_manifest import Manifest as Release
@@ -24,7 +25,7 @@ from tools.deploy.release_manifest import Manifest as Release
 from app.backup.manifest import manifest_bytes, parse_manifest
 
 
-def image_archive(path, *, tags=None, source="a" * 40):
+def image_archive(path, *, tags=None, source="a" * 40, oci_names=None):
     raw = json.dumps(
         dict(
             os="linux",
@@ -34,19 +35,50 @@ def image_archive(path, *, tags=None, source="a" * 40):
         )
     ).encode()
     config_id = "sha256:" + hashlib.sha256(raw).hexdigest()
+    records = {"config.json": raw}
+    if oci_names is not None:
+        manifest = vendor_manifest(config_id, len(raw))
+        records.update(
+            {
+                "oci-layout": b'{"imageLayoutVersion":"1.0.0"}',
+                "index.json": canonical(
+                    dict(
+                        schemaVersion=2,
+                        manifests=[
+                            dict(
+                                digest=sha(manifest),
+                                size=len(manifest),
+                                mediaType=OCI + "manifest.v1+json",
+                                annotations=oci_names,
+                            )
+                        ],
+                    )
+                ),
+                "blobs/sha256/" + config_id[7:]: raw,
+                "blobs/sha256/" + sha(manifest)[7:]: manifest,
+            }
+        )
+    records["manifest.json"] = json.dumps(
+        [dict(Config="config.json", RepoTags=tags, Layers=[])]
+    ).encode()
     with tarfile.open(path, "w") as archive:
-        for name, payload in (
-            ("config.json", raw),
-            (
-                "manifest.json",
-                json.dumps([dict(Config="config.json", RepoTags=tags, Layers=[])]).encode(),
-            ),
-        ):
+        for name, payload in records.items():
             item = tarfile.TarInfo(name)
             item.size = len(payload)
             archive.addfile(item, io.BytesIO(payload))
     path.chmod(0o600)
     return config_id
+
+
+def vendor_manifest(config_id, size):
+    return canonical(
+        dict(
+            schemaVersion=2,
+            mediaType=OCI + "manifest.v1+json",
+            config=dict(digest=config_id, size=size, mediaType=OCI + "config.v1+json"),
+            layers=[],
+        )
+    )
 
 
 def escrow_fixture(tmp_path):
@@ -63,6 +95,14 @@ def escrow_fixture(tmp_path):
         )
         if name in data["images"]:
             data["images"][name]["image_id"] = identity
+        else:
+            with tarfile.open(path, "r") as saved:
+                pin = vendor_manifest(identity, saved.getmember("config.json").size)
+            reference = reference.rsplit("@", 1)[0] + "@" + sha(pin)
+            data["vendor_images"][name] = reference
+            proof_path = path.with_name(f"{name}.pin.json")
+            proof_path.write_bytes(canonical({sha(pin): pin.decode()}))
+            proof_path.chmod(0o600)
         images[name] = dict(
             reference=reference,
             local_id=identity,
@@ -156,6 +196,34 @@ def test_mutable_tagged_image_archives_are_refused_before_loading(tmp_path):
     image_archive(path, tags=["unrelated:do-not-overwrite"])
     with pytest.raises(RemoteError):
         archive_config(path, Deadline(5))
+
+
+@pytest.mark.parametrize(
+    "annotation", ["org.opencontainers.image.ref.name", "io.containerd.image.name"]
+)
+def test_oci_index_cannot_apply_a_tag_missing_from_legacy_manifest(tmp_path, annotation):
+    path = tmp_path / "tagged-oci.tar"
+    image_archive(path, oci_names={annotation: "unrelated:do-not-overwrite"})
+    with pytest.raises(RemoteError):
+        archive_config(path, Deadline(5))
+
+
+def test_vendor_pin_rejects_a_substituted_archive_even_if_escrow_hashes_match(tmp_path):
+    escrow, backup = escrow_fixture(tmp_path)
+    path = tmp_path / "images/mysql.tar"
+    substituted = image_archive(path, source="b" * 40)
+    image = escrow.images["mysql"].model_copy(
+        update=dict(
+            config_id=substituted,
+            local_id=substituted,
+            sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+            bytes=path.stat().st_size,
+        )
+    )
+    changed = escrow.model_copy(update={"images": dict(escrow.images, mysql=image)})
+    (tmp_path / "escrow.json").write_bytes(canonical(changed))
+    with pytest.raises(RemoteError, match=Code.IMAGE.value):
+        verify(tmp_path, backup, 1024**2, Deadline(5))
 
 
 def test_import_resolves_config_identity_without_accepting_a_different_image(tmp_path, monkeypatch):

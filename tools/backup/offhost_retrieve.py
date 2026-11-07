@@ -88,7 +88,13 @@ def retrieve_locked(
             or manifest.completed_at != point.backup_completed_at
         ):
             raise RemoteError(Code.IDENTITY)
-        escrow, _, files = verify(decoded, manifest, config.max_bytes, deadline)
+        escrow, _, files = verify(
+            decoded,
+            manifest,
+            config.max_bytes,
+            deadline,
+            require_vendor_pin=point.format_version == 2,
+        )
         expected = set(files) | {"backup/" + path.name for path in artifact.iterdir()}
         if set(metadata.files) != expected or escrow.release_sha256 != point.release_sha256:
             raise RemoteError(Code.INTEGRITY)
@@ -102,7 +108,13 @@ def retrieve_locked(
                 escrow_target / "POINT.json", 1024**2
             ) != canonical(point):
                 raise RemoteError(Code.CONFLICT)
-            verify(escrow_target, manifest, config.max_bytes, deadline)
+            verify(
+                escrow_target,
+                manifest,
+                config.max_bytes,
+                deadline,
+                require_vendor_pin=point.format_version == 2,
+            )
         else:
             write_private(decoded / "POINT.json", canonical(point))
             os.rename(decoded, escrow_target)

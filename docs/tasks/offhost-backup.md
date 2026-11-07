@@ -82,6 +82,14 @@ and configuration in independently accessible recovery storage. The uploader
 does not need the private identity. A private key stored only on the source host
 cannot satisfy host-loss recovery.
 
+The preparation host uses Skopeo to capture the digest-pinned vendor index and
+selected manifest when the Docker export does not already contain that proof.
+Keep those small proof files with the image archives. The recovery tool validates
+the vendor pin, image configuration and ordered filesystem layer hashes offline.
+Legacy points remain readable and are excluded from automatic remote retirement.
+If a legacy archive lacks vendor proof, use independently verified digest-pinned
+vendor images when restoring its retrieved snapshot.
+
 Copy [the configuration template](../../tools/backup/offhost.config.example.json)
 outside the checkout, replace every placeholder and set file mode 0600. The
 example is intentionally unusable until real inputs are supplied. Configuration
