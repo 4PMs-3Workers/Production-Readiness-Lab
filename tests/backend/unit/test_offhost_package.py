@@ -5,7 +5,7 @@ import tarfile
 import pytest
 from tools.backup.offhost_contract import RemoteError, canonical
 from tools.backup.offhost_io import Deadline
-from tools.backup.offhost_package import Package, pack, unpack
+from tools.backup.offhost_package import Entry, Package, pack, unpack
 
 ID = "prl-backup-20261001T000000Z-" + "a" * 32
 
@@ -30,7 +30,7 @@ def package_files(tmp_path):
 def test_private_package_roundtrip_checks_every_file(tmp_path):
     files = package_files(tmp_path)
     source, target = tmp_path / "package.tar.gz", tmp_path / "target"
-    metadata = pack(files, ID, source, 65536, Deadline(5))
+    metadata = pack(expected_files(files), ID, source, 65536, Deadline(5))
     assert unpack(source, target, 65536, Deadline(5)) == metadata
     for name, path in files.items():
         assert (target / name).read_bytes() == path.read_bytes()
@@ -75,8 +75,18 @@ def test_untrusted_members_are_never_extracted(tmp_path, fault):
 
 
 def test_expired_pack_and_byte_budget_never_produce_accepted_packages(tmp_path):
-    files = package_files(tmp_path)
+    files = expected_files(package_files(tmp_path))
     with pytest.raises(RemoteError):
         pack(files, ID, tmp_path / "expired", 65536, Deadline(0))
     with pytest.raises(RemoteError):
         pack(files, ID, tmp_path / "oversize", 20, Deadline(5))
+
+
+def expected_files(files):
+    return {
+        name: (
+            path,
+            Entry(bytes=path.stat().st_size, sha256=hashlib.sha256(path.read_bytes()).hexdigest()),
+        )
+        for name, path in files.items()
+    }

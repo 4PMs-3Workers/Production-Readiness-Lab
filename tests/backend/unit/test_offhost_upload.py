@@ -95,3 +95,20 @@ def test_failed_transfer_never_marks_complete_or_deletes_good_local_copy(
     assert (local.store / backup_id / "COMPLETE").exists()
     if fault != "input":
         assert load_artifact(local, backup_id).backup_id == backup_id
+
+
+@pytest.mark.parametrize("name", ["backup/users.jsonl", "images/backend.tar", "escrow.json"])
+def test_mutation_after_validation_cannot_publish_completion(tmp_path, monkeypatch, name):
+    from tools.backup.offhost_package import pack
+
+    local, remote, backup_id, escrow = inputs(tmp_path, monkeypatch)
+
+    def change_before_pack(files, *args):
+        path, entry = files[name]
+        path.write_bytes(b"x" * entry.bytes)
+        return pack(files, *args)
+
+    monkeypatch.setattr("tools.backup.offhost_upload.pack", change_before_pack)
+    with pytest.raises(RemoteError, match=Code.INTEGRITY.value):
+        upload(local, remote, backup_id, escrow, tmp_path / "age", tmp_path / "work")
+    assert remote.client.objects == {}

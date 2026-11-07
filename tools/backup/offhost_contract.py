@@ -196,7 +196,7 @@ def source_identity(manifest: Manifest) -> str:
 
 class Completion(Versioned):
     format: Literal["prl-offhost-point"] = "prl-offhost-point"
-    format_version: Literal[1] = 1
+    format_version: Literal[1, 2] = 1
     state: Literal["complete"] = "complete"
     backup_id: str
     source_id: Digest

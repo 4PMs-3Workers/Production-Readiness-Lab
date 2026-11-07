@@ -20,6 +20,7 @@ from tools.backup.offhost_contract import (
     private_file,
 )
 from tools.backup.offhost_io import Deadline, digest, directory, run
+from tools.backup.offhost_package import Entry
 from tools.deploy.release_images import local_image_identity
 from tools.deploy.release_manifest import (
     ROOT,
@@ -127,8 +128,12 @@ def archive_config(path: Path, deadline: Deadline) -> tuple[str, dict]:
 
 
 def release_at(path: Path) -> Release:
+    return parse_release(private_file(path, 1024**2, secret=False))
+
+
+def parse_release(raw: bytes) -> Release:
     try:
-        return parse(private_file(path, 1024**2, secret=False), Release)
+        return parse(raw, Release)
     except ReleaseError:
         raise RemoteError(Code.IMAGE) from None
 
@@ -233,9 +238,11 @@ def prepare(release_file: Path, destination: Path, maximum: int, deadline: Deadl
 
 def verify(
     path: Path, backup: Manifest, maximum: int, deadline: Deadline
-) -> tuple[Escrow, Release, dict[str, Path]]:
-    escrow = contract(private_file(path / "escrow.json", 1024**2), Escrow)
-    release = release_at(path / "release.json")
+) -> tuple[Escrow, Release, dict[str, tuple[Path, Entry]]]:
+    escrow_raw = private_file(path / "escrow.json", 1024**2)
+    release_raw = private_file(path / "release.json", 1024**2)
+    escrow = contract(escrow_raw, Escrow)
+    release = parse_release(release_raw)
     if (
         escrow.source_sha != release.provenance.source_sha
         or escrow.source_sha != backup.source_sha
@@ -244,10 +251,13 @@ def verify(
         or backup.source.revision not in release.accepted_schema_revisions
         or set(escrow.images) != set(release.images) | set(release.vendor_images)
         or escrow.images["backend"].local_id != backup.image_id
-        or hashlib.sha256((path / "release.json").read_bytes()).hexdigest() != escrow.release_sha256
+        or hashlib.sha256(release_raw).hexdigest() != escrow.release_sha256
     ):
         raise RemoteError(Code.IMAGE)
-    files = {name: path / name for name in ("release.json", "escrow.json")}
+    files = {
+        name: (path / name, Entry(bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest()))
+        for name, raw in (("release.json", release_raw), ("escrow.json", escrow_raw))
+    }
     for name, image in escrow.images.items():
         expected = (
             release.images[name].reference
@@ -272,7 +282,7 @@ def verify(
             )
         ):
             raise RemoteError(Code.IMAGE)
-        files[f"images/{name}.tar"] = archive
+        files[f"images/{name}.tar"] = (archive, Entry(bytes=image.bytes, sha256=image.sha256))
     for item in release.configuration.files:
         name = "configuration/" + item.path
         from tools.backup.offhost_package import safe_name
@@ -280,9 +290,10 @@ def verify(
         if not safe_name(name):
             raise RemoteError(Code.IMAGE)
         source = path / name
-        if digest(source, 1024**2 * 16, deadline)[0] != item.sha256:
+        actual, size = digest(source, 1024**2 * 16, deadline)
+        if actual != item.sha256:
             raise RemoteError(Code.IMAGE)
-        files[name] = source
+        files[name] = (source, Entry(bytes=size, sha256=item.sha256))
     return escrow, release, files
 
 

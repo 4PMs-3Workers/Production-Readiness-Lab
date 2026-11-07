@@ -1,6 +1,7 @@
 """Stream a bounded, allowlisted private tar package; never extract arbitrary members."""
 
 import hashlib
+import io
 import os
 import re
 import tarfile
@@ -14,7 +15,7 @@ from tools.backup.offhost_contract import (
     canonical,
     contract,
 )
-from tools.backup.offhost_io import Deadline, digest, directory
+from tools.backup.offhost_io import Deadline, directory, regular
 
 from app.backup.manifest import BACKUP_ID, Digest, StrictModel
 from app.backup.storage import capacity, sync_directory
@@ -46,6 +47,17 @@ class BoundedReader:
         return self.source.read(size)
 
 
+class HashingReader(BoundedReader):
+    def __init__(self, source, deadline: Deadline):
+        super().__init__(source, deadline)
+        self.checksum = hashlib.sha256()
+
+    def read(self, size=-1):
+        block = super().read(size)
+        self.checksum.update(block)
+        return block
+
+
 class Package(Versioned):
     format: str = Field(pattern=r"^prl-offhost-package$")
     format_version: int = Field(ge=1, le=1)
@@ -70,19 +82,19 @@ class Package(Versioned):
 
 
 def pack(
-    files: dict[str, Path], backup_id: str, output: Path, maximum: int, deadline: Deadline
+    files: dict[str, tuple[Path, Entry]],
+    backup_id: str,
+    output: Path,
+    maximum: int,
+    deadline: Deadline,
 ) -> Package:
-    entries = {}
-    for name, path in files.items():
-        sha, size = digest(path, maximum, deadline)
-        entries[name] = dict(bytes=size, sha256=sha)
     metadata = contract(
         canonical(
             dict(
                 format="prl-offhost-package",
                 format_version=1,
                 backup_id=backup_id,
-                files=entries,
+                files={name: entry.model_dump() for name, (_, entry) in files.items()},
             )
         ),
         Package,
@@ -91,7 +103,6 @@ def pack(
         raise RemoteError(Code.INTEGRITY)
     capacity(output.parent, sum(entry.bytes for entry in metadata.files.values()), 0)
     fd = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    import io
 
     with (
         os.fdopen(fd, "wb") as raw,
@@ -101,17 +112,18 @@ def pack(
         info = tarfile.TarInfo("package.json")
         info.size, info.mode = len(data), 0o600
         archive.addfile(info, io.BytesIO(data))
-        for name, path in sorted(files.items()):
+        for name, (path, entry) in sorted(files.items()):
             deadline.remaining()
-            entry = metadata.files[name]
+            if regular(path, maximum) != entry.bytes:
+                raise RemoteError(Code.INTEGRITY)
             info = tarfile.TarInfo(name)
             info.size, info.mode = entry.bytes, 0o600
-            with path.open("rb") as source:
-                archive.addfile(info, BoundedReader(source, deadline))
-            # Detect a cooperative write or input race during packaging.
-            if digest(path, maximum, deadline) != (entry.sha256, entry.bytes):
-                raise RemoteError(Code.INTEGRITY)
-    digest(output, maximum + 8 * 1024**2, deadline)
+            descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+            with os.fdopen(descriptor, "rb") as source:
+                reader = HashingReader(source, deadline)
+                archive.addfile(info, reader)
+                if reader.checksum.hexdigest() != entry.sha256 or source.read(1):
+                    raise RemoteError(Code.INTEGRITY)
     return metadata
 
 

@@ -31,6 +31,7 @@ def points(tmp_path, *, keep=1):
         blob = f"encrypted-fixture-{number}".encode()
         point = Completion.model_validate(
             dict(
+                format_version=2,
                 backup_id="prl-backup-20261001T000000Z-" + f"{number:032x}",
                 source_id=config.source_id,
                 configuration_sha256=config.identity,
@@ -122,3 +123,12 @@ def test_active_payload_cannot_be_deleted_without_its_retirement_receipt(tmp_pat
         remote.delete(payload_key(remote.config, values[0]))
     assert payload_key(remote.config, values[0]) in remote.client.objects
     assert not any(operation == "delete" for operation, _ in remote.client.calls)
+
+
+def test_legacy_point_cannot_guard_or_be_automatically_retired(tmp_path):
+    remote, values, now = points(tmp_path)
+    legacy = values[-1].model_copy(update={"format_version": 1})
+    remote.client.objects[point_key(remote.config, legacy.backup_id)] = canonical(legacy)
+    assert retain(remote, tmp_path / "work", now=now)["removed_count"] == 1
+    for preserved in (values[1], legacy):
+        assert payload_key(remote.config, preserved) in remote.client.objects

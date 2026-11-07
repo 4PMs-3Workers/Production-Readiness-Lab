@@ -15,15 +15,17 @@ from tools.backup.offhost_contract import (
     contract,
     payload_key,
     point_key,
+    private_file,
     source_identity,
 )
 from tools.backup.offhost_escrow import verify
 from tools.backup.offhost_io import age, digest, directory
-from tools.backup.offhost_package import pack
+from tools.backup.offhost_package import Entry, pack
 from tools.backup.offhost_s3 import S3
 
 from app.backup.config import BackupConfig
 from app.backup.locking import operation_lock
+from app.backup.manifest import MAX_MANIFEST_BYTES, parse_manifest
 from app.backup.storage import load_artifact
 
 
@@ -78,9 +80,21 @@ def upload_locked(
         raise RemoteError(Code.IDENTITY)
     escrow, _, files = verify(escrow_path, manifest, config.max_bytes, deadline)
     artifact = local.store / backup_id
-    raw = (artifact / "manifest.json").read_bytes()
+    raw = private_file(artifact / "manifest.json", MAX_MANIFEST_BYTES)
+    if parse_manifest(raw, compatible=False) != manifest:
+        raise RemoteError(Code.INTEGRITY)
     manifest_sha = hashlib.sha256(raw).hexdigest()
-    files.update({f"backup/{path.name}": path for path in artifact.iterdir()})
+    files["backup/manifest.json"] = (
+        artifact / "manifest.json",
+        Entry(bytes=len(raw), sha256=manifest_sha),
+    )
+    files["backup/COMPLETE"] = (
+        artifact / "COMPLETE",
+        Entry(bytes=64, sha256=hashlib.sha256(manifest_sha.encode()).hexdigest()),
+    )
+    for table, item in manifest.files.items():
+        name = f"{table}.jsonl"
+        files[f"backup/{name}"] = (artifact / name, Entry(bytes=item.bytes, sha256=item.sha256))
 
     def equivalent(point: Completion) -> None:
         if (
@@ -117,7 +131,7 @@ def upload_locked(
             canonical(
                 dict(
                     format="prl-offhost-point",
-                    format_version=1,
+                    format_version=2,
                     state="complete",
                     backup_id=backup_id,
                     source_id=config.source_id,

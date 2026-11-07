@@ -77,7 +77,10 @@ def retain(remote: S3, scratch: Path, *, now: datetime | None = None) -> dict:
         # A corrupt/unknown completion or payload aborts the entire plan before deletion.
         for point, _ in points:
             verify_remote(remote, point, work)
-        guard, guard_etag = points[0]
+        verified = [(point, etag) for point, etag in points if point.format_version == 2]
+        if not verified:
+            return dict(removed_count=0, preserved_count=len(points), ignored_entries=ignored)
+        guard, guard_etag = verified[0]
         for retirement in retired:
             if read_point(remote, guard.backup_id) != (guard, guard_etag):
                 raise RemoteError(Code.CONFLICT)
@@ -85,7 +88,7 @@ def retain(remote: S3, scratch: Path, *, now: datetime | None = None) -> dict:
             remote.delete(payload_key(remote.config, retirement.point))
         candidates = [
             (point, etag)
-            for index, (point, etag) in enumerate(points)
+            for index, (point, etag) in enumerate(verified)
             if index > 0
             and timestamp(point.verified_at) <= started
             and (index >= remote.config.keep_count or timestamp(point.backup_completed_at) < cutoff)
