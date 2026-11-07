@@ -81,6 +81,7 @@ def retrieve_locked(
         artifact = validation / backup_id
         if (
             source_identity(manifest) != config.source_id
+            or manifest.source_sha != point.source_sha
             or manifest.image_id != point.backend_image_id
             or hashlib.sha256((artifact / "manifest.json").read_bytes()).hexdigest()
             != point.backup_manifest_sha256

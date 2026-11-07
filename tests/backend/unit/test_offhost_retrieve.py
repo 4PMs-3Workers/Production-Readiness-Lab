@@ -3,7 +3,7 @@ from dataclasses import replace
 
 import pytest
 from tests.backend.unit.test_offhost_upload import inputs
-from tools.backup.offhost_contract import Code, RemoteError, payload_key, point_key
+from tools.backup.offhost_contract import Code, RemoteError, canonical, payload_key, point_key
 from tools.backup.offhost_retrieve import retrieve
 from tools.backup.offhost_upload import upload
 
@@ -51,6 +51,22 @@ def test_retrieval_survives_new_migration_checkout_but_runtime_check_stays_stric
     with pytest.raises(BackupError) as error:
         load_artifact(target, point.backup_id)
     assert error.value.reason is Reason.INCOMPATIBLE
+
+
+def test_receipt_source_sha_mismatch_publishes_neither_artifact_nor_escrow(tmp_path, monkeypatch):
+    _, target, remote, point = uploaded(tmp_path, monkeypatch)
+    key = point_key(remote.config, point.backup_id)
+    original = remote.client.objects[key]
+    changed = point.model_copy(update={"source_sha": "e" * 40})
+    remote.client.objects[key] = canonical(changed)
+    try:
+        with pytest.raises(RemoteError, match=Code.IDENTITY.value):
+            retrieve(target, remote, point.backup_id, tmp_path / "age", tmp_path / "key")
+        assert not (target.store / point.backup_id).exists()
+        assert not (target.store / ".offhost-escrow" / point.backup_id).exists()
+    finally:
+        remote.client.objects[key] = original
+    assert retrieve(target, remote, point.backup_id, tmp_path / "age", tmp_path / "key")[0] == point
 
 
 @pytest.mark.parametrize("fault", ["missing-point", "missing-payload", "corrupt", "missing-key"])
