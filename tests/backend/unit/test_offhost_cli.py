@@ -1,9 +1,19 @@
+import hashlib
 import json
+import shutil
+from dataclasses import replace
+from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from tests.backend.unit.test_offhost_contract import configuration
+from tests.backend.unit.test_offhost_escrow import image_archive
+from tests.backend.unit.test_offhost_upload import inputs
 from tools.backup import offhost, scheduled
-from tools.backup.offhost_contract import RemoteError, canonical, contract
+from tools.backup.offhost_contract import Code, RemoteError, canonical, contract, point_key
+from tools.backup.offhost_escrow import Escrow, release_at, verify
+from tools.backup.offhost_retrieve import retrieve
+from tools.backup.offhost_upload import upload
 
 
 def test_invalid_configuration_prints_only_a_finite_failure(capsys):
@@ -104,11 +114,9 @@ def test_scheduled_invalid_binding_aborts_before_snapshot_and_retention(
 
 
 def test_import_rechecks_download_receipt_before_loading_or_rendering_images(tmp_path, monkeypatch):
-    from datetime import UTC, datetime
     from types import SimpleNamespace
 
     from tests.backend.unit.test_offhost_retrieve import uploaded
-    from tools.backup.offhost_retrieve import retrieve
 
     _, target, remote, point = uploaded(tmp_path, monkeypatch)
     _, escrow_path = retrieve(target, remote, point.backup_id, tmp_path / "age", tmp_path / "key")
@@ -143,3 +151,113 @@ def test_import_rechecks_download_receipt_before_loading_or_rendering_images(tmp
     with pytest.raises(RemoteError):
         offhost.perform(args, remote.config, tmp_path, datetime.now(UTC))
     assert len(calls) == 4
+
+
+def test_v1_restore_import_uses_authenticated_installed_vendors_only(tmp_path, monkeypatch):
+    local, remote, backup_id, source = inputs(tmp_path, monkeypatch)
+    release = release_at(source / "release.json")
+    source_record = source / "escrow.json"
+    escrow = contract(source_record.read_bytes(), Escrow)
+    vendor = source / "images/mysql.tar"
+    installed = tmp_path / "independently-installed.tar"
+    shutil.copyfile(vendor, installed)
+    installed_id = escrow.images["mysql"].config_id
+    proof = json.loads((source / "images/mysql.pin.json").read_bytes())
+    for path in (source / "images").glob("*.pin.json"):
+        path.unlink()
+
+    # Emulate a v1 archive that claimed the pinned vendor name but held other bytes.
+    substituted = image_archive(vendor, source="b" * 40)
+    payload = vendor.read_bytes()
+    escrow.images["mysql"] = escrow.images["mysql"].model_copy(
+        update=dict(
+            local_id=substituted,
+            config_id=substituted,
+            sha256=hashlib.sha256(payload).hexdigest(),
+            bytes=len(payload),
+        )
+    )
+    source_record.write_bytes(canonical(escrow))
+    monkeypatch.setattr(
+        "tools.backup.offhost_upload.verify",
+        lambda *args: verify(*args, require_vendor_pin=False),
+    )
+    point = upload(local, remote, backup_id, source, tmp_path / "age", tmp_path / "work")
+    legacy = point.model_copy(update={"format_version": 1})
+    remote.client.objects[point_key(remote.config, backup_id)] = canonical(legacy)
+    target = replace(local, store=tmp_path / "recovery")
+
+    def decrypt(executable, source, destination, deadline, **kwargs):
+        shutil.copyfile(source, destination)
+        destination.chmod(0o600)
+
+    monkeypatch.setattr("tools.backup.offhost_retrieve.age", decrypt)
+    _, downloaded = retrieve(target, remote, backup_id, tmp_path / "age", tmp_path / "key")
+    loaded = []
+    vendor_refs = set(release.vendor_images.values())
+
+    def docker(args, deadline):
+        if args[:3] == ["docker", "image", "save"]:
+            assert args[-1] == installed_id
+            shutil.copyfile(installed, args[4])
+        else:
+            assert args[:3] == ["docker", "image", "load"]
+            loaded.append(Path(args[-1]).stem)
+
+    def registry(args, deadline):
+        reference = args[-1].removeprefix("docker://")
+        assert reference in vendor_refs
+        return proof[reference.rsplit("@", 1)[1]].encode()
+
+    monkeypatch.setattr("tools.backup.offhost_escrow.run", docker)
+    monkeypatch.setattr("tools.backup.offhost_escrow.capture", registry)
+    monkeypatch.setattr(
+        "tools.backup.offhost_escrow.inspect",
+        lambda reference, _: dict(
+            id=installed_id if reference in vendor_refs else reference, os="linux", arch="amd64"
+        ),
+    )
+    overlay, runtime = tmp_path / "images.yaml", tmp_path / "runtime"
+    args = offhost.arguments(
+        [
+            "import-images",
+            "--config",
+            str(tmp_path / "config.json"),
+            "--local-store",
+            str(target.store),
+            "--backup-id",
+            backup_id,
+            "--output-overlay",
+            str(overlay),
+            "--output-configuration",
+            str(runtime),
+            "--use-installed-vendors",
+        ]
+    )
+    args.use_installed_vendors = False
+    with pytest.raises(RemoteError, match=Code.IMAGE.value):
+        offhost.perform(args, remote.config, tmp_path, datetime.now(UTC))
+    args.use_installed_vendors = True
+    assert not loaded and not overlay.exists() and not runtime.exists()
+    bad = tmp_path / "wrong-installed.tar"
+    image_archive(bad, source="c" * 40)
+    good = installed.read_bytes()
+    shutil.copyfile(bad, installed)
+    with pytest.raises(RemoteError, match=Code.IMAGE.value):
+        offhost.perform(args, remote.config, tmp_path, datetime.now(UTC))
+    assert not loaded and not overlay.exists() and not runtime.exists()
+
+    installed.write_bytes(good)
+    result = offhost.perform(args, remote.config, tmp_path, datetime.now(UTC))
+    assert set(loaded) == set(release.images)
+    assert result["images_imported"] == len(release.images)
+    assert result["vendor_images_reused"] == len(vendor_refs)
+    assert result["imported_image_ids"]["mysql"] == installed_id
+    assert substituted not in overlay.read_text()
+    assert "pull_policy: never" in overlay.read_text()
+    assert (runtime / "tools/deploy/compose.yaml").is_file()
+
+    (downloaded / "POINT.json").write_bytes(canonical(point))
+    with pytest.raises(RemoteError, match=Code.CONFIGURATION.value):
+        offhost.perform(args, remote.config, tmp_path, datetime.now(UTC))
+    assert set(loaded) == set(release.images)
