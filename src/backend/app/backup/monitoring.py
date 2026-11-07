@@ -547,9 +547,12 @@ def record_remote_copy(
                 previous.store,
             ) == (configuration_sha256, environment, store)
             if (
-                same
+                previous is not None
                 and previous.operation_started_at is not None
-                and previous.operation_started_at > started_at
+                and (
+                    previous.operation_started_at > started_at
+                    or (previous.operation_started_at == started_at and not same)
+                )
             ):
                 return current
             last = previous.last_verified_at if same else None

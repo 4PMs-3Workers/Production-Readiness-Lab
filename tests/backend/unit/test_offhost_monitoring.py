@@ -95,3 +95,34 @@ def test_new_store_binding_and_late_job_cannot_reuse_or_overwrite_success(tmp_pa
         'store="backup-storage"} 1.0' in metrics
     )
     assert "prl_backup_remote_copy_last_verified_timestamp_seconds" not in metrics
+
+
+def test_late_success_from_previous_configuration_cannot_replace_new_pending_state(tmp_path):
+    config, _ = fixture_artifact(tmp_path)
+    path = tmp_path / STATE_FILENAME
+    write_sample_state(path)
+    start = datetime.now(UTC) - timedelta(seconds=5)
+    options = StoreOptions(
+        environment="demo", store="backup-storage", configuration_sha256="a" * 64
+    )
+    record_remote_copy(config, **options, started_at=start, status="pending")
+    options["configuration_sha256"] = "b" * 64
+    record_remote_copy(
+        config,
+        **options,
+        started_at=start + timedelta(seconds=1),
+        status="pending",
+    )
+    before = read_state(path)
+    assert before is not None and before.remote_copy is not None
+    assert before.remote_copy.configuration_sha256 == "b" * 64
+    options["configuration_sha256"] = "a" * 64
+    record_remote_copy(
+        config,
+        **options,
+        started_at=start,
+        status="success",
+        verified_at=start + timedelta(seconds=2),
+        recovery_point_at=start,
+    )
+    assert read_state(path) == before
