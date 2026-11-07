@@ -13,7 +13,7 @@ import tempfile
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal, NoReturn
+from typing import Annotated, Literal, NoReturn
 
 from pydantic import Field
 from tools.backup.offhost_contract import (
@@ -73,6 +73,9 @@ class Report(Versioned):
     ignored_entries: int | None = Field(default=None, ge=0)
     point_count: int | None = Field(default=None, ge=0)
     images_imported: int | None = Field(default=None, ge=0)
+    imported_image_ids: (
+        dict[Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,31}$")], Image] | None
+    ) = Field(default=None, max_length=16)
     recovery_overlay_written: bool | None = None
     recovery_configuration_written: bool | None = None
 
@@ -190,6 +193,7 @@ def perform(args, config, work: Path, started: datetime) -> dict:
             backup_id=point.backup_id,
             source_sha=point.source_sha,
             images_imported=len(escrow.images),
+            imported_image_ids={name: image.runtime_id for name, image in imported.items()},
             recovery_overlay_written=args.output_overlay is not None,
             recovery_configuration_written=args.output_configuration is not None,
         )

@@ -3,6 +3,7 @@ import io
 import json
 import os
 import tarfile
+from dataclasses import replace
 
 import pytest
 from tests.backend.unit.rollout_fixtures import release
@@ -10,14 +11,14 @@ from tests.backend.unit.test_backup_manifest import sample_manifest
 from tools.backup.offhost_contract import Code, RemoteError, canonical
 from tools.backup.offhost_escrow import (
     Escrow,
-    archive_config,
     image_overlay,
     import_images,
     materialize_configuration,
     release_at,
+    target_image,
     verify,
 )
-from tools.backup.offhost_image_archive import OCI, sha
+from tools.backup.offhost_image_archive import OCI, inspect_archive, sha
 from tools.backup.offhost_io import Deadline
 from tools.deploy.release_manifest import ROOT, Spec, parse, proof
 from tools.deploy.release_manifest import Manifest as Release
@@ -195,7 +196,7 @@ def test_mutable_tagged_image_archives_are_refused_before_loading(tmp_path):
     path = tmp_path / "image.tar"
     image_archive(path, tags=["unrelated:do-not-overwrite"])
     with pytest.raises(RemoteError):
-        archive_config(path, Deadline(5))
+        inspect_archive(path, Deadline(5))
 
 
 @pytest.mark.parametrize(
@@ -205,7 +206,7 @@ def test_oci_index_cannot_apply_a_tag_missing_from_legacy_manifest(tmp_path, ann
     path = tmp_path / "tagged-oci.tar"
     image_archive(path, oci_names={annotation: "unrelated:do-not-overwrite"})
     with pytest.raises(RemoteError):
-        archive_config(path, Deadline(5))
+        inspect_archive(path, Deadline(5))
 
 
 def test_vendor_pin_rejects_a_substituted_archive_even_if_escrow_hashes_match(tmp_path):
@@ -238,19 +239,41 @@ def test_import_resolves_config_identity_without_accepting_a_different_image(tmp
     def lookup(reference, deadline):
         if reference not in configs:
             raise RemoteError(Code.IMAGE)
-        return dict(id=reference)
+        return dict(id=reference, os="linux", arch="amd64")
 
     monkeypatch.setattr("tools.backup.offhost_escrow.inspect", lookup)
     monkeypatch.setattr(
         "tools.backup.offhost_escrow.run", lambda args, deadline: calls.append(args)
     )
     imported = import_images(tmp_path, escrow, Deadline(5))
-    assert len(calls) == 4 and set(imported.values()) == configs
+    assert len(calls) == 4 and {value.runtime_id for value in imported.values()} == configs
     selected = release_at(tmp_path / "release.json")
     assert b"pull_policy: never" in image_overlay(escrow, selected, imported)
-    imported["backend"] = "sha256:" + "f" * 64
+    imported["backend"] = replace(imported["backend"], runtime_id="sha256:" + "f" * 64)
     with pytest.raises(RemoteError):
         image_overlay(escrow, selected, imported)
+
+
+def test_containerd_id_must_match_the_verified_archive_descriptor(tmp_path, monkeypatch):
+    path = tmp_path / "portable.tar"
+    config = image_archive(path, oci_names={})
+    image = inspect_archive(path, Deadline(5))
+    descriptor = image.target
+    assert descriptor is not None and config != descriptor.digest
+    descriptor_fields = dict(
+        digest=descriptor.digest, size=descriptor.size, mediaType=descriptor.media_type
+    )
+    observed = dict(
+        id=descriptor.digest,
+        os="linux",
+        arch="amd64",
+        descriptor=descriptor_fields,
+    )
+    monkeypatch.setattr("tools.backup.offhost_escrow.inspect", lambda *_: observed)
+    assert target_image(image, Deadline(5)).runtime_id == descriptor.digest
+    descriptor_fields["digest"] = "sha256:" + "f" * 64
+    with pytest.raises(RemoteError, match=Code.IMAGE.value):
+        target_image(image, Deadline(5))
 
 
 def test_runtime_configuration_copy_is_public_allowlist_and_leaves_escrow_private(tmp_path):

@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated
 
@@ -89,11 +90,6 @@ def inspect(reference: str, deadline: Deadline) -> dict:
         return json.loads(raw, object_pairs_hook=no_duplicate_keys)
     except (ValueError, TypeError):
         raise RemoteError(Code.IMAGE) from None
-
-
-def archive_config(path: Path, deadline: Deadline) -> tuple[str, dict]:
-    image = inspect_archive(path, deadline)
-    return image.config_id, image.config
 
 
 def vendor_proof(reference: str, image: ArchiveImage, deadline: Deadline) -> bytes | None:
@@ -325,42 +321,82 @@ def verify(
     return escrow, release, files
 
 
-def import_images(path: Path, escrow: Escrow, deadline: Deadline) -> dict[str, str]:
+@dataclass(frozen=True)
+class ImportedImage:
+    runtime_id: str
+    archive: ArchiveImage
+
+
+def target_image(archived: ArchiveImage, deadline: Deadline) -> ImportedImage:
+    descriptors = {
+        item.digest: item for item in (archived.target, archived.selected) if item is not None
+    }
+    for candidate in (*descriptors, archived.config_id):
+        try:
+            observed = inspect(candidate, deadline)
+        except RemoteError as error:
+            if error.code == Code.TIMEOUT:
+                raise
+            continue
+        identifier = observed.get("id")
+        descriptor = observed.get("descriptor")
+        if not isinstance(identifier, str) or (observed.get("os"), observed.get("arch")) != (
+            "linux",
+            "amd64",
+        ):
+            raise RemoteError(Code.IMAGE)
+        if identifier == archived.config_id and descriptor is None:
+            return ImportedImage(identifier, archived)
+        expected = descriptors.get(identifier)
+        if (
+            expected is not None
+            and isinstance(descriptor, dict)
+            and descriptor.get("digest") == expected.digest
+            and descriptor.get("size") == expected.size
+            and descriptor.get("mediaType") == expected.media_type
+        ):
+            return ImportedImage(identifier, archived)
+        raise RemoteError(Code.IMAGE)
+    raise RemoteError(Code.IMAGE)
+
+
+def import_images(path: Path, escrow: Escrow, deadline: Deadline) -> dict[str, ImportedImage]:
     imported = {}
     for name, image in escrow.images.items():
         archive = path / "images" / f"{name}.tar"
         if digest(archive, image.bytes, deadline) != (image.sha256, image.bytes):
             raise RemoteError(Code.IMAGE)
-        if archive_config(archive, deadline)[0] != image.config_id:
+        archived = inspect_archive(archive, deadline)
+        if archived.config_id != image.config_id:
             raise RemoteError(Code.IMAGE)
         run(["docker", "image", "load", "--input", str(archive)], deadline)
-        # No registry/network fallback is permitted during import.
-        try:
-            observed = inspect(image.local_id, deadline)
-        except RemoteError:
-            # Classic and containerd-backed stores expose different local IDs.
-            # The exported archive's verified OCI config digest is portable.
-            observed = inspect(image.config_id, deadline)
-        if observed.get("id") not in {image.local_id, image.config_id}:
-            raise RemoteError(Code.IMAGE)
-        imported[name] = observed["id"]
+        imported[name] = target_image(archived, deadline)
     return imported
 
 
 def image_overlay(
-    escrow: Escrow, release: Release, imported: dict[str, str] | None = None
+    escrow: Escrow, release: Release, imported: dict[str, ImportedImage] | None = None
 ) -> bytes:
     """Recovery consumes the verified imported IDs with no registry/build fallback."""
-    resolved = (
-        imported
-        if imported is not None
-        else {name: image.local_id for name, image in escrow.images.items()}
-    )
-    if set(resolved) != set(escrow.images) or any(
-        value not in {escrow.images[name].local_id, escrow.images[name].config_id}
-        for name, value in resolved.items()
-    ):
-        raise RemoteError(Code.IMAGE)
+    if imported is None:
+        resolved = {name: image.local_id for name, image in escrow.images.items()}
+    else:
+        if set(imported) != set(escrow.images):
+            raise RemoteError(Code.IMAGE)
+        resolved = {}
+        for name, value in imported.items():
+            known = {value.archive.config_id}
+            known.update(
+                item.digest
+                for item in (value.archive.target, value.archive.selected)
+                if item is not None
+            )
+            if (
+                value.archive.config_id != escrow.images[name].config_id
+                or value.runtime_id not in known
+            ):
+                raise RemoteError(Code.IMAGE)
+            resolved[name] = value.runtime_id
     names = {name: resolved[key] for name, key in release.services.items()}
     names.update({name: resolved[name] for name in release.vendor_images})
     if release.configuration.observability:

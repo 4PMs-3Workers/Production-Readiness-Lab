@@ -113,7 +113,11 @@ def test_import_rechecks_download_receipt_before_loading_or_rendering_images(tmp
     _, target, remote, point = uploaded(tmp_path, monkeypatch)
     _, escrow_path = retrieve(target, remote, point.backup_id, tmp_path / "age", tmp_path / "key")
     calls = []
-    monkeypatch.setattr(offhost, "import_images", lambda *args: calls.append(True))
+    monkeypatch.setattr("tools.backup.offhost_escrow.run", lambda *args: calls.append(True))
+    monkeypatch.setattr(
+        "tools.backup.offhost_escrow.inspect",
+        lambda reference, deadline: dict(id=reference, os="linux", arch="amd64"),
+    )
     output = tmp_path / "recovered-images.yaml"
     args = SimpleNamespace(
         operation="import-images",
@@ -130,10 +134,11 @@ def test_import_rechecks_download_receipt_before_loading_or_rendering_images(tmp
     assert result["recovery_configuration_written"] is True
     assert (tmp_path / "runtime-configuration/tools/deploy/mysql/10-identities.sh").is_file()
     assert "pull_policy: never" in output.read_text()
-    assert calls == [True]
+    assert len(result["imported_image_ids"]) == 4
+    assert len(calls) == 4
     data = point.model_dump(mode="json")
     data["backup_manifest_sha256"] = "0" * 64
     (escrow_path / "POINT.json").write_bytes(canonical(data))
     with pytest.raises(RemoteError):
         offhost.perform(args, remote.config, tmp_path, datetime.now(UTC))
-    assert calls == [True]
+    assert len(calls) == 4
