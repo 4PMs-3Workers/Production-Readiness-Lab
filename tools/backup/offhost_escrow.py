@@ -433,10 +433,13 @@ def import_images(
         archive = path / "images" / f"{name}.tar"
         if digest(archive, image.bytes, deadline) != (image.sha256, image.bytes):
             raise RemoteError(Code.IMAGE)
-        archived = inspect_archive(archive, deadline)
-        if archived.config_id != image.config_id:
-            raise RemoteError(Code.IMAGE)
-        run(["docker", "image", "load", "--input", str(archive)], deadline)
+        with tempfile.TemporaryDirectory(prefix="image-load-", dir=work) as scratch:
+            selected = Path(scratch) / "selected.tar"
+            archived = inspect_archive(archive, deadline, load_archive=selected)
+            if archived.config_id != image.config_id:
+                raise RemoteError(Code.IMAGE)
+            load_path = selected if archived.selected is not None else archive
+            run(["docker", "image", "load", "--input", str(load_path)], deadline)
         imported[name] = target_image(archived, deadline, work)
     return imported
 

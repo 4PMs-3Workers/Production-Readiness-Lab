@@ -1,3 +1,4 @@
+import gzip
 import hashlib
 import io
 import json
@@ -20,7 +21,7 @@ from tools.backup.offhost_escrow import (
     target_image,
     verify,
 )
-from tools.backup.offhost_image_archive import OCI, inspect_archive, sha
+from tools.backup.offhost_image_archive import OCI, blob_path, inspect_archive, sha
 from tools.backup.offhost_io import Deadline
 from tools.deploy.release_manifest import ROOT, Spec, parse, proof
 from tools.deploy.release_manifest import Manifest as Release
@@ -289,6 +290,94 @@ def test_import_resolves_config_identity_without_accepting_a_different_image(tmp
     imported["backend"] = replace(imported["backend"], runtime_id="sha256:" + "f" * 64)
     with pytest.raises(RemoteError):
         image_overlay(escrow, selected, imported)
+
+
+def test_docker_only_loads_the_verified_branch_of_an_oci_index(tmp_path, monkeypatch):
+    escrow, _ = escrow_fixture(tmp_path)
+    source = tmp_path / "images/backend.tar"
+    config_id = image_archive(source, oci_names={})
+    with tarfile.open(source) as saved:
+        entries = {}
+        for member in saved:
+            stream = saved.extractfile(member)
+            assert stream is not None
+            entries[member.name] = stream.read()
+
+    def blob(payload, kind):
+        digest = sha(payload)
+        entries[blob_path(digest)] = payload
+        return {"digest": digest, "size": len(payload), "mediaType": OCI + kind}
+
+    chosen = json.loads(entries["index.json"])["manifests"][0]
+    chosen["platform"] = {"os": "linux", "architecture": "amd64"}
+    raw_layer = b"unchecked extra filesystem" * 1024
+    other_config = blob(
+        canonical(
+            {
+                "os": "linux",
+                "architecture": "amd64",
+                "rootfs": {"type": "layers", "diff_ids": [sha(raw_layer)]},
+            }
+        ),
+        "config.v1+json",
+    )
+    other_layer = blob(gzip.compress(raw_layer), "layer.v1.tar+gzip")
+    without_platform = blob(
+        canonical(
+            dict(
+                schemaVersion=2,
+                mediaType=OCI + "manifest.v1+json",
+                config=other_config,
+                layers=[other_layer],
+            )
+        ),
+        "manifest.v1+json",
+    )
+    index = blob(
+        canonical(dict(schemaVersion=2, manifests=[chosen, without_platform])),
+        "index.v1+json",
+    )
+    entries["index.json"] = canonical(dict(schemaVersion=2, manifests=[index]))
+    with tarfile.open(source, "w") as saved:
+        for name, payload in entries.items():
+            member = tarfile.TarInfo(name)
+            member.size = len(payload)
+            saved.addfile(member, io.BytesIO(payload))
+    original = source.read_bytes()
+    escrow.images["backend"] = escrow.images["backend"].model_copy(
+        update=dict(bytes=len(original), sha256=hashlib.sha256(original).hexdigest())
+    )
+    work = tmp_path / "job"
+    work.mkdir()
+    rebuilt = []
+
+    def load(args, deadline):
+        archive_path = Path(args[-1])
+        if archive_path.name == "selected.tar":
+            assert archive_path.parent.parent == work
+            with tarfile.open(archive_path) as saved:
+                assert set(saved.getnames()) == {
+                    "oci-layout",
+                    "index.json",
+                    "manifest.json",
+                    blob_path(chosen["digest"]),
+                    blob_path(config_id),
+                }
+            rebuilt.append(inspect_archive(archive_path, deadline))
+        else:
+            assert archive_path != source
+
+    def lookup(reference, deadline):
+        if reference != config_id:
+            raise RemoteError(Code.IMAGE)
+        return dict(id=reference, os="linux", arch="amd64")
+
+    monkeypatch.setattr("tools.backup.offhost_escrow.run", load)
+    monkeypatch.setattr("tools.backup.offhost_escrow.inspect", lookup)
+    result = import_images(tmp_path, escrow, Deadline(5), work)
+    assert len(rebuilt) == 1 and rebuilt[0].config_id == config_id
+    assert result["backend"].runtime_id == config_id
+    assert source.read_bytes() == original and not list(work.iterdir())
 
 
 def test_containerd_id_must_match_the_verified_archive_descriptor(tmp_path, monkeypatch):

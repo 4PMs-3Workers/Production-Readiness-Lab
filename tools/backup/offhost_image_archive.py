@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import io
 import json
+import os
 import re
 import tarfile
 from contextlib import nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import BinaryIO, cast
 
-from tools.backup.offhost_contract import Code, RemoteError
+from tools.backup.offhost_contract import Code, RemoteError, canonical
 from tools.backup.offhost_io import Deadline
 from tools.backup.offhost_package import ArchiveReader, HashingReader, PlainTarInfo
 
@@ -115,7 +117,11 @@ class Descriptor:
     @classmethod
     def read(cls, value: dict) -> Descriptor:
         value = record(value, DESCRIPTOR_FIELDS)
-        if IMAGE_NAMES & (value.get("annotations") or {}).keys() or value.get("urls"):
+        if (
+            IMAGE_NAMES & (value.get("annotations") or {}).keys()
+            or value.get("urls")
+            or value.get("data") is not None
+        ):
             raise ValueError()
         if value.get("platform") is not None:
             record(value["platform"], PLATFORM_FIELDS)
@@ -295,11 +301,60 @@ class ImageTar:
         self.verify_layers(names, diff_ids, layers)
         return ArchiveImage(config_id, config, target, selected, records)
 
+    def single_platform(self, image: ArchiveImage, selected: Descriptor, output: Path) -> None:
+        """Write just the verified Linux/amd64 branch for Docker to consume."""
+        config, layers = manifest_content(image.pinned_records[selected.digest])
+        index = {
+            "schemaVersion": 2,
+            "manifests": [
+                {
+                    "digest": selected.digest,
+                    "size": selected.size,
+                    "mediaType": selected.media_type,
+                    "platform": {"os": "linux", "architecture": "amd64"},
+                }
+            ],
+        }
+        legacy = {
+            "Config": blob_path(config.digest),
+            "Layers": [blob_path(x.digest) for x in layers],
+        }
+        metadata = {
+            "oci-layout": canonical({"imageLayoutVersion": "1.0.0"}),
+            "index.json": canonical(index),
+            "manifest.json": json.dumps([legacy], separators=(",", ":")).encode(),
+        }
+        fd = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with (
+            os.fdopen(fd, "wb") as file,
+            tarfile.open(fileobj=file, mode="w:", format=tarfile.USTAR_FORMAT) as archive,
+        ):
+            for name, payload in metadata.items():
+                member = tarfile.TarInfo(name)
+                member.size = len(payload)
+                archive.addfile(member, io.BytesIO(payload))
+            for descriptor in {item.digest: item for item in (selected, config, *layers)}.values():
+                name = blob_path(descriptor.digest)
+                member = tarfile.TarInfo(name)
+                member.size = descriptor.size
+                with self.open(name) as source:
+                    reader = HashingReader(source, self.deadline)
+                    archive.addfile(member, reader)
+                    if "sha256:" + reader.checksum.hexdigest() != descriptor.digest:
+                        raise ValueError()
 
-def inspect_archive(path: Path, deadline: Deadline) -> ArchiveImage:
+
+def inspect_archive(
+    path: Path, deadline: Deadline, *, load_archive: Path | None = None
+) -> ArchiveImage:
     try:
         with tarfile.open(path, "r:", tarinfo=PlainTarInfo) as archive:
-            return ImageTar(archive, deadline).image()
+            reader = ImageTar(archive, deadline)
+            image = reader.image()
+            if load_archive is not None and image.selected is not None:
+                reader.single_platform(image, image.selected, load_archive)
+                return replace(image, target=image.selected)
+            return image
     except (tarfile.TarError, OSError, EOFError, ValueError, KeyError, TypeError, AttributeError):
         raise RemoteError(Code.IMAGE) from None
 
