@@ -14,6 +14,7 @@ from uuid import uuid4
 
 from boto3.session import Session
 from botocore.config import Config
+from botocore.exceptions import BotoCoreError, ClientError
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -296,8 +297,45 @@ class StoreLab:
             config = RemoteConfig.model_validate(
                 dict(config.model_dump(), request_seconds=request_seconds)
             )
+        policy = (
+            (ROOT / "tools/backup/offhost-policy.example.json")
+            .read_text(encoding="utf-8")
+            .replace("REPLACE_BUCKET", self.bucket)
+            .replace("managed-backups/production/REPLACE_SOURCE_ID/", config.scope)
+        )
+        sts = Session(aws_access_key_id=self.access, aws_secret_access_key=self.secret).client(
+            "sts",
+            endpoint_url=self.endpoint,
+            region_name="us-east-1",
+            verify=str(self.ca),
+            config=Config(
+                signature_version="v4",
+                retries={"total_max_attempts": 1},
+                connect_timeout=10,
+                read_timeout=10,
+                proxies={},
+            ),
+        )
+        try:
+            credentials = sts.assume_role(
+                RoleArn="arn:aws:iam::123456789012:role/prl-offhost-lab",
+                RoleSessionName="prl-offhost-lab",
+                Policy=policy,
+                DurationSeconds=3600,
+            )["Credentials"]
+        except (BotoCoreError, ClientError):
+            raise RemoteError(Code.KEY) from None
+        finally:
+            sts.close()
         write_private(
-            path, json.dumps(dict(access_key=self.access, secret_key=self.secret)).encode()
+            path,
+            json.dumps(
+                dict(
+                    access_key=credentials["AccessKeyId"],
+                    secret_key=credentials["SecretAccessKey"],
+                    session_token=credentials["SessionToken"],
+                )
+            ).encode(),
         )
         return config, path
 

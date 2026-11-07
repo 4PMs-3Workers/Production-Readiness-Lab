@@ -43,7 +43,7 @@ def test_unrelated_prefix_is_refused_before_any_store_request(tmp_path, operatio
     assert not store.calls
 
 
-def test_retry_is_bounded_and_403_is_never_treated_as_missing(monkeypatch):
+def test_retry_is_bounded_and_403_on_an_existing_key_remains_an_error(monkeypatch):
     remote, store = adapter()
     delays = []
     monkeypatch.setattr("tools.backup.offhost_s3.time.sleep", delays.append)
@@ -59,6 +59,18 @@ def test_retry_is_bounded_and_403_is_never_treated_as_missing(monkeypatch):
     with pytest.raises(RemoteError):
         remote.get(key)
     assert not store.failures
+
+
+def test_hidden_absence_requires_successful_exact_prefix_listing():
+    remote, store = adapter()
+    key = remote.config.scope + "points/owned/complete.json"
+    store.objects[key + ".unrelated"] = b"keep"
+    store.failures = [client_error(403)]
+    assert remote.get(key) is None
+    assert store.calls == [("get", key), ("list", key)]
+    store.failures = [client_error(403), client_error(403)]
+    with pytest.raises(RemoteError, match=Code.TRANSPORT.value):
+        remote.get(key)
 
 
 def test_mismatch_and_expired_deadline_leave_no_download(tmp_path):

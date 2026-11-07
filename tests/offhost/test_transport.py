@@ -2,7 +2,7 @@ from dataclasses import replace
 from uuid import uuid4
 
 import pytest
-from botocore.exceptions import EndpointConnectionError
+from botocore.exceptions import ClientError, EndpointConnectionError
 from tests.backend.unit.test_backup_storage import fixture_artifact, populate
 from tests.backend.unit.test_offhost_escrow import escrow_fixture
 from tools.backup.offhost_contract import (
@@ -49,6 +49,16 @@ def test_real_https_age_roundtrip_and_duplicate_with_source_quarantined(
     store_lab, age_executable, tmp_path
 ):
     local, remote, backup_id, escrow, identity = source(store_lab, age_executable, tmp_path)
+    # Exercise the example policy on the server, independently of adapter scope checks.
+    for action, key in (
+        (remote.client.list_objects_v2, {"Prefix": "unrelated/"}),
+        (remote.client.put_object, {"Key": "unrelated/denied", "Body": b"denied"}),
+        (remote.client.delete_object, {"Key": point_key(remote.config, backup_id)}),
+    ):
+        with pytest.raises(ClientError) as denied:
+            action(Bucket=remote.config.bucket, **key)
+        assert denied.value.response["ResponseMetadata"]["HTTPStatusCode"] == 403
+    assert remote.get(point_key(remote.config, backup_id)) is None
     point = upload(local, remote, backup_id, escrow, age_executable, tmp_path / "work")
     assert upload(local, remote, backup_id, escrow, age_executable, tmp_path / "work") == point
     response = store_lab.admin.get_object(
@@ -180,9 +190,13 @@ def test_invalid_source_identity_is_refused_before_remote_publication(
     store_lab, age_executable, tmp_path
 ):
     local, remote, backup_id, escrow, _ = source(store_lab, age_executable, tmp_path)
+    original_scope = remote.config.scope
     remote.config = RemoteConfig.model_validate(
         dict(remote.config.model_dump(), source_id="0" * 64)
     )
     with pytest.raises(RemoteError, match=Code.IDENTITY.value):
         upload(local, remote, backup_id, escrow, age_executable, tmp_path / "work")
-    assert remote.get(point_key(remote.config, backup_id)) is None
+    for scope in (original_scope, remote.config.scope):
+        assert not store_lab.admin.list_objects_v2(
+            Bucket=remote.config.bucket, Prefix=scope + "points/"
+        ).get("Contents")

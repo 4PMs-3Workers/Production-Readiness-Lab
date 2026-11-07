@@ -94,8 +94,22 @@ class S3:
             try:
                 response = self.client.get_object(Bucket=self.config.bucket, Key=key)
             except ClientError as error:
-                if error.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404:
+                status = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+                if status == 404:
                     return None
+                if status == 403:
+                    # GetObject can conceal absence. Confirm it using only the exact
+                    # managed prefix; an existing key or denied list remains a failure.
+                    listed = self.client.list_objects_v2(
+                        Bucket=self.config.bucket, Prefix=key, MaxKeys=2
+                    )
+                    keys = [item["Key"] for item in listed.get("Contents", [])]
+                    if (
+                        not listed.get("IsTruncated", False)
+                        and all(value.startswith(key) for value in keys)
+                        and key not in keys
+                    ):
+                        return None
                 raise
             with response["Body"] as stream:
                 if response["ContentLength"] > MAX_CONTRACT:
