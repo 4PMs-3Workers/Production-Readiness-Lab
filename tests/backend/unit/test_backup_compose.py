@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -9,6 +10,7 @@ import yaml
 from sqlalchemy.engine import make_url
 from tests.containers import test_backup_monitoring_stack as backup_stack
 from tests.containers.test_telemetry_stack import FullStackRuntime
+from tools.backup.recovery_config import main as render_gateway
 from tools.backup.recovery_config import render
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -64,6 +66,35 @@ def test_recovery_gateway_rewrites_routes_and_observability_identity_together(tm
         assert "172.30.34.3:8000" not in contents
         assert "172.30.36.3:8000" in contents
     assert config["PRL_RECOVERY_GATEWAY_IP"] + "/32" == "172.30.36.2/32"
+
+
+def test_offhost_gateway_renders_from_retained_templates_without_checkout_fallback(
+    tmp_path, capsys
+):
+    retained = tmp_path / "verified-configuration" / "nginx"
+    retained.mkdir(parents=True)
+    for name in ("nginx.conf", "routes.conf"):
+        (retained / name).write_text(
+            f"# retained {name}\nproxy_pass http://172.30.34.3:8000;\n", encoding="utf-8"
+        )
+    output = tmp_path / "recovered"
+    args = ["--directory", str(output), "--template-directory", str(retained)]
+    assert render_gateway(args) == 0
+    config = json.loads(capsys.readouterr().out)
+    for name, variable in (
+        ("nginx.conf", "PRL_RECOVERY_NGINX_CONF"),
+        ("routes.conf", "PRL_RECOVERY_NGINX_ROUTES"),
+    ):
+        assert Path(config[variable]).read_text() == (
+            f"# retained {name}\nproxy_pass http://172.30.36.3:8000;\n"
+        )
+        assert "172.30.34.3:8000" in (retained / name).read_text()
+
+    (retained / "routes.conf").unlink()
+    output = tmp_path / "missing-template"
+    assert render_gateway(["--directory", str(output), *args[2:]]) == 1
+    assert json.loads(capsys.readouterr().out)["success"] is False
+    assert not output.exists()
 
 
 @pytest.mark.parametrize("subnet", ["172.30.34.0/29", "0.0.0.0/0", "8.8.8.0/29", "::/0"])

@@ -226,11 +226,13 @@ Keep the canonical backup/escrow private; do not widen its permissions. Use the
 generated working tree for the recovered Compose files, and supply private target
 environment files separately. The output must be a fresh path outside the backup
 store; existing configuration is never overwritten.
-The generated overlay uses the verified imported identity. A classic Docker store
-uses the archive's configuration digest. A containerd store uses its verified
-OCI manifest or index descriptor after the tool re-exports the selected platform
-and checks its configuration digest. Use Docker Engine 28 or later for
-cross-store recovery. Allow temporary space for one additional image export.
+The generated overlay uses the verified imported identity. For OCI archives, the
+loader receives a rebuilt archive containing only the verified Linux/amd64
+manifest, config and layers. A classic Docker store uses the configuration digest.
+A containerd store uses the manifest digest after the tool re-exports the selected
+platform and checks its configuration digest. Use Docker Engine 28 or later for
+cross-store recovery and allow space for one additional image export in the
+private recovery store.
 
 ### Import a retained v1 point without vendor proof
 
@@ -290,6 +292,15 @@ docker volume create --label prl.backup.storage=1 --opt type=none --opt o=bind \
   --opt "device=$PRL_OFFHOST_LOCAL_STORE" "$PRL_BACKUP_VOLUME"
 
 deploy=/etc/prl-recovery/runtime-configuration/tools/deploy
+gateway_config=$(python -m tools.backup.recovery_config \
+  --template-directory "$deploy/nginx" \
+  --directory /etc/prl-recovery/recovered-nginx) || exit 1
+for key in PRL_RECOVERY_SUBNET PRL_RECOVERY_GATEWAY_IP PRL_RECOVERY_API_IP \
+  PRL_RECOVERY_NGINX_CONF PRL_RECOVERY_NGINX_ROUTES; do
+  value=$(jq -er --arg key "$key" '.[$key]' <<<"$gateway_config") || exit 1
+  export "$key=$value"
+done
+
 rdc() {
   docker compose --project-name "$PRL_RECOVERY_PROJECT" \
     -f "$deploy/compose.yaml" -f "$deploy/compose.local.yaml" \
@@ -298,9 +309,9 @@ rdc() {
 }
 ```
 
-Use the isolated subnet, gateway address and Nginx setup in the recovery runbook
-with the retrieved configuration as the template. Start only the recovered
-MySQL service with `rdc up -d --no-build --pull never --wait mysql`. Create the
+The renderer uses the retrieved release's Nginx templates and the isolated
+recovery subnet. Supply `--subnet` if the default `172.30.36.0/29` is in use.
+Start only the recovered MySQL service with `rdc up -d --no-build --pull never --wait mysql`. Create the
 empty database and restore grants in that service as the runbook describes.
 Then run both operations inside the recovered Compose `backup` service, whose
 volume mounts the recovered store at `/backups`.

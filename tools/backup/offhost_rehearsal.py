@@ -405,6 +405,7 @@ class RemoteRecovery:
                     raise RemoteError(Code.IMAGE)
                 target.base[index] = str(path)
         target.deployment_root = downloaded
+        target.configure_gateway()
         verify_mysql_bootstrap_mount(target)
         with self.bridge(
             self.recovery_volume, self.target_image_ids["backend"], readonly=False

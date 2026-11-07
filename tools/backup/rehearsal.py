@@ -82,7 +82,6 @@ class RecoveryStack(ComposeAcceptance):
             Path(path).chmod(0o600)
         self.base.extend(["-f", str(DEPLOY / "compose.backup.yaml")])
         if recovered:
-            self.env.update(render(scratch / "nginx"))
             self.base.extend(["-f", str(DEPLOY / "compose.recovery.yaml")])
         self.backup_password = secrets.token_urlsafe(32)
         with Path(self.env_files["PRL_DB_ENV_FILE"]).open("a", encoding="utf-8") as file:
@@ -93,6 +92,9 @@ class RecoveryStack(ComposeAcceptance):
             PRL_SOURCE_SHA=self.expected_sha,
             PRL_BACKEND_IMAGE_ID="sha256:" + "0" * 64,
         )
+
+    def configure_gateway(self) -> None:
+        self.env.update(render(self.scratch / "nginx", templates=self.deployment_root / "nginx"))
 
     def _ensure_gateway_subnet_available(self, *, additional_subnets=()) -> None:
         if not self.recovered:
@@ -576,6 +578,8 @@ def run(
                 recovered.operations_config(target=recovered.database)
                 if transport is not None:
                     transport.retrieve(recovered, backup["backup_id"])
+                else:
+                    recovered.configure_gateway()
                 start_recovered(
                     recovered, "mysql", failure="Isolated recovery database startup failed"
                 )
