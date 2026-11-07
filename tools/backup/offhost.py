@@ -32,6 +32,7 @@ from tools.backup.offhost_contract import (
 from tools.backup.offhost_escrow import (
     image_overlay,
     import_images,
+    installed_vendor_images,
     materialize_configuration,
     prepare,
     verify,
@@ -73,6 +74,7 @@ class Report(Versioned):
     ignored_entries: int | None = Field(default=None, ge=0)
     point_count: int | None = Field(default=None, ge=0)
     images_imported: int | None = Field(default=None, ge=0)
+    vendor_images_reused: int | None = Field(default=None, ge=0)
     imported_image_ids: (
         dict[Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,31}$")], Image] | None
     ) = Field(default=None, max_length=16)
@@ -101,11 +103,14 @@ def arguments(argv):
     parser.add_argument("--backup-id")
     parser.add_argument("--output-overlay", type=Path)
     parser.add_argument("--output-configuration", type=Path)
+    parser.add_argument("--use-installed-vendors", action="store_true")
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.config is None or args.local_store is None or not args.local_store.is_absolute():
         raise RemoteError(Code.CONFIGURATION)
     if (args.operation in {"upload", "retrieve", "import-images"}) != bool(args.backup_id):
+        raise RemoteError(Code.CONFIGURATION)
+    if args.use_installed_vendors and args.operation != "import-images":
         raise RemoteError(Code.CONFIGURATION)
     if args.operation in {"prepare", "upload"} and (
         args.escrow is None or not args.escrow.is_absolute()
@@ -170,7 +175,15 @@ def perform(args, config, work: Path, started: datetime) -> dict:
         path = args.local_store / ".offhost-escrow" / args.backup_id
         point = contract(private_file(path / "POINT.json", 1024**2), Completion)
         point.require(config, args.backup_id)
-        escrow, release, _ = verify(path, manifest, config.max_bytes, deadline)
+        if args.use_installed_vendors and point.format_version != 1:
+            raise RemoteError(Code.CONFIGURATION)
+        escrow, release, _ = verify(
+            path,
+            manifest,
+            config.max_bytes,
+            deadline,
+            require_vendor_pin=not args.use_installed_vendors,
+        )
         if (
             hashlib.sha256(
                 (local.store / args.backup_id / "manifest.json").read_bytes()
@@ -184,7 +197,8 @@ def perform(args, config, work: Path, started: datetime) -> dict:
             or escrow.release_sha256 != point.release_sha256
         ):
             raise RemoteError(Code.IDENTITY)
-        imported = import_images(path, escrow, deadline)
+        vendors = installed_vendor_images(release, deadline) if args.use_installed_vendors else {}
+        imported = import_images(path, escrow, deadline, installed_vendors=vendors)
         if args.output_configuration is not None:
             materialize_configuration(path, release, args.output_configuration, deadline)
         if args.output_overlay is not None:
@@ -192,7 +206,8 @@ def perform(args, config, work: Path, started: datetime) -> dict:
         return dict(
             backup_id=point.backup_id,
             source_sha=point.source_sha,
-            images_imported=len(escrow.images),
+            images_imported=len(imported) - len(vendors),
+            vendor_images_reused=len(vendors) if vendors else None,
             imported_image_ids={name: image.runtime_id for name, image in imported.items()},
             recovery_overlay_written=args.output_overlay is not None,
             recovery_configuration_written=args.output_configuration is not None,

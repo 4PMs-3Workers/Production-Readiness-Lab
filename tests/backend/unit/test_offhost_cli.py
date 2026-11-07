@@ -125,6 +125,7 @@ def test_import_rechecks_download_receipt_before_loading_or_rendering_images(tmp
         backup_id=point.backup_id,
         output_overlay=output,
         output_configuration=tmp_path / "runtime-configuration",
+        use_installed_vendors=False,
     )
     monkeypatch.setattr(
         "app.backup.manifest.migration_contract", lambda: ("future_revision", "f" * 64)
