@@ -20,7 +20,7 @@ from tools.backup.offhost_contract import (
     private_file,
 )
 from tools.backup.offhost_io import Deadline, digest, directory, run
-from tools.backup.offhost_package import Entry
+from tools.backup.offhost_package import Entry, PlainTarInfo
 from tools.deploy.release_images import local_image_identity
 from tools.deploy.release_manifest import (
     ROOT,
@@ -88,7 +88,7 @@ def inspect(reference: str, deadline: Deadline) -> dict:
 def archive_config(path: Path, deadline: Deadline) -> tuple[str, dict]:
     """Inspect without extraction; ID-only saves must not carry mutable RepoTags."""
     try:
-        with tarfile.open(path, "r:*") as archive:
+        with tarfile.open(path, "r:", tarinfo=PlainTarInfo) as archive:
             members = {}
             for item in archive:
                 deadline.remaining()

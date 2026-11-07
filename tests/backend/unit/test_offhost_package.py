@@ -1,3 +1,4 @@
+import gzip
 import hashlib
 import io
 import tarfile
@@ -5,7 +6,7 @@ import tarfile
 import pytest
 from tools.backup.offhost_contract import RemoteError, canonical
 from tools.backup.offhost_io import Deadline
-from tools.backup.offhost_package import Entry, Package, pack, unpack
+from tools.backup.offhost_package import Entry, Package, pack, unpack, unpack_tar
 
 ID = "prl-backup-20261001T000000Z-" + "a" * 32
 
@@ -90,3 +91,32 @@ def expected_files(files):
         )
         for name, path in files.items()
     }
+
+
+@pytest.mark.parametrize(
+    "kind", [tarfile.XHDTYPE, tarfile.GNUTYPE_LONGNAME, tarfile.GNUTYPE_SPARSE]
+)
+def test_extension_headers_are_rejected_before_their_bodies_are_read(tmp_path, kind):
+    item = tarfile.TarInfo("extension")
+    item.type, item.size = kind, 2 * 1024**2
+
+    class HeaderOnly:
+        def read(self, _size):
+            assert not self.read_header, "extension parser attempted to read its body"
+            self.read_header = True
+            return item.tobuf(format=tarfile.GNU_FORMAT)
+
+        read_header = False
+
+    with pytest.raises(RemoteError):
+        unpack_tar(HeaderOnly(), tmp_path / "target", 65536, Deadline(5))
+
+
+def test_decompression_budget_includes_data_after_tar_end(tmp_path):
+    files = expected_files(package_files(tmp_path))
+    source = tmp_path / "package.tar.gz"
+    pack(files, ID, source, 65536, Deadline(5))
+    with gzip.GzipFile(filename=source, mode="ab") as stream:
+        stream.write(b"\0" * (2 * 1024**2))
+    with pytest.raises(RemoteError):
+        unpack(source, tmp_path / "target", 65536, Deadline(5))

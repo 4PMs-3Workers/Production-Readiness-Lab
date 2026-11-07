@@ -1,11 +1,13 @@
 """Stream a bounded, allowlisted private tar package; never extract arbitrary members."""
 
+import gzip
 import hashlib
 import io
 import os
 import re
 import tarfile
 from pathlib import Path
+from typing import Any, BinaryIO, cast
 
 from pydantic import Field, model_validator
 from tools.backup.offhost_contract import (
@@ -19,6 +21,17 @@ from tools.backup.offhost_io import Deadline, directory, regular
 
 from app.backup.manifest import BACKUP_ID, Digest, StrictModel
 from app.backup.storage import capacity, sync_directory
+
+MAX_METADATA = 1024**2
+MAX_FILES = 256
+
+
+class PlainTarInfo(tarfile.TarInfo):
+    def _proc_member(self, archive):
+        # TarInfo dispatches here after its fixed header and before extension bodies.
+        if self.type not in (tarfile.REGTYPE, tarfile.AREGTYPE, tarfile.DIRTYPE):
+            raise RemoteError(Code.INTEGRITY)
+        return cast(Any, super())._proc_member(archive)
 
 
 def safe_name(name: str) -> bool:
@@ -58,11 +71,25 @@ class HashingReader(BoundedReader):
         return block
 
 
+class ArchiveReader(BoundedReader):
+    def __init__(self, source, deadline: Deadline, maximum: int):
+        super().__init__(source, deadline)
+        self.remaining = maximum
+
+    def read(self, size=-1):
+        limit = self.remaining + 1
+        data = super().read(limit if size < 0 else min(size, limit))
+        self.remaining -= len(data)
+        if self.remaining < 0:
+            raise RemoteError(Code.INTEGRITY)
+        return data
+
+
 class Package(Versioned):
     format: str = Field(pattern=r"^prl-offhost-package$")
     format_version: int = Field(ge=1, le=1)
     backup_id: str
-    files: dict[str, Entry] = Field(min_length=6, max_length=256)
+    files: dict[str, Entry] = Field(min_length=6, max_length=MAX_FILES)
 
     @model_validator(mode="after")
     def coherent(self):
@@ -106,7 +133,9 @@ def pack(
 
     with (
         os.fdopen(fd, "wb") as raw,
-        tarfile.open(fileobj=raw, mode="w:gz", compresslevel=1) as archive,
+        tarfile.open(
+            fileobj=raw, mode="w:gz", format=tarfile.USTAR_FORMAT, compresslevel=1
+        ) as archive,
     ):
         data = canonical(metadata)
         info = tarfile.TarInfo("package.json")
@@ -132,56 +161,67 @@ def unpack(source: Path, destination: Path, maximum: int, deadline: Deadline) ->
     if any(destination.iterdir()):
         raise RemoteError(Code.INTEGRITY)
     try:
-        with tarfile.open(source, mode="r|gz") as archive:
-            members = iter(archive)
-            first = next(members, None)
-            if (
-                first is None
-                or first.name != "package.json"
-                or not first.isfile()
-                or first.size > 1024**2
-            ):
+        with gzip.open(source, "rb") as compressed:
+            return unpack_tar(compressed, destination, maximum, deadline)
+    except (tarfile.TarError, OSError, EOFError, ValueError):
+        raise RemoteError(Code.INTEGRITY) from None
+
+
+def unpack_tar(compressed, destination: Path, maximum: int, deadline: Deadline) -> Package:
+    # Budget the file payloads, inventory, headers/padding and final tar record.
+    bound = maximum + MAX_METADATA + (MAX_FILES + 1) * 1024 + tarfile.RECORDSIZE
+    reader = ArchiveReader(compressed, deadline, bound)
+    # tarfile's streaming mode uses only read() on the supplied object.
+    with tarfile.open(fileobj=cast(BinaryIO, reader), mode="r|", tarinfo=PlainTarInfo) as archive:
+        members = iter(archive)
+        first = next(members, None)
+        if (
+            first is None
+            or first.name != "package.json"
+            or not first.isfile()
+            or first.size > MAX_METADATA
+        ):
+            raise RemoteError(Code.INTEGRITY)
+        handle = archive.extractfile(first)
+        if handle is None:
+            raise RemoteError(Code.INTEGRITY)
+        with handle:
+            metadata = contract(handle.read(MAX_METADATA + 1), Package)
+        if sum(entry.bytes for entry in metadata.files.values()) > maximum:
+            raise RemoteError(Code.INTEGRITY)
+        capacity(destination, sum(entry.bytes for entry in metadata.files.values()), 0)
+        names = []
+        for member in members:
+            deadline.remaining()
+            name = member.name
+            if name in names or name not in metadata.files or not member.isfile():
                 raise RemoteError(Code.INTEGRITY)
-            handle = archive.extractfile(first)
+            entry = metadata.files[name]
+            if member.size != entry.bytes:
+                raise RemoteError(Code.INTEGRITY)
+            target = destination / name
+            target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            handle = archive.extractfile(member)
             if handle is None:
                 raise RemoteError(Code.INTEGRITY)
-            with handle:
-                metadata = contract(handle.read(1024**2 + 1), Package)
-            if sum(entry.bytes for entry in metadata.files.values()) > maximum:
+            fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            sha, count = hashlib.sha256(), 0
+            with handle, os.fdopen(fd, "wb") as output:
+                while block := handle.read(1024 * 1024):
+                    deadline.remaining()
+                    count += len(block)
+                    if count > entry.bytes:
+                        raise RemoteError(Code.INTEGRITY)
+                    sha.update(block)
+                    output.write(block)
+                output.flush()
+                os.fsync(output.fileno())
+            if count != entry.bytes or sha.hexdigest() != entry.sha256:
                 raise RemoteError(Code.INTEGRITY)
-            capacity(destination, sum(entry.bytes for entry in metadata.files.values()), 0)
-            names = []
-            for member in members:
-                deadline.remaining()
-                name = member.name
-                if name in names or name not in metadata.files or not member.isfile():
-                    raise RemoteError(Code.INTEGRITY)
-                entry = metadata.files[name]
-                if member.size != entry.bytes:
-                    raise RemoteError(Code.INTEGRITY)
-                target = destination / name
-                target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-                handle = archive.extractfile(member)
-                if handle is None:
-                    raise RemoteError(Code.INTEGRITY)
-                fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-                sha, count = hashlib.sha256(), 0
-                with handle, os.fdopen(fd, "wb") as output:
-                    while block := handle.read(1024 * 1024):
-                        deadline.remaining()
-                        count += len(block)
-                        if count > entry.bytes:
-                            raise RemoteError(Code.INTEGRITY)
-                        sha.update(block)
-                        output.write(block)
-                    output.flush()
-                    os.fsync(output.fileno())
-                if count != entry.bytes or sha.hexdigest() != entry.sha256:
-                    raise RemoteError(Code.INTEGRITY)
-                names.append(name)
-            if set(names) != set(metadata.files):
-                raise RemoteError(Code.INTEGRITY)
-            sync_directory(destination)
-            return metadata
-    except (tarfile.TarError, OSError, EOFError):
-        raise RemoteError(Code.INTEGRITY) from None
+            names.append(name)
+        if set(names) != set(metadata.files):
+            raise RemoteError(Code.INTEGRITY)
+    while reader.read(64 * 1024):
+        pass
+    sync_directory(destination)
+    return metadata
