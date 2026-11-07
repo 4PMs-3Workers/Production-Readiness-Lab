@@ -108,10 +108,11 @@ class ComposeAcceptance:
         *,
         origin_scheme: str = "http",
         origin_host: str = "localhost",
+        http_port: int | None = None,
     ) -> None:
         self.project = PROJECT_PREFIX + uuid4().hex
         self.image_tag = "task6-" + uuid4().hex[:20]
-        self.port = self._free_port()
+        self.port = self._free_port() if http_port is None else http_port
         self.origin = f"{origin_scheme}://{origin_host}:{self.port}"
         self.volume_name = f"{self.project}_mysql_data"
         self.expected_sha = self._source_revision()

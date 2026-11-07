@@ -45,6 +45,8 @@ to recovery, retrieve only from the HTTPS store, restore schema/rows and exercis
 real gateway login/history/availability/book/replay/cancel/logout. Public evidence
 records the classic source image configuration digests and the verified runtime
 descriptor IDs on an independently provisioned, empty containerd recovery daemon.
+The lab gives that daemon its own network namespace and publishes the recovery
+gateway only on the runner's loopback interface.
 The report contains identities, checks and observed timing only. A same-machine lab is an
 automated failure simulation, not an actual off-host production measurement.
 

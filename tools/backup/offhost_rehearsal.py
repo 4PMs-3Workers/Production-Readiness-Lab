@@ -73,8 +73,15 @@ def cli_report(args: list[str], operation: str, deadline: Deadline) -> Report:
 
 
 class ImmutableRecoveryStack(RecoveryStack):
-    def __init__(self, scratch: Path, manifest: Manifest, *, recovered: bool = False):
-        super().__init__(scratch, recovered=recovered)
+    def __init__(
+        self,
+        scratch: Path,
+        manifest: Manifest,
+        *,
+        recovered: bool = False,
+        http_port: int | None = None,
+    ):
+        super().__init__(scratch, recovered=recovered, http_port=http_port)
         self.manifest = manifest
         self.release_overlay = scratch / "release.yaml"
         self.release_overlay.write_bytes(render(manifest, backup=True))
@@ -297,7 +304,7 @@ class RemoteRecovery:
     def recovery_engine(self):
         inputs = directory(self.scratch / "target-runtime")
         stage("start_empty_containerd_recovery_engine")
-        with empty_recovery_daemon(inputs):
+        with empty_recovery_daemon(inputs) as port:
             command(
                 [
                     "docker",
@@ -311,7 +318,7 @@ class RemoteRecovery:
                 ],
                 Deadline(20),
             )
-            yield inputs / "application"
+            yield inputs / "application", port
 
     def freeze_source(self, source: RecoveryStack) -> None:
         from tests.containers.test_compose_acceptance import require_success
@@ -383,7 +390,9 @@ class RemoteRecovery:
             b"  mysql:\n"
             b"    command: [mysqld, '--socket=/var/lib/mysql/prl-recovery.sock']\n"
             b"    environment:\n"
-            b"      PRL_MYSQL_SOCKET: /var/lib/mysql/prl-recovery.sock\n",
+            b"      PRL_MYSQL_SOCKET: /var/lib/mysql/prl-recovery.sock\n"
+            b"  gateway:\n"
+            b"    ports: !override ['0.0.0.0:8080:8080']\n",
         )
         target.base += ["-f", str(daemon_overlay), "-f", str(overlay)]
         downloaded = public_configuration / "tools/deploy"
@@ -469,8 +478,8 @@ def rehearse(scratch: Path, lab: StoreLab, age: Path) -> tuple[dict, Completion,
             command(["docker", "pull", "--platform", "linux/amd64", reference], Deadline(180))
         transport = RemoteRecovery(scratch / "transport", lab, age, artifacts, manifest)
 
-        def factory(path, *, recovered=False):
-            return ImmutableRecoveryStack(path, manifest, recovered=recovered)
+        def factory(path, *, recovered=False, http_port=None):
+            return ImmutableRecoveryStack(path, manifest, recovered=recovered, http_port=http_port)
 
         report = run(scratch / "service", stack_factory=factory, transport=transport)
         if (

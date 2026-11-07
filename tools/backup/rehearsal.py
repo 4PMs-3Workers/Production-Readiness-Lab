@@ -71,12 +71,12 @@ def stage(name: str) -> None:
 
 
 class RecoveryStack(ComposeAcceptance):
-    def __init__(self, scratch: Path, *, recovered: bool = False):
+    def __init__(self, scratch: Path, *, recovered: bool = False, http_port: int | None = None):
         self.recovered = recovered
         self.database = "prl"
         self.deployment_root = DEPLOY
         scratch.mkdir(mode=0o700, parents=True)
-        super().__init__(scratch)
+        super().__init__(scratch, http_port=http_port)
         self.owned_image_tag = self.image_tag
         for path in self.env_files.values():
             Path(path).chmod(0o600)
@@ -473,7 +473,7 @@ class RecoveryTransfer(Protocol):
     def publish(self, source: RecoveryStack, backup: dict, source_images: dict) -> None: ...
     def freeze_source(self, source: RecoveryStack) -> None: ...
     def isolate(self, source: RecoveryStack) -> None: ...
-    def recovery_engine(self) -> AbstractContextManager[Path]: ...
+    def recovery_engine(self) -> AbstractContextManager[tuple[Path, int]]: ...
 
     def retrieve(self, target: RecoveryStack, backup_id: str) -> None: ...
 
@@ -553,11 +553,11 @@ def run(
         engine = (
             transport.recovery_engine()
             if transport is not None
-            else nullcontext(scratch / "recovered")
+            else nullcontext((scratch / "recovered", None))
         )
-        with engine as recovery_path:
+        with engine as (recovery_path, http_port):
             try:
-                recovered = stack_factory(recovery_path, recovered=True)
+                recovered = stack_factory(recovery_path, recovered=True, http_port=http_port)
                 recovered.database = "prl_restore_" + uuid4().hex[:20]
                 recovered.image_tag = source.image_tag
                 recovered.student_password = source.student_password

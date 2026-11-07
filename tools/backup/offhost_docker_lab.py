@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import tempfile
 import time
 from contextlib import contextmanager
@@ -55,7 +56,9 @@ def empty_recovery_daemon(inputs: Path):
                 "never",
                 "--privileged",
                 "--network",
-                "host",
+                "bridge",
+                "--publish",
+                "127.0.0.1::8080",
                 "--name",
                 name,
                 "--label",
@@ -73,17 +76,18 @@ def empty_recovery_daemon(inputs: Path):
                 "--host=unix:///prl-socket/docker.sock",
                 f"--group={os.getgid()}",
                 "--feature=containerd-snapshotter=true",
+                # This only affects the nested network namespace. On the host
+                # namespace --bridge=none would remove the outer docker0.
                 "--bridge=none",
-                "--iptables=false",
-                "--ip6tables=false",
-                "--ip-forward=false",
-                "--ip-masq=false",
-                "--userland-proxy=true",
             ],
             Deadline(45),
         )
         try:
             run(["docker", "exec", name, "test", "-d", str(inputs)], Deadline(15))
+            binding = capture(["docker", "port", name, "8080/tcp"], Deadline(15)).strip()
+            match = re.fullmatch(rb"127\.0\.0\.1:([0-9]{1,5})", binding)
+            if not match or not 1 <= (port := int(match[1])) <= 65535:
+                raise RemoteError(Code.IDENTITY)
             with daemon_socket("unix://" + str(socket)):
                 deadline = Deadline(90)
                 while True:
@@ -105,10 +109,26 @@ def empty_recovery_daemon(inputs: Path):
                 ):
                     if capture(["docker", *args], deadline).strip():
                         raise RemoteError(Code.IDENTITY)
-                yield
+                yield port
         finally:
             # The scoped socket has already been restored to the outer daemon.
             record = json.loads(capture(["docker", "inspect", name], Deadline(20)))[0]
             if record["Config"]["Labels"].get("prl.offhost.daemon") != owner:
                 raise RemoteError(Code.IDENTITY)
             run(["docker", "rm", "--force", "--volumes", record["Id"]], Deadline(45))
+        # A successful rehearsal must leave the outer default bridge usable.
+        run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--pull",
+                "never",
+                "--network",
+                "bridge",
+                "--entrypoint",
+                "/bin/true",
+                ENGINE,
+            ],
+            Deadline(30),
+        )
