@@ -50,12 +50,13 @@ export function ApiProvider({
   const [revision, setRevision] = useState(0);
   const previousUser = useRef<SessionUser | null>(null);
   const clearPrivate = useCallback(
-    (preserveUnknown = false) => {
+    (preserveUnknown = false, preserveStaffUserId?: string) => {
       previousUser.current = null;
       services.clearSession();
       if (preserveUnknown) intents.suspendForSessionLoss();
       else intents.clear();
-      staffChanges.clearAll();
+      if (preserveStaffUserId) staffChanges.suspendForSessionLoss(preserveStaffUserId);
+      else staffChanges.clearAll();
       proposalIntents.suspend();
       setRevision((value) => value + 1);
     },
@@ -80,6 +81,9 @@ export function ApiProvider({
             user.role === 'STUDENT' &&
             pending?.userId === user.id,
           ),
+          previous?.id === user.id && previous.role === 'STAFF' && user.role === 'STAFF'
+            ? user.id
+            : undefined,
         );
       previousUser.current = user;
       if (user.role === 'STUDENT' || user.role === 'STAFF')

@@ -79,6 +79,85 @@ describe('admin guard', () => {
   );
 });
 describe('admin account screen', () => {
+  it('refetches the last valid recovery page after the search total shrinks', async () => {
+    const original = fetcher.getMockImplementation()!;
+    const pages: number[] = [];
+    const refreshed = deferred<Response>();
+    fetcher.mockImplementation((path, init) => {
+      const url = new URL(String(path), 'http://test');
+      if (url.pathname.endsWith('/admin/accounts')) {
+        const page = Number(url.searchParams.get('page'));
+        pages.push(page);
+        if (pages.length === 3) return refreshed.promise;
+        return Promise.resolve(
+          Response.json({ items: [], page, page_size: 100, total: pages.length === 1 ? 101 : 100 }),
+        );
+      }
+      return original(path, init);
+    });
+    const reviewed = vi.fn();
+    render(
+      <AccountRecovery
+        operation={{ kind: 'create', fields: account, label: account.email }}
+        onReviewed={reviewed}
+      />,
+    );
+    await screen.findByText('Trang 1 · 101 kết quả');
+    await userEvent.click(screen.getByRole('button', { name: 'Trang sau' }));
+    await waitFor(() => expect(pages).toEqual([1, 2, 1]));
+    expect(
+      screen.queryByRole('button', { name: 'Tôi đã xem kết quả không khớp, bắt đầu thao tác mới' }),
+    ).not.toBeInTheDocument();
+    expect(reviewed).not.toHaveBeenCalled();
+    await act(async () =>
+      refreshed.resolve(Response.json({ items: [], page: 1, page_size: 100, total: 100 })),
+    );
+    await screen.findByText('Trang 1 · 100 kết quả');
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Tôi đã xem kết quả không khớp, bắt đầu thao tác mới' }),
+    );
+    expect(reviewed).toHaveBeenCalledOnce();
+    expect(writes()).toHaveLength(0);
+  });
+  it('does not declare no match after an exact email was found on an earlier page', async () => {
+    const original = fetcher.getMockImplementation()!;
+    fetcher.mockImplementation((path, init) => {
+      const url = new URL(String(path), 'http://test');
+      if (url.pathname.endsWith('/admin/accounts')) {
+        const page = Number(url.searchParams.get('page'));
+        return Promise.resolve(
+          Response.json({
+            items: [{ ...account, email: page === 1 ? account.email : `${account.email}.extra` }],
+            page,
+            page_size: 100,
+            total: 101,
+          }),
+        );
+      }
+      return original(path, init);
+    });
+    const reviewed = vi.fn();
+    render(
+      <AccountRecovery
+        operation={{ kind: 'create', fields: account, label: account.email }}
+        onReviewed={reviewed}
+      />,
+    );
+    await screen.findByRole('button', { name: 'Tôi đã xem dữ liệu, bắt đầu thao tác mới' });
+    await userEvent.click(screen.getByRole('button', { name: 'Trang sau' }));
+    await screen.findByText('Trang 2 · 101 kết quả');
+    expect(screen.queryByText(/Đã xem hết kết quả tra cứu/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Tôi đã xem kết quả không khớp, bắt đầu thao tác mới' }),
+    ).not.toBeInTheDocument();
+    expect(reviewed).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Trang trước' }));
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Tôi đã xem dữ liệu, bắt đầu thao tác mới' }),
+    );
+    expect(reviewed).toHaveBeenCalledOnce();
+    expect(writes()).toHaveLength(0);
+  });
   it('does not clear a no-match create review until all result pages were explicitly read', async () => {
     const original = fetcher.getMockImplementation()!;
     fetcher.mockImplementation((path, init) => {

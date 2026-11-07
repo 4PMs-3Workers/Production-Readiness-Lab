@@ -44,7 +44,7 @@ export function AccountRecovery({
     operation: AccountOperation;
     total: number;
     pageSize: number;
-    pages: Set<number>;
+    noMatchPages: Set<number>;
   } | null>(null);
   const load = useCallback(
     async (signal: AbortSignal) => {
@@ -77,11 +77,18 @@ export function AccountRecovery({
           operation,
           total: result.total,
           pageSize: result.pageSize,
-          pages: new Set(),
+          noMatchPages: new Set(),
         };
-      const reviewedPages = review.current.pages;
-      reviewedPages.add(result.page);
       const lastPage = Math.max(1, Math.ceil(result.total / result.pageSize));
+      if (result.page > lastPage) {
+        // Do not count an empty, out-of-range response as a reviewed page.
+        setPage((current) => (current === page ? lastPage : current));
+        throw new DOMException('Refetch the last valid recovery page', 'AbortError');
+      }
+      const reviewedPages = review.current.noMatchPages;
+      // A match on any reviewed page must prevent a completed no-match review.
+      if (account) reviewedPages.delete(result.page);
+      else reviewedPages.add(result.page);
       const noMatchReviewed =
         operation.kind === 'create' &&
         !account &&

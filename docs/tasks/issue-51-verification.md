@@ -259,3 +259,27 @@ The test also waits for the real logout POST to return 204 and the anonymous
 form to render before navigating/logging in again. A controlled pre-dispatch
 gate proves the old session remains valid while logout is pending, covering the
 click-versus-completion navigation race without a timing sleep.
+
+## Recovery follow-up on `2baaab0`
+
+The three findings in review `5804335721` are addressed together:
+
+- An out-of-range recovery response is excluded from review progress. The UI
+  refetches the last valid page before allowing a completed no-match review.
+  The regression shrinks 101 results to 100 while page 2 loads and holds the
+  refetch to verify acknowledgement remains unavailable until it succeeds.
+- Only pages read without an exact match count toward a no-match review. An
+  exact email found on page 1 cannot be reported missing after visiting page 2;
+  returning to the matching page still allows the explicit comparison action.
+- A replacement session for the same STAFF retains pending/unknown appointment
+  changes as unknown recovery records while aborting old-session requests.
+  Store versions fence off old continuations. Tests cover cancellation,
+  completion and no-show in both phases, an `UPCOMING` reconciliation read,
+  no automatic POST, deliberate replay with the original body and fresh CSRF,
+  and clearing recovery on account/role changes or explicit logout.
+
+Local verification: **427 frontend unit/component tests passed**, including
+**72 targeted recovery/session/store tests**. The final session test file also
+passed again (**38 tests**) after typecheck cleanup. Frontend format, lint,
+TypeScript and the production API-mode build passed. These are local results;
+CI results for the follow-up commit are recorded separately on PR #61.
