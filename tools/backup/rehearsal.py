@@ -11,6 +11,7 @@ import re
 import secrets
 import time
 from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Protocol
@@ -368,13 +369,115 @@ def images(stack: RecoveryStack) -> dict:
     return result
 
 
+def start_recovered(stack: RecoveryStack, *services: str, failure: str) -> None:
+    result = stack.compose("up", "-d", "--wait", "--wait-timeout", "180", *services, timeout=240)
+    if result.returncode != 0:
+        # Command and container output can include credentials or fixture data.
+        # Emit only fixed diagnostic categories and Docker's enumerated states.
+        patterns = {
+            "bind": ("invalid mount", "bind source path", "not a directory"),
+            "network": ("failed to create network", "network sandbox", "endpoint"),
+            "network_address": ("pool overlaps", "address already in use", "address not available"),
+            "network_firewall": ("iptables", "ip6tables", "nftables"),
+            "network_bridge": ("bridge", "veth", "ip_forward"),
+            "runtime": ("failed to create task", "failed to create shim", "oci runtime"),
+            "runtime_sysctl": ("sysctl", "reopen fd"),
+            "permission": ("permission denied", "operation not permitted"),
+            "apparmor": ("apparmor",),
+            "storage": ("no space left", "read-only file system", "disk full"),
+            "configuration": ("no such file", "invalid interpolation", "unknown flag", "not found"),
+            "image": ("no such image", "pull access denied", "pull policy"),
+            "unhealthy": ("unhealthy", "waiting for container"),
+            "bootstrap": ("initialization of server has completed", "initializing database"),
+            "bootstrap_complete": ("init process done",),
+            "bootstrap_script_sourced": ("sourcing /docker-entrypoint-initdb.d/10-identities.sh",),
+            "bootstrap_script_executed": ("running /docker-entrypoint-initdb.d/10-identities.sh",),
+            "shell_directory": ("is a directory",),
+            "shell_syntax": ("syntax error", "unexpected token", "bad interpreter"),
+            "shell_lookup": (
+                "command not found",
+                "unbound variable",
+                "missing migration password",
+                "missing runtime password",
+                "missing seed password",
+            ),
+            "mysql_connection": ("can't connect", "lost connection", "unknown mysql server host"),
+            "mysql_process": ("segmentation fault", "illegal instruction", "killed"),
+            "ready": ("ready for connections",),
+            "authentication": ("access denied",),
+            "mysql_runtime_probe": ("mysql-runtime-probe-failed",),
+        }
+        messages = [result.stdout, result.stderr]
+        states = {}
+        try:
+            logs = stack.compose("logs", "--tail", "40", *services, timeout=15)
+            messages.extend((logs.stdout, logs.stderr))
+            for service in services:
+                listed = stack.compose("ps", "--all", "-q", service, timeout=10)
+                identifier = listed.stdout.strip()
+                if listed.returncode or not re.fullmatch(r"[0-9a-f]{12,64}", identifier):
+                    continue
+                inspected = invoke(
+                    ["docker", "inspect", "--format", "{{json .State}}", identifier], timeout=10
+                )
+                if inspected.returncode:
+                    continue
+                state = json.loads(inspected.stdout)
+                status = state.get("Status")
+                health_state = state.get("Health") or {}
+                health = health_state.get("Status")
+                messages.extend(
+                    item["Output"]
+                    for item in (health_state.get("Log") or [])
+                    if isinstance(item.get("Output"), str)
+                )
+                if isinstance(state.get("Error"), str):
+                    messages.append(state["Error"])
+                states[service] = {
+                    "status": (
+                        status
+                        if status in {"created", "running", "restarting", "exited", "dead"}
+                        else "unknown"
+                    ),
+                    "health": health if health in {"starting", "healthy", "unhealthy"} else None,
+                    "exit_code": (
+                        state.get("ExitCode") if type(state.get("ExitCode")) is int else None
+                    ),
+                }
+        except (AcceptanceFailure, json.JSONDecodeError):
+            pass
+        output = "\n".join(messages).casefold()
+        flags = [name for name, matches in patterns.items() if any(m in output for m in matches)]
+        mysql_errors = sorted(set(re.findall(r"\berror ([1-5][0-9]{3}) \([0-9a-z]{5}\)", output)))
+        socket_errors = sorted(
+            set(re.findall(r"\berror 2002 \(hy000\):[^\n]*\(([0-9]{1,3})\)\s*$", output, re.M))
+        )
+        print(
+            json.dumps(
+                dict(
+                    rehearsal_stage="recovery_startup_failed",
+                    signals=flags,
+                    states=states,
+                    mysql_error_codes=mysql_errors,
+                    socket_error_codes=socket_errors,
+                )
+            ),
+            flush=True,
+        )
+    require_success(result, failure)
+
+
 class RecoveryTransfer(Protocol):
     recovery_volume: str
 
     def publish(self, source: RecoveryStack, backup: dict, source_images: dict) -> None: ...
     def freeze_source(self, source: RecoveryStack) -> None: ...
     def isolate(self, source: RecoveryStack) -> None: ...
+    def recovery_engine(self) -> AbstractContextManager[Path]: ...
+
     def retrieve(self, target: RecoveryStack, backup_id: str) -> None: ...
+
+    def validate_images(self, source: dict, target: dict) -> dict: ...
     def resume_source_for_verification(self, source: RecoveryStack) -> None: ...
 
 
@@ -446,87 +549,109 @@ def run(
             transport.isolate(source)
         stage("provision_separate_recovery")
         recovery_start, clock_start = now(), time.monotonic()
-        recovered = stack_factory(scratch / "recovered", recovered=True)
-        recovered.database = "prl_restore_" + uuid4().hex[:20]
-        recovered.image_tag = source.image_tag
-        recovered.student_password = source.student_password
-        recovered.env.update(
-            PRL_IMAGE_TAG=source.image_tag,
-            PRL_BACKUP_VOLUME=transport.recovery_volume if transport is not None else storage,
-            PRL_BACKEND_IMAGE_ID=source_images["api"],
+        engine_images = None
+        engine = (
+            transport.recovery_engine()
+            if transport is not None
+            else nullcontext(scratch / "recovered")
         )
-        runtime_file = Path(recovered.env_files["PRL_RUNTIME_ENV_FILE"])
-        runtime = runtime_file.read_text(encoding="utf-8").replace(
-            "@mysql/prl\n", f"@mysql/{recovered.database}\n"
-        )
-        runtime_file.write_text(runtime, encoding="utf-8")
-        recovered.operations_config(target=recovered.database)
-        if transport is not None:
-            transport.retrieve(recovered, backup["backup_id"])
-        require_success(
-            recovered.compose("up", "-d", "--wait", "--wait-timeout", "180", "mysql", timeout=240),
-            "Isolated recovery database startup failed",
-        )
-        grant_mode = recovered.sql("SELECT @@global.partial_revokes;")
-        if grant_mode not in {"0", "1"}:
-            raise AcceptanceFailure("Recovery database grant mode could not be established")
-        grant_name = (
-            recovered.database.replace("_", r"\_") if grant_mode == "0" else recovered.database
-        )
-        recovered.sql(
-            f"CREATE DATABASE `{recovered.database}` "
-            "CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
-            "GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,DROP,INDEX,REFERENCES,TRIGGER,EVENT "
-            f"ON `{grant_name}`.* TO 'prl_migration'@'%';"
-            "GRANT SHOW_ROUTINE ON *.* TO 'prl_migration'@'%';"
-        )
-        actual_grants = recovered.sql("SHOW GRANTS FOR 'prl_migration'@'%';")
-        if f" ON `{grant_name}`.* TO " not in actual_grants or (
-            grant_mode == "0" and f" ON `{recovered.database}`.* TO " in actual_grants
-        ):
-            raise AcceptanceFailure(
-                "Recovery requires the literal database grant without a wildcard workaround"
-            )
-        stage("restore_and_verify")
-        validation = recovered.operation(
-            "restore", "--backup-id", backup["backup_id"], "--target-database", recovered.database
-        )
-        verified = recovered.operation(
-            "verify", "--backup-id", backup["backup_id"], "--target-database", recovered.database
-        )
-        if validation["table_counts"] != verified["table_counts"]:
-            raise AcceptanceFailure("Read-only verification disagrees with the restore report")
-        grants = (
-            (getattr(recovered, "deployment_root", DEPLOY) / "mysql/grants.sql")
-            .read_text(encoding="utf-8")
-            .replace("prl.", f"`{recovered.database}`.")
-        )
-        recovered.sql(grants)
-        stage("start_compatible_recovered_application")
-        require_success(
-            recovered.compose(
-                "up",
-                "-d",
-                "--wait",
-                "--wait-timeout",
-                "180",
-                "api",
-                "worker",
-                "frontend",
-                "gateway",
-                timeout=240,
-            ),
-            "Recovered application startup failed",
-        )
-        recovered.wait_gateway()
-        recovered.require_worker_identity()
-        recovered.wait_heartbeat()
-        recovered_images = images(recovered)
-        if source_images != recovered_images:
-            raise AcceptanceFailure("Recovered service images differ from the reviewed source")
-        stage("real_recovered_application_smoke")
-        smoke = application_smoke(recovered, persisted, later)
-        smoke_passed, duration = now(), time.monotonic() - clock_start
+        with engine as recovery_path:
+            try:
+                recovered = stack_factory(recovery_path, recovered=True)
+                recovered.database = "prl_restore_" + uuid4().hex[:20]
+                recovered.image_tag = source.image_tag
+                recovered.student_password = source.student_password
+                recovered.env.update(
+                    PRL_IMAGE_TAG=source.image_tag,
+                    PRL_BACKUP_VOLUME=(
+                        transport.recovery_volume if transport is not None else storage
+                    ),
+                    PRL_BACKEND_IMAGE_ID=source_images["api"],
+                )
+                runtime_file = Path(recovered.env_files["PRL_RUNTIME_ENV_FILE"])
+                runtime = runtime_file.read_text(encoding="utf-8").replace(
+                    "@mysql/prl\n", f"@mysql/{recovered.database}\n"
+                )
+                runtime_file.write_text(runtime, encoding="utf-8")
+                recovered.operations_config(target=recovered.database)
+                if transport is not None:
+                    transport.retrieve(recovered, backup["backup_id"])
+                start_recovered(
+                    recovered, "mysql", failure="Isolated recovery database startup failed"
+                )
+                grant_mode = recovered.sql("SELECT @@global.partial_revokes;")
+                if grant_mode not in {"0", "1"}:
+                    raise AcceptanceFailure("Recovery database grant mode could not be established")
+                grant_name = (
+                    recovered.database.replace("_", r"\_")
+                    if grant_mode == "0"
+                    else recovered.database
+                )
+                recovered.sql(
+                    f"CREATE DATABASE `{recovered.database}` "
+                    "CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
+                    "GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,DROP,"
+                    "INDEX,REFERENCES,TRIGGER,EVENT "
+                    f"ON `{grant_name}`.* TO 'prl_migration'@'%';"
+                    "GRANT SHOW_ROUTINE ON *.* TO 'prl_migration'@'%';"
+                )
+                actual_grants = recovered.sql("SHOW GRANTS FOR 'prl_migration'@'%';")
+                if f" ON `{grant_name}`.* TO " not in actual_grants or (
+                    grant_mode == "0" and f" ON `{recovered.database}`.* TO " in actual_grants
+                ):
+                    raise AcceptanceFailure(
+                        "Recovery requires the literal database grant without a wildcard workaround"
+                    )
+                stage("restore_and_verify")
+                validation = recovered.operation(
+                    "restore",
+                    "--backup-id",
+                    backup["backup_id"],
+                    "--target-database",
+                    recovered.database,
+                )
+                verified = recovered.operation(
+                    "verify",
+                    "--backup-id",
+                    backup["backup_id"],
+                    "--target-database",
+                    recovered.database,
+                )
+                if validation["table_counts"] != verified["table_counts"]:
+                    raise AcceptanceFailure(
+                        "Read-only verification disagrees with the restore report"
+                    )
+                grants = (
+                    (getattr(recovered, "deployment_root", DEPLOY) / "mysql/grants.sql")
+                    .read_text(encoding="utf-8")
+                    .replace("prl.", f"`{recovered.database}`.")
+                )
+                recovered.sql(grants)
+                stage("start_compatible_recovered_application")
+                start_recovered(
+                    recovered,
+                    "api",
+                    "worker",
+                    "frontend",
+                    "gateway",
+                    failure="Recovered application startup failed",
+                )
+                recovered.wait_gateway()
+                recovered.require_worker_identity()
+                recovered.wait_heartbeat()
+                recovered_images = images(recovered)
+                if transport is not None:
+                    engine_images = transport.validate_images(source_images, recovered_images)
+                elif source_images != recovered_images:
+                    raise AcceptanceFailure(
+                        "Recovered service images differ from the reviewed source"
+                    )
+                stage("real_recovered_application_smoke")
+                smoke = application_smoke(recovered, persisted, later)
+                smoke_passed, duration = now(), time.monotonic() - clock_start
+            finally:
+                if recovered is not None:
+                    recovered.cleanup()
         if transport is not None:
             transport.resume_source_for_verification(source)
         if source.fingerprint() != source_fingerprint:
@@ -537,7 +662,7 @@ def run(
         before = datetime.fromisoformat(backup["snapshot"]["established_before"])
         after = datetime.fromisoformat(backup["snapshot"]["established_after"])
         incident_time = datetime.fromisoformat(incident)
-        return dict(
+        report = dict(
             evidence_version=1,
             accepted=True,
             source_sha=source.expected_sha,
@@ -582,22 +707,21 @@ def run(
                 "compare source fingerprints",
             ],
         )
+        if engine_images is not None:
+            report["engine_images"] = engine_images
+        return report
     finally:
         stage("cleanup_owned_rehearsal_resources")
         try:
-            if recovered is not None:
-                recovered.cleanup()
+            if source is not None:
+                source.cleanup()
         finally:
-            try:
-                if source is not None:
-                    source.cleanup()
-            finally:
-                if created:
-                    one_volume(storage, {"prl.rehearsal": owner, "prl.backup.storage": "1"})
-                    require_success(
-                        invoke(["docker", "volume", "rm", storage]),
-                        "Owned rehearsal backup volume cleanup failed",
-                    )
+            if created:
+                one_volume(storage, {"prl.rehearsal": owner, "prl.backup.storage": "1"})
+                require_success(
+                    invoke(["docker", "volume", "rm", storage]),
+                    "Owned rehearsal backup volume cleanup failed",
+                )
 
 
 def main() -> int:

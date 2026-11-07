@@ -43,7 +43,9 @@ failure domain. Never commit or upload those secrets as CI artifacts.
 The automated lab must make source services and source backup storage unavailable
 to recovery, retrieve only from the HTTPS store, restore schema/rows and exercise
 real gateway login/history/availability/book/replay/cancel/logout. Public evidence
-contains identities, checks and observed timing only. A same-machine lab is an
+records the classic source image configuration digests and the verified runtime
+descriptor IDs on an independently provisioned, empty containerd recovery daemon.
+The report contains identities, checks and observed timing only. A same-machine lab is an
 automated failure simulation, not an actual off-host production measurement.
 
 References: [age](https://github.com/FiloSottile/age),
@@ -223,10 +225,14 @@ Keep the canonical backup/escrow private; do not widen its permissions. Use the
 generated working tree for the recovered Compose files, and supply private target
 environment files separately. The output must be a fresh path outside the backup
 store; existing configuration is never overwritten.
-The generated overlay uses the verified imported identity: a classic Docker store
-may expose the archive's OCI config digest where a containerd-backed source used
-a manifest/index ID. Only those recorded identities are accepted; an unrelated
-same-source rebuild is not a substitute for the retained archive.
+The generated overlay uses the verified imported identity. A classic Docker store
+uses the archive's configuration digest. A containerd store uses its verified
+OCI manifest or index descriptor. Use a Docker version that exports the OCI
+layout for cross-store recovery.
+
+The retrieval host verifies snapshot integrity using the retained release and
+its receipts. Run restore and verification inside the archived backend so the
+existing strict migration and schema checks use that release.
 
 Use the retrieved Compose/configuration tree with the existing
 [recovery runbook](mysql-recovery-runbook.md). Supply new target environment files
@@ -329,8 +335,10 @@ RUN_OFFHOST_TESTS=1 python -m pytest tests/offhost -q --tb=short \
 ```
 
 Set `PRL_OFFHOST_AGE` and `PRL_OFFHOST_MINIO_BINARY` to the installed executables.
-The real application case additionally requires Linux, Docker/Compose, Git,
-Skopeo and ORAS from the existing release tooling. Missing prerequisites fail;
+The real application case additionally requires a Linux classic Docker source,
+Docker Compose, Git, Skopeo and ORAS. It starts a disposable containerd daemon
+with a private Unix socket and fresh storage on the isolated runner.
+Missing prerequisites fail;
 required integration cases never skip. Transport tests exercise real HTTPS/age,
 interrupted/duplicate writes, failed completion, missing/wrong keys/artifacts,
 checksum/identity failures, retention and unrelated-prefix protection. A real hung

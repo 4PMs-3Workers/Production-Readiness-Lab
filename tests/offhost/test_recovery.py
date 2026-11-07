@@ -22,6 +22,7 @@ def test_remote_only_recovered_application_with_source_and_registry_unavailable(
         tmp_path / "private", store_lab, age_executable
     )
     proof = evidence(service, point, checks, configuration_sha256)
+    assert proof.evidence_version == 3 and proof.engine_images is not None
     assert all(checks.values()) and proof.source_unchanged
     assert (
         proof.source_sha == point.source_sha

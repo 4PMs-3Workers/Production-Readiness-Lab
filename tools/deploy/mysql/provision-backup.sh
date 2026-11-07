@@ -5,7 +5,8 @@ set -eu
 : "${PRL_BACKUP_PASSWORD:?Missing external backup password}"
 : "${MYSQL_ROOT_PASSWORD:?Missing local administrator password}"
 password_hex="$(printf '%s' "$PRL_BACKUP_PASSWORD" | od -An -v -tx1 | tr -d ' \n')"
-MYSQL_PWD="$MYSQL_ROOT_PASSWORD" timeout 30s mysql --protocol=socket -uroot --connect-timeout=5 <<SQL
+MYSQL_PWD="$MYSQL_ROOT_PASSWORD" timeout 30s mysql --no-defaults --protocol=socket --host=localhost \
+    --socket=/var/run/mysqld/mysqld.sock -uroot --connect-timeout=5 <<SQL
 SET @secret = CONVERT(0x${password_hex} USING utf8mb4);
 SET @statement = CONCAT('CREATE USER IF NOT EXISTS ''prl_backup''@''%'' IDENTIFIED BY ', QUOTE(@secret));
 PREPARE backup_identity FROM @statement;

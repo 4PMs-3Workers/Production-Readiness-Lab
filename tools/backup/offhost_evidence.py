@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Literal, Self
 
 from pydantic import model_validator
-from tools.backup.evidence import RecoveryFacts, Seconds
+from tools.backup.evidence import Images, RecoveryFacts, Seconds
 from tools.backup.offhost_contract import Completion
 
 from app.backup.manifest import Digest, StrictModel, timestamp
@@ -24,6 +24,11 @@ COMMANDS = [
     "verify cancellation through detail and independent read-only DB status",
     "resume only source database for read-only unchanged-data comparison",
 ]
+ENGINE_COMMANDS = [
+    *COMMANDS[:6],
+    "provision a separate containerd daemon; confirm empty images, containers and volumes",
+    *COMMANDS[6:],
+]
 
 
 class Isolation(StrictModel):
@@ -36,9 +41,17 @@ class Isolation(StrictModel):
     source_unchanged: Literal[True]
 
 
+class EngineImages(StrictModel):
+    source_store: Literal["classic"]
+    target_store: Literal["containerd"]
+    target_initially_empty: Literal[True]
+    archive_configuration_ids: Images
+    imported_target_ids: Images
+
+
 class OffhostEvidence(RecoveryFacts):
     format: Literal["prl-offhost-recovery-lab"]
-    evidence_version: Literal[2]
+    evidence_version: Literal[2, 3]
     transport: Literal["s3-age"]
     encryption: Literal["age-v1-X25519"]
     measurement_scope: Literal["isolated-automated-lab"]
@@ -50,6 +63,7 @@ class OffhostEvidence(RecoveryFacts):
     service_rto_clock: Literal["monotonic-recovery-start-through-smoke"]
     incident_to_smoke_wall_seconds: Seconds
     commands: list[str]
+    engine_images: EngineImages | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -61,9 +75,24 @@ class OffhostEvidence(RecoveryFacts):
     @model_validator(mode="after")
     def binding(self) -> Self:
         point = self.recovery_point
+        if self.evidence_version == 3:
+            engines = self.engine_images
+            if (
+                engines is None
+                or engines.archive_configuration_ids != self.source_images
+                or engines.imported_target_ids != self.recovered_images
+                or self.source_images.api == self.recovered_images.api
+                or self.commands != ENGINE_COMMANDS
+            ):
+                raise ValueError("Source and recovery engine image evidence does not match")
+        elif (
+            self.engine_images is not None
+            or self.source_images != self.recovered_images
+            or self.commands != COMMANDS
+        ):
+            raise ValueError("Historical recovery image evidence does not match")
         if (
-            self.commands != COMMANDS
-            or point.backup_id != self.backup.backup_id
+            point.backup_id != self.backup.backup_id
             or point.source_sha != self.source_sha
             or point.backend_image_id != self.backup.image_id
             or point.backup_manifest_sha256 != self.backup.manifest_sha256
@@ -88,11 +117,12 @@ def evidence(
     facts = {
         key: value for key, value in service.items() if key not in {"evidence_version", "commands"}
     }
+    separate_engine = "engine_images" in facts
     return OffhostEvidence.model_validate(
         dict(
             facts,
             format="prl-offhost-recovery-lab",
-            evidence_version=2,
+            evidence_version=3 if separate_engine else 2,
             transport="s3-age",
             encryption="age-v1-X25519",
             measurement_scope="isolated-automated-lab",
@@ -106,7 +136,7 @@ def evidence(
                 timestamp(service["timing"]["smoke_passed_at"])
                 - timestamp(service["timing"]["incident_at"])
             ).total_seconds(),
-            commands=COMMANDS,
+            commands=ENGINE_COMMANDS if separate_engine else COMMANDS,
         )
     )
 

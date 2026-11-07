@@ -325,10 +325,13 @@ class ComposeAcceptance:
         result = self.compose(
             "exec",
             "-T",
+            "--user",
+            "mysql",
             "mysql",
             "bash",
             "-c",
-            'MYSQL_PWD="${MYSQL_ROOT_PASSWORD}" mysql --protocol=socket -uroot '
+            'MYSQL_PWD="${MYSQL_ROOT_PASSWORD}" mysql --no-defaults --protocol=socket '
+            '--host=localhost --socket="${PRL_MYSQL_SOCKET:-/var/run/mysqld/mysqld.sock}" -uroot '
             "--connect-timeout=3 --batch --raw --skip-column-names prl",
             input_text=statement,
             timeout=30,

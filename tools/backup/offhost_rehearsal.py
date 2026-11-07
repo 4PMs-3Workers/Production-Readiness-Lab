@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -20,19 +21,18 @@ from tools.backup.offhost_contract import (
     contract,
     source_identity,
 )
+from tools.backup.offhost_docker_lab import ENGINE, containerd_store, empty_recovery_daemon
 from tools.backup.offhost_escrow import (
     Escrow,
     capture,
     image_overlay,
-    materialize_configuration,
-    release_at,
 )
 from tools.backup.offhost_io import Deadline, directory
 from tools.backup.offhost_io import run as command
 from tools.backup.offhost_lab import StoreLab, age_keys
 from tools.backup.offhost_s3 import S3
 from tools.backup.offhost_upload import read_point
-from tools.backup.rehearsal import DEPLOY, ROOT, RecoveryStack, run
+from tools.backup.rehearsal import DEPLOY, ROOT, AcceptanceFailure, RecoveryStack, run, stage
 from tools.deploy.release import render
 from tools.deploy.release_manifest import Manifest, write
 
@@ -134,6 +134,32 @@ class ImmutableRecoveryStack(RecoveryStack):
         self.wait_heartbeat()
 
 
+def verify_mysql_bootstrap_mount(stack: RecoveryStack) -> None:
+    expected = hashlib.sha256(
+        (stack.deployment_root / "mysql/10-identities.sh").read_bytes()
+    ).hexdigest()
+    inspected = stack.compose(
+        "run",
+        "--rm",
+        "--no-deps",
+        "--pull",
+        "never",
+        "--user",
+        "mysql",
+        "--entrypoint",
+        "/bin/sh",
+        "-T",
+        "mysql",
+        "-ec",
+        'test -f "$1" && test -r "$1" && sha256sum "$1"',
+        "sh",
+        "/docker-entrypoint-initdb.d/10-identities.sh",
+        timeout=30,
+    )
+    if inspected.returncode or inspected.stdout.split()[:1] != [expected]:
+        raise AcceptanceFailure("Recovered MySQL cannot read the verified bootstrap file")
+
+
 class RemoteRecovery:
     def __init__(
         self, scratch: Path, lab: StoreLab, age: Path, artifacts: Artifacts, manifest: Manifest
@@ -142,7 +168,6 @@ class RemoteRecovery:
         self.artifacts, self.manifest = artifacts, manifest
         self.owner = uuid4().hex
         self.recovery_volume = "prl-offhost-recovery-" + self.owner
-        self.created_volume = False
         self.source_isolated = self.target_isolated = False
         self.local_store = scratch / "source-export"
         self.recovery_store = scratch / "target-store"
@@ -151,6 +176,7 @@ class RemoteRecovery:
         self.identity, self.recipient = age_keys(age, scratch / "independent-vault")
         self.point: Completion | None = None
         self.escrow: Escrow | None = None
+        self.target_image_ids: dict[str, str] | None = None
 
     @contextmanager
     def bridge(self, volume: str, image: str, *, readonly: bool):
@@ -200,6 +226,8 @@ class RemoteRecovery:
         *,
         backup_id: str | None = None,
         release: Path | None = None,
+        output_overlay: Path | None = None,
+        output_configuration: Path | None = None,
     ) -> Report:
         args = [
             sys.executable,
@@ -223,6 +251,10 @@ class RemoteRecovery:
             args += ["--escrow", str(self.source_escrow)]
         if release is not None:
             args += ["--release", str(release)]
+        if output_overlay is not None:
+            args += ["--output-overlay", str(output_overlay)]
+        if output_configuration is not None:
+            args += ["--output-configuration", str(output_configuration)]
         return cli_report(args, operation, Deadline(960))
 
     def publish(self, source: RecoveryStack, backup: dict, source_images: dict) -> None:
@@ -260,20 +292,26 @@ class RemoteRecovery:
         if point is None:
             raise RemoteError(Code.INTEGRITY)
         self.point = point[0]
-        command(
-            [
-                "docker",
-                "volume",
-                "create",
-                "--label",
-                "prl.backup.storage=1",
-                "--label",
-                "prl.offhost.owner=" + self.owner,
-                self.recovery_volume,
-            ],
-            Deadline(20),
-        )
-        self.created_volume = True
+
+    @contextmanager
+    def recovery_engine(self):
+        inputs = directory(self.scratch / "target-runtime")
+        stage("start_empty_containerd_recovery_engine")
+        with empty_recovery_daemon(inputs):
+            command(
+                [
+                    "docker",
+                    "volume",
+                    "create",
+                    "--label",
+                    "prl.backup.storage=1",
+                    "--label",
+                    "prl.offhost.owner=" + self.owner,
+                    self.recovery_volume,
+                ],
+                Deadline(20),
+            )
+            yield inputs / "application"
 
     def freeze_source(self, source: RecoveryStack) -> None:
         from tests.containers.test_compose_acceptance import require_success
@@ -310,9 +348,7 @@ class RemoteRecovery:
     def overrides(self, stack: RecoveryStack) -> None:
         if self.escrow is None:
             raise RemoteError(Code.IMAGE)
-        path = self.scratch / (
-            "target-images.yaml" if stack.recovered else "verification-images.yaml"
-        )
+        path = self.scratch / "verification-images.yaml"
         path.write_bytes(image_overlay(self.escrow, self.manifest))
         stack.base += ["-f", str(path)]
 
@@ -320,17 +356,36 @@ class RemoteRecovery:
         if not self.source_isolated or target.env["PRL_BACKUP_VOLUME"] == self.source_volume:
             raise RemoteError(Code.IDENTITY)
         self.cli("retrieve", self.recovery_store, backup_id=backup_id)
-        self.cli("import-images", self.recovery_store, backup_id=backup_id)
+        overlay = target.scratch / "verified-images.yaml"
+        public_configuration = target.scratch / "retrieved-configuration"
+        report = self.cli(
+            "import-images",
+            self.recovery_store,
+            backup_id=backup_id,
+            output_overlay=overlay,
+            output_configuration=public_configuration,
+        )
+        if (
+            not report.recovery_overlay_written
+            or not report.recovery_configuration_written
+            or report.imported_image_ids is None
+        ):
+            raise RemoteError(Code.IMAGE)
+        self.target_image_ids = report.imported_image_ids
         escrow_path = self.recovery_store / ".offhost-escrow" / backup_id
         self.escrow = contract((escrow_path / "escrow.json").read_bytes(), Escrow)
-        self.overrides(target)
-        public_configuration = target.scratch / "retrieved-configuration"
-        materialize_configuration(
-            escrow_path,
-            release_at(escrow_path / "release.json"),
-            public_configuration,
-            Deadline(30),
+        # Keep the nested engine's administration socket on its owned MySQL
+        # volume. The server and recovery SQL client use the same explicit path.
+        daemon_overlay = target.scratch / "recovery-daemon.yaml"
+        write_private(
+            daemon_overlay,
+            b"services:\n"
+            b"  mysql:\n"
+            b"    command: [mysqld, '--socket=/var/lib/mysql/prl-recovery.sock']\n"
+            b"    environment:\n"
+            b"      PRL_MYSQL_SOCKET: /var/lib/mysql/prl-recovery.sock\n",
         )
+        target.base += ["-f", str(daemon_overlay), "-f", str(overlay)]
         downloaded = public_configuration / "tools/deploy"
         for index, value in enumerate(target.base):
             selected = Path(value)
@@ -340,8 +395,9 @@ class RemoteRecovery:
                     raise RemoteError(Code.IMAGE)
                 target.base[index] = str(path)
         target.deployment_root = downloaded
+        verify_mysql_bootstrap_mount(target)
         with self.bridge(
-            self.recovery_volume, self.escrow.images["backend"].local_id, readonly=False
+            self.recovery_volume, self.target_image_ids["backend"], readonly=False
         ) as bridge:
             command(
                 [
@@ -357,6 +413,24 @@ class RemoteRecovery:
                 Deadline(30),
             )
         self.target_isolated = True
+
+    def validate_images(self, source: dict[str, str], target: dict[str, str]) -> dict:
+        if self.escrow is None or self.target_image_ids is None:
+            raise RemoteError(Code.IMAGE)
+        names = {service: self.manifest.services.get(service) or service for service in source}
+        configurations = {
+            service: self.escrow.images[name].config_id for service, name in names.items()
+        }
+        runtime = {service: self.target_image_ids[name] for service, name in names.items()}
+        if source != configurations or target != runtime or source["api"] == target["api"]:
+            raise RemoteError(Code.IMAGE)
+        return dict(
+            source_store="classic",
+            target_store="containerd",
+            target_initially_empty=True,
+            archive_configuration_ids=configurations,
+            imported_target_ids=runtime,
+        )
 
     def resume_source_for_verification(self, source: RecoveryStack) -> None:
         from tests.containers.test_compose_acceptance import require_success
@@ -379,21 +453,14 @@ class RemoteRecovery:
             "Read-only source verification startup failed",
         )
 
-    def close(self) -> None:
-        if self.created_volume:
-            record = json.loads(
-                capture(["docker", "volume", "inspect", self.recovery_volume], Deadline(20))
-            )[0]
-            if record.get("Labels", {}).get("prl.offhost.owner") != self.owner:
-                raise RemoteError(Code.IDENTITY)
-            command(["docker", "volume", "rm", self.recovery_volume], Deadline(30))
-
 
 def rehearse(scratch: Path, lab: StoreLab, age: Path) -> tuple[dict, Completion, dict, str]:
     directory(scratch)
+    if containerd_store(Deadline(10)):
+        raise RemoteError(Code.CONFIGURATION)
+    command(["docker", "pull", "--platform", "linux/amd64", ENGINE], Deadline(180))
     source_sha = capture(["git", "rev-parse", "HEAD"], Deadline(10)).decode().strip()
     artifacts = Artifacts(scratch / "artifacts", source_sha)
-    transport = None
     try:
         artifacts.start()
         _, manifest, _, _ = artifacts.releases(ROOT)
@@ -427,8 +494,4 @@ def rehearse(scratch: Path, lab: StoreLab, age: Path) -> tuple[dict, Completion,
             manifest.configuration.sha256,
         )
     finally:
-        try:
-            if transport is not None:
-                transport.close()
-        finally:
-            artifacts.close()
+        artifacts.close()

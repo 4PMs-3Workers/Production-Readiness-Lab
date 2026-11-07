@@ -47,13 +47,15 @@ services:
     pids_limit: 256
     stop_grace_period: 60s
     healthcheck:
-      # The bootstrap server is socket-only. Require its networking flag to clear,
-      # then verify the final TCP listener and runtime identity. No secret is logged.
+      # The bootstrap server is socket-only. An authenticated TCP query verifies
+      # the final listener and runtime identity. No secret is logged.
       test:
-        [
-          CMD-SHELL,
-          'test "$$(MYSQL_PWD="$${MYSQL_ROOT_PASSWORD}" mysql --protocol=socket -uroot --connect-timeout=3 --batch --skip-column-names -e "SELECT @@GLOBAL.skip_networking" 2>/dev/null)" = "0" && MYSQL_PWD="$${PRL_RUNTIME_PASSWORD}" mysql --protocol=TCP --host=127.0.0.1 --port=3306 -uprl_runtime --connect-timeout=3 --batch --skip-column-names -e "SELECT 1" >/dev/null 2>&1',
-        ]
+        - CMD-SHELL
+        - >-
+          MYSQL_PWD="$${PRL_RUNTIME_PASSWORD}" mysql --no-defaults --protocol=TCP
+          --host=127.0.0.1 --port=3306 -uprl_runtime --connect-timeout=3
+          --batch --skip-column-names -e "SELECT 1" >/dev/null 2>&1
+          || { echo mysql-runtime-probe-failed; exit 1; }
       interval: 5s
       timeout: 5s
       retries: 24

@@ -107,8 +107,8 @@ class RecoveryFacts(StrictModel):
         expected_tables = set(Base.metadata.tables) | {"alembic_version"}
         revision, digest = migration_contract()
         if (
-            self.source_images != self.recovered_images
-            or self.source_images.api != self.source_images.worker
+            self.source_images.api != self.source_images.worker
+            or self.recovered_images.api != self.recovered_images.worker
             or self.source_images.api != self.backup.image_id
             or self.source_sha != self.backup.source_sha
             or self.backup.schema_revision != revision
@@ -148,7 +148,7 @@ class Evidence(RecoveryFacts):
 
     @model_validator(mode="after")
     def reviewed_commands(self) -> Self:
-        if self.commands != COMMANDS:
+        if self.commands != COMMANDS or self.source_images != self.recovered_images:
             raise ValueError("Recovery commands do not match the local rehearsal contract")
         return self
 
