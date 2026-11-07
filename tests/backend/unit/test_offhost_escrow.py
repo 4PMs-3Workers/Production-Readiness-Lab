@@ -26,42 +26,49 @@ from tools.deploy.release_manifest import Manifest as Release
 from app.backup.manifest import manifest_bytes, parse_manifest
 
 
-def image_archive(path, *, tags=None, source="a" * 40, oci_names=None):
-    raw = json.dumps(
-        dict(
-            os="linux",
-            architecture="amd64",
-            config=dict(Labels={"org.opencontainers.image.revision": source}),
-            rootfs=dict(type="layers", diff_ids=[]),
-        )
-    ).encode()
+def image_archive(path, *, tags=None, source="a" * 40, oci_names=None, mutate=None):
+    config = dict(
+        os="linux",
+        architecture="amd64",
+        config=dict(Labels={"org.opencontainers.image.revision": source}),
+        rootfs=dict(type="layers", diff_ids=[]),
+    )
+    if mutate:
+        mutate("config", config)
+    raw = json.dumps(config).encode()
     config_id = "sha256:" + hashlib.sha256(raw).hexdigest()
     records = {"config.json": raw}
     if oci_names is not None:
         manifest = vendor_manifest(config_id, len(raw))
+        if mutate:
+            value = json.loads(manifest)
+            mutate("oci-manifest", value)
+            manifest = json.dumps(value).encode()
+        index = dict(
+            schemaVersion=2,
+            manifests=[
+                dict(
+                    digest=sha(manifest),
+                    size=len(manifest),
+                    mediaType=OCI + "manifest.v1+json",
+                    annotations=oci_names,
+                )
+            ],
+        )
+        if mutate:
+            mutate("index", index)
         records.update(
             {
                 "oci-layout": b'{"imageLayoutVersion":"1.0.0"}',
-                "index.json": canonical(
-                    dict(
-                        schemaVersion=2,
-                        manifests=[
-                            dict(
-                                digest=sha(manifest),
-                                size=len(manifest),
-                                mediaType=OCI + "manifest.v1+json",
-                                annotations=oci_names,
-                            )
-                        ],
-                    )
-                ),
+                "index.json": json.dumps(index).encode(),
                 "blobs/sha256/" + config_id[7:]: raw,
                 "blobs/sha256/" + sha(manifest)[7:]: manifest,
             }
         )
-    records["manifest.json"] = json.dumps(
-        [dict(Config="config.json", RepoTags=tags, Layers=[])]
-    ).encode()
+    legacy = dict(Config="config.json", RepoTags=tags, Layers=[])
+    if mutate:
+        mutate("legacy", legacy)
+    records["manifest.json"] = json.dumps([legacy]).encode()
     with tarfile.open(path, "w") as archive:
         for name, payload in records.items():
             item = tarfile.TarInfo(name)
@@ -206,6 +213,34 @@ def test_oci_index_cannot_apply_a_tag_missing_from_legacy_manifest(tmp_path, ann
     path = tmp_path / "tagged-oci.tar"
     image_archive(path, oci_names={annotation: "unrelated:do-not-overwrite"})
     with pytest.raises(RemoteError):
+        inspect_archive(path, Deadline(5))
+
+
+@pytest.mark.parametrize(
+    ("section", "parents", "alias", "substitute"),
+    [
+        ("oci-manifest", (), "cOnfig", {"digest": "sha256:" + "f" * 64}),
+        ("oci-manifest", (), "layerS", [{"digest": "sha256:" + "f" * 64}]),
+        ("index", (), "manifestſ", []),
+        ("index", ("manifests", 0), "annotationS", {"io.containerd.image.name": "other:latest"}),
+        ("index", ("manifests", 0, "platform"), "Architecture", "arm64"),
+        ("legacy", (), "repoTags", ["other:latest"]),
+        ("config", ("rootfs",), "diff_IdS", ["sha256:" + "f" * 64]),
+        ("config", ("config",), "entrYpoint", ["false"]),
+    ],
+)
+def test_archive_rejects_runtime_case_aliases(tmp_path, section, parents, alias, substitute):
+    def mutate(name, data):
+        if section == name:
+            for parent in parents:
+                if parent == "platform":
+                    data.setdefault(parent, {"os": "linux", "architecture": "amd64"})
+                data = data[parent]
+            data[alias] = substitute
+
+    path = tmp_path / "ambiguous-image.tar"
+    image_archive(path, oci_names={}, mutate=mutate)
+    with pytest.raises(RemoteError, match=Code.IMAGE.value):
         inspect_archive(path, Deadline(5))
 
 
