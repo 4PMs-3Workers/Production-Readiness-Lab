@@ -49,6 +49,39 @@ DESCRIPTOR_FIELDS = (
     "artifactType",
 )
 PLATFORM_FIELDS = ("architecture", "os", "os.version", "os.features", "variant", "features")
+LEGACY_FIELDS = ("Config", "RepoTags", "Layers", "Parent", "LayerSources")
+IMAGE_FIELDS = (
+    "created",
+    "author",
+    "architecture",
+    "os",
+    "os.version",
+    "os.features",
+    "variant",
+    "config",
+    "rootfs",
+    "history",
+    "parent",
+    "container",
+    "container_config",
+    "docker_version",
+)
+IMAGE_CONFIG_FIELDS = (
+    "User",
+    "ExposedPorts",
+    "Env",
+    "Entrypoint",
+    "Cmd",
+    "Volumes",
+    "WorkingDir",
+    "Labels",
+    "StopSignal",
+    "ArgsEscaped",
+    "Healthcheck",
+    "Shell",
+    "OnBuild",
+    "StopTimeout",
+)
 
 
 def sha(raw: bytes) -> str:
@@ -223,14 +256,21 @@ class ImageTar:
         legacy = json_value(self.metadata("manifest.json"))
         if not isinstance(legacy, list) or len(legacy) != 1:
             raise ValueError()
-        item = legacy[0]
+        item = record(legacy[0], LEGACY_FIELDS)
         if item.get("RepoTags") not in (None, []) or item.get("Parent"):
             raise ValueError()
         config_raw = self.metadata(item["Config"])
-        config_id, config = sha(config_raw), json_value(config_raw)
+        config_id, config = sha(config_raw), record(json_value(config_raw), IMAGE_FIELDS)
         if (config["os"], config["architecture"]) != ("linux", "amd64"):
             raise ValueError()
-        rootfs = config["rootfs"]
+        if config.get("config") is not None:
+            execution = record(config["config"], IMAGE_CONFIG_FIELDS)
+            if execution.get("Healthcheck") is not None:
+                record(
+                    execution["Healthcheck"],
+                    ("Test", "Interval", "Timeout", "StartPeriod", "StartInterval", "Retries"),
+                )
+        rootfs = record(config["rootfs"], ("type", "diff_ids"))
         diff_ids, names = rootfs["diff_ids"], item["Layers"]
         if (
             rootfs["type"] != "layers"
