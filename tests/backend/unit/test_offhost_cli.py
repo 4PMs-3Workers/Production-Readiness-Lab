@@ -199,6 +199,7 @@ def test_v1_restore_import_uses_authenticated_installed_vendors_only(tmp_path, m
     def docker(args, deadline):
         if args[:3] == ["docker", "image", "save"]:
             assert args[-1] == installed_id
+            assert Path(args[4]).parent.parent == tmp_path
             shutil.copyfile(installed, args[4])
         else:
             assert args[:3] == ["docker", "image", "load"]

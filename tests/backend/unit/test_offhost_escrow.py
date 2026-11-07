@@ -4,6 +4,7 @@ import json
 import os
 import tarfile
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 from tests.backend.unit.rollout_fixtures import release
@@ -11,6 +12,7 @@ from tests.backend.unit.test_backup_manifest import sample_manifest
 from tools.backup.offhost_contract import Code, RemoteError, canonical
 from tools.backup.offhost_escrow import (
     Escrow,
+    daemon_config_id,
     image_overlay,
     import_images,
     materialize_configuration,
@@ -280,7 +282,7 @@ def test_import_resolves_config_identity_without_accepting_a_different_image(tmp
     monkeypatch.setattr(
         "tools.backup.offhost_escrow.run", lambda args, deadline: calls.append(args)
     )
-    imported = import_images(tmp_path, escrow, Deadline(5))
+    imported = import_images(tmp_path, escrow, Deadline(5), tmp_path)
     assert len(calls) == 4 and {value.runtime_id for value in imported.values()} == configs
     selected = release_at(tmp_path / "release.json")
     assert b"pull_policy: never" in image_overlay(escrow, selected, imported)
@@ -306,15 +308,30 @@ def test_containerd_id_must_match_the_verified_archive_descriptor(tmp_path, monk
     )
     monkeypatch.setattr("tools.backup.offhost_escrow.inspect", lambda *_: observed)
     monkeypatch.setattr("tools.backup.offhost_escrow.daemon_config_id", lambda *_: config)
-    assert target_image(image, Deadline(5)).runtime_id == descriptor.digest
+    assert target_image(image, Deadline(5), tmp_path).runtime_id == descriptor.digest
     monkeypatch.setattr(
         "tools.backup.offhost_escrow.daemon_config_id", lambda *_: "sha256:" + "f" * 64
     )
     with pytest.raises(RemoteError, match=Code.IMAGE.value):
-        target_image(image, Deadline(5))
+        target_image(image, Deadline(5), tmp_path)
     descriptor_fields["digest"] = "sha256:" + "f" * 64
     with pytest.raises(RemoteError, match=Code.IMAGE.value):
-        target_image(image, Deadline(5))
+        target_image(image, Deadline(5), tmp_path)
+
+
+def test_daemon_export_is_written_and_cleaned_under_the_job_workspace(tmp_path, monkeypatch):
+    work = tmp_path / ".offhost-jobs" / "job-fixture"
+    work.mkdir(parents=True)
+    expected = image_archive(tmp_path / "reference.tar")
+
+    def save(args, deadline):
+        output = Path(args[args.index("--output") + 1])
+        assert output.parent.parent == work
+        output.write_bytes((tmp_path / "reference.tar").read_bytes())
+
+    monkeypatch.setattr("tools.backup.offhost_escrow.run", save)
+    assert daemon_config_id(expected, Deadline(5), work) == expected
+    assert not list(work.iterdir())
 
 
 def test_runtime_configuration_copy_is_public_allowlist_and_leaves_escrow_private(tmp_path):

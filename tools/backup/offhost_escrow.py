@@ -336,10 +336,10 @@ class ImportedImage:
         return self.runtime_id in known
 
 
-def daemon_config_id(reference: str, deadline: Deadline) -> str:
+def daemon_config_id(reference: str, deadline: Deadline, work: Path) -> str:
     # Image inspect on containerd returns the manifest/index digest. Export the
     # selected Linux/amd64 image to verify its actual config bytes independently.
-    with tempfile.TemporaryDirectory(prefix="prl-image-config-") as scratch:
+    with tempfile.TemporaryDirectory(prefix="image-config-", dir=work) as scratch:
         output = Path(scratch) / "image.tar"
         run(
             [
@@ -357,7 +357,7 @@ def daemon_config_id(reference: str, deadline: Deadline) -> str:
         return exported_config_id(output, deadline)
 
 
-def target_image(archived: ArchiveImage, deadline: Deadline) -> ImportedImage:
+def target_image(archived: ArchiveImage, deadline: Deadline, work: Path) -> ImportedImage:
     descriptors = {
         item.digest: item for item in (archived.target, archived.selected) if item is not None
     }
@@ -384,17 +384,19 @@ def target_image(archived: ArchiveImage, deadline: Deadline) -> ImportedImage:
             and descriptor.get("digest") == expected.digest
             and descriptor.get("size") == expected.size
             and descriptor.get("mediaType") == expected.media_type
-            and daemon_config_id(identifier, deadline) == archived.config_id
+            and daemon_config_id(identifier, deadline, work) == archived.config_id
         ):
             return ImportedImage(identifier, archived)
         raise RemoteError(Code.IMAGE)
     raise RemoteError(Code.IMAGE)
 
 
-def installed_vendor_images(release: Release, deadline: Deadline) -> dict[str, ImportedImage]:
+def installed_vendor_images(
+    release: Release, deadline: Deadline, work: Path
+) -> dict[str, ImportedImage]:
     """Authenticate installed vendor images using the archived release's pins."""
     verified = {}
-    with tempfile.TemporaryDirectory(prefix="prl-installed-vendors-") as scratch:
+    with tempfile.TemporaryDirectory(prefix="installed-vendors-", dir=work) as scratch:
         output = Path(scratch) / "vendor.tar"
         for name, reference in release.vendor_images.items():
             observed = inspect(reference, deadline)
@@ -420,6 +422,7 @@ def import_images(
     path: Path,
     escrow: Escrow,
     deadline: Deadline,
+    work: Path,
     *,
     installed_vendors: dict[str, ImportedImage] | None = None,
 ) -> dict[str, ImportedImage]:
@@ -434,7 +437,7 @@ def import_images(
         if archived.config_id != image.config_id:
             raise RemoteError(Code.IMAGE)
         run(["docker", "image", "load", "--input", str(archive)], deadline)
-        imported[name] = target_image(archived, deadline)
+        imported[name] = target_image(archived, deadline, work)
     return imported
 
 

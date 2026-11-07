@@ -197,8 +197,10 @@ def perform(args, config, work: Path, started: datetime) -> dict:
             or escrow.release_sha256 != point.release_sha256
         ):
             raise RemoteError(Code.IDENTITY)
-        vendors = installed_vendor_images(release, deadline) if args.use_installed_vendors else {}
-        imported = import_images(path, escrow, deadline, installed_vendors=vendors)
+        vendors = (
+            installed_vendor_images(release, deadline, work) if args.use_installed_vendors else {}
+        )
+        imported = import_images(path, escrow, deadline, work, installed_vendors=vendors)
         if args.output_configuration is not None:
             materialize_configuration(path, release, args.output_configuration, deadline)
         if args.output_overlay is not None:
