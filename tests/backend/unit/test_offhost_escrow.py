@@ -432,14 +432,20 @@ def test_runtime_configuration_copy_is_public_allowlist_and_leaves_escrow_privat
     secret.write_text("private-do-not-copy", encoding="utf-8")
     original = source / "configuration/tools/deploy/mysql/10-identities.sh"
     raw = original.read_bytes()
-    materialize_configuration(source, selected, target, Deadline(10))
+    previous = os.umask(0o077)
+    try:
+        materialize_configuration(source, selected, target, Deadline(10))
+    finally:
+        os.umask(previous)
     public = target / "tools/deploy/mysql/10-identities.sh"
     assert public.read_bytes() == raw
     assert not (target / secret.name).exists()
     if os.name != "nt":
         assert original.stat().st_mode & 0o077 == 0
         assert public.stat().st_mode & 0o777 == 0o644
-        assert public.parent.stat().st_mode & 0o777 == 0o755
+        for folder in [target, *(path for path in target.rglob("*") if path.is_dir())]:
+            assert folder.stat().st_mode & 0o777 == 0o755
+        assert (source / "configuration/tools/deploy/nginx").stat().st_mode & 0o077 == 0
     with pytest.raises(RemoteError):
         materialize_configuration(source, selected, target, Deadline(10))
     assert public.read_bytes() == raw

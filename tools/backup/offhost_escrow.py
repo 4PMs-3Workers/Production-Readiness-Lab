@@ -497,6 +497,7 @@ def materialize_configuration(
         working = Path(temporary)
         if working.resolve().parent != target.parent.resolve():
             raise RemoteError(Code.CONFIGURATION)
+        folders = {working}
         for item in release.configuration.files:
             name = "configuration/" + item.path
             if not safe_name(name):
@@ -506,11 +507,13 @@ def materialize_configuration(
                 raise RemoteError(Code.IMAGE)
             output = working / item.path
             output.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+            folders.update(parent for parent in output.parents if parent.is_relative_to(working))
             write_private(output, source.read_bytes())
             output.chmod(0o644)
         # Canonical payloads stay private. Only this allowlisted public tree is
         # readable by MySQL UID999 and Nginx UID101 through read-only bind mounts.
-        working.chmod(0o755)
+        for folder in folders:
+            folder.chmod(0o755)
         sync_directory(working)
         os.rename(working, target)
         sync_directory(target.parent)

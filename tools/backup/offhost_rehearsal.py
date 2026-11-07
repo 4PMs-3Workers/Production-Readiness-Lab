@@ -52,6 +52,7 @@ def cli_report(args: list[str], operation: str, deadline: Deadline) -> Report:
                 stderr=subprocess.DEVNULL,
                 timeout=deadline.remaining(),
                 check=False,
+                umask=0o077,
             )
         except subprocess.TimeoutExpired:
             raise RemoteError(Code.TIMEOUT) from None
