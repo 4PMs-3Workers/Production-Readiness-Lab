@@ -81,6 +81,28 @@ def test_scheduled_binding_cannot_read_an_unrelated_host_directory(tmp_path, mon
         )
 
 
+def test_scheduled_invalid_binding_aborts_before_snapshot_and_retention(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setenv("PRL_OFFHOST_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.setenv("PRL_OFFHOST_LOCAL_STORE", str(tmp_path / "expected"))
+    monkeypatch.setenv("PRL_BACKUP_VOLUME", "owned")
+    monkeypatch.setattr(
+        scheduled.run,
+        "inspected",
+        lambda *args: dict(
+            Labels={"prl.backup.storage": "1"},
+            Options=dict(o="bind", device=str(tmp_path / "unrelated")),
+        ),
+    )
+    calls = []
+    monkeypatch.setattr(scheduled.run, "main", lambda: calls.append("local"))
+    monkeypatch.setattr(scheduled.offhost, "main", lambda args: calls.append("remote"))
+    assert scheduled.main() == 1
+    assert calls == []
+    assert json.loads(capsys.readouterr().out)["reason"] == "REMOTE_CONFIGURATION_INVALID"
+
+
 def test_import_rechecks_download_receipt_before_loading_or_rendering_images(tmp_path, monkeypatch):
     from datetime import UTC, datetime
     from types import SimpleNamespace

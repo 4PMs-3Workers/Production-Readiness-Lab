@@ -13,7 +13,7 @@ from tools.backup.offhost_contract import Code, RemoteError
 
 def bind_store(env: dict[str, str]) -> Path:
     path = Path(env.get("PRL_OFFHOST_LOCAL_STORE", ""))
-    if not path.is_absolute() or path.is_symlink():
+    if not path.is_absolute() or any(part.is_symlink() for part in (path, *path.parents)):
         raise RemoteError(Code.CONFIGURATION)
     volume = run.inspected(["volume", "inspect", env.get("PRL_BACKUP_VOLUME", "")], env)
     options = volume.get("Options") or {}
@@ -27,13 +27,28 @@ def bind_store(env: dict[str, str]) -> Path:
 
 
 def main() -> int:
+    env = dict(os.environ)
+    try:
+        if env.get("PRL_OFFHOST_CONFIG"):
+            bind_store(env)
+        return run_scheduled(env)
+    except (RemoteError, run.JobFailure, OSError, ValueError, TypeError, AttributeError):
+        print(
+            json.dumps(
+                dict(operation="offhost-scheduled", success=False, reason=Code.CONFIGURATION.value)
+            )
+        )
+        return 1
+
+
+def run_scheduled(env: dict[str, str]) -> int:
     output = io.StringIO()
     with contextlib.redirect_stdout(output):
         result = run.main()
     reports = [json.loads(line) for line in output.getvalue().splitlines() if line.strip()]
     for report in reports:
         print(json.dumps(report, sort_keys=True), flush=True)
-    if not os.environ.get("PRL_OFFHOST_CONFIG"):
+    if not env.get("PRL_OFFHOST_CONFIG"):
         return result
     candidates = [
         value
@@ -42,19 +57,11 @@ def main() -> int:
     ]
     if not candidates:
         return result or 1
-    try:
-        bind_store(dict(os.environ))
-        remote_result = offhost.main(["upload", "--backup-id", candidates[-1]["backup_id"]])
-        if remote_result == 0:
-            remote_result = offhost.main(["retain"])
-        return result or remote_result
-    except (RemoteError, run.JobFailure, OSError, ValueError):
-        print(
-            json.dumps(
-                dict(operation="offhost-scheduled", success=False, reason=Code.CONFIGURATION.value)
-            )
-        )
-        return 1
+    bind_store(env)
+    remote_result = offhost.main(["upload", "--backup-id", candidates[-1]["backup_id"]])
+    if remote_result == 0:
+        remote_result = offhost.main(["retain"])
+    return result or remote_result
 
 
 if __name__ == "__main__":
