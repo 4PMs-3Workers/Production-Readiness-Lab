@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -26,10 +26,31 @@ const user = {
   id: STUDENT_A,
   name: 'Fictional Student A',
   email: 'a@example.invalid',
+  session_generation: 'a'.repeat(43),
   role: 'STUDENT',
 };
 const error = (code: string, status: number) => Response.json({ error: { code } }, { status });
 const json = (value: unknown) => Response.json(value);
+const staffAppointment: StaffAppointmentDetail = {
+  id: 'appointment-1',
+  purposeId: 'purpose-1',
+  purposeCode: 'ACADEMIC',
+  purposeName: 'Tư vấn học tập',
+  studentId: 'student-1',
+  studentName: 'Fictional Student',
+  durationMinutes: 45,
+  startsAt: '2026-10-20T01:00:00Z',
+  endsAt: '2026-10-20T01:45:00Z',
+  location: null,
+  status: 'UPCOMING',
+  createdAt: '2026-10-17T03:00:00Z',
+  cancelledAt: null,
+  outcomeAt: null,
+  description: 'Private consultation',
+  cancelledBy: null,
+  cancelReason: null,
+  outcomeBy: null,
+};
 beforeEach(() => router.replace.mockClear());
 
 function PrivateView() {
@@ -57,11 +78,273 @@ function PrivateView() {
 }
 
 describe('API session boundaries', () => {
+  it.each(
+    (['pending', 'unknown'] as const).flatMap((phase) =>
+      (['CANCELLED', 'COMPLETED', 'NO_SHOW'] as const).map((status) => ({ phase, status })),
+    ),
+  )(
+    'preserves a same-STAFF replacement session recovery: $phase $status',
+    async ({ phase, status }) => {
+      let active = { ...user, id: STAFF_A, role: 'STAFF' };
+      const posted: RequestInit[] = [];
+      const services = new ApiServices(
+        vi.fn<typeof fetch>(async (path, init) => {
+          if (String(path).endsWith('/auth/me')) return json(active);
+          if (String(path).endsWith('/auth/csrf'))
+            return json({ csrf_token: active.session_generation, user_id: active.id });
+          posted.push(init!);
+          if (posted.length > 1) return json({ id: staffAppointment.id, status });
+          if (phase === 'unknown') throw new TypeError('lost receipt');
+          return new Promise<Response>((_resolve, reject) => {
+            init!.signal!.addEventListener(
+              'abort',
+              () => reject(new DOMException('Old session cancelled', 'AbortError')),
+              { once: true },
+            );
+          });
+        }),
+      );
+      let api!: ReturnType<typeof useApi>;
+      let latest = staffAppointment;
+      const reload = vi.fn(async () => latest);
+      function Capture() {
+        const value = useApi();
+        useEffect(() => {
+          api = value;
+        }, [value]);
+        return null;
+      }
+      render(
+        <ApiProvider services={services}>
+          <Capture />
+          <StaffSessionGate>
+            <StaffAppointmentActions appointment={staffAppointment} onReload={reload} />
+          </StaffSessionGate>
+        </ApiProvider>,
+      );
+      const trigger =
+        status === 'CANCELLED'
+          ? 'Hủy lịch'
+          : status === 'COMPLETED'
+            ? 'Đánh dấu hoàn thành'
+            : 'Đánh dấu vắng mặt';
+      const confirm =
+        status === 'CANCELLED'
+          ? 'Xác nhận hủy'
+          : status === 'COMPLETED'
+            ? 'Xác nhận hoàn thành'
+            : 'Xác nhận vắng mặt';
+      await userEvent.click(await screen.findByRole('button', { name: trigger }));
+      if (status === 'CANCELLED')
+        await userEvent.type(
+          screen.getByLabelText('Lý do hủy (không bắt buộc)'),
+          'Original cancellation',
+        );
+      await userEvent.click(screen.getByRole('button', { name: confirm }));
+      await waitFor(() => expect(posted).toHaveLength(1));
+      await waitFor(() =>
+        expect(api.staffChanges.get(STAFF_A, staffAppointment.id)?.phase).toBe(phase),
+      );
+      const original = api.staffChanges.get(STAFF_A, staffAppointment.id)!;
+      const revision = api.revision;
+      active = { ...active, session_generation: 'b'.repeat(43) };
+      await act(async () => {
+        window.dispatchEvent(new Event('focus'));
+      });
+      await waitFor(() => expect(api.revision).toBeGreaterThan(revision));
+      expect(posted[0].signal!.aborted).toBe(true);
+      expect(api.staffChanges.get(STAFF_A, staffAppointment.id)).toMatchObject({
+        phase: 'unknown',
+        change: original.change,
+      });
+      expect(await screen.findByRole('button', { name: 'Thử lại thao tác này' })).toBeVisible();
+      for (const name of ['Hủy lịch', 'Đánh dấu hoàn thành', 'Đánh dấu vắng mặt'])
+        expect(screen.getByRole('button', { name })).toBeDisabled();
+      const reads = reload.mock.calls.length;
+      await userEvent.click(screen.getByRole('button', { name: 'Kiểm tra trạng thái' }));
+      await waitFor(() => expect(reload).toHaveBeenCalledTimes(reads + 1));
+      expect(api.staffChanges.get(STAFF_A, staffAppointment.id)?.change).toEqual(original.change);
+      expect(screen.getByRole('button', { name: 'Đánh dấu hoàn thành' })).toBeDisabled();
+      expect(posted).toHaveLength(1);
+      latest = { ...staffAppointment, status };
+      await userEvent.click(screen.getByRole('button', { name: 'Thử lại thao tác này' }));
+      await waitFor(() => expect(api.staffChanges.get(STAFF_A, staffAppointment.id)).toBeNull());
+      expect(posted).toHaveLength(2);
+      expect(posted[1].body).toBe(posted[0].body);
+      expect(new Headers(posted[1].headers).get('X-CSRF-Token')).toBe(active.session_generation);
+    },
+  );
+  it.each(['different-staff', 'different-role', 'logout'])(
+    'clears staff recovery for %s',
+    async (replacement) => {
+      let active = { ...user, id: STAFF_A, role: 'STAFF' };
+      const services = new ApiServices(
+        vi.fn<typeof fetch>(async (path) => {
+          if (String(path).endsWith('/auth/me')) return json(active);
+          if (String(path).endsWith('/auth/csrf'))
+            return json({ csrf_token: 'csrf', user_id: active.id });
+          return new Response(null, { status: 204 });
+        }),
+      );
+      let api!: ReturnType<typeof useApi>;
+      function Capture() {
+        const value = useApi();
+        useEffect(() => {
+          api = value;
+        }, [value]);
+        return null;
+      }
+      render(
+        <ApiProvider services={services}>
+          <Capture />
+        </ApiProvider>,
+      );
+      await waitFor(() => expect(api.session.status).toBe('authenticated'));
+      act(() => {
+        api.staffChanges.begin({
+          userId: STAFF_A,
+          appointmentId: staffAppointment.id,
+          status: 'COMPLETED',
+        });
+      });
+      await act(async () => {
+        if (replacement === 'logout') await api.logout();
+        else {
+          active = {
+            ...active,
+            session_generation: 'b'.repeat(43),
+            ...(replacement === 'different-staff' ? { id: STAFF_B } : { role: 'STUDENT' }),
+          };
+          window.dispatchEvent(new Event('focus'));
+        }
+      });
+      await waitFor(() => expect(api.staffChanges.get(STAFF_A, staffAppointment.id)).toBeNull());
+    },
+  );
+  it.each(['same-student', 'different-student', 'different-role'])(
+    'handles a replacement session before observing 401: %s',
+    async (replacement) => {
+      let active = user;
+      const posted: RequestInit[] = [];
+      const services = new ApiServices(
+        vi.fn<typeof fetch>(async (path, init) => {
+          if (String(path).endsWith('/auth/me')) return json(active);
+          if (String(path).endsWith('/auth/csrf'))
+            return json({ csrf_token: 'csrf', user_id: active.id });
+          posted.push(init!);
+          if (posted.length === 1) throw new TypeError('lost receipt');
+          return json({ id: 'receipt', status: 'UPCOMING', created_at: '2026-10-18T01:00:00Z' });
+        }),
+      );
+      let api!: ReturnType<typeof useApi>;
+      function Capture() {
+        const value = useApi();
+        useEffect(() => {
+          api = value;
+        }, [value]);
+        return null;
+      }
+      render(
+        <ApiProvider services={services}>
+          <Capture />
+        </ApiProvider>,
+      );
+      await waitFor(() => expect(api.session.status).toBe('authenticated'));
+      act(() => {
+        api.intents.prepare(user.id, {
+          purpose_id: 'p',
+          staff_id: 's',
+          starts_at: '2026-11-07T01:00:00Z',
+          description: 'unchanged draft',
+        });
+      });
+      await act(async () => {
+        await api.intents.submit(services, user.id).catch(() => {});
+      });
+      const old = api.intents.snapshot()!;
+      expect(old.phase).toBe('unknown');
+      const revision = api.revision;
+      const aborts = vi.spyOn(services, 'clearSession');
+      active = {
+        ...user,
+        session_generation: 'b'.repeat(43),
+        ...(replacement === 'different-student'
+          ? { id: STUDENT_B }
+          : replacement === 'different-role'
+            ? { role: 'STAFF' }
+            : {}),
+      };
+      await act(async () => {
+        window.dispatchEvent(new Event('focus'));
+      });
+      await waitFor(() => expect(api.revision).toBeGreaterThan(revision));
+      expect(aborts).toHaveBeenCalled();
+      expect(posted).toHaveLength(1);
+      if (replacement !== 'same-student') {
+        expect(api.intents.snapshot()).toBeNull();
+        return;
+      }
+      expect(api.intents.snapshot()).toMatchObject({
+        key: old.key,
+        body: old.body,
+        phase: 'unknown',
+      });
+      await act(async () => {
+        await api.intents.submit(services, user.id);
+      });
+      expect(posted).toHaveLength(2);
+      expect(posted[1].body).toBe(posted[0].body);
+      expect(new Headers(posted[1].headers).get('Idempotency-Key')).toBe(old.key);
+    },
+  );
+  it.each(['nguyễn@example.invalid', '😀'.repeat(250)])(
+    'submits backend-valid email without native email or UTF-16 restrictions: %s',
+    async (email) => {
+      const fetcher = vi.fn<typeof fetch>(async (path) =>
+        String(path).endsWith('/auth/me') ? error('INVALID_SESSION', 401) : json(user),
+      );
+      render(
+        <ApiProvider services={new ApiServices(fetcher)}>
+          <ApiLogin />
+        </ApiProvider>,
+      );
+      await screen.findByLabelText('Email');
+      fireEvent.change(screen.getByLabelText('Email'), { target: { value: ` ${email} ` } });
+      const password = ` ${'😀'.repeat(1022)} `;
+      fireEvent.change(screen.getByLabelText('Mật khẩu'), { target: { value: password } });
+      await userEvent.click(screen.getByRole('button', { name: /Đăng nhập/ }));
+      await waitFor(() =>
+        expect(fetcher.mock.calls.some(([path]) => String(path).endsWith('/auth/login'))).toBe(
+          true,
+        ),
+      );
+      const call = fetcher.mock.calls.find(([path]) => String(path).endsWith('/auth/login'))!;
+      expect(JSON.parse(String(call[1]?.body))).toEqual({ email, password });
+    },
+  );
+  it.each([
+    ['a'.repeat(255), 'valid'],
+    ['valid', '😀'.repeat(1025)],
+  ])('rejects credentials outside LoginRequest bounds', async (email, password) => {
+    const fetcher = vi.fn<typeof fetch>(async () => error('INVALID_SESSION', 401));
+    render(
+      <ApiProvider services={new ApiServices(fetcher)}>
+        <ApiLogin />
+      </ApiProvider>,
+    );
+    await screen.findByLabelText('Email');
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: email } });
+    fireEvent.change(screen.getByLabelText('Mật khẩu'), { target: { value: password } });
+    fireEvent.submit(screen.getByRole('form', { name: 'Đăng nhập' }));
+    expect(screen.getByRole('alert')).toHaveTextContent(/cần có từ/);
+    expect(fetcher.mock.calls.every(([path]) => !String(path).endsWith('/auth/login'))).toBe(true);
+  });
   it('makes a staff write recoverable after focus failure aborts it and the session recovers', async () => {
     const staff = {
       id: STAFF_A,
       name: 'Fictional Staff A',
       email: 'staff-a@example.invalid',
+      session_generation: 'a'.repeat(43),
       role: 'STAFF',
     };
     const appointment: StaffAppointmentDetail = {
@@ -155,6 +438,7 @@ describe('API session boundaries', () => {
       id: STAFF_A,
       name: 'Fictional Staff A',
       email: 'staff-a@example.invalid',
+      session_generation: 'a'.repeat(43),
       role: 'STAFF',
     };
     let switched = false;

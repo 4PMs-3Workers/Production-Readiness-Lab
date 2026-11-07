@@ -52,8 +52,7 @@ async function login(page: Page, account: 'student' | 'staff' | 'other' | 'other
     await expect(page.getByRole('heading', { name: 'Lịch được giao' })).toBeVisible();
   else if (account === 'student' || account === 'other')
     await expect(page.getByRole('heading', { name: /Chào mừng,/ })).toBeVisible();
-  else
-    await expect(page.getByRole('heading', { name: 'Tài khoản chưa được hỗ trợ' })).toBeVisible();
+  else await expect(page.getByRole('heading', { name: 'Quản lý tài khoản' })).toBeVisible();
 }
 
 async function openStaff(page: Page, fixture: Fixture) {

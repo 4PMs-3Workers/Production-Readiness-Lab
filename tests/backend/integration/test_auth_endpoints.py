@@ -1,6 +1,7 @@
 ﻿"""Real HTTP/session/transaction checks against an Alembic-created MySQL schema."""
 
 import hashlib
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -18,11 +19,33 @@ async def sign_in(client):
     return await client.post("/api/v1/auth/login", json=CREDENTIALS, headers=ORIGIN)
 
 
+@pytest.mark.parametrize("escaped", [False, True])
+async def test_unicode_credential_limits_fit_login_body_budget(auth_env, escaped):
+    client, factory, user_id, app = auth_env
+    email = "😀" * 238 + "@example.invalid"
+    password = " " + "🔐" * 1022 + " "
+    assert len(email) == 254 and len(password) == 1024
+    async with factory.begin() as db:
+        user = await db.get(User, user_id)
+        assert user is not None
+        user.email = email
+        user.password_hash = await app.state.passwords.hash(password)
+    body = json.dumps({"email": email, "password": password}, ensure_ascii=escaped).encode("utf-8")
+    assert 4096 < len(body) <= app.state.settings.login_max_body_bytes
+    response = await client.post(
+        "/api/v1/auth/login",
+        content=body,
+        headers=ORIGIN | {"Content-Type": "application/json"},
+    )
+    assert response.status_code == 200
+    assert response.json()["id"] == str(user_id)
+
+
 async def test_login_me_csrf_logout_and_cookie_replay(auth_env):
     client, factory, user_id, _ = auth_env
     response = await sign_in(client)
     assert response.status_code == 200
-    assert set(response.json()) == {"id", "email", "name", "role"}
+    assert set(response.json()) == {"id", "email", "name", "role", "session_generation"}
     token = client.cookies["prl_session"]
     csrf = client.cookies["prl_csrf"]
     async with factory() as db:
@@ -33,7 +56,8 @@ async def test_login_me_csrf_logout_and_cookie_replay(auth_env):
     me = await client.get("/api/v1/auth/me")
     assert me.json() == response.json()
     bootstrap = await client.get("/api/v1/auth/csrf")
-    assert set(bootstrap.json()) == {"csrf_token", "user_id"}
+    assert set(bootstrap.json()) == {"csrf_token", "user_id", "session_generation"}
+    assert bootstrap.json()["session_generation"] == response.json()["session_generation"]
     assert bootstrap.json()["user_id"] == str(user_id)
     assert bootstrap.json()["csrf_token"] == client.cookies["prl_csrf"]
     # Previously issued signed tokens remain valid for this session.
@@ -81,6 +105,24 @@ async def test_csrf_owner_matches_token_session_after_switching_accounts(auth_en
     assert rejected.status_code == 403
     assert rejected.json()["error"]["code"] == "INVALID_CSRF"
     assert (await client.get("/api/v1/auth/me")).json()["id"] == second["user_id"]
+
+
+async def test_same_user_new_session_has_a_different_non_credential_generation(auth_env):
+    client, _, _, _ = auth_env
+    first = (await sign_in(client)).json()
+    marker = first["session_generation"]
+    for _ in range(2):
+        assert (await client.get("/api/v1/auth/me")).json()["session_generation"] == marker
+        assert (await client.get("/api/v1/auth/csrf")).json()["session_generation"] == marker
+    csrf = client.cookies["prl_csrf"]
+    assert (
+        await client.post("/api/v1/auth/logout", headers=ORIGIN | {"X-CSRF-Token": csrf})
+    ).status_code == 204
+    second = (await sign_in(client)).json()
+    assert second["id"] == first["id"] and second["role"] == first["role"]
+    assert second["session_generation"] != marker
+    rejected = await client.get("/api/v1/auth/me", headers={"Cookie": "prl_session=" + marker})
+    assert rejected.status_code == 401
 
 
 @pytest.mark.parametrize("kind", ["unknown", "wrong", "inactive"])

@@ -30,7 +30,7 @@ COOKIE_SECRET được giữ vì hợp đồng #4; bearer session không cần k
 | Biến | Mặc định, đơn vị và giới hạn |
 |---|---|
 | SESSION_LIFETIME_SECONDS | 86400 giây; integer 1..2592000; absolute lifetime, không sliding |
-| LOGIN_MAX_BODY_BYTES | 4096 byte; integer >0; byte thực tế trước JSON parser, kể cả chunked/no Content-Length |
+| LOGIN_MAX_BODY_BYTES | 16384 byte; integer >0; chứa được email/password ở giới hạn Unicode kể cả JSON escape; byte thực tế trước JSON parser, kể cả chunked/no Content-Length |
 | LOGIN_IP_ATTEMPTS | 30 attempts/cửa sổ; integer >0 |
 | LOGIN_EMAIL_ATTEMPTS | 5 attempts/email canonical từ DB cho tài khoản đã biết, email chuẩn hóa đã gửi cho tài khoản chưa biết/cửa sổ; integer >0 |
 | LOGIN_WINDOW_SECONDS | 60 giây; integer >0; fixed window tính từ attempt đầu |

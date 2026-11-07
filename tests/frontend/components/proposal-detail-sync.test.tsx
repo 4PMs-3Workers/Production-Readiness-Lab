@@ -79,6 +79,7 @@ function mount(role: 'STUDENT' | 'STAFF', refreshedDetail: () => Promise<Respons
         id: role === 'STAFF' ? STAFF : STUDENT,
         name: 'Fictional User',
         email: 'fixture@example.invalid',
+        session_generation: 'a'.repeat(43),
         role,
       });
     if (url.endsWith('/auth/csrf'))

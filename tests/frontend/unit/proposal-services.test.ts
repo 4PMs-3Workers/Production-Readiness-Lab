@@ -9,6 +9,7 @@ const student = {
   id: 'student-a',
   name: 'Sinh viên kiểm thử',
   email: 'student@example.invalid',
+  session_generation: 'a'.repeat(43),
   role: 'STUDENT',
 };
 const staff = { ...student, id: 'staff-a', role: 'STAFF' };

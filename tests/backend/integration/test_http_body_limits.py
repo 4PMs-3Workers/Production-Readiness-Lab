@@ -69,8 +69,8 @@ async def test_oversized_unauthenticated_posts_never_reach_json_parser(
         (f"/api/v1/notifications/{APPOINTMENT}/read", 32768, 401),
         ("/api/v1/auth/logout", 32767, 204),
         ("/api/v1/auth/logout", 32768, 204),
-        ("/api/v1/auth/login", 4095, 422),
-        ("/api/v1/auth/login", 4096, 422),
+        ("/api/v1/auth/login", 16383, 422),
+        ("/api/v1/auth/login", 16384, 422),
     ],
 )
 async def test_chunked_bodies_at_or_below_limit_preserve_route_behavior(
@@ -102,7 +102,7 @@ async def test_login_retains_tighter_limit_even_before_slash_redirect(auth_setti
     app = create_app(auth_settings)
 
     async def chunks():
-        yield b" " * 4096
+        yield b" " * auth_settings.login_max_body_bytes
         yield b" "
 
     async with httpx.AsyncClient(

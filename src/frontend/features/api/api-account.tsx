@@ -14,7 +14,17 @@ export function ApiAccount() {
     );
   return (
     <div className={styles.account}>
-      <Link href={session.user.role === 'STAFF' ? '/staff/appointments' : '/home'}>Trang chủ</Link>
+      <Link
+        href={
+          session.user.role === 'ADMIN'
+            ? '/admin/accounts'
+            : session.user.role === 'STAFF'
+              ? '/staff/appointments'
+              : '/home'
+        }
+      >
+        Trang chủ
+      </Link>
       <button type="button" onClick={() => void logout().catch(() => {})}>
         Đăng xuất
       </button>

@@ -101,7 +101,11 @@ test('staff cannot read another staff member appointment and unsupported roles s
     await page.getByLabel('Email', { exact: true }).fill(`${account}@frontend.example.invalid`);
     await page.getByLabel('Mật khẩu', { exact: true }).fill(password);
     await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Tài khoản chưa được hỗ trợ' })).toBeVisible();
+    await expect(
+      page.getByRole('heading', {
+        name: account === 'admin' ? 'Quản lý tài khoản' : 'Tài khoản chưa được hỗ trợ',
+      }),
+    ).toBeVisible();
     await page.goto('/staff/appointments');
     await expect(page.getByRole('heading', { name: 'Tài khoản chưa được hỗ trợ' })).toBeVisible();
     await expect(page.getByText(seeded.cancelId, { exact: true })).toHaveCount(0);

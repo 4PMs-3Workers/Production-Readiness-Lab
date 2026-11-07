@@ -29,8 +29,8 @@ async def test_chunked_login_limit_counts_bytes_without_content_length(auth_sett
     app = create_app(auth_settings)
 
     async def chunks():
-        yield b" " * 2048
-        yield b" " * 2049
+        yield b" " * (auth_settings.login_max_body_bytes // 2)
+        yield b" " * (auth_settings.login_max_body_bytes // 2 + 1)
 
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app, root_path=prefix),
@@ -53,7 +53,7 @@ async def test_early_auth_errors_have_shared_headers(auth_settings, kind, status
         base_url="http://localhost:3000",
     ) as client:
         headers = {"Origin": "http://localhost:3000", "Content-Type": "application/json"}
-        body = b"x" * 4097 if kind == "large" else b"{}"
+        body = b"x" * (auth_settings.login_max_body_bytes + 1) if kind == "large" else b"{}"
         if kind == "type":
             headers["Content-Type"] = "text/plain"
         if kind == "throttle":

@@ -41,6 +41,15 @@ import type {
   ProposalWriteOptions,
 } from '@/services/proposal-contracts';
 import { isBusinessDate } from '@/lib/business-time';
+import type {
+  AdminAccessOptions,
+  AdminWriteOptions,
+  AdminAccountQuery,
+  AccountCreateBody,
+  AccountUpdateBody,
+  AccountPasswordBody,
+} from '@/services/admin-contracts';
+import { parseAdminAccount, parseAdminAccountPage } from './admin-account-mapping';
 import { ApiError, BookingRejection } from './errors';
 import { parseBookingContext } from './booking-context';
 import {
@@ -204,7 +213,7 @@ function purpose(data: WirePurpose): Purpose {
     requiresFreeText: data.requires_free_text,
   };
 }
-function user(data: WireUser): SessionUser {
+function user(data: WireUser): Omit<SessionUser, 'sessionGeneration'> {
   requireContract(
     data &&
       typeof data.id === 'string' &&
@@ -214,6 +223,13 @@ function user(data: WireUser): SessionUser {
       ['STUDENT', 'STAFF', 'ADMIN'].includes(data.role),
   );
   return { id: data.id, displayName: data.name, email: data.email, role: data.role };
+}
+function authenticatedUser(data: WireUser & { session_generation: string }): SessionUser {
+  const identity = user(data);
+  requireContract(
+    typeof data.session_generation === 'string' && /^[\w-]{43}$/.test(data.session_generation),
+  );
+  return { ...identity, sessionGeneration: data.session_generation };
 }
 function appointment(data: WireAppointment): Appointment {
   return {
@@ -410,29 +426,40 @@ export class ApiServices {
     headers: Record<string, string> = {},
     expectedUserId?: string,
     onDispatch?: () => void,
-    method: 'POST' | 'PUT' | 'DELETE' = 'POST',
-    expectedRole: 'STUDENT' | 'STAFF' = 'STUDENT',
+    method: 'POST' | 'PUT' | 'DELETE' | 'PATCH' = 'POST',
+    expectedRole: SessionUser['role'] = 'STUDENT',
+    expectedSessionGeneration?: string,
   ): Promise<T> {
     const signal = AbortSignal.any([
       this.scope.signal,
       ...(options?.signal ? [options.signal] : []),
     ]);
     const scopedOptions = { signal };
-    const csrf = await this.request<{ csrf_token: string; user_id: string }>(
-      '/auth/csrf',
-      scopedOptions,
-    );
+    const csrf = await this.request<{
+      csrf_token: string;
+      user_id: string;
+      session_generation: string;
+    }>('/auth/csrf', scopedOptions);
     requireContract(typeof csrf.csrf_token === 'string' && csrf.csrf_token.length > 0);
     if (expectedUserId !== undefined) {
       // The owner and signed token come from the same authenticated backend context.
       // Keep this exact token: a later cookie switch must fail the server's CSRF check.
       requireContract(typeof csrf.user_id === 'string' && csrf.user_id.length > 0);
-      if (csrf.user_id !== expectedUserId) {
+      if (
+        csrf.user_id !== expectedUserId ||
+        (expectedSessionGeneration !== undefined &&
+          csrf.session_generation !== expectedSessionGeneration)
+      ) {
         this.onInvalidSession?.();
         throw new ApiError('ACCOUNT_CHANGED', 401);
       }
       const verified = await this.me(scopedOptions);
-      if (verified.id !== expectedUserId || verified.role !== expectedRole) {
+      if (
+        verified.id !== expectedUserId ||
+        verified.role !== expectedRole ||
+        (expectedSessionGeneration !== undefined &&
+          verified.sessionGeneration !== expectedSessionGeneration)
+      ) {
         this.onInvalidSession?.();
         throw new ApiError('ACCOUNT_CHANGED', 401);
       }
@@ -455,11 +482,99 @@ export class ApiServices {
   }
 
   async me(options?: ServiceRequestOptions) {
-    return user(await this.request<WireUser>('/auth/me', options));
+    return authenticatedUser(
+      await this.request<WireUser & { session_generation: string }>('/auth/me', options),
+    );
+  }
+  private async verifyAdmin(options: AdminAccessOptions) {
+    options.signal?.throwIfAborted();
+    const actor = await this.me(options);
+    options.signal?.throwIfAborted();
+    if (
+      actor.id !== options.expectedUserId ||
+      actor.role !== 'ADMIN' ||
+      actor.sessionGeneration !== options.expectedSessionGeneration
+    ) {
+      this.invalidateSession();
+      throw new ApiError('ACCOUNT_CHANGED', 401);
+    }
+  }
+  async listAdminAccounts(query: AdminAccountQuery, options: AdminAccessOptions) {
+    const scoped = {
+      ...options,
+      signal: AbortSignal.any([this.scope.signal, ...(options.signal ? [options.signal] : [])]),
+    };
+    const params = new URLSearchParams({
+      page: String(query.page),
+      page_size: String(query.pageSize ?? 20),
+    });
+    if (query.role) params.set('role', query.role);
+    if (query.isActive !== undefined) params.set('is_active', String(query.isActive));
+    if (query.search?.trim()) params.set('search', query.search.trim());
+    await this.verifyAdmin(scoped);
+    const data = await this.request<unknown>(`/admin/accounts?${params}`, scoped);
+    await this.verifyAdmin(scoped);
+    return parseAdminAccountPage(data);
+  }
+  async createAdminAccount(body: AccountCreateBody, options: AdminWriteOptions) {
+    const payload = { ...body };
+    return parseAdminAccount(
+      await this.write<unknown>(
+        '/admin/accounts',
+        payload,
+        options,
+        {},
+        options.expectedUserId,
+        options.onDispatch,
+        'POST',
+        'ADMIN',
+        options.expectedSessionGeneration,
+      ),
+    );
+  }
+  async updateAdminAccount(id: string, body: AccountUpdateBody, options: AdminWriteOptions) {
+    const payload = { ...body };
+    const account = parseAdminAccount(
+      await this.write<unknown>(
+        `/admin/accounts/${encodeURIComponent(id)}`,
+        payload,
+        options,
+        {},
+        options.expectedUserId,
+        options.onDispatch,
+        'PATCH',
+        'ADMIN',
+        options.expectedSessionGeneration,
+      ),
+    );
+    requireContract(account.id === id);
+    return account;
+  }
+  async resetAdminAccountPassword(
+    id: string,
+    body: AccountPasswordBody,
+    options: AdminWriteOptions,
+  ) {
+    const payload = { ...body };
+    const account = parseAdminAccount(
+      await this.write<unknown>(
+        `/admin/accounts/${encodeURIComponent(id)}/password`,
+        payload,
+        options,
+        {},
+        options.expectedUserId,
+        options.onDispatch,
+        'POST',
+        'ADMIN',
+        options.expectedSessionGeneration,
+      ),
+    );
+    requireContract(account.id === id);
+    return account;
   }
   async login(credentials: LoginCredentials, options?: ServiceRequestOptions) {
-    return user(
-      await this.request<WireUser>('/auth/login', options, {
+    return authenticatedUser(
+      await this.request<WireUser & { session_generation: string }>('/auth/login', options, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(credentials),

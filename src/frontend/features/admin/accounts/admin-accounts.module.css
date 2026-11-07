@@ -1,0 +1,135 @@
+.accounts {
+  display: grid;
+  gap: 20px;
+  color: #243f55;
+}
+.heading,
+.card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+.heading h1 {
+  margin: 0;
+  font-size: 28px;
+}
+.eyebrow {
+  color: #2a729e;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+}
+.notice {
+  padding: 16px;
+  border-left: 4px solid #2678a5;
+  background: #edf6fb;
+  line-height: 1.6;
+}
+.filters,
+.fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.fields {
+  border: 0;
+  padding: 0;
+  margin: 0 0 16px;
+  min-width: 0;
+}
+.accounts label {
+  display: grid;
+  gap: 8px;
+  font-weight: 600;
+}
+.accounts input,
+.accounts select {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px;
+  border: 1px solid #b8cddd;
+  border-radius: 6px;
+  background: white;
+  color: #243f55;
+  font: inherit;
+}
+.accounts button {
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid #a4c2d7;
+  border-radius: 6px;
+  background: #f7fafc;
+  color: #1d577f;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.accounts button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.accounts :is(button, input, select):focus-visible {
+  outline: 3px solid #3784be;
+  outline-offset: 3px;
+}
+.list {
+  display: grid;
+  gap: 12px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.card,
+.panel {
+  padding: 20px;
+  border: 1px solid #dbe5ee;
+  border-radius: 8px;
+  background: white;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.card h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.card p {
+  margin: 8px 0 0;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.recovery {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.recovery table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  margin-bottom: 16px;
+}
+.recovery :is(th, td) {
+  padding: 8px;
+  text-align: left;
+  vertical-align: top;
+  border: 1px solid #b8cddd;
+}
+@media (max-width: 700px) {
+  .heading,
+  .card {
+    align-items: start;
+    flex-direction: column;
+  }
+  .filters,
+  .fields {
+    grid-template-columns: 1fr;
+  }
+  .panel,
+  .card {
+    padding: 16px;
+  }
+}

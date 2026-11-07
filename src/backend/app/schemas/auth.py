@@ -32,3 +32,10 @@ class PublicUser(BaseModel):
 class CsrfResponse(BaseModel):
     csrf_token: str
     user_id: UUID
+    session_generation: str
+
+
+class AuthenticatedUser(PublicUser):
+    session_generation: str = Field(
+        description="Public session marker. Stable within a session; cannot authenticate requests."
+    )

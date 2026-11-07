@@ -12,18 +12,29 @@ export default defineConfig({
   retries: 0,
   forbidOnly: Boolean(process.env.CI),
   timeout: 45_000,
-  reporter: [
-    ['list'],
-    [
-      'html',
-      {
-        outputFolder: fileURLToPath(
-          new URL('../../playwright-report/frontend-api', import.meta.url),
-        ),
-        open: 'never',
-      },
-    ],
-  ],
+  reporter: process.env.CI
+    ? [
+        [
+          fileURLToPath(new URL('../../tests/frontend/safe-reporter.ts', import.meta.url)),
+          {
+            outputFile: fileURLToPath(
+              new URL('../../playwright-report/frontend-api-safe/summary.json', import.meta.url),
+            ),
+          },
+        ],
+      ]
+    : [
+        ['list'],
+        [
+          'html',
+          {
+            outputFolder: fileURLToPath(
+              new URL('../../playwright-report/frontend-api', import.meta.url),
+            ),
+            open: 'never',
+          },
+        ],
+      ],
   use: {
     baseURL: 'http://127.0.0.1:3101',
     trace: 'off',
@@ -42,6 +53,8 @@ export default defineConfig({
       url: 'http://127.0.0.1:8101/health/live',
       reuseExistingServer: false,
       timeout: 60_000,
+      stdout: 'ignore',
+      stderr: process.env.CI ? 'ignore' : 'pipe',
     },
     {
       command: 'node ../../node_modules/next/dist/bin/next start --hostname 127.0.0.1 --port 3101',
@@ -49,6 +62,8 @@ export default defineConfig({
       url: 'http://127.0.0.1:3101/login',
       reuseExistingServer: false,
       timeout: 60_000,
+      stdout: 'ignore',
+      stderr: process.env.CI ? 'ignore' : 'pipe',
     },
   ],
 });

@@ -63,6 +63,21 @@ export class StaffChangeIntentStore {
     this.emit();
   }
 
+  suspendForSessionLoss(userId: string) {
+    if (!this.changes.size) return;
+    for (const [key, stored] of this.changes) {
+      if (stored.change.userId !== userId) this.changes.delete(key);
+      else
+        this.changes.set(key, {
+          ...stored,
+          phase: 'unknown',
+          // Old-session completions cannot clear the retained recovery record.
+          version: ++this.nextVersion,
+        });
+    }
+    this.emit();
+  }
+
   clearAll() {
     if (!this.changes.size) return;
     this.changes.clear();

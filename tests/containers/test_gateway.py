@@ -375,7 +375,7 @@ def test_real_routing_headers_and_spoofed_identity(gateway):
 
 @pytest.mark.parametrize(
     "path,limit",
-    [("/api/v1/auth/login", 4096), ("/api/v1/auth/login/", 4096), ("/api/v1/probe", 32768)],
+    [("/api/v1/auth/login", 16384), ("/api/v1/auth/login/", 16384), ("/api/v1/probe", 32768)],
 )
 def test_real_body_boundaries_and_json_errors(gateway, path, limit):
     client, _, _, _ = gateway

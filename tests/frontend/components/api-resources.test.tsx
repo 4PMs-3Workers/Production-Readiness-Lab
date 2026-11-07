@@ -18,6 +18,7 @@ const user = {
   id: '10000000-0000-4000-8000-000000000001',
   name: 'Fictional Student',
   email: 'student@example.invalid',
+  session_generation: 'a'.repeat(43),
   role: 'STUDENT',
 };
 

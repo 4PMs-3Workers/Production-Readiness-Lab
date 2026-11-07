@@ -12,7 +12,7 @@ services:
       COOKIE_SECURE: 'true'
       COOKIE_DOMAIN: ''
       COOKIE_SAMESITE: lax
-      LOGIN_MAX_BODY_BYTES: '4096'
+      LOGIN_MAX_BODY_BYTES: '16384'
       API_MAX_BODY_BYTES: '32768'
 
   gateway:

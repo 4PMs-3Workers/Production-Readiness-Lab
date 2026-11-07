@@ -45,7 +45,7 @@ fall back independently to the socket peer or original scheme. Request-ID
 trust still uses the immediate peer. Origin, Referer, Cookie, CSRF, and
 idempotency headers are preserved. API errors and Retry-After pass through;
 gateway failures return sanitized JSON with an ID. Exact and trailing-slash
-login paths share the Nginx login rate zone and 4096-byte body limit; other
+login paths share the Nginx login rate zone and 16384-byte body limit; other
 requests allow 32768 bytes. The backend login quota uses the validated client
 address for gateway traffic and the socket peer for direct traffic. Connect
 timeout is 2 seconds;

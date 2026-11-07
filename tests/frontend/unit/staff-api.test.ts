@@ -8,6 +8,7 @@ const staffUser = {
   id: 'staff-1',
   name: 'Nhân viên mẫu',
   email: 'staff@example.test',
+  session_generation: 'a'.repeat(43),
   role: 'STAFF',
 };
 const staffOptions = { expectedUserId: staffUser.id };

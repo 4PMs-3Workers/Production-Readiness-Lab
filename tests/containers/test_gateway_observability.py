@@ -1044,7 +1044,7 @@ def test_nonlogin_local_429_is_not_a_login_throttle(gateway, tmp_path):
 
 def test_local_body_rejection_and_exact_login_limit_are_finite(gateway):
     client, _, base, env = gateway
-    rejected = client.post("/api/v1/auth/login", content=b"x" * 4097)
+    rejected = client.post("/api/v1/auth/login", content=b"x" * 16385)
     assert rejected.status_code == 413
     record, _ = wait_record(base, env, rejected.headers["x-request-id"])
     assert record["upstream_identity"] == "none"

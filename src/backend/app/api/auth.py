@@ -8,24 +8,30 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth_errors import auth_responses
 from app.core.auth_cookies import clear_auth_cookies, set_auth_cookies, set_csrf_cookie
-from app.core.csrf import issue_csrf_token
+from app.core.csrf import issue_csrf_token, session_generation
 from app.core.origin import require_same_origin
 from app.dependencies.auth import check_csrf, optional_auth, require_auth
 from app.dependencies.database import get_db_session
 from app.domain.auth import AuthContext
-from app.schemas.auth import CsrfResponse, LoginRequest, PublicUser
+from app.schemas.auth import AuthenticatedUser, CsrfResponse, LoginRequest
 from app.services import auth
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
 
-def public_user(context: AuthContext) -> PublicUser:
-    return PublicUser(id=context.user_id, email=context.email, name=context.name, role=context.role)
+def public_user(context: AuthContext, secret: str) -> AuthenticatedUser:
+    return AuthenticatedUser(
+        id=context.user_id,
+        email=context.email,
+        name=context.name,
+        role=context.role,
+        session_generation=session_generation(context.session_id, secret),
+    )
 
 
 @router.post(
     "/login",
-    response_model=PublicUser,
+    response_model=AuthenticatedUser,
     responses=auth_responses(200, 401, 403, 413, 415, 422, 429, 500, 503),
 )
 async def login(
@@ -33,7 +39,7 @@ async def login(
     request: Request,
     response: Response,
     db: Annotated[AsyncSession, Depends(get_db_session)],
-) -> PublicUser:
+) -> AuthenticatedUser:
     """JSON credentials and valid Origin (or Referer fallback); no existing CSRF required.
 
     Issues fresh prl_session (HttpOnly) and prl_csrf cookies after commit.
@@ -57,12 +63,14 @@ async def login(
         now=datetime.now(UTC),
         settings=settings,
     )
-    return public_user(result.context)
+    return public_user(result.context, settings.csrf_secret.get_secret_value())
 
 
-@router.get("/me", response_model=PublicUser, responses=auth_responses(200, 401, 500, 503))
-async def me(context: Annotated[AuthContext, Depends(require_auth)]) -> PublicUser:
-    return public_user(context)
+@router.get("/me", response_model=AuthenticatedUser, responses=auth_responses(200, 401, 500, 503))
+async def me(
+    request: Request, context: Annotated[AuthContext, Depends(require_auth)]
+) -> AuthenticatedUser:
+    return public_user(context, request.app.state.settings.csrf_secret.get_secret_value())
 
 
 @router.get("/csrf", response_model=CsrfResponse, responses=auth_responses(200, 401, 500, 503))
@@ -78,7 +86,13 @@ async def csrf(
         now=datetime.now(UTC),
         settings=settings,
     )
-    return CsrfResponse(csrf_token=token, user_id=context.user_id)
+    return CsrfResponse(
+        csrf_token=token,
+        user_id=context.user_id,
+        session_generation=session_generation(
+            context.session_id, settings.csrf_secret.get_secret_value()
+        ),
+    )
 
 
 @router.post(

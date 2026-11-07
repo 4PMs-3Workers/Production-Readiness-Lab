@@ -314,23 +314,41 @@ async def test_query_timeout_during_commit_invalidates_without_retrying_writes(
 ):
     env, _, starts_at = booking_env
     payload = _request(env, starts_at)
-    # The query budget covers the entire write attempt, including setup before commit.
-    # Give that real database work room on busy runners, then stall commit until the
-    # service's query timeout cancels it. The watchdog expires before the request
-    # deadline, so a missing query timeout fails instead of passing via request timeout.
+    # Allow bounded SQL setup headroom, then arm the configured query scope at
+    # COMMIT. Keep develop's indefinite fault and independent outer watchdog so
+    # this cannot pass merely because a fixed sleep or request deadline elapsed.
     settings = auth_settings.model_copy(
-        update={"db_query_timeout_seconds": 5.0, "db_lock_timeout_seconds": 5.0}
+        update={"db_query_timeout_seconds": 0.25, "db_lock_timeout_seconds": 5.0}
     )
     dialect = env.factory.kw["bind"].sync_engine.dialect
     original_commit = dialect.do_commit
     targets = set()
     entered = asyncio.Event()
+    setup_completed = asyncio.Event()
+    pause_completed = asyncio.Event()
     write_commits = 0
+    active_query_scopes: list[tuple[float, asyncio.Timeout]] = []
+    expired_target: list[asyncio.Timeout] = []
 
+    @asynccontextmanager
+    async def tracked_query_timeout(seconds: float) -> AsyncIterator[asyncio.Timeout]:
+        # The configured attempt budget also covers SQL setup. Give setup bounded
+        # headroom, then arm that same production scope at the COMMIT fault.
+        async with asyncio.timeout(max(seconds, 15.0)) as scope:
+            active_query_scopes.append((seconds, scope))
+            try:
+                yield scope
+            finally:
+                active_query_scopes.pop()
+
+    test_clock = SimpleNamespace(**vars(asyncio))
+    test_clock.timeout = tracked_query_timeout
+    monkeypatch.setattr(booking, "asyncio", test_clock)
     original_lock = booking.appointments.lock_service_settings
 
     async def delayed_setup(db):
         await asyncio.sleep(setup_delay)
+        setup_completed.set()
         return await original_lock(db)
 
     def mark_write_connection(session):
@@ -344,15 +362,26 @@ async def test_query_timeout_during_commit_invalidates_without_retrying_writes(
             return original_commit(connection)
         write_commits += 1
         entered.set()
+        candidates = [
+            scope
+            for seconds, scope in active_query_scopes
+            if seconds == settings.db_query_timeout_seconds
+        ]
+        assert len(candidates) == 1, "The production query timeout must enclose COMMIT"
+        scope = candidates[0]
         if server_committed:
             original_commit(connection)
+        expired_target.append(scope)
+        scope.reschedule(asyncio.get_running_loop().time() + settings.db_query_timeout_seconds)
         await_only(asyncio.Event().wait())
+        pause_completed.set()
+        if not server_committed:
+            original_commit(connection)
 
     event.listen(Session, "before_commit", mark_write_connection)
     try:
         with monkeypatch.context() as patch:
-            if setup_delay:
-                patch.setattr(booking.appointments, "lock_service_settings", delayed_setup)
+            patch.setattr(booking.appointments, "lock_service_settings", delayed_setup)
             patch.setattr(dialect, "do_commit", pause_commit)
             async with env.factory() as db:
                 invalidations = 0
@@ -369,7 +398,10 @@ async def test_query_timeout_during_commit_invalidates_without_retrying_writes(
                         _create(db, env, payload, settings, request_budget=30.0), timeout=15.0
                     )
                 assert (caught.value.status_code, caught.value.code) == (503, "SERVICE_UNAVAILABLE")
+                assert setup_completed.is_set()
                 assert entered.is_set()
+                assert len(expired_target) == 1 and expired_target[0].expired()
+                assert not pause_completed.is_set()
                 assert write_commits == 1
                 assert invalidations == 1
                 assert not db.in_transaction()

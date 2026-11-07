@@ -21,6 +21,8 @@ function ProtectedContent({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   return pathname === '/login' ||
     pathname === '/' ||
+    pathname === '/admin' ||
+    pathname.startsWith('/admin/') ||
     pathname === '/staff' ||
     pathname.startsWith('/staff/') ? (
     children

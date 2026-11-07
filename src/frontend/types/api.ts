@@ -2,6 +2,7 @@ import type { Purpose, Staff, StudentContext } from './booking';
 
 export interface SessionUser extends StudentContext {
   readonly role: 'STUDENT' | 'STAFF' | 'ADMIN';
+  readonly sessionGeneration: string;
 }
 
 export interface StudentProfile extends StudentContext {
