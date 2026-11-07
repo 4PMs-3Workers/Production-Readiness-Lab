@@ -21,6 +21,7 @@ from tools.backup.offhost_contract import (
 )
 from tools.backup.offhost_image_archive import (
     ArchiveImage,
+    exported_config_id,
     inspect_archive,
     json_value,
     platform_manifest,
@@ -76,19 +77,18 @@ def capture(args: list[str], deadline: Deadline, maximum: int = 1024**2) -> byte
 def inspect(reference: str, deadline: Deadline) -> dict:
     try:
         raw = capture(
-            [
-                "docker",
-                "image",
-                "inspect",
-                "--format",
-                '{"id":{{json .Id}},"descriptor":{{json (index . "Descriptor")}},'
-                '"labels":{{json .Config.Labels}},"os":{{json .Os}},"arch":{{json .Architecture}}}',
-                reference,
-            ],
+            ["docker", "image", "inspect", "--format", "{{json .}}", reference],
             deadline,
         )
-        return json.loads(raw, object_pairs_hook=no_duplicate_keys)
-    except (ValueError, TypeError):
+        image = json.loads(raw, object_pairs_hook=no_duplicate_keys)
+        return {
+            "id": image["Id"],
+            "descriptor": image.get("Descriptor"),
+            "labels": (image.get("Config") or {}).get("Labels"),
+            "os": image["Os"],
+            "arch": image["Architecture"],
+        }
+    except (ValueError, TypeError, KeyError, AttributeError):
         raise RemoteError(Code.IMAGE) from None
 
 
@@ -327,6 +327,27 @@ class ImportedImage:
     archive: ArchiveImage
 
 
+def daemon_config_id(reference: str, deadline: Deadline) -> str:
+    # Image inspect on containerd returns the manifest/index digest. Export the
+    # selected Linux/amd64 image to verify its actual config bytes independently.
+    with tempfile.TemporaryDirectory(prefix="prl-image-config-") as scratch:
+        output = Path(scratch) / "image.tar"
+        run(
+            [
+                "docker",
+                "image",
+                "save",
+                "--platform",
+                "linux/amd64",
+                "--output",
+                str(output),
+                reference,
+            ],
+            deadline,
+        )
+        return exported_config_id(output, deadline)
+
+
 def target_image(archived: ArchiveImage, deadline: Deadline) -> ImportedImage:
     descriptors = {
         item.digest: item for item in (archived.target, archived.selected) if item is not None
@@ -354,6 +375,7 @@ def target_image(archived: ArchiveImage, deadline: Deadline) -> ImportedImage:
             and descriptor.get("digest") == expected.digest
             and descriptor.get("size") == expected.size
             and descriptor.get("mediaType") == expected.media_type
+            and daemon_config_id(identifier, deadline) == archived.config_id
         ):
             return ImportedImage(identifier, archived)
         raise RemoteError(Code.IMAGE)

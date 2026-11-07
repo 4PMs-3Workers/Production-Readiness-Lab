@@ -252,14 +252,17 @@ class ImageTar:
                     ):
                         raise ValueError()
 
-    def image(self) -> ArchiveImage:
+    def legacy_configuration(self) -> tuple[dict, bytes]:
         legacy = json_value(self.metadata("manifest.json"))
         if not isinstance(legacy, list) or len(legacy) != 1:
             raise ValueError()
         item = record(legacy[0], LEGACY_FIELDS)
         if item.get("RepoTags") not in (None, []) or item.get("Parent"):
             raise ValueError()
-        config_raw = self.metadata(item["Config"])
+        return item, self.metadata(item["Config"])
+
+    def image(self) -> ArchiveImage:
+        item, config_raw = self.legacy_configuration()
         config_id, config = sha(config_raw), record(json_value(config_raw), IMAGE_FIELDS)
         if (config["os"], config["architecture"]) != ("linux", "amd64"):
             raise ValueError()
@@ -297,6 +300,16 @@ def inspect_archive(path: Path, deadline: Deadline) -> ArchiveImage:
     try:
         with tarfile.open(path, "r:", tarinfo=PlainTarInfo) as archive:
             return ImageTar(archive, deadline).image()
+    except (tarfile.TarError, OSError, EOFError, ValueError, KeyError, TypeError, AttributeError):
+        raise RemoteError(Code.IMAGE) from None
+
+
+def exported_config_id(path: Path, deadline: Deadline) -> str:
+    """Hash the config actually exported for the daemon's selected platform."""
+    try:
+        with tarfile.open(path, "r:", tarinfo=PlainTarInfo) as archive:
+            _, raw = ImageTar(archive, deadline).legacy_configuration()
+        return sha(raw)
     except (tarfile.TarError, OSError, EOFError, ValueError, KeyError, TypeError, AttributeError):
         raise RemoteError(Code.IMAGE) from None
 

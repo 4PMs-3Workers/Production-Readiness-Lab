@@ -305,7 +305,13 @@ def test_containerd_id_must_match_the_verified_archive_descriptor(tmp_path, monk
         descriptor=descriptor_fields,
     )
     monkeypatch.setattr("tools.backup.offhost_escrow.inspect", lambda *_: observed)
+    monkeypatch.setattr("tools.backup.offhost_escrow.daemon_config_id", lambda *_: config)
     assert target_image(image, Deadline(5)).runtime_id == descriptor.digest
+    monkeypatch.setattr(
+        "tools.backup.offhost_escrow.daemon_config_id", lambda *_: "sha256:" + "f" * 64
+    )
+    with pytest.raises(RemoteError, match=Code.IMAGE.value):
+        target_image(image, Deadline(5))
     descriptor_fields["digest"] = "sha256:" + "f" * 64
     with pytest.raises(RemoteError, match=Code.IMAGE.value):
         target_image(image, Deadline(5))
