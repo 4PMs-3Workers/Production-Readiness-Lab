@@ -318,9 +318,11 @@ async def _book(
     key = str(uuid4())
     route = "/api/v1/appointments"
     headers = {"Idempotency-Key": key}
+    prior_attempt_ambiguous = False
     try:
         created = await session.client.post(route, json=body, headers=headers)
     except httpx.HTTPError:
+        prior_attempt_ambiguous = True
         try:
             created = await session.client.post(route, json=body, headers=headers)
         except httpx.HTTPError:
@@ -328,10 +330,15 @@ async def _book(
                 result.ambiguous_write_failures += 1
             return "ambiguous_write"
     if created.status_code == 409:
+        if prior_attempt_ambiguous and result is not None:
+            result.ambiguous_write_failures += 1
         return "business_conflict"
     if created.status_code not in {200, 201}:
         if created.status_code < 500:
+            if prior_attempt_ambiguous and result is not None:
+                result.ambiguous_write_failures += 1
             return _http_outcome(created.status_code, expected={200, 201})
+        prior_attempt_ambiguous = True
         try:
             created = await session.client.post(route, json=body, headers=headers)
         except httpx.HTTPError:
@@ -372,21 +379,22 @@ async def _cancel(session: _Session, result: WorkloadResult | None = None) -> st
     if not session.appointments:
         return "no_owned_appointment"
     appointment_id = session.appointments.pop(0)
-    if result is not None:
-        # A lost response cannot tell us whether the transaction committed. Keep the
-        # appointment in the post-run effect inventory so the database check decides.
-        result.cancelled_appointment_ids.append(appointment_id)
     try:
         response = await session.client.post(
             f"/api/v1/appointments/{appointment_id}/cancel", json={}
         )
     except httpx.HTTPError:
         if result is not None:
+            # A lost response cannot tell us whether the transaction committed.
+            result.cancelled_appointment_ids.append(appointment_id)
             result.ambiguous_write_failures += 1
         return "ambiguous_write"
     outcome = _http_outcome(response.status_code, expected={200})
-    if result is not None and response.status_code >= 500:
-        result.ambiguous_write_failures += 1
+    if result is not None:
+        if response.status_code == 200 or response.status_code >= 500:
+            result.cancelled_appointment_ids.append(appointment_id)
+        if response.status_code >= 500:
+            result.ambiguous_write_failures += 1
     return outcome
 
 
@@ -434,9 +442,11 @@ async def _propose(
     key = str(uuid4())
     route = f"/api/v1/staff/me/appointments/{appointment_id}/change-proposals"
     headers = {"Idempotency-Key": key}
+    prior_attempt_ambiguous = False
     try:
         created = await session.client.post(route, json=body, headers=headers)
     except httpx.HTTPError:
+        prior_attempt_ambiguous = True
         try:
             created = await session.client.post(route, json=body, headers=headers)
         except httpx.HTTPError:
@@ -444,10 +454,15 @@ async def _propose(
                 result.ambiguous_write_failures += 1
             return "ambiguous_write"
     if created.status_code == 409:
+        if prior_attempt_ambiguous and result is not None:
+            result.ambiguous_write_failures += 1
         return "business_conflict"
     if created.status_code not in {200, 201}:
         if created.status_code < 500:
+            if prior_attempt_ambiguous and result is not None:
+                result.ambiguous_write_failures += 1
             return _http_outcome(created.status_code, expected={200, 201})
+        prior_attempt_ambiguous = True
         try:
             created = await session.client.post(route, json=body, headers=headers)
         except httpx.HTTPError:

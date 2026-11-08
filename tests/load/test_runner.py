@@ -207,6 +207,37 @@ def test_booking_reconciles_lost_write_response_with_the_original_idempotency_ke
     assert len({payload for _key, payload in attempts}) == 1
 
 
+def test_booking_retry_rejection_keeps_lost_first_write_ambiguous():
+    fixture = load_workload_fixture(93, "b" * 32, _TEST_PASSWORD)
+    credential = fixture.students[0]
+    writes = 0
+
+    def handle(request):
+        nonlocal writes
+        if request.url.path.endswith("/availability"):
+            return httpx.Response(200, json={"slots": [{"starts_at": "2026-11-10T03:00:00Z"}]})
+        writes += 1
+        if writes == 1:
+            raise httpx.ReadTimeout("write response lost")
+        return httpx.Response(429, json={"detail": "capacity"})
+
+    async def run():
+        result = WorkloadResult(1, 1, 1, datetime.now(UTC), datetime.now(UTC))
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(handle), base_url="https://candidate.invalid"
+        ) as client:
+            outcome = await _book(
+                _Session(credential, client, "csrf"), fixture, random.Random(1), result
+            )
+        return result, outcome
+
+    result, outcome = asyncio.run(run())
+
+    assert outcome == "capacity_rejection"
+    assert result.ambiguous_write_failures == 1
+    assert result.created_booking_ids == []
+
+
 def test_replay_receipt_compares_all_immutable_receipt_fields():
     response = httpx.Response(
         200,
@@ -277,6 +308,28 @@ def test_cancel_response_loss_keeps_appointment_in_effect_inventory():
     assert session.appointments == []
 
 
+def test_definitively_rejected_cancellation_is_not_an_effect():
+    fixture = load_workload_fixture(94, "c" * 32, _TEST_PASSWORD)
+    credential = fixture.students[0]
+    appointment_id = UUID(str(credential.appointment_id))
+
+    async def run():
+        result = WorkloadResult(1, 1, 1, datetime.now(UTC), datetime.now(UTC))
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda _request: httpx.Response(409, json={"code": "CANCELLATION_DEADLINE_PASSED"})
+            ),
+            base_url="https://candidate.invalid",
+        ) as client:
+            outcome = await _cancel(_Session(credential, client, "csrf", [appointment_id]), result)
+        return result, outcome
+
+    result, outcome = asyncio.run(run())
+
+    assert outcome == "business_conflict"
+    assert result.cancelled_appointment_ids == []
+
+
 def test_proposal_uses_expected_context_csrf_and_exact_replay():
     fixture = load_workload_fixture(42, "e" * 32, _TEST_PASSWORD)
     credential = fixture.staff[0]
@@ -337,9 +390,56 @@ def test_proposal_uses_expected_context_csrf_and_exact_replay():
 
     asyncio.run(run())
     assert len(writes) == 2
-    assert writes[0] == writes[1]
+    assert writes[0][0] == writes[1][0]
     assert writes[0][1]["expected_proposal_version"] == 1
     assert writes[0][1]["expected_pending_proposal_id"] == "1" * 32
+
+
+def test_proposal_retry_rejection_keeps_lost_first_write_ambiguous():
+    fixture = load_workload_fixture(95, "d" * 32, _TEST_PASSWORD)
+    credential = fixture.staff[0]
+    writes = 0
+
+    def handle(request):
+        nonlocal writes
+        if request.method == "GET" and request.url.path.endswith("change-proposals"):
+            return httpx.Response(
+                200, json={"context": {"proposal_version": 1, "pending_proposal_id": None}}
+            )
+        if request.url.path.endswith("/availability"):
+            return httpx.Response(200, json={"slots": [{"starts_at": "2026-11-09T03:00:00Z"}]})
+        writes += 1
+        if writes == 1:
+            raise httpx.ReadTimeout("proposal response lost")
+        return httpx.Response(429, json={"detail": "capacity"})
+
+    async def run():
+        result = WorkloadResult(1, 1, 1, datetime.now(UTC), datetime.now(UTC))
+        async with (
+            httpx.AsyncClient(
+                transport=httpx.MockTransport(handle), base_url="https://candidate.invalid"
+            ) as staff_client,
+            httpx.AsyncClient(
+                transport=httpx.MockTransport(handle),
+                base_url="https://candidate.invalid",
+                headers={"X-Test-Role": "student"},
+            ) as student_client,
+        ):
+            outcome = await _propose(
+                _Session(credential, staff_client, "csrf"),
+                fixture,
+                random.Random(1),
+                result,
+                _Session(fixture.students[0], student_client, "csrf"),
+            )
+        return result, outcome
+
+    result, outcome = asyncio.run(run())
+
+    assert outcome == "capacity_rejection"
+    assert result.ambiguous_write_failures == 1
+    assert result.created_proposal_ids == []
+    assert writes == 2
 
 
 def test_run_workload_uses_async_request_hook_and_captures_gateway_ids():
