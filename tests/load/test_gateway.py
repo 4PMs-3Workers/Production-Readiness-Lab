@@ -5,6 +5,7 @@ import pytest
 from tools.load.gateway import (
     _gateway_event,
     _prometheus_scalar,
+    _runtime_queries,
     _to_ns,
     collect_gateway_window,
     safe_service_url,
@@ -71,6 +72,14 @@ def test_prometheus_missing_series_is_not_reported_as_zero():
     assert (
         _prometheus_scalar({"status": "success", "data": {"result": [{"value": [1, "4.5"]}]}})
         == 4.5
+    )
+
+
+def test_worker_backlog_signal_captures_peak_over_the_observed_window():
+    query = _runtime_queries(600, "demo")["worker_backlog_max"]
+    assert query == (
+        'max(max_over_time(prl_worker_backlog_count{service_name="worker",'
+        'deployment_environment_name="demo"}[600s]))'
     )
 
 

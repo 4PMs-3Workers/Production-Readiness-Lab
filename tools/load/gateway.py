@@ -100,10 +100,27 @@ async def collect_runtime_signals(
     """Read finite worker, pool, and lock signals; absence remains explicitly unavailable."""
     end = datetime.now(UTC)
     range_seconds = max(1, duration_seconds)
-    queries = {
+    queries = _runtime_queries(range_seconds, environment)
+    async with httpx.AsyncClient(timeout=10) as client:
+        responses = await _gather_prometheus_queries(client, prometheus_url, queries, end)
+    result: dict[str, object] = {"observed_at": end.isoformat(), "signals": {}}
+    signals = result["signals"]
+    assert isinstance(signals, dict)
+    for key, response in responses.items():
+        value = _prometheus_scalar(response)
+        signals[key] = {
+            "value": value,
+            "status": "measured" if value is not None else "unavailable",
+        }
+    return result
+
+
+def _runtime_queries(range_seconds: int, environment: str) -> dict[str, str]:
+    selected_environment = _environment(environment)
+    return {
         "worker_backlog_max": (
-            'max(prl_worker_backlog_count{service_name="worker",'
-            f'deployment_environment_name="{_environment(environment)}"' + "})"
+            'max(max_over_time(prl_worker_backlog_count{service_name="worker",'
+            f'deployment_environment_name="{selected_environment}"' + f"}}[{range_seconds}s]))"
         ),
         "api_pool_checked_out_max": (
             f'max_over_time(prl_db_pool_checked_out{{job="api"}}[{range_seconds}s])'
@@ -118,18 +135,6 @@ async def collect_runtime_signals(
             f'sum(increase(prl_db_failures_total{{reason="pool_timeout"}}[{range_seconds}s]))'
         ),
     }
-    async with httpx.AsyncClient(timeout=10) as client:
-        responses = await _gather_prometheus_queries(client, prometheus_url, queries, end)
-    result: dict[str, object] = {"observed_at": end.isoformat(), "signals": {}}
-    signals = result["signals"]
-    assert isinstance(signals, dict)
-    for key, response in responses.items():
-        value = _prometheus_scalar(response)
-        signals[key] = {
-            "value": value,
-            "status": "measured" if value is not None else "unavailable",
-        }
-    return result
 
 
 async def _gather_prometheus_queries(
