@@ -102,6 +102,49 @@ def test_existing_mysql_receives_verified_grants_over_stdin(tmp_path, monkeypatc
     assert len(calls) == 1
 
 
+@pytest.mark.parametrize(
+    ("compatible", "policy_changed", "expected_calls"),
+    [
+        (False, False, ["check"]),
+        (True, True, ["check", "stop", "start"]),
+        (True, False, ["check", "stop", "continue"]),
+    ],
+)
+def test_predecessor_policy_guard_rechecks_after_draining_the_current_api(
+    tmp_path, monkeypatch, compatible, policy_changed, expected_calls
+):
+    host = runtime(tmp_path)
+    retained = manifest()
+    host.select(retained)
+    calls = []
+    initial = {"timezone": "America/New_York"}
+    recheck = {"timezone": "UTC"} if policy_changed else initial
+    snapshots = iter([initial, recheck])
+    monkeypatch.setattr(host, "_booking_policy", lambda: next(snapshots))
+    monkeypatch.setattr(host, "inspect", lambda *args, **kwargs: {"running": True})
+    monkeypatch.setattr(host, "compose", lambda action, *args, **kwargs: calls.append(action))
+
+    def command(args, *, reason, cap, input_data):
+        calls.append("check")
+        assert retained.images["backend"].reference in args and "--network" in args
+        assert json.loads(input_data) == initial
+        if not compatible:
+            raise RolloutError(reason)
+
+    monkeypatch.setattr(host, "command", command)
+
+    def enter_guard():
+        with host.predecessor_policy_guard():
+            calls.append("continue")
+
+    if compatible and not policy_changed:
+        enter_guard()
+    else:
+        with pytest.raises(RolloutError, match="rollback-incompatible"):
+            enter_guard()
+    assert calls == expected_calls
+
+
 def test_deadline_never_restarts_the_budget_between_stages():
     now = [10.0]
     budget = Deadline(300, clock=lambda: now[0])

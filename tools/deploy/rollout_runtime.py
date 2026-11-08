@@ -8,7 +8,8 @@ import os
 import re
 import subprocess
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,8 +21,10 @@ from tools.deploy.release_manifest import (
     ROOT,
     Manifest,
     ReleaseError,
+    canonical,
     load_json,
 )
+from tools.deploy.rollout_policy import POLICY_SQL
 from tools.deploy.rollout_schema import CATALOG_SQL, REVISION_SQL, SchemaSnapshot, snapshot
 from tools.deploy.rollout_state import Reason, RolloutError
 
@@ -412,6 +415,57 @@ class ReleaseRuntime:
             reason="database-unavailable",
             cap=15,
         ).strip()
+
+    def _booking_policy(self) -> dict:
+        return self.json_output(self.sql(POLICY_SQL))
+
+    @contextmanager
+    def predecessor_policy_guard(self) -> Iterator[None]:
+        if self.manifest is None:
+            raise RolloutError("invalid-manifest")
+        policy = self._booking_policy()
+        checker = Path(__file__).with_name("rollout_policy.py").read_text(encoding="utf-8")
+        self.command(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--interactive",
+                "--pull",
+                "never",
+                "--platform",
+                "linux/amd64",
+                "--network",
+                "none",
+                "--read-only",
+                "--cap-drop",
+                "ALL",
+                "--entrypoint",
+                "python",
+                self.manifest.images["backend"].reference,
+                "-c",
+                checker,
+            ],
+            reason="rollback-incompatible",
+            cap=55,
+            input_data=canonical(policy),
+        )
+        api = self.inspect("api", optional=True)
+        running = api is not None and api.get("running") is True
+        # Leave time for the recheck and restarting the original API on refusal.
+        if running and self.deadline.remaining() < 85:
+            raise RolloutError("deadline-exceeded")
+        try:
+            if running:
+                self.compose("stop", "--timeout", "40", "api", cap=50)
+            # With admin writers drained, the same snapshot must still be current.
+            if self._booking_policy() != policy:
+                raise RolloutError("rollback-incompatible")
+            yield
+        except BaseException:
+            if running:
+                self.compose("start", "api", reason="rollback-failed", cap=15)
+            raise
 
     def schema(self) -> SchemaSnapshot:
         record = self.inspect("mysql", optional=True)

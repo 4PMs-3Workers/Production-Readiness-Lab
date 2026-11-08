@@ -82,8 +82,17 @@ The deployment sends the verified grant SQL to the running MySQL container and
 recreates the gateway with the new routes. The added privileges and routes are
 compatible with the base release. A rollback from the updated checkout restores
 the base manifest's exact images while retaining the current host binding, grants,
-gateway configuration, and MySQL volume. The base-to-head Linux rehearsal checks
-an admin policy write and verifies the committed appointment after both operations.
+gateway configuration, and MySQL volume, provided the persisted policy is
+compatible. Preflight checks the saved service hours and local midnights using
+the retained backend's timezone rules. It covers the booking horizon and a full
+Gregorian cycle of recurring weekday rules beyond it. A nonexistent or repeated
+boundary returns `rollback-incompatible` before replacing the running release.
+The controller also rechecks the policy after draining the API and resumes the
+same API container if the policy changed during preflight. The saved policy
+remains in MySQL. An admin can explicitly save compatible hours and retry the
+same rollback. The Linux rehearsal verifies the spring-forward availability
+response on both images, the refusal with the incompatible policy in place,
+and successful rollback after an admin saves a compatible policy.
 
 The delivered schema contract accepts `20261019_1200_proposal_replay`. Only the
 initial bootstrap may start with an empty schema. Existing schemas require exactly

@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Literal
 from uuid import uuid4
 
 from tools.deploy.release_images import Registry
-from tools.deploy.release_manifest import SCHEMA, Configuration, canonical, parse
+from tools.deploy.release_manifest import SCHEMA, Configuration, canonical, configuration, parse
 from tools.deploy.rollout_lock import operation_lock
 from tools.deploy.rollout_preflight import Prepared, ReleaseConsumer
 from tools.deploy.rollout_readiness import ready
@@ -342,7 +343,11 @@ class RolloutController:
         self.runtime.vendor_images()
         require_schema(self.runtime.schema(), prepared.manifest.accepted_schema_revisions)
         before = self.runtime.database_identity()
-        self._transition("rollback_rollout")
+        current = configuration(self.runtime.overlay, self.runtime.observability, self.runtime.root)
+        # prepare() accepts only the exact current configuration or the reviewed predecessor.
+        predecessor = prepared.manifest.configuration != current
+        with self.runtime.predecessor_policy_guard() if predecessor else nullcontext():
+            self._transition("rollback_rollout")
         # There is deliberately no migration, seed, downgrade, or DB startup here.
         self.runtime.rollout()
         self.runtime.require_database(before)

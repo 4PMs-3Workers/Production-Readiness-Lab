@@ -1,5 +1,6 @@
 """Upgrade a running predecessor with its retained manifest and MySQL volume."""
 
+import json
 import os
 import tarfile
 
@@ -7,7 +8,7 @@ import pytest
 from tests.rollout.fixtures import Artifacts, RolloutStack
 from tools.deploy import demo
 from tools.deploy.release_images import command
-from tools.deploy.release_manifest import ROOT
+from tools.deploy.release_manifest import ROOT, SCHEMA, canonical
 from tools.deploy.rollout import reviewed_transition
 from tools.deploy.rollout_controller import RolloutController
 from tools.deploy.rollout_http import SmokeCredentials, SmokeSession
@@ -19,6 +20,85 @@ from tools.deploy.rollout_state import RolloutError
 from tools.deploy.rollout_store import StateStore
 
 BASE = "724169a33b852a6cc6b255aff7cb92fffed89908"
+
+FIXED_AVAILABILITY = """
+import asyncio
+import json
+import sys
+from datetime import UTC, datetime
+from urllib.parse import urlencode
+
+from app.dependencies.clock import get_clock
+from app.factory import create_app
+
+async def main():
+    request = json.load(sys.stdin)
+    app = create_app()
+    app.dependency_overrides[get_clock] = lambda: lambda: datetime(2027, 3, 13, 16, tzinfo=UTC)
+    sent = []
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+    async def send(event):
+        sent.append(event)
+    async with app.router.lifespan_context(app):
+        await app({
+            "type": "http", "asgi": {"version": "3.0", "spec_version": "2.4"},
+            "http_version": "1.1", "method": "GET", "scheme": "http",
+            "path": "/api/v1/availability", "query_string": urlencode(request["params"]).encode(),
+            "headers": [(b"cookie", ("prl_session=" + request["session"]).encode())],
+            "client": ("127.0.0.1", 50000), "server": ("localhost", 80),
+        }, receive, send)
+    body = b"".join(
+        event.get("body", b"") for event in sent if event["type"] == "http.response.body"
+    )
+    print(json.dumps({"status": sent[0]["status"], "body": json.loads(body)}))
+
+asyncio.run(main())
+"""
+
+
+def fixed_availability(runtime, stack, backend, payload, session):
+    raw = runtime.command(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--interactive",
+            "--pull",
+            "never",
+            "--platform",
+            "linux/amd64",
+            "--network",
+            f"{stack.project}_data",
+            "--env-file",
+            stack.env_files["PRL_RUNTIME_ENV_FILE"],
+            "--env",
+            f"ACCEPTED_SCHEMA_REVISIONS={SCHEMA}",
+            "--entrypoint",
+            "python",
+            backend.reference,
+            "-c",
+            FIXED_AVAILABILITY,
+        ],
+        cap=30,
+        input_data=canonical(
+            {
+                "session": session,
+                "params": {key: payload[key] for key in ("purpose_id", "staff_id")}
+                | {"date": "2027-03-14"},
+            }
+        ),
+    )
+    return json.loads(raw.splitlines()[-1])
+
+
+def running_images(runtime: ReleaseRuntime) -> dict[str, tuple[str, str]]:
+    images = {}
+    for service in ("api", "worker", "frontend", "gateway"):
+        record = runtime.inspect(service)
+        assert record is not None and record["running"]
+        images[service] = (record["id"], record["image"])
+    return images
 
 
 def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(tmp_path):
@@ -142,6 +222,70 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
             assert written["updated_at"] != revision
             assert written["booking_horizon_days"] == 368
             assert written["windows"] == policy["windows"]
+
+            purpose_path = f"/api/v1/admin/purposes/{payload['purpose_id']}"
+            purpose = session.request("GET", purpose_path, 200, private=True).json()
+            purpose_update = {
+                key: purpose[key] for key in ("name", "requires_free_text", "is_active")
+            }
+            session.request(
+                "PUT",
+                purpose_path,
+                200,
+                private=True,
+                json={
+                    **purpose_update,
+                    "duration_minutes": 30,
+                    "expected_updated_at": purpose["updated_at"],
+                },
+            )
+            dst_policy = {
+                **policy,
+                "timezone": "America/New_York",
+                "windows": [
+                    {"weekday": 7, "opens_at": "02:30:00", "closes_at": "03:30:00"},
+                    {"weekday": 7, "opens_at": "09:00:00", "closes_at": "12:00:00"},
+                ],
+                "expected_updated_at": written["updated_at"],
+            }
+            saved = session.request("PUT", path, 200, private=True, json=dst_policy).json()
+            assert saved["windows"] == dst_policy["windows"]
+
+            with SmokeSession(stack.origin, Deadline(20)) as student_session:
+                student_session.login(student)
+                token = student_session.client.cookies.get("prl_session")
+                assert token
+                new_slots = fixed_availability(upgraded.runtime, stack, backend, payload, token)
+                assert new_slots["status"] == 200
+                starts = [slot["starts_at"] for slot in new_slots["body"]["slots"]]
+                assert starts and all(
+                    "2027-03-14T13:00:00Z" <= start <= "2027-03-14T15:30:00Z" for start in starts
+                )
+                old_slots = fixed_availability(upgraded.runtime, stack, old_backend, payload, token)
+                assert old_slots["status"] == 503
+                assert old_slots["body"]["error"]["code"] == "SERVICE_UNAVAILABLE"
+
+            running = running_images(upgraded.runtime)
+            refused = host(ROOT, source, stack.port).rollback()
+            assert refused.operation is not None
+            assert [event.phase for event in refused.operation.events] == [
+                "rollback_preflight",
+                "failed",
+            ]
+            assert refused.operation.events[-1].reason == "rollback-incompatible"
+            assert refused.stable == after.stable and refused.previous_stable == before.stable
+            assert running_images(upgraded.runtime) == running
+            upgraded.runtime.require_database(db_identity)
+            assert session.request("GET", path, 200, private=True).json() == saved
+
+            fixed = session.request(
+                "PUT",
+                path,
+                200,
+                private=True,
+                json={**policy, "expected_updated_at": saved["updated_at"]},
+            ).json()
+            assert fixed["windows"] == policy["windows"]
 
         restored = host(ROOT, source, stack.port)
         result = restored.rollback()
