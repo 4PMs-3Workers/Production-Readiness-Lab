@@ -4,6 +4,8 @@
 **Branch:** `feature/issue-53-reproducible-booking-load`
 **Worktree:** `D:\Production-Readiness-Lab-issue-53`
 
+**Continuation:** Read [PR #63 agent guidance](../tasks/pr-63-agent-guidance.md) and [CI follow-up](../tasks/pr-63-ci-followup-plan.md) before further changes.
+
 ## Intent
 
 Provide a repeatable, bounded way to exercise a declared lab release through its real gateway, seed fictional application data in an isolated database, verify business invariants after the run, and export a sanitized report. A short run can prove behavior in its observed window; it cannot claim a seven-day SLO.
