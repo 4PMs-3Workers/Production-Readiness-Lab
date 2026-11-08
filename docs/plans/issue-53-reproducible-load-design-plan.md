@@ -78,3 +78,16 @@ The workload uses twenty concurrent sessions for ten minutes by default and a de
 - Task 1: fixture and guard unit tests passed (`pytest tests/load/test_config.py tests/load/test_fixtures.py -q` → 14 passed); Ruff and Black checks passed. Real MySQL setup could not run because Docker Desktop's Linux engine is not available in this environment; the required integration path remains for Task 3.
 - Task 2: load tests passed (`pytest tests/load -q` → 43 passed); Ruff, Black, and Pyright passed. A full lab gateway/MySQL run has not been executed because Docker Desktop's Linux engine is unavailable and no external lab endpoints/credentials are configured.
 - Task 3: operations guide and README index are in place. Docker Desktop service start was attempted but Windows denied access to `com.docker.service`; the Linux engine remained unavailable. No external lab endpoints/credentials are configured, so real integration evidence remains pending.
+
+## Group-lead review follow-up
+
+### 4. Close CI and runtime correctness findings
+
+- **Acceptance:** MySQL DSNs cannot redirect schema writes; schema creation connects without selecting a not-yet-created database; fixture batches persist; workload request hooks and IDs are captured correctly; proposal reads use the student-only availability contract; every acceptance workload proves at least one proposal write/replay; gateway evidence is joined by request ID and bounded Loki windows; missing timeout telemetry remains unavailable; audit/notification invariants check distinct records and exact recipients; cancellation cleanup removes a schema created by the interrupted invocation; backend CI runs load checks and real MySQL/API acceptance.
+- **Files:** `.github/workflows/backend-models.yml`, `src/backend/app/observability/metrics.py`, `tools/load/`, `tests/load/`, `tests/backend/unit/observability/`.
+- **Checks:** load tests, backend tests, Black, Ruff, Pyright, and the required MySQL test in CI. Local Docker Engine is unavailable, so only CI can provide the live MySQL/API result.
+- **Commit:** `fix(load): address review findings and wire MySQL acceptance`
+
+### Target artifact association
+
+Deployment evidence now records the normalized application origin alongside image IDs/digests and configuration identity collected from the active stack. The load runner marks target identity complete only when the local manifest matches the declared source, is active, and names the exact requested target origin; its gateway health probe must also correlate by request ID and release SHA. A full live gateway/Loki/Prometheus workload run remains an external lab verification because this Windows environment has no running Docker Engine or configured telemetry target.

@@ -91,18 +91,23 @@ The runner uses real returned session cookies and refreshed CSRF tokens. Every
 booking and proposal write has a unique idempotency key and is replayed with the
 same request body. Booking and proposal receipts, cancellations, audit events,
 notifications, overlap rules, the three-upcoming-booking limit, proposal state,
-and duplicate idempotency keys are checked after the run. The runner counts its
-outbound gateway requests; a Loki record-count mismatch makes the SLI window
-incomplete rather than treating surviving records as a complete sample.
+and duplicate idempotency keys are checked after the run. The runner records
+each returned `X-Request-ID` and joins the response to that exact gateway log
+record. Nginx timestamps have whole-second precision, so the Loki query bounds
+include adjacent seconds; request IDs keep unrelated requests outside the
+measured set. Queries use 30-second slices and stay under Loki's 5,000-entry
+per-query limit. Missing, duplicate, or truncated records make the SLI window
+incomplete.
 
-For provenance, create the containerized demo's passing evidence manifest at
-`build/deploy/<release-sha>/manifest.json`; its `evidence` command records local
-image IDs/digests and configuration identity. The report includes this manifest
-only when it matches the clean checkout and passes strict schema validation.
-The current gateway exposes the release source SHA but not its running image
-digests, so the report explicitly marks target artifact identity as unverified.
-An SLI run cannot claim complete acceptance until the target exposes a matching
-runtime artifact attestation.
+For target-bound provenance, run the containerized demo's `evidence` command on
+the host running this candidate, using the same target origin. It records the
+active container image IDs/digests, configuration identity, and normalized
+application origin in `build/deploy/<release-sha>/manifest.json`. The load
+runner accepts those artifacts only when the manifest matches the clean source
+SHA, reports an active deployment, and names the exact configured target
+origin. It also joins the gateway health response to its own request log by
+request ID and checks the release SHA. A manifest from another origin or an
+unmatched health event leaves target artifact identity incomplete.
 
 The command exits nonzero if an invariant fails, the load generator saturates,
 gateway/runtime evidence is incomplete, target artifact identity is unverified,
@@ -150,4 +155,11 @@ black --check tools/load tests/load
 pyright tools/load tests/load
 ```
 
-These unit tests do not replace the real MySQL/gateway acceptance command above.
+The backend CI job includes `tests/load` in formatting, lint, typecheck, and
+test steps. Its MySQL acceptance provisions a fresh schema, starts the real API
+against it, runs a one-second 20-session workload that must create and replay
+proposals, verifies database invariants, and removes the owned schema. It uses
+an in-process ASGI transport for the API. The `containerized-demo` CI workflow
+separately exercises the real pinned Nginx gateway and telemetry pipeline; a
+complete load CLI run through a live gateway plus Loki/Prometheus still needs a
+disposable observability-enabled lab target.
