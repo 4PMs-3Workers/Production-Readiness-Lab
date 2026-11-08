@@ -87,6 +87,14 @@ def backend_image():
     run("docker", "image", "rm", image)
 
 
+def teardown_gateway_fixture(base, project, env, failed):
+    try:
+        if failed:
+            preserve_gateway_failure(base, project, env)
+    finally:
+        run(*base, "down", "--remove-orphans", "--volumes", "--timeout", "5", env=env)
+
+
 def preserve_gateway_failure(base, project, env):
     """Save diagnostics for this UUID-owned fixture before its teardown."""
     output = (
@@ -354,9 +362,8 @@ def gateway(request, tmp_path_factory, backend_image):
             yield client, mode, base, env
     finally:
         report = getattr(request.node, "rep_call", None)
-        if sys.exc_info()[0] is not None or (report is not None and report.failed):
-            preserve_gateway_failure(base, project, env)
-        run(*base, "down", "--remove-orphans", "--volumes", "--timeout", "5", env=env)
+        failed = sys.exc_info()[0] is not None or (report is not None and report.failed)
+        teardown_gateway_fixture(base, project, env, failed)
 
 
 def test_real_routing_headers_and_spoofed_identity(gateway):
