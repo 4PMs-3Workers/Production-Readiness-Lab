@@ -1,11 +1,16 @@
 """Install the pinned upstream age executables; verify the release asset before extraction."""
 
 import argparse
+import errno
 import hashlib
+import http.client
 import io
 import os
 import platform
+import socket
 import tarfile
+import time
+import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -26,19 +31,49 @@ ASSETS = {
 }
 
 
+def _download(url: str, deadline: Deadline) -> bytearray:
+    for attempt in range(3):
+        # An interrupted response is untrusted; each attempt starts from zero.
+        data = bytearray()
+        try:
+            with urllib.request.urlopen(url, timeout=min(20, deadline.remaining())) as response:
+                while True:
+                    deadline.remaining()
+                    block = response.read(65536)
+                    deadline.remaining()
+                    if not block:
+                        return data
+                    data.extend(block)
+                    if len(data) > 32 * 1024**2:
+                        raise RemoteError(Code.INTEGRITY)
+        except urllib.error.HTTPError as error:
+            error.close()
+            if error.code not in {408, 429} and not 500 <= error.code <= 599:
+                raise RemoteError(Code.TRANSPORT) from None
+        except (urllib.error.URLError, OSError, http.client.IncompleteRead) as error:
+            reason = error.reason if isinstance(error, urllib.error.URLError) else error
+            transient = isinstance(
+                reason, (TimeoutError, ConnectionError, http.client.IncompleteRead)
+            )
+            if isinstance(reason, socket.gaierror):
+                transient = reason.errno == socket.EAI_AGAIN
+            elif isinstance(reason, OSError):
+                transient |= reason.errno in {errno.ENETUNREACH, errno.EHOSTUNREACH, errno.ENETDOWN}
+            if not transient:
+                raise RemoteError(Code.TRANSPORT) from None
+        deadline.remaining()
+        if attempt < 2:
+            time.sleep(min(2**attempt, deadline.remaining()))
+    raise RemoteError(Code.TRANSPORT)
+
+
 def install(destination: Path) -> Path:
     system = platform.system()
     if system not in ASSETS or platform.machine().lower() not in {"amd64", "x86_64"}:
         raise RemoteError(Code.CONFIGURATION)
     suffix, expected = ASSETS[system]
     url = f"https://github.com/FiloSottile/age/releases/download/v{VERSION}/age-v{VERSION}-{suffix}"
-    deadline, data = Deadline(120), bytearray()
-    with urllib.request.urlopen(url, timeout=20) as response:
-        while block := response.read(65536):
-            deadline.remaining()
-            data.extend(block)
-            if len(data) > 32 * 1024**2:
-                raise RemoteError(Code.INTEGRITY)
+    data = _download(url, Deadline(120))
     if hashlib.sha256(data).hexdigest() != expected:
         raise RemoteError(Code.INTEGRITY)
     directory(destination)
