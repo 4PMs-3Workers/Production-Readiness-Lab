@@ -6,6 +6,7 @@ import os
 import re
 from pathlib import Path
 
+import httpx
 from tools.load.config import LoadConfig, LoadSafetyError, validate_load_config
 from tools.load.fixtures import (
     create_owned_schema,
@@ -100,8 +101,12 @@ async def _prepare(args: argparse.Namespace, config: LoadConfig) -> int:
 
 async def _run(args: argparse.Namespace, config: LoadConfig, run_id: str) -> int:
     _require_matching_checkout(config.release_sha)
-    provenance = collect_provenance(_repository_root(), target_url=config.target_url)
-    await _confirm_release(args, config)
+    runtime_attestation = await _confirm_release(args, config)
+    provenance = collect_provenance(
+        _repository_root(),
+        target_url=config.target_url,
+        target_attestation_sha256=str(runtime_attestation["attestation_sha256"]),
+    )
     prometheus_url = os.environ["PRL_LOAD_PROMETHEUS_URL"]
     await verify_prometheus_endpoint(prometheus_url)
     dataset = await verify_owned_schema(config, run_id=run_id)
@@ -134,6 +139,22 @@ async def _run(args: argparse.Namespace, config: LoadConfig, run_id: str) -> int
     invariants = await verify_post_run_invariants(
         config.database_url, workload, expected_release_sha=config.release_sha
     )
+    try:
+        final_attestation = await _confirm_release(args, config, timeout_seconds=5)
+    except (httpx.HTTPError, RuntimeError):
+        final_attestation = None
+    target_attestation_stable = final_attestation is not None and final_attestation.get(
+        "attestation_sha256"
+    ) == runtime_attestation.get("attestation_sha256")
+    local_manifest = provenance.get("local_deployment_manifest")
+    target_artifact_identity_complete = (
+        isinstance(local_manifest, dict)
+        and local_manifest.get("target_artifact_identity_complete") is True
+        and target_attestation_stable
+    )
+    if isinstance(local_manifest, dict) and not target_attestation_stable:
+        local_manifest["target_artifact_identity_complete"] = False
+        local_manifest["target_association"] = "target_changed_or_unavailable_during_run"
     payload = build_report(
         target_url=config.target_url,
         environment=args.environment,
@@ -170,16 +191,12 @@ async def _run(args: argparse.Namespace, config: LoadConfig, run_id: str) -> int
         and sli.fast_success.status == "measured"
     )
     evidence_complete = sli_evidence_complete and runtime_signals_complete
-    local_manifest = provenance.get("local_deployment_manifest")
-    target_artifact_identity_complete = (
-        isinstance(local_manifest, dict)
-        and local_manifest.get("target_artifact_identity_complete") is True
-    )
     payload["acceptance"] = {
         "local_deployment_manifest_matches_release": (
             isinstance(local_manifest, dict) and local_manifest.get("manifest_complete") is True
         ),
         "target_artifact_identity_complete": target_artifact_identity_complete,
+        "deployment_attestation_stable_during_run": target_attestation_stable,
         "availability_target_achieved_in_window": sli.availability.meets_target,
         "fast_success_target_achieved_in_window": sli.fast_success.meets_target,
         "sli_evidence_complete": sli_evidence_complete,
@@ -211,15 +228,21 @@ async def _cleanup(config: LoadConfig, run_id: str) -> int:
     return 0
 
 
-async def _confirm_release(args: argparse.Namespace, config: LoadConfig) -> None:
+async def _confirm_release(
+    args: argparse.Namespace,
+    config: LoadConfig,
+    *,
+    timeout_seconds: float = 30,
+) -> dict[str, object]:
     loki_url = os.environ.get("PRL_LOAD_LOKI_URL", "")
     if not loki_url:
         raise LoadSafetyError("PRL_LOAD_LOKI_URL is required to verify candidate release telemetry")
-    await confirm_candidate_release(
+    return await confirm_candidate_release(
         config.target_url,
         loki_url,
         config.release_sha,
         environment=args.environment,
+        timeout_seconds=timeout_seconds,
     )
 
 

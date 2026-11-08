@@ -11,11 +11,13 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
+from tools.deploy.evidence import validate_target_attestation
 from tools.load.metrics import GatewayEvent
 
 MAX_GATEWAY_RECORDS = 10_000
 MAX_LOKI_ENTRIES_PER_QUERY = 5_000
 LOKI_QUERY_SLICE_SECONDS = 30
+MAX_TARGET_ATTESTATION_AGE_SECONDS = 900
 _ENVIRONMENTS = frozenset({"demo", "local"})
 
 
@@ -35,8 +37,8 @@ async def confirm_candidate_release(
     *,
     environment: str = "demo",
     timeout_seconds: float = 30,
-) -> None:
-    """Prove the target gateway health event is emitted under the declared release."""
+) -> dict[str, object]:
+    """Correlate gateway health and a runtime-bound artifact attestation to the target."""
     start_ns = _to_ns(datetime.now(UTC))
     async with httpx.AsyncClient(timeout=5, follow_redirects=False) as client:
         response = await client.get(f"{target_url.rstrip('/')}/health/gateway")
@@ -45,6 +47,25 @@ async def confirm_candidate_release(
     request_id = response.headers.get("X-Request-ID")
     if not request_id:
         raise RuntimeError("Candidate gateway health response is missing its request ID")
+    async with httpx.AsyncClient(timeout=5, follow_redirects=False) as client:
+        attestation_response = await client.get(f"{target_url.rstrip('/')}/health/artifacts")
+    if attestation_response.status_code != 200:
+        raise RuntimeError("Candidate gateway runtime artifact attestation is unavailable")
+    attestation_request_id = attestation_response.headers.get("X-Request-ID")
+    try:
+        attestation = validate_target_attestation(attestation_response.json())
+    except (ValueError, TypeError):
+        raise RuntimeError("Candidate gateway runtime artifact attestation is invalid") from None
+    if attestation["source_sha"] != release_sha or _normalized_origin(
+        str(attestation["target_origin"])
+    ) != _normalized_origin(target_url):
+        raise RuntimeError("Candidate runtime artifact attestation does not match the target")
+    attested_at = datetime.fromisoformat(str(attestation["updated_at"]).replace("Z", "+00:00"))
+    age_seconds = (datetime.now(UTC) - attested_at.astimezone(UTC)).total_seconds()
+    if age_seconds < -60 or age_seconds > MAX_TARGET_ATTESTATION_AGE_SECONDS:
+        raise RuntimeError("Candidate runtime artifact attestation is stale")
+    if not attestation_request_id:
+        raise RuntimeError("Candidate artifact attestation is missing its request ID")
     deadline = datetime.now(UTC).timestamp() + timeout_seconds
     while datetime.now(UTC).timestamp() <= deadline:
         end_ns = _to_ns(datetime.now(UTC))
@@ -57,13 +78,13 @@ async def confirm_candidate_release(
         )
         if not complete:
             raise RuntimeError("Candidate release telemetry is unavailable")
-        for entry in records:
-            if (
-                entry.get("release") == release_sha
-                and entry.get("event") == "gateway.healthcheck"
-                and entry.get("request_id") == request_id
-            ):
-                return
+        logged_request_ids = {
+            entry.get("request_id")
+            for entry in records
+            if entry.get("release") == release_sha and entry.get("event") == "gateway.healthcheck"
+        }
+        if {request_id, attestation_request_id} <= logged_request_ids:
+            return {"attestation_sha256": attestation["attestation_sha256"]}
         await _pause(1)
     raise RuntimeError("Gateway did not report the declared candidate release")
 
@@ -359,7 +380,7 @@ def _allowed_gateway_routes() -> frozenset[str]:
     )
     if start is None:
         raise RuntimeError("Published gateway route map is missing")
-    routes = {"__unmatched__", "/health/gateway"}
+    routes = {"__unmatched__", "/health/gateway", "/health/artifacts"}
     route_value = re.compile(r'"(?P<route>/[^";]+)"\s*;\s*$')
     for line in lines[start + 1 :]:
         if line.strip() == "}":
@@ -367,7 +388,7 @@ def _allowed_gateway_routes() -> frozenset[str]:
         match = route_value.search(line)
         if match is not None:
             routes.add(match.group("route"))
-    if len(routes) == 2:
+    if len(routes) == 3:
         raise RuntimeError("Published gateway route map contains no route templates")
     return frozenset(routes)
 
@@ -395,6 +416,20 @@ def _to_ns(value: datetime) -> int:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("Loki query times must be timezone-aware")
     return int(value.astimezone(UTC).timestamp() * 1_000_000_000)
+
+
+def _normalized_origin(value: str) -> str:
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return ""
+    try:
+        port = parsed.port
+    except ValueError:
+        return ""
+    scheme = parsed.scheme.lower()
+    host = parsed.hostname.lower()
+    default_port = 80 if scheme == "http" else 443
+    return f"{scheme}://{host}" + (f":{port}" if port is not None and port != default_port else "")
 
 
 def _environment(environment: str) -> str:

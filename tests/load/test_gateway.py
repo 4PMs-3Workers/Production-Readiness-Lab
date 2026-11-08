@@ -139,15 +139,43 @@ def test_gateway_window_matches_exact_request_ids_not_an_unrelated_replacement(m
 
 
 def test_health_probe_requires_the_matching_gateway_log_request_id(monkeypatch):
+    from tools.deploy.evidence import create_target_attestation, create_v2
+
+    manifest = create_v2(
+        "a" * 40,
+        "https",
+        False,
+        "e" * 64,
+        "evidence",
+        "passed",
+        {
+            name: {"id": "sha256:" + digest * 64, "digests": []}
+            for name, digest in (("api", "a"), ("frontend", "b"), ("worker", "c"), ("gateway", "d"))
+        },
+        deployment_state="active",
+        target_origin="https://candidate.invalid",
+    )
+    attestation = create_target_attestation(manifest)
+
     class FakeClient:
+        def __init__(self, **_kwargs):
+            self.calls = 0
+
         async def __aenter__(self):
             return self
 
         async def __aexit__(self, *_args):
             return None
 
-        async def get(self, *_args, **_kwargs):
-            return httpx.Response(200, headers={"X-Request-ID": "probe-request"})
+        async def get(self, url, **_kwargs):
+            self.calls += 1
+            if url.endswith("/health/gateway"):
+                return httpx.Response(200, headers={"X-Request-ID": "probe-request"})
+            return httpx.Response(
+                200,
+                json=attestation,
+                headers={"X-Request-ID": "attestation-request"},
+            )
 
     async def fake_query(*_args, **_kwargs):
         return (
@@ -177,6 +205,74 @@ def test_health_probe_requires_the_matching_gateway_log_request_id(monkeypatch):
                 timeout_seconds=0.01,
             )
         )
+
+
+def test_health_probe_accepts_matching_runtime_manifest_and_log_ids(monkeypatch):
+    from tools.deploy.evidence import create_target_attestation, create_v2
+
+    manifest = create_v2(
+        "a" * 40,
+        "https",
+        False,
+        "e" * 64,
+        "evidence",
+        "passed",
+        {
+            name: {"id": "sha256:" + digest * 64, "digests": []}
+            for name, digest in (("api", "a"), ("frontend", "b"), ("worker", "c"), ("gateway", "d"))
+        },
+        deployment_state="active",
+        target_origin="https://candidate.invalid",
+    )
+    attestation = create_target_attestation(manifest)
+
+    class FakeClient:
+        def __init__(self, **_kwargs):
+            self.calls = 0
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, url, **_kwargs):
+            self.calls += 1
+            if url.endswith("/health/gateway"):
+                return httpx.Response(200, headers={"X-Request-ID": "probe-request"})
+            return httpx.Response(
+                200,
+                json=attestation,
+                headers={"X-Request-ID": "attestation-request"},
+            )
+
+    async def fake_query(*_args, **_kwargs):
+        return (
+            [
+                {
+                    "release": "a" * 40,
+                    "event": "gateway.healthcheck",
+                    "request_id": request_id,
+                }
+                for request_id in ("probe-request", "attestation-request")
+            ],
+            True,
+        )
+
+    monkeypatch.setattr(
+        "tools.load.gateway.httpx.AsyncClient", lambda **kwargs: FakeClient(**kwargs)
+    )
+    monkeypatch.setattr("tools.load.gateway._query_loki", fake_query)
+
+    result = asyncio.run(
+        confirm_candidate_release(
+            "https://candidate.invalid",
+            "https://loki.invalid",
+            "a" * 40,
+        )
+    )
+
+    assert result == {"attestation_sha256": attestation["attestation_sha256"]}
 
 
 def test_loki_query_slices_never_request_more_than_server_entry_limit(monkeypatch):

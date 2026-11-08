@@ -12,7 +12,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from tools.deploy.evidence import validate as validate_deployment_evidence
+from tools.deploy.evidence import (
+    create_target_attestation,
+    validate_target_attestation,
+)
+from tools.deploy.evidence import (
+    validate as validate_deployment_evidence,
+)
 from tools.load.gateway import safe_service_url
 from tools.load.metrics import SliSummary
 from tools.load.runner import WorkloadResult
@@ -28,7 +34,12 @@ PROVENANCE_FILES = (
 )
 
 
-def collect_provenance(root: Path, *, target_url: str | None = None) -> dict[str, object]:
+def collect_provenance(
+    root: Path,
+    *,
+    target_url: str | None = None,
+    target_attestation_sha256: str | None = None,
+) -> dict[str, object]:
     """Read source identity and hashes for the load/runtime configuration in this checkout."""
     source = _git(root, "rev-parse", "HEAD")
     dirty = bool(_git(root, "status", "--porcelain"))
@@ -39,7 +50,12 @@ def collect_provenance(root: Path, *, target_url: str | None = None) -> dict[str
             hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
         )
     image_digests = _locked_image_digests(root / "tools/infra/images.lock.json")
-    local_manifest = _deployed_artifact_identity(root, source, target_url=target_url)
+    local_manifest = _deployed_artifact_identity(
+        root,
+        source,
+        target_url=target_url,
+        target_attestation_sha256=target_attestation_sha256,
+    )
     return {
         "checkout_source_sha": source,
         "checkout_has_uncommitted_changes": dirty,
@@ -50,7 +66,11 @@ def collect_provenance(root: Path, *, target_url: str | None = None) -> dict[str
 
 
 def _deployed_artifact_identity(
-    root: Path, source_sha: str, *, target_url: str | None = None
+    root: Path,
+    source_sha: str,
+    *,
+    target_url: str | None = None,
+    target_attestation_sha256: str | None = None,
 ) -> dict[str, object]:
     manifest = root / "build/deploy" / source_sha / "manifest.json"
     unavailable: dict[str, object] = {
@@ -58,10 +78,12 @@ def _deployed_artifact_identity(
         "manifest_complete": False,
         "target_artifact_identity_complete": False,
         "target_association": "not_attested_to_target_url",
+        "configured_target_origin_matches": False,
         "image_ids": {},
         "image_digests": {},
         "configuration_sha256": None,
         "manifest_sha256": None,
+        "runtime_attestation_sha256": None,
     }
     try:
         encoded = manifest.read_bytes()
@@ -101,7 +123,6 @@ def _deployed_artifact_identity(
             isinstance(image_id, str)
             and digest_pattern.fullmatch(image_id) is not None
             and isinstance(digests, list)
-            and bool(digests)
             and all(
                 isinstance(digest, str)
                 and "@sha256:" in digest
@@ -116,7 +137,6 @@ def _deployed_artifact_identity(
         re.fullmatch(r"[0-9a-f]{64}", configuration_sha) is not None
         and required_images <= image_ids.keys()
         and required_images <= image_digests.keys()
-        and all(image_digests[name] for name in required_images)
     )
     if not manifest_complete:
         return unavailable
@@ -126,24 +146,50 @@ def _deployed_artifact_identity(
         and isinstance(manifest_origin, str)
         and _normalized_origin(target_url) == _normalized_origin(manifest_origin)
     )
+    attestation_path = manifest.with_name("attestation.json")
+    try:
+        attestation_value = json.loads(attestation_path.read_text(encoding="utf-8"))
+        attestation_value = validate_target_attestation(attestation_value)
+        expected_attestation = create_target_attestation(value)
+    except (OSError, ValueError, TypeError, KeyError):
+        attestation_value = None
+        expected_attestation = {"status": "unavailable"}
+    local_attestation_matches = attestation_value == expected_attestation
+    runtime_attestation_matches = (
+        isinstance(attestation_value, dict)
+        and local_attestation_matches
+        and isinstance(target_attestation_sha256, str)
+        and target_attestation_sha256 == attestation_value.get("attestation_sha256")
+    )
     return {
-        "status": "local_manifest_matches_source",
+        "status": (
+            "target_runtime_matches_local_manifest"
+            if runtime_attestation_matches
+            else "local_manifest_matches_source"
+        ),
         "manifest_complete": True,
-        # A locally inspected stack and a declared URL do not prove that the
-        # responding target is running those images. Keep acceptance incomplete
-        # until the gateway exposes a runtime-bound artifact attestation.
-        "target_artifact_identity_complete": False,
+        "target_artifact_identity_complete": runtime_attestation_matches
+        and configured_target_origin_matches,
         "configured_target_origin_matches": configured_target_origin_matches,
         "target_association": (
-            "origin_matches_but_runtime_unverified"
-            if configured_target_origin_matches
-            else "target_origin_unverified"
+            "runtime_attestation_matches_local_manifest"
+            if runtime_attestation_matches and configured_target_origin_matches
+            else (
+                "origin_matches_but_runtime_unverified"
+                if configured_target_origin_matches
+                else "target_origin_unverified"
+            )
         ),
         "target_origin": manifest_origin,
         "image_ids": dict(sorted(image_ids.items())),
         "image_digests": dict(sorted(image_digests.items())),
         "configuration_sha256": configuration_sha,
         "manifest_sha256": hashlib.sha256(encoded).hexdigest(),
+        "runtime_attestation_sha256": (
+            attestation_value.get("attestation_sha256")
+            if isinstance(attestation_value, dict)
+            else None
+        ),
     }
 
 

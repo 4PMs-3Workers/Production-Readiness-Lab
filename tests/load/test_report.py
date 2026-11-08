@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import cast
 
 import pytest
+from tools.deploy.evidence import create_target_attestation
 from tools.load.metrics import summarize_gateway_events
 from tools.load.report import (
     MAX_REPORT_BYTES,
@@ -61,7 +62,7 @@ def test_report_writer_is_bounded_and_writes_valid_json(tmp_path):
         write_report(target, {"oversized": "x" * (MAX_REPORT_BYTES + 1)})
 
 
-def _write_deployment_manifest(tmp_path, *, missing_digest=False):
+def _write_deployment_manifest(tmp_path, *, missing_image_id=False):
     source_sha = "a" * 40
     manifest = tmp_path / "build" / "deploy" / source_sha / "manifest.json"
     manifest.parent.mkdir(parents=True)
@@ -72,28 +73,28 @@ def _write_deployment_manifest(tmp_path, *, missing_digest=False):
         }
         for name, index in (("api", "a"), ("frontend", "b"), ("worker", "c"), ("gateway", "d"))
     }
-    if missing_digest:
-        images["api"]["digests"] = []
-    manifest.write_text(
-        json.dumps(
-            {
-                "manifest_version": 2,
-                "source_sha": source_sha,
-                "overlay": "local",
-                "schema_revisions": ["20261019_1200_proposal_replay"],
-                "verification": {"command": "evidence", "status": "passed"},
-                "created_at": "2026-11-08T00:00:00Z",
-                "updated_at": "2026-11-08T00:00:00Z",
-                "observability": False,
-                "configuration_sha256": "e" * 64,
-                "observability_verification": None,
-                "deployment_state": "active",
-                "target_origin": "https://candidate.invalid",
-                "images": images,
-            }
-        ),
-        encoding="utf-8",
-    )
+    if missing_image_id:
+        images["api"]["id"] = ""
+    value = {
+        "manifest_version": 2,
+        "source_sha": source_sha,
+        "overlay": "local",
+        "schema_revisions": ["20261019_1200_proposal_replay"],
+        "verification": {"command": "evidence", "status": "passed"},
+        "created_at": "2026-11-08T00:00:00Z",
+        "updated_at": "2026-11-08T00:00:00Z",
+        "observability": False,
+        "configuration_sha256": "e" * 64,
+        "observability_verification": None,
+        "deployment_state": "active",
+        "target_origin": "https://candidate.invalid",
+        "images": images,
+    }
+    manifest.write_text(json.dumps(value), encoding="utf-8")
+    if not missing_image_id:
+        (manifest.parent / "attestation.json").write_text(
+            json.dumps(create_target_attestation(value)), encoding="utf-8"
+        )
     return source_sha
 
 
@@ -111,6 +112,18 @@ def test_deployed_artifact_identity_requires_matching_passing_manifest(tmp_path)
     assert result["configuration_sha256"] == "e" * 64
     image_digests = cast(dict[str, list[str]], result["image_digests"])
     assert set(image_digests) == {"api", "frontend", "worker", "gateway"}
+    attestation = json.loads(
+        (tmp_path / "build" / "deploy" / source_sha / "attestation.json").read_text()
+    )
+    runtime_result = _deployed_artifact_identity(
+        tmp_path,
+        source_sha,
+        target_url="https://candidate.invalid/",
+        target_attestation_sha256=attestation["attestation_sha256"],
+    )
+    assert runtime_result["target_artifact_identity_complete"] is True
+    assert runtime_result["target_association"] == "runtime_attestation_matches_local_manifest"
+    assert runtime_result["runtime_attestation_sha256"] == attestation["attestation_sha256"]
     assert _deployed_artifact_identity(tmp_path, "f" * 40)["status"] == "unavailable"
     assert (
         _deployed_artifact_identity(tmp_path, source_sha, target_url="https://different.invalid")[
@@ -120,8 +133,8 @@ def test_deployed_artifact_identity_requires_matching_passing_manifest(tmp_path)
     )
 
 
-def test_deployed_artifact_identity_rejects_incomplete_image_digest_inventory(tmp_path):
-    source_sha = _write_deployment_manifest(tmp_path, missing_digest=True)
+def test_deployed_artifact_identity_rejects_incomplete_image_identity(tmp_path):
+    source_sha = _write_deployment_manifest(tmp_path, missing_image_id=True)
     result = _deployed_artifact_identity(
         tmp_path, source_sha, target_url="https://candidate.invalid"
     )

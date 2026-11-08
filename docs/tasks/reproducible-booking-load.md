@@ -99,17 +99,23 @@ measured set. Queries use 30-second slices and stay under Loki's 5,000-entry
 per-query limit. Missing, duplicate, or truncated records make the SLI window
 incomplete.
 
-For target-bound provenance, run the containerized demo's `evidence` command on
-the host running this candidate, using the same target origin. It records the
-active container image IDs/digests, configuration identity, and normalized
-application origin in `build/deploy/<release-sha>/manifest.json`. The load
-runner records those local artifacts only when the manifest matches the clean
-source SHA, reports an active deployment, and names the configured target
-origin. The origin match is informational: it does not prove that the responding
-target is running those exact images. The gateway health response is joined to
-its own request log by request ID and checked for the release SHA, but target
-artifact identity remains incomplete until the gateway supplies a runtime-bound
-attestation for all measured services.
+For target-bound provenance, start the containerized demo with the current
+compose configuration, then run its `evidence` command on the host running this
+candidate and using the same target origin. It records active container image
+IDs/digests and configuration identity in
+`build/deploy/<release-sha>/manifest.json` and publishes a sanitized
+`attestation.json` into the read-only directory mounted by the gateway. The
+load runner checkout must have those two sanitized files at the same
+`build/deploy/<release-sha>/` path (run the load tool on that host or copy only
+the manifest and attestation files to the generator checkout). The
+gateway serves this current runtime evidence at `/health/artifacts`. The load
+runner requires the response's attestation fingerprint and image inventory to
+match the local evidence, source SHA, configuration, and target origin. It also
+correlates both the gateway health probe and attestation response with their
+request IDs in gateway logs, requires evidence no older than 15 minutes, and
+rechecks the fingerprint after the workload. Deployment transitions invalidate
+the served attestation before changing containers. A stale, missing, changed,
+or mismatched attestation keeps target identity incomplete.
 
 The command exits nonzero if an invariant fails, the load generator saturates,
 gateway/runtime evidence is incomplete, target artifact identity is unverified,
@@ -162,6 +168,6 @@ test steps. Its MySQL acceptance provisions a fresh schema, starts the real API
 against it, runs a one-second 20-session workload that must create and replay
 proposals, verifies database invariants, and removes the owned schema. It uses
 an in-process ASGI transport for the API. The `containerized-demo` CI workflow
-separately exercises the real pinned Nginx gateway and telemetry pipeline; a
-complete load CLI run through a live gateway plus Loki/Prometheus still needs a
-disposable observability-enabled lab target.
+exercises the pinned Nginx gateway and its runtime artifact endpoint. A complete
+load CLI run through Loki and Prometheus still needs a disposable
+observability-enabled lab target.
