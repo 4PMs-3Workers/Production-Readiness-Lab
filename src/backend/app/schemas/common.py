@@ -1,9 +1,29 @@
 """Schemas shared by current health routes and future business routers."""
 
 from datetime import UTC, datetime
-from typing import Generic, TypeVar
+from typing import Annotated, Generic, TypeVar
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, field_serializer
+from pydantic import (
+    AfterValidator,
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    RootModel,
+    field_serializer,
+)
+
+PositiveSmallInt = Annotated[int, Field(strict=True, ge=1, le=32767)]
+
+
+def normalize_revision(value: datetime) -> datetime:
+    try:
+        return value.astimezone(UTC)
+    except (OverflowError, ValueError):
+        raise ValueError("The revision must be representable in UTC") from None
+
+
+RevisionTimestamp = Annotated[AwareDatetime, AfterValidator(normalize_revision)]
 
 
 class ErrorDetail(BaseModel):

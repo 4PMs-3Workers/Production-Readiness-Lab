@@ -1,9 +1,10 @@
 """Resolve reviewed immutable releases and verify artifacts before touching services."""
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol
 
-from tools.deploy.release_manifest import Manifest, ReleaseError, require_compatible
+from tools.deploy.release_manifest import ROOT, Manifest, ReleaseError, require_compatible
 from tools.deploy.rollout_state import RolloutError, Selection, selection
 from tools.deploy.rollout_store import StateStore
 
@@ -21,8 +22,9 @@ class ReleaseRegistry(Protocol):
 
 
 class ReleaseConsumer:
-    def __init__(self, registry: ReleaseRegistry, store: StateStore):
+    def __init__(self, registry: ReleaseRegistry, store: StateStore, *, root: Path = ROOT):
         self.registry, self.store = registry, store
+        self.root = root
 
     def resolve(self, reference: str) -> Prepared:
         try:
@@ -39,7 +41,7 @@ class ReleaseConsumer:
     def verify(self, prepared: Prepared, *, expected: Selection | None = None) -> Prepared:
         manifest, selected = prepared.manifest, prepared.selected
         try:
-            require_compatible(manifest)
+            require_compatible(manifest, self.root, allow_previous=expected is not None)
             if expected is not None and selected != expected:
                 raise RolloutError("invalid-manifest")
         except ReleaseError as error:

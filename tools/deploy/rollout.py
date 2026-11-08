@@ -11,9 +11,15 @@ from typing import Literal
 from tools.deploy import demo
 from tools.deploy.evidence import lifecycle_directory
 from tools.deploy.release_images import Registry, command
-from tools.deploy.release_manifest import ROOT, canonical
+from tools.deploy.release_manifest import (
+    ADMIN_POLICY_TRANSITION,
+    ROOT,
+    canonical,
+    configuration,
+    previous_configuration,
+)
 from tools.deploy.release_trust import require_clean_source
-from tools.deploy.rollout_controller import RolloutController
+from tools.deploy.rollout_controller import ConfigurationTransition, RolloutController
 from tools.deploy.rollout_evidence import Result, result
 from tools.deploy.rollout_http import SmokeSession, credentials
 from tools.deploy.rollout_readiness import ready
@@ -42,6 +48,22 @@ def parser() -> Parser:
             selected.add_argument("--resume", action="store_true")
     commands.add_parser("status")
     return root
+
+
+def reviewed_transition(
+    overlay: str, observability: bool, selections: dict[str, object], *, root: Path = ROOT
+) -> ConfigurationTransition | None:
+    previous = previous_configuration(configuration(overlay, observability, root))
+    if previous is None:
+        return None
+    previous_host = demo._configuration_identity(
+        overlay,
+        observability,
+        selections,
+        root=root,
+        overrides={path: before for path, (before, _) in ADMIN_POLICY_TRANSITION.items()},
+    )
+    return ConfigurationTransition(previous_host, previous)
 
 
 def controller(args, store: StateStore) -> RolloutController:
@@ -87,6 +109,9 @@ def controller(args, store: StateStore) -> RolloutController:
             host.configuration_sha256,
             smoke=smoke,
             readiness=lambda selected: ready(selected, context),
+            transition=reviewed_transition(
+                args.overlay, args.observability, host.configuration_selections
+            ),
         )
     except RolloutError:
         raise

@@ -23,7 +23,8 @@ def test_incompatible_configuration_refuses_before_any_service_mutation(tmp_path
     host.registry.releases[reference(2)] = release(124, reference())
     host.runtime.calls.clear()
 
-    def incompatible(spec):
+    def incompatible(spec, root, *, allow_previous):
+        assert not allow_previous
         raise ReleaseError("incompatible-configuration")
 
     monkeypatch.setattr(rollout_preflight, "require_compatible", incompatible)

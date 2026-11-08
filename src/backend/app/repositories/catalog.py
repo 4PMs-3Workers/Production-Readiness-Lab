@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Purpose, StaffPurpose, User
 from app.schemas.catalog import PurposeQuery, StaffQuery
+from app.schemas.common import PaginationParams
 
 
 async def find_active_purpose(db: AsyncSession, purpose_id: UUID) -> Purpose | None:
@@ -33,21 +34,33 @@ async def find_accepting_staff(db: AsyncSession, purpose_id: UUID, staff_id: UUI
 async def read_purpose_page(
     db: AsyncSession, query: PurposeQuery
 ) -> tuple[tuple[Purpose, ...], int]:
-    active = Purpose.is_active.is_(True)
-    total = await db.scalar(select(func.count()).select_from(Purpose).where(active))
+    return await read_purpose_listing(db, query, is_active=True)
+
+
+async def read_purpose_listing(
+    db: AsyncSession, query: PaginationParams, *, is_active: bool | None
+) -> tuple[tuple[Purpose, ...], int]:
+    conditions = () if is_active is None else (Purpose.is_active.is_(is_active),)
+    total = await db.scalar(select(func.count()).select_from(Purpose).where(*conditions))
     total_count = int(total or 0)
     offset = (query.page - 1) * query.page_size
     if offset >= total_count:
         return (), total_count
     statement = (
         select(Purpose)
-        .where(active)
+        .where(*conditions)
         .order_by(Purpose.code.asc(), Purpose.id.asc())
         .offset(offset)
         .limit(query.page_size)
     )
     rows = tuple((await db.scalars(statement)).all())
     return rows, total_count
+
+
+async def find_purpose_by_code(db: AsyncSession, code: str) -> Purpose | None:
+    return await db.scalar(
+        select(Purpose).where(Purpose.code == code).execution_options(populate_existing=True)
+    )
 
 
 async def read_staff_page(

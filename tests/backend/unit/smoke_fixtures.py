@@ -42,13 +42,14 @@ class SmokeAPI:
             body = dict(min_booking_date="2026-11-06", max_booking_date="2026-11-07")
         elif path == "/api/v1/purposes":
             body = dict(
+                total=1,
                 items=[
                     dict(
                         id="1" * 8 + "-1111-1111-1111-" + "1" * 12,
                         code="CAREER",
                         requires_free_text=False,
                     )
-                ]
+                ],
             )
         elif path == "/api/v1/staff":
             body = dict(items=[dict(id="22222222-2222-2222-2222-222222222222")])

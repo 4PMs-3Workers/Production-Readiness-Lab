@@ -34,11 +34,12 @@ def test_cancellation_openapi_declares_required_csrf_and_origin_fallback(auth_se
         ("/api/v1/admin/accounts", "post"),
         ("/api/v1/admin/accounts/{account_id}", "patch"),
         ("/api/v1/admin/accounts/{account_id}/password", "post"),
+        ("/api/v1/admin/purposes", "post"),
+        ("/api/v1/admin/purposes/{purpose_id}", "put"),
+        ("/api/v1/admin/booking-configuration", "put"),
     ],
 )
-def test_admin_account_mutations_openapi_declares_csrf_and_origin_fallback(
-    auth_settings, path, method
-):
+def test_admin_mutations_openapi_declares_csrf_and_origin_fallback(auth_settings, path, method):
     operation = create_app(auth_settings).openapi()["paths"][path][method]
     parameters = {parameter["name"]: parameter for parameter in operation["parameters"]}
 
@@ -79,6 +80,9 @@ def test_openapi_export_is_deterministic_without_database(tmp_path):
         "/api/v1/admin/accounts",
         "/api/v1/admin/accounts/{account_id}",
         "/api/v1/admin/accounts/{account_id}/password",
+        "/api/v1/admin/purposes",
+        "/api/v1/admin/purposes/{purpose_id}",
+        "/api/v1/admin/booking-configuration",
         "/api/v1/purposes",
         "/api/v1/staff",
         "/api/v1/availability",

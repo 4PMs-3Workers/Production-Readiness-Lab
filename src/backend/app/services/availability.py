@@ -41,7 +41,7 @@ async def get_availability(
 ) -> AvailabilityResponse:
     """Calculate a student's current slots from bounded database reads."""
     try:
-        async with read_transaction(db, settings):
+        async with read_transaction(db, settings, consistent_snapshot=True):
             setting = await availability.read_settings(db)
             if setting is None:
                 raise AvailabilityConfigurationError("Availability settings are missing")

@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from contextlib import nullcontext
+from dataclasses import dataclass
 from typing import Literal
 from uuid import uuid4
 
 from tools.deploy.release_images import Registry
-from tools.deploy.release_manifest import SCHEMA, canonical, parse
+from tools.deploy.release_manifest import SCHEMA, Configuration, canonical, configuration, parse
 from tools.deploy.rollout_lock import operation_lock
-from tools.deploy.rollout_preflight import ReleaseConsumer
+from tools.deploy.rollout_preflight import Prepared, ReleaseConsumer
 from tools.deploy.rollout_readiness import ready
 from tools.deploy.rollout_runtime import Deadline, ReleaseRuntime
 from tools.deploy.rollout_schema import require_schema
@@ -30,6 +32,12 @@ from tools.deploy.rollout_state import (
 from tools.deploy.rollout_store import StateStore, replace_state
 
 
+@dataclass(frozen=True)
+class ConfigurationTransition:
+    previous_host_sha256: str
+    previous_release: Configuration
+
+
 class RolloutController:
     def __init__(
         self,
@@ -41,11 +49,13 @@ class RolloutController:
         *,
         smoke: Callable[[ReleaseRuntime], list[str]],
         readiness: Callable[[ReleaseRuntime], None] = ready,
+        transition: ConfigurationTransition | None = None,
     ):
         self.store, self.registry, self.runtime = store, registry, runtime
         self.source_sha, self.configuration_sha256 = orchestrator_sha, configuration_sha256
-        self.consumer = ReleaseConsumer(registry, store)
+        self.consumer = ReleaseConsumer(registry, store, root=runtime.root)
         self.smoke, self.readiness = smoke, readiness
+        self.transition = transition
         self.state: HostState | None = None
         self.started = 0.0
         self.started_at = ""
@@ -55,21 +65,27 @@ class RolloutController:
         self.runtime.deadline = budget
         self.registry.deadline = budget.expires
 
-    def _host(self, *, allow_pending: bool = False) -> HostState:
+    def _host(self, *, allow_transition: bool = False) -> HostState:
         state = self.store.load() or HostState(
             project=self.runtime.project, configuration_sha256=self.configuration_sha256
         )
-        if (state.project, state.configuration_sha256) != (
-            self.runtime.project,
-            self.configuration_sha256,
-        ):
+        if state.project != self.runtime.project:
             raise RolloutError("incompatible-configuration")
-        if (
-            not allow_pending
-            and state.operation is not None
-            and state.operation.phase not in TERMINAL
-        ):
-            raise RolloutError("interrupted-operation")
+        if state.configuration_sha256 != self.configuration_sha256:
+            transition = self.transition
+            if (
+                not allow_transition
+                or transition is None
+                or state.configuration_sha256 != transition.previous_host_sha256
+                or state.stable is None
+                or state.stable.configuration_sha256 != transition.previous_release.sha256
+                or self.store.manifest(state.stable).configuration != transition.previous_release
+            ):
+                raise RolloutError("incompatible-configuration")
+            if state.operation is not None and (
+                state.operation.phase not in TERMINAL or state.operation.requires_recovery
+            ):
+                raise RolloutError("interrupted-operation")
         return state
 
     def _interrupted(self, state: HostState) -> HostState:
@@ -102,6 +118,8 @@ class RolloutController:
         state: HostState,
         selected: Selection,
         command: Literal["deploy", "rollback"] = "deploy",
+        *,
+        rebind: bool = False,
     ) -> None:
         op = Operation(
             operation_id=uuid4().hex,
@@ -117,8 +135,16 @@ class RolloutController:
                 )
             ],
         )
-        self.state = replace_state(state, operation=op.model_dump(mode="json"), refusal=None)
-        self.store.save(self.state)
+        self.state = replace_state(
+            state,
+            configuration_sha256=self.configuration_sha256,
+            operation=op.model_dump(mode="json"),
+            refusal=None,
+        )
+        if rebind:
+            self.store.save(self.state, previous_configuration_sha256=state.configuration_sha256)
+        else:
+            self.store.save(self.state)
 
     def _transition(
         self,
@@ -188,11 +214,23 @@ class RolloutController:
         self.store.save(self.state)
         return self.state
 
+    def _preflight(self, prepared: Prepared, *, allow_empty: bool) -> None:
+        self.consumer.verify(prepared)
+        self.runtime.select(prepared.manifest)
+        self.runtime.validate_plan()
+        self.runtime.vendor_images()
+        require_schema(
+            self.runtime.schema(),
+            prepared.manifest.accepted_schema_revisions,
+            allow_empty=allow_empty,
+        )
+
     def deploy(self, reference: str, *, resume: bool = False) -> HostState:
         with operation_lock(self.store):
             self._budget(600)
             self.started, self.started_at = time.monotonic(), timestamp()
-            state = self._interrupted(self._host(allow_pending=True))
+            state = self._interrupted(self._host(allow_transition=True))
+            rebind = state.configuration_sha256 != self.configuration_sha256
             if self._needs_recovery(state):
                 op = state.operation
                 assert op is not None
@@ -211,9 +249,14 @@ class RolloutController:
                     and prepared.selected != state.operation.target
                 ):
                     raise RolloutError("invalid-manifest")
+                if rebind:
+                    assert state.stable is not None
+                    if prepared.manifest.previous_stable != state.stable.reference:
+                        raise RolloutError("invalid-manifest")
+                    self._preflight(prepared, allow_empty=False)
             except RolloutError as error:
                 return self._refuse(state, "deploy", error.reason)
-            self._begin(state, prepared.selected)
+            self._begin(state, prepared.selected, rebind=rebind)
             try:
                 stable_retry = resume and state.stable == prepared.selected
                 if state.stable is None:
@@ -224,15 +267,8 @@ class RolloutController:
                     or prepared.manifest.previous_stable != state.stable.reference
                 ):
                     raise RolloutError("invalid-manifest")
-                self.consumer.verify(prepared)
-                self.runtime.select(prepared.manifest)
-                self.runtime.validate_plan()
-                self.runtime.vendor_images()
-                require_schema(
-                    self.runtime.schema(),
-                    prepared.manifest.accepted_schema_revisions,
-                    allow_empty=state.stable is None,
-                )
+                if not rebind:
+                    self._preflight(prepared, allow_empty=state.stable is None)
                 self._transition("migration")
                 before = self.runtime.prepare_database()
                 require_schema(
@@ -307,7 +343,11 @@ class RolloutController:
         self.runtime.vendor_images()
         require_schema(self.runtime.schema(), prepared.manifest.accepted_schema_revisions)
         before = self.runtime.database_identity()
-        self._transition("rollback_rollout")
+        current = configuration(self.runtime.overlay, self.runtime.observability, self.runtime.root)
+        # prepare() accepts only the exact current configuration or the reviewed predecessor.
+        predecessor = prepared.manifest.configuration != current
+        with self.runtime.predecessor_policy_guard() if predecessor else nullcontext():
+            self._transition("rollback_rollout")
         # There is deliberately no migration, seed, downgrade, or DB startup here.
         self.runtime.rollout()
         self.runtime.require_database(before)
@@ -333,7 +373,7 @@ class RolloutController:
         with operation_lock(self.store):
             self._budget(300)
             self.started, self.started_at = time.monotonic(), timestamp()
-            state = self._interrupted(self._host(allow_pending=True))
+            state = self._interrupted(self._host())
             target = state.previous_stable
             if self._needs_recovery(state):
                 assert state.operation is not None

@@ -11,12 +11,18 @@ from pathlib import Path
 from urllib.request import urlopen
 from uuid import uuid4
 
-from tests.containers.test_compose_acceptance import ComposeAcceptance, invoke, require_success
+from tests.containers.test_compose_acceptance import (
+    COMPOSE_FILES,
+    ComposeAcceptance,
+    invoke,
+    require_success,
+)
 from tools.backup.recovery_config import render as gateway_config
 from tools.deploy.release import render
 from tools.deploy.release_images import Registry, archive_image, command
 from tools.deploy.release_manifest import (
     CHECKS,
+    ROOT,
     SCHEMA,
     Image,
     Manifest,
@@ -112,7 +118,10 @@ class Artifacts:
         )
         self.builder_created = True
 
-    def build(self, name: str, dockerfile: Path, context: Path) -> Image:
+    def build(
+        self, name: str, dockerfile: Path, context: Path, *, source_sha: str | None = None
+    ) -> Image:
+        source = source_sha or self.source_sha
         archive = self.directory / f"{name}.tar"
         command(
             [
@@ -126,7 +135,7 @@ class Artifacts:
                 "--provenance=false",
                 "--sbom=false",
                 "--build-arg",
-                f"PRL_SOURCE_SHA={self.source_sha}",
+                f"PRL_SOURCE_SHA={source}",
                 "-f",
                 str(dockerfile),
                 "--output",
@@ -135,8 +144,8 @@ class Artifacts:
             ],
             timeout=900,
         )
-        image = archive_image(archive, self.repository + "/" + name, self.source_sha)
-        self.registry.copy_archive(archive, image, self.source_sha, name)
+        image = archive_image(archive, self.repository + "/" + name, source)
+        self.registry.copy_archive(archive, image, source, name)
         self.references.append(image.reference)
         return image
 
@@ -161,10 +170,18 @@ class Artifacts:
         return stable_ref, stable, failed_ref, failed
 
     def manifest(
-        self, number: int, backend: Image, frontend: Image, previous: str | None
+        self,
+        number: int,
+        backend: Image,
+        frontend: Image,
+        previous: str | None,
+        *,
+        root: Path = ROOT,
+        source_sha: str | None = None,
     ) -> Manifest:
         # Strict fixture metadata exercises #44's delivered reader and OCI clients.
         # These simulated checks/review fields must never be called real release proof.
+        source = source_sha or self.source_sha
         data = dict(
             format="prl-candidate",
             format_version=1,
@@ -172,10 +189,10 @@ class Artifacts:
             created_at="2026-11-05T00:00:00Z",
             provenance=dict(
                 repository="4PMs-3Workers/Production-Readiness-Lab",
-                source_sha=self.source_sha,
+                source_sha=source,
                 pr_number=1,
-                pr_head_sha=self.source_sha,
-                pr_merge_sha=self.source_sha,
+                pr_head_sha=source,
+                pr_merge_sha=source,
                 run_id=number,
                 run_attempt=1,
                 workflow_ref="4PMs-3Workers/Production-Readiness-Lab/.github/workflows/release.yml@refs/heads/develop",
@@ -185,9 +202,9 @@ class Artifacts:
                 dict.fromkeys(["api", "worker", "schema", "migrate", "seed", "backup"], "backend"),
                 frontend="frontend",
             ),
-            vendor_images=vendor_inventory(False),
+            vendor_images=vendor_inventory(False, root),
             accepted_schema_revisions=[SCHEMA],
-            configuration=configuration("local", False).model_dump(),
+            configuration=configuration("local", False, root).model_dump(),
             previous_stable=previous,
             bootstrap=previous is None,
         )
@@ -229,18 +246,23 @@ class Artifacts:
 
 
 class RolloutStack(ComposeAcceptance):
-    def __init__(self, directory: Path, manifest: Manifest):
+    def __init__(self, directory: Path, manifest: Manifest, *, root: Path = ROOT):
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         super().__init__(directory)
-        self.env.update(gateway_config(directory / "nginx", "172.30.45.0/29"))
-        self.base.extend(
-            [
-                "-f",
-                str(Path(__file__).resolve().parents[2] / "tools/deploy/compose.recovery.yaml"),
-            ]
+        self.env.update(
+            gateway_config(
+                directory / "nginx", "172.30.45.0/29", templates=root / "tools/deploy/nginx"
+            )
         )
+        self.base = self.compose_base(root)
         self.manifest = manifest
-        self.select_manifest(manifest)
+        self.select_manifest(manifest, root=root)
+
+    def compose_base(self, root: Path) -> list[str]:
+        base = ["docker", "compose", "--project-name", self.project]
+        for compose_file in COMPOSE_FILES:
+            base.extend(["-f", str(root / compose_file.relative_to(ROOT))])
+        return base + ["-f", str(root / "tools/deploy/compose.recovery.yaml")]
 
     def _ensure_gateway_subnet_available(self, *, additional_subnets=()) -> None:
         reserved = ipaddress.ip_network("172.30.45.0/29")
@@ -257,9 +279,9 @@ class RolloutStack(ComposeAcceptance):
                 if subnet and ipaddress.ip_network(subnet).overlaps(reserved):
                     raise RuntimeError("The rollout fixture subnet is already owned")
 
-    def select_manifest(self, manifest: Manifest) -> None:
+    def select_manifest(self, manifest: Manifest, *, root: Path = ROOT) -> None:
         path = self.scratch / "initial-release.yaml"
-        path.write_bytes(render(manifest))
+        path.write_bytes(render(manifest, root=root))
         self.base.extend(["-f", str(path)])
 
     def start(self) -> None:

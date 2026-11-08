@@ -9,7 +9,6 @@ from uuid import UUID, uuid4
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.auth_errors import auth_error
 from app.api.errors import AppError, ServiceUnavailable
 from app.core.config import Settings
 from app.core.passwords import PasswordService
@@ -22,8 +21,8 @@ from app.core.transactions import (
     rollback,
 )
 from app.domain.auth import AuthContext
-from app.models import AuditEvent, User
-from app.repositories import appointments, sessions, users
+from app.models import AuditEvent, ServiceSetting, User
+from app.repositories import appointments, users
 from app.schemas.admin_accounts import (
     AccountCreateRequest,
     AccountItem,
@@ -33,6 +32,8 @@ from app.schemas.admin_accounts import (
 )
 from app.schemas.common import PageResponse
 from app.services import auth
+from app.services.admin_access import lock_active_session, lock_admin, require_admin
+from app.services.admin_writes import write_under_policy_lock
 
 T = TypeVar("T")
 STUDENT_PROFILE_FIELDS = ("student_code", "faculty", "major", "gender")
@@ -54,29 +55,6 @@ def _validate_student_profile_changes(role: str, requested: dict[str, object]) -
         )
 
 
-def _require_admin(user: User | None) -> User:
-    if user is None or user.role != "ADMIN" or not user.is_active:
-        raise AppError(403, "FORBIDDEN_ROLE", "This operation is not allowed", "business")
-    return user
-
-
-async def _lock_admin(db: AsyncSession, context: AuthContext, settings: Settings) -> User:
-    async with asyncio.timeout(settings.db_lock_timeout_seconds):
-        actor = await users.lock_by_id(db, context.user_id)
-    actor = _require_admin(actor)
-    await _lock_active_session(db, context, settings)
-    return actor
-
-
-async def _lock_active_session(db: AsyncSession, context: AuthContext, settings: Settings) -> None:
-    async with asyncio.timeout(settings.db_lock_timeout_seconds):
-        session = await sessions.lock_active_by_id(
-            db, context.session_id, context.user_id, await users.utc_now(db)
-        )
-    if session is None:
-        raise auth_error("INVALID_SESSION")
-
-
 async def list_accounts(
     db: AsyncSession,
     query: AccountQuery,
@@ -85,7 +63,7 @@ async def list_accounts(
     settings: Settings,
 ) -> PageResponse[AccountItem]:
     async with read_transaction(db, settings):
-        await _lock_admin(db, context, settings)
+        await lock_admin(db, context, settings)
         rows, total = await users.read_account_page(db, query)
         items = [AccountItem.model_validate(row) for row in rows]
     return PageResponse(items=items, page=query.page, page_size=query.page_size, total=total)
@@ -117,7 +95,7 @@ async def create_account(
                                 )
                             if policy is None:
                                 raise ServiceUnavailable()
-                            await _lock_admin(db, context, settings)
+                            await lock_admin(db, context, settings)
                             user = User(
                                 id=user_id,
                                 email=request.email,
@@ -187,61 +165,17 @@ async def _run_mutation(
     settings: Settings,
     duplicate_code: str | None = None,
 ) -> T:
-    """Serialize account writes and retry only known-aborted database attempts."""
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + settings.request_timeout_seconds
-    try:
-        async with asyncio.timeout_at(deadline):
-            for attempt in range(settings.max_deadlock_retries + 1):
-                try:
-                    async with asyncio.timeout(settings.db_query_timeout_seconds):
-                        transaction = await db.begin()
-                        try:
-                            async with asyncio.timeout(settings.db_lock_timeout_seconds):
-                                policy = (
-                                    await appointments.lock_service_settings_for_account_change(db)
-                                )
-                            if policy is None:
-                                raise ServiceUnavailable()
-                            result, changed = await operation()
-                            if changed:
-                                await db.flush()
-                                await commit_safely(db, transaction)
-                            else:
-                                await rollback(db)
-                            return result
-                        except BaseException:
-                            await rollback(db)
-                            raise
-                except SQLAlchemyError as error:
-                    await rollback(db)
-                    code = mysql_error_code(error)
-                    if code == 1062 and duplicate_code is not None:
-                        raise account_error(
-                            duplicate_code, "An account with this email already exists"
-                        ) from None
-                    if (
-                        code not in RETRYABLE_MYSQL_ERRORS
-                        or attempt >= settings.max_deadlock_retries
-                    ):
-                        raise ServiceUnavailable() from None
-                    delay = min(
-                        0.01 * 2**attempt,
-                        max(0.0, deadline - asyncio.get_running_loop().time()),
-                    )
-                    if delay <= 0:
-                        raise ServiceUnavailable() from None
-                    await asyncio.sleep(delay)
-            raise ServiceUnavailable()
-    except AppError:
-        await rollback(db)
-        raise
-    except (SQLAlchemyError, TimeoutError, CommitOutcomeUnknown):
-        await rollback(db)
-        raise ServiceUnavailable() from None
-    except asyncio.CancelledError:
-        await rollback(db)
-        raise
+    async def apply(_: ServiceSetting) -> tuple[T, bool]:
+        return await operation()
+
+    duplicate = (
+        account_error(duplicate_code, "An account with this email already exists")
+        if duplicate_code is not None
+        else None
+    )
+    return await write_under_policy_lock(
+        db, apply, settings=settings, duplicate_error=duplicate, commit=commit_safely
+    )
 
 
 async def _lock_actor_and_target(
@@ -251,8 +185,8 @@ async def _lock_actor_and_target(
     for user_id in sorted({context.user_id, target_id}, key=lambda value: value.bytes):
         async with asyncio.timeout(settings.db_lock_timeout_seconds):
             locked[user_id] = await users.lock_by_id(db, user_id)
-    actor = _require_admin(locked.get(context.user_id))
-    await _lock_active_session(db, context, settings)
+    actor = require_admin(locked.get(context.user_id))
+    await lock_active_session(db, context, settings)
     target = locked.get(target_id)
     if target is None:
         raise account_error("ACCOUNT_NOT_FOUND", "Account not found", 404)

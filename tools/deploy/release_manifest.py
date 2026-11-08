@@ -240,8 +240,39 @@ def configuration(overlay: str, observability: bool, root: Path = ROOT) -> Confi
     return parse(canonical(data), Configuration)
 
 
-def require_configuration(config: Configuration, root: Path = ROOT) -> None:
-    if config != configuration(config.overlay, config.observability, root):
+GRANTS_PATH = "tools/deploy/mysql/grants.sql"
+
+# Issue #50 adds routes and runtime privileges without removing the base release's
+# routes or grants. No other file difference is covered by this transition.
+ADMIN_POLICY_TRANSITION = {
+    GRANTS_PATH: (
+        "6350525d0dace2a66459f486606e2f45a1d84e48cc673e0ab1a38f8e3c49a926",
+        "8a7277032db2552dc45e9031dd0947d1b0aa363b0d1ebd445366225af3af038a",
+    ),
+    "tools/deploy/nginx/route-map.conf": (
+        "1c5c8eaa269404fff5f30bd8eecd5733768891b5226684bb5f867748b29ce5fd",
+        "47b24ed0346691dbc949d958fe351f29af893727bbecdde172793358a83fd90c",
+    ),
+}
+
+
+def previous_configuration(current: Configuration) -> Configuration | None:
+    hashes = {item.path: item.sha256 for item in current.files}
+    if any(hashes.get(path) != after for path, (_, after) in ADMIN_POLICY_TRANSITION.items()):
+        return None
+    data = current.model_dump(exclude={"sha256"})
+    for item in data["files"]:
+        if item["path"] in ADMIN_POLICY_TRANSITION:
+            item["sha256"] = ADMIN_POLICY_TRANSITION[item["path"]][0]
+    data["sha256"] = hashlib.sha256(canonical(data)).hexdigest()
+    return parse(canonical(data), Configuration)
+
+
+def require_configuration(
+    config: Configuration, root: Path = ROOT, *, allow_previous: bool = False
+) -> None:
+    current = configuration(config.overlay, config.observability, root)
+    if config != current and (not allow_previous or config != previous_configuration(current)):
         raise ReleaseError("incompatible-configuration")
 
 
@@ -312,8 +343,8 @@ def vendor_inventory(observability: bool, root: Path = ROOT) -> dict[str, str]:
     return result
 
 
-def require_compatible(spec: Spec, root: Path = ROOT) -> None:
-    require_configuration(spec.configuration, root)
+def require_compatible(spec: Spec, root: Path = ROOT, *, allow_previous: bool = False) -> None:
+    require_configuration(spec.configuration, root, allow_previous=allow_previous)
     if spec.accepted_schema_revisions != [SCHEMA]:
         raise ReleaseError("incompatible-schema")
     if spec.vendor_images != vendor_inventory(spec.configuration.observability, root):

@@ -12,19 +12,34 @@ from app.schemas.appointments import AppointmentCancelResponse
 
 Effects = Callable[[str], tuple[int, int, int]]
 PersistedStatus = Callable[[str], str]
+MAX_AVAILABILITY_DATES = 367
+PURPOSE_PAGE_SIZE = 50
+
+
+def smoke_purpose_id(session: SmokeSession, code: str) -> str:
+    page = 1
+    while True:
+        result = session.request(
+            "GET",
+            "/api/v1/purposes",
+            200,
+            private=True,
+            params=dict(page=page, page_size=PURPOSE_PAGE_SIZE),
+        ).json()
+        items = result["items"]
+        for purpose in items:
+            if purpose["code"] == code:
+                if purpose["requires_free_text"] is not False:
+                    raise RolloutError("smoke-failed")
+                return str(UUID(purpose["id"]))
+        if not items or page * PURPOSE_PAGE_SIZE >= result["total"]:
+            raise RolloutError("smoke-failed")
+        page += 1
 
 
 def booking_payload(session: SmokeSession, account: SmokeCredentials) -> dict:
     context = session.request("GET", "/api/v1/booking-context", 200, private=True).json()
-    purposes = session.request(
-        "GET", "/api/v1/purposes?page=1&page_size=50", 200, private=True
-    ).json()
-    purpose = next(
-        p
-        for p in purposes["items"]
-        if p["code"] == account.purpose_code and p["requires_free_text"] is False
-    )
-    purpose_id = str(UUID(purpose["id"]))
+    purpose_id = smoke_purpose_id(session, account.purpose_code)
     staff = session.request(
         "GET",
         "/api/v1/staff",
@@ -34,11 +49,12 @@ def booking_payload(session: SmokeSession, account: SmokeCredentials) -> dict:
     ).json()["items"]
     if account.staff_id is not None:
         staff = [p for p in staff if p["id"] == account.staff_id]
-    selected = date.fromisoformat(context["min_booking_date"])
+    first = date.fromisoformat(context["min_booking_date"])
     last = date.fromisoformat(context["max_booking_date"])
-    if last < selected or (last - selected).days > 366:
+    if last < first:
         raise RolloutError("smoke-failed")
-    while selected <= last:
+    for offset in range(min((last - first).days + 1, MAX_AVAILABILITY_DATES)):
+        selected = first + timedelta(days=offset)
         for member in staff:
             staff_id = str(UUID(member["id"]))
             slots = session.request(
@@ -52,7 +68,6 @@ def booking_payload(session: SmokeSession, account: SmokeCredentials) -> dict:
                 return dict(
                     purpose_id=purpose_id, staff_id=staff_id, starts_at=slots[0]["starts_at"]
                 )
-        selected += timedelta(days=1)
     raise RolloutError("smoke-failed")
 
 

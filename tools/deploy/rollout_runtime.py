@@ -8,13 +8,23 @@ import os
 import re
 import subprocess
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
 from tools.deploy.release import render
 from tools.deploy.release_images import LOCAL_IMAGE_FORMAT, local_image_identity
-from tools.deploy.release_manifest import MAX_JSON, Manifest, ReleaseError, load_json
+from tools.deploy.release_manifest import (
+    GRANTS_PATH,
+    MAX_JSON,
+    ROOT,
+    Manifest,
+    ReleaseError,
+    canonical,
+    load_json,
+)
+from tools.deploy.rollout_policy import POLICY_SQL
 from tools.deploy.rollout_schema import CATALOG_SQL, REVISION_SQL, SchemaSnapshot, snapshot
 from tools.deploy.rollout_state import Reason, RolloutError
 
@@ -52,20 +62,28 @@ class ReleaseRuntime:
         *,
         overlay: str = "local",
         observability: bool = False,
+        root: Path = ROOT,
     ):
         self.base, self.environment = list(base), dict(environment)
         self.origin, self.project, self.scratch = origin, project, scratch
         self.overlay, self.observability = overlay, observability
+        self.root = root
         self.deadline = Deadline(600)
         self.manifest: Manifest | None = None
         self.overlay_path: Path | None = None
 
     def command(
-        self, args: list[str], *, reason: Reason = "rollout-failed", cap: float = 180
+        self,
+        args: list[str],
+        *,
+        reason: Reason = "rollout-failed",
+        cap: float = 180,
+        input_data: bytes | None = None,
     ) -> bytes:
         try:
             result = subprocess.run(
                 args,
+                input=input_data,
                 env=self.environment,
                 capture_output=True,
                 check=False,
@@ -79,11 +97,20 @@ class ReleaseRuntime:
             self.deadline.remaining()
             raise RolloutError(reason) from None
 
-    def compose(self, *args: str, reason: Reason = "rollout-failed", cap: float = 180) -> bytes:
+    def compose(
+        self,
+        *args: str,
+        reason: Reason = "rollout-failed",
+        cap: float = 180,
+        input_data: bytes | None = None,
+    ) -> bytes:
         if self.overlay_path is None:
             raise RolloutError("invalid-manifest")
         return self.command(
-            self.base + ["-f", str(self.overlay_path), *args], reason=reason, cap=cap
+            self.base + ["-f", str(self.overlay_path), *args],
+            reason=reason,
+            cap=cap,
+            input_data=input_data,
         )
 
     def select(self, manifest: Manifest) -> None:
@@ -92,7 +119,7 @@ class ReleaseRuntime:
             self.observability,
         ):
             raise RolloutError("incompatible-configuration")
-        raw = render(manifest)
+        raw = render(manifest, root=self.root, allow_previous=True)
         self.scratch.mkdir(parents=True, exist_ok=True, mode=0o700)
         path = self.scratch / (hashlib.sha256(raw).hexdigest() + ".yaml")
         if path.is_symlink() or (path.exists() and path.read_bytes() != raw):
@@ -389,6 +416,57 @@ class ReleaseRuntime:
             cap=15,
         ).strip()
 
+    def _booking_policy(self) -> dict:
+        return self.json_output(self.sql(POLICY_SQL))
+
+    @contextmanager
+    def predecessor_policy_guard(self) -> Iterator[None]:
+        if self.manifest is None:
+            raise RolloutError("invalid-manifest")
+        policy = self._booking_policy()
+        checker = Path(__file__).with_name("rollout_policy.py").read_text(encoding="utf-8")
+        self.command(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--interactive",
+                "--pull",
+                "never",
+                "--platform",
+                "linux/amd64",
+                "--network",
+                "none",
+                "--read-only",
+                "--cap-drop",
+                "ALL",
+                "--entrypoint",
+                "python",
+                self.manifest.images["backend"].reference,
+                "-c",
+                checker,
+            ],
+            reason="rollback-incompatible",
+            cap=55,
+            input_data=canonical(policy),
+        )
+        api = self.inspect("api", optional=True)
+        running = api is not None and api.get("running") is True
+        # Leave time for the recheck and restarting the original API on refusal.
+        if running and self.deadline.remaining() < 85:
+            raise RolloutError("deadline-exceeded")
+        try:
+            if running:
+                self.compose("stop", "--timeout", "40", "api", cap=50)
+            # With admin writers drained, the same snapshot must still be current.
+            if self._booking_policy() != policy:
+                raise RolloutError("rollback-incompatible")
+            yield
+        except BaseException:
+            if running:
+                self.compose("start", "api", reason="rollback-failed", cap=15)
+            raise
+
     def schema(self) -> SchemaSnapshot:
         record = self.inspect("mysql", optional=True)
         if record is None:
@@ -425,14 +503,32 @@ class ReleaseRuntime:
         return self.database_identity()
 
     def apply_grants(self) -> None:
+        if self.manifest is None:
+            raise RolloutError("invalid-manifest")
+        try:
+            grants = (self.root / GRANTS_PATH).read_bytes()
+        except OSError:
+            raise RolloutError("incompatible-configuration") from None
+        digest = hashlib.sha256(grants).hexdigest()
+        if not any(
+            item.path == GRANTS_PATH and item.sha256 == digest
+            for item in self.manifest.configuration.files
+        ):
+            raise RolloutError("incompatible-configuration")
+        # An existing container can still mount the old SQL file inode.
+        # Apply the exact reviewed bytes over stdin without restarting MySQL.
         self.compose(
             "exec",
             "-T",
             "mysql",
             "bash",
-            "/opt/prl/apply-grants.sh",
+            "-ec",
+            'export MYSQL_PWD="${MYSQL_ROOT_PASSWORD:?}"\n'
+            "exec mysql --no-defaults --protocol=socket --host=localhost "
+            "--socket=/var/run/mysqld/mysqld.sock -uroot --connect-timeout=5",
             reason="migration-failed",
             cap=15,
+            input_data=grants,
         )
 
     def appointment_status(self, appointment: str) -> str:
