@@ -11,6 +11,12 @@ from tools.load.runner import WorkloadResult
 from app.models import AuditEvent, ChangeProposal, Notification
 
 _BATCH_SIZE = 1_000
+_PENDING_PROPOSAL_VERSION_MISMATCH_SQL = """
+    SELECT COUNT(*) FROM change_proposals p
+    JOIN appointments a ON a.id = p.appointment_id
+    WHERE p.status = 'PENDING'
+      AND (p.created_version IS NULL OR p.created_version <> a.proposal_version)
+"""
 
 
 async def verify_post_run_invariants(
@@ -56,11 +62,7 @@ async def verify_post_run_invariants(
             )
             version_mismatches = await _scalar(
                 connection,
-                """
-                SELECT COUNT(*) FROM change_proposals p
-                JOIN appointments a ON a.id = p.appointment_id
-                WHERE p.created_version IS NOT NULL AND p.created_version > a.proposal_version
-                """,
+                _PENDING_PROPOSAL_VERSION_MISMATCH_SQL,
             )
             ownership = await connection.execute(
                 text("SELECT source_sha, fixture_count FROM prl_load_ownership LIMIT 1")

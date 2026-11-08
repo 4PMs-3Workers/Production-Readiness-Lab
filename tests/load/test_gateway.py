@@ -1,6 +1,7 @@
 import asyncio
 from datetime import UTC, datetime
 
+import httpx
 import pytest
 from tools.load.gateway import (
     _gateway_event,
@@ -9,6 +10,7 @@ from tools.load.gateway import (
     _to_ns,
     collect_gateway_window,
     safe_service_url,
+    verify_prometheus_endpoint,
 )
 
 
@@ -71,12 +73,102 @@ def test_gateway_window_is_incomplete_when_release_does_not_match(monkeypatch):
     assert result.reason == "gateway_release_mismatch"
 
 
+def test_gateway_window_is_incomplete_when_logs_drop_expected_records(monkeypatch):
+    async def fake_query(*args, **kwargs):
+        return (
+            [
+                {
+                    "release": "a" * 40,
+                    "route": "/api/v1/auth/me",
+                    "method": "GET",
+                    "status": 200,
+                    "duration_seconds": 0.1,
+                    "classification": "success",
+                }
+            ],
+            True,
+        )
+
+    monkeypatch.setattr("tools.load.gateway._query_loki", fake_query)
+    result = asyncio.run(
+        collect_gateway_window(
+            "http://localhost:3100",
+            "a" * 40,
+            datetime(2026, 11, 8, tzinfo=UTC),
+            datetime(2026, 11, 8, 0, 10, tzinfo=UTC),
+            expected_records=2,
+        )
+    )
+    assert result.complete is False
+    assert result.reason == "gateway_record_count_mismatch"
+
+
 def test_prometheus_missing_series_is_not_reported_as_zero():
     assert _prometheus_scalar({"status": "success", "data": {"result": []}}) is None
     assert (
         _prometheus_scalar({"status": "success", "data": {"result": [{"value": [1, "4.5"]}]}})
         == 4.5
     )
+
+
+def test_prometheus_preflight_checks_query_api_before_workload_writes():
+    async def run():
+        def client_factory(**kwargs):
+            def handle(request):
+                assert request.url.path == "/api/v1/query"
+                assert request.url.params["query"] == "up"
+                return httpx.Response(
+                    200,
+                    json={
+                        "status": "success",
+                        "data": {
+                            "resultType": "vector",
+                            "result": [
+                                {"metric": {"job": "api"}, "value": [1, "1"]},
+                                {"metric": {"job": "application-otel"}, "value": [1, "1"]},
+                            ],
+                        },
+                    },
+                )
+
+            return httpx.AsyncClient(transport=httpx.MockTransport(handle), **kwargs)
+
+        await verify_prometheus_endpoint(
+            "https://prometheus.example.invalid", client_factory=client_factory
+        )
+
+    asyncio.run(run())
+
+
+def test_prometheus_preflight_rejects_unreachable_and_credential_urls():
+    async def run():
+        def unavailable_client(**kwargs):
+            return httpx.AsyncClient(
+                transport=httpx.MockTransport(lambda _request: httpx.Response(503)),
+                **kwargs,
+            )
+
+        with pytest.raises(RuntimeError, match="preflight failed"):
+            await verify_prometheus_endpoint(
+                "https://prometheus.example.invalid", client_factory=unavailable_client
+            )
+        with pytest.raises(RuntimeError, match="URL is invalid"):
+            await verify_prometheus_endpoint("https://user:secret@prometheus.example.invalid")
+        with pytest.raises(RuntimeError, match="scrapes must be healthy"):
+            await verify_prometheus_endpoint(
+                "https://prometheus.example.invalid",
+                client_factory=lambda **kwargs: httpx.AsyncClient(
+                    transport=httpx.MockTransport(
+                        lambda _request: httpx.Response(
+                            200,
+                            json={"status": "success", "data": {"result": []}},
+                        )
+                    ),
+                    **kwargs,
+                ),
+            )
+
+    asyncio.run(run())
 
 
 def test_worker_backlog_signal_captures_peak_over_the_observed_window():
@@ -92,6 +184,8 @@ def test_worker_backlog_signal_captures_peak_over_the_observed_window():
     assert queries["api_pool_overflow_max"] == (
         'max(max_over_time(prl_db_pool_overflow{job="api"}[600s]))'
     )
+    assert queries["lock_timeouts"].endswith("or vector(0)")
+    assert queries["pool_timeouts"].endswith("or vector(0)")
 
 
 def test_query_times_require_timezone_and_service_url_is_redacted():

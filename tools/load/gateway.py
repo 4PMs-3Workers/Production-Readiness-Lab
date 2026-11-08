@@ -3,6 +3,7 @@
 import json
 import math
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -66,6 +67,7 @@ async def collect_gateway_window(
     *,
     environment: str = "demo",
     limit: int = MAX_GATEWAY_RECORDS,
+    expected_records: int | None = None,
 ) -> GatewayWindow:
     stream = _gateway_stream(environment)
     query = f"{stream} " '| json | __error__ = "" | event="gateway.request"'
@@ -84,7 +86,14 @@ async def collect_gateway_window(
         except (KeyError, TypeError, ValueError):
             malformed += 1
     truncated = len(records) >= min(limit, MAX_GATEWAY_RECORDS)
-    complete = complete and not truncated and malformed == 0 and mismatched_release == 0
+    count_mismatch = expected_records is not None and len(records) != expected_records
+    complete = (
+        complete
+        and not truncated
+        and malformed == 0
+        and mismatched_release == 0
+        and not count_mismatch
+    )
     reason = None
     if truncated:
         reason = "gateway_record_limit_reached"
@@ -92,6 +101,8 @@ async def collect_gateway_window(
         reason = "malformed_gateway_records"
     elif mismatched_release:
         reason = "gateway_release_mismatch"
+    elif count_mismatch:
+        reason = "gateway_record_count_mismatch"
     elif not complete:
         reason = "gateway_telemetry_unavailable"
     return GatewayWindow(events, complete, len(records), truncated, reason)
@@ -118,9 +129,62 @@ async def collect_runtime_signals(
     return result
 
 
+async def verify_prometheus_endpoint(
+    prometheus_url: str,
+    *,
+    client_factory: Callable[..., httpx.AsyncClient] = httpx.AsyncClient,
+) -> None:
+    """Check URL syntax and a harmless query before any candidate business writes."""
+    try:
+        parsed = urlsplit(prometheus_url)
+        _ = parsed.port
+    except ValueError:
+        raise RuntimeError("Prometheus endpoint URL is invalid") from None
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise RuntimeError("Prometheus endpoint URL is invalid")
+    try:
+        async with client_factory(timeout=10, follow_redirects=False) as client:
+            response = await client.get(
+                f"{prometheus_url.rstrip('/')}/api/v1/query", params={"query": "up"}
+            )
+        response.raise_for_status()
+        payload = response.json()
+    except (httpx.HTTPError, ValueError):
+        raise RuntimeError("Prometheus endpoint preflight failed") from None
+    data = payload.get("data") if isinstance(payload, dict) else None
+    rows = data.get("result") if isinstance(data, dict) else None
+    if (
+        not isinstance(payload, dict)
+        or payload.get("status") != "success"
+        or not isinstance(data, dict)
+        or not isinstance(rows, list)
+    ):
+        raise RuntimeError("Prometheus endpoint preflight failed")
+    healthy_jobs = {
+        metric.get("job")
+        for row in rows
+        if isinstance(row, dict)
+        and isinstance(metric := row.get("metric"), dict)
+        and isinstance(row.get("value"), list)
+        and len(row["value"]) > 1
+        and row["value"][1] == "1"
+    }
+    if not {"api", "application-otel"} <= healthy_jobs:
+        raise RuntimeError("Prometheus API and worker telemetry scrapes must be healthy")
+
+
 def _runtime_queries(range_seconds: int, environment: str) -> dict[str, str]:
     selected_environment = _environment(environment)
     return {
+        "api_scrape_up": 'min(up{job="api"})',
+        "worker_telemetry_scrape_up": 'min(up{job="application-otel"})',
         "worker_backlog_max": (
             'max(max_over_time(prl_worker_backlog_count{service_name="worker",'
             f'deployment_environment_name="{selected_environment}"' + f"}}[{range_seconds}s]))"
@@ -132,10 +196,12 @@ def _runtime_queries(range_seconds: int, environment: str) -> dict[str, str]:
             f'max(max_over_time(prl_db_pool_overflow{{job="api"}}[{range_seconds}s]))'
         ),
         "lock_timeouts": (
-            f'sum(increase(prl_db_failures_total{{reason="lock_timeout"}}[{range_seconds}s]))'
+            f'sum(increase(prl_db_failures_total{{reason="lock_timeout"}}[{range_seconds}s])) '
+            "or vector(0)"
         ),
         "pool_timeouts": (
-            f'sum(increase(prl_db_failures_total{{reason="pool_timeout"}}[{range_seconds}s]))'
+            f'sum(increase(prl_db_failures_total{{reason="pool_timeout"}}[{range_seconds}s])) '
+            "or vector(0)"
         ),
     }
 

@@ -44,6 +44,7 @@ export PRL_LOAD_TEST_OPT_IN=I_UNDERSTAND_THIS_WRITES_TO_AN_ISOLATED_LAB_SCHEMA
 export PRL_LOAD_DATABASE_URL='mysql+asyncmy://lab_operator:<url-encoded-password>@mysql-lab.example/prl_load_<run-id>'
 export PRL_LOAD_LOKI_URL='https://loki-lab.example'
 export PRL_LOAD_PROMETHEUS_URL='https://prometheus-lab.example'
+export PRL_LOAD_FIXTURE_PASSWORD="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
 
 RUN_ID='<32 lowercase UUID hex characters>'
 RELEASE_SHA="$(git rev-parse HEAD)"
@@ -62,7 +63,9 @@ python -m tools.load.cli prepare \
 Grant the candidate runtime account access only to this schema, then restart or
 reconfigure the candidate API to use it. Preserve the exact same target URL,
 release SHA, run ID, seed, and schema name for the run. Do not seed or migrate a
-shared demo schema.
+shared demo schema. Preserve the generated fixture password in a private secret
+store for the run; it is random and cannot be derived from the public run ID.
+Never put it in command arguments, reports, or Git.
 
 ## Run the integration acceptance
 
@@ -88,10 +91,22 @@ The runner uses real returned session cookies and refreshed CSRF tokens. Every
 booking and proposal write has a unique idempotency key and is replayed with the
 same request body. Booking and proposal receipts, cancellations, audit events,
 notifications, overlap rules, the three-upcoming-booking limit, proposal state,
-and duplicate idempotency keys are checked after the run.
+and duplicate idempotency keys are checked after the run. The runner counts its
+outbound gateway requests; a Loki record-count mismatch makes the SLI window
+incomplete rather than treating surviving records as a complete sample.
+
+For provenance, create the containerized demo's passing evidence manifest at
+`build/deploy/<release-sha>/manifest.json`; its `evidence` command records local
+image IDs/digests and configuration identity. The report includes this manifest
+only when it matches the clean checkout and passes strict schema validation.
+The current gateway exposes the release source SHA but not its running image
+digests, so the report explicitly marks target artifact identity as unverified.
+An SLI run cannot claim complete acceptance until the target exposes a matching
+runtime artifact attestation.
 
 The command exits nonzero if an invariant fails, the load generator saturates,
-gateway evidence is incomplete, or either observed-window target is missed.
+gateway/runtime evidence is incomplete, target artifact identity is unverified,
+or either observed-window target is missed.
 Business/input exclusions follow the gateway's classification; unknown
 classifications, absent telemetry, or too few samples produce insufficient
 evidence. Availability uses success divided by success plus service failures.
@@ -102,7 +117,8 @@ ten-minute run establishes the seven-day SLO.
 ## Read the report and clean up
 
 The JSON report is limited to 256 KiB and contains source/config digests,
-locked image digests, dataset and workload counts, timestamps, route latency
+local deployment manifest hash and its API/frontend/worker/gateway image IDs
+and digests (when available), locked vendor image digests, dataset and workload counts, timestamps, route latency
 percentiles, classified outcomes, gateway/runtime signals, generator-host
 samples, invariant counts, and the observed-window verdict. It excludes account
 identities, request/response bodies, cookies, tokens, appointment IDs, and

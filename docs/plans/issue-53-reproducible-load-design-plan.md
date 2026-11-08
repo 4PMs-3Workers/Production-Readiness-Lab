@@ -32,8 +32,8 @@ The workload uses twenty concurrent sessions for ten minutes by default and a de
 
 ## Assumptions
 
-- The operator supplies a candidate gateway URL, matching release identity, and database administrator URL capable of creating/removing only the dedicated load schema.
-- Fixture credentials are fictional, generated for this run, and never included in logs/reports.
+- The operator supplies a candidate gateway URL, matching release identity, a passing deployment manifest for that exact release, and database administrator URL capable of creating/removing only the dedicated load schema.
+- Fixture credentials are fictional, randomly generated outside the CLI, supplied through a private environment setting, and never included in logs/reports or derived from the public run ID.
 - A run without a complete gateway classification window or required measurements returns an insufficient-evidence result, even when HTTP requests themselves completed.
 - Cleanup is an explicit operation and only deletes a schema created by this run after verifying its ownership row and expected fixture objects.
 
@@ -57,7 +57,7 @@ The workload uses twenty concurrent sessions for ten minutes by default and a de
 
 ### 3. Real integration and operations guide
 
-- **Acceptance:** required real MySQL/gateway mode fails if prerequisites or candidate identity are missing; docs provide safe setup, the short and standard run commands, report interpretation, and cleanup; no seven-day SLO claim.
+- **Acceptance:** required real MySQL/gateway mode fails if prerequisites or source identity are missing; docs provide safe setup, the short and standard run commands, report interpretation, and cleanup; deployment artifact association remains explicitly incomplete until a runtime attestation exists; no seven-day SLO claim.
 - **Files:** `docs/tasks/reproducible-booking-load.md`, `README.md`.
 - **Steps:** document the implemented opt-in real integration path, separate candidate database setup, required telemetry, safety guardrails, evidence and limits.
 - **Checks:** documentation/source diff review; Docker-backed real MySQL/gateway run when a disposable lab stack is available.
@@ -76,5 +76,5 @@ The workload uses twenty concurrent sessions for ten minutes by default and a de
 ## Verification ledger
 
 - Task 1: fixture and guard unit tests passed (`pytest tests/load/test_config.py tests/load/test_fixtures.py -q` → 14 passed); Ruff and Black checks passed. Real MySQL setup could not run because Docker Desktop's Linux engine is not available in this environment; the required integration path remains for Task 3.
-- Task 2: load tests passed (`pytest tests/load -q` → 36 passed); Ruff, Black, and Pyright passed. A full lab gateway/MySQL run has not been executed because Docker Desktop's Linux engine is unavailable and no external lab endpoints/credentials are configured.
+- Task 2: load tests passed (`pytest tests/load -q` → 43 passed); Ruff, Black, and Pyright passed. A full lab gateway/MySQL run has not been executed because Docker Desktop's Linux engine is unavailable and no external lab endpoints/credentials are configured.
 - Task 3: operations guide and README index are in place. Docker Desktop service start was attempted but Windows denied access to `com.docker.service`; the Linux engine remained unavailable. No external lab endpoints/credentials are configured, so real integration evidence remains pending.

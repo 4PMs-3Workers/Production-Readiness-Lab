@@ -5,11 +5,13 @@ import json
 import math
 import os
 import platform
+import re
 import subprocess
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
+from tools.deploy.evidence import validate as validate_deployment_evidence
 from tools.load.gateway import safe_service_url
 from tools.load.metrics import SliSummary
 from tools.load.runner import WorkloadResult
@@ -36,11 +38,92 @@ def collect_provenance(root: Path) -> dict[str, object]:
             hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
         )
     image_digests = _locked_image_digests(root / "tools/infra/images.lock.json")
+    local_manifest = _deployed_artifact_identity(root, source)
     return {
         "checkout_source_sha": source,
         "checkout_has_uncommitted_changes": dirty,
         "configuration_sha256": digests,
         "locked_image_digests": image_digests,
+        "local_deployment_manifest": local_manifest,
+    }
+
+
+def _deployed_artifact_identity(root: Path, source_sha: str) -> dict[str, object]:
+    manifest = root / "build/deploy" / source_sha / "manifest.json"
+    unavailable: dict[str, object] = {
+        "status": "unavailable",
+        "manifest_complete": False,
+        "target_artifact_identity_complete": False,
+        "target_association": "not_attested_to_target_url",
+        "image_ids": {},
+        "image_digests": {},
+        "configuration_sha256": None,
+        "manifest_sha256": None,
+    }
+    try:
+        encoded = manifest.read_bytes()
+        value = json.loads(encoded)
+    except (OSError, json.JSONDecodeError):
+        return unavailable
+    if len(encoded) > MAX_REPORT_BYTES:
+        return unavailable
+    try:
+        value = validate_deployment_evidence(value)
+    except (ValueError, TypeError, KeyError):
+        return unavailable
+    verification = value.get("verification")
+    if not isinstance(verification, dict):
+        return unavailable
+    if (
+        value.get("manifest_version") != 2
+        or value.get("source_sha") != source_sha
+        or verification["command"] != "evidence"
+        or verification.get("status") != "passed"
+        or value.get("deployment_state") != "active"
+    ):
+        return unavailable
+    images = value.get("images")
+    configuration_sha = value.get("configuration_sha256")
+    if not isinstance(images, dict) or not isinstance(configuration_sha, str):
+        return unavailable
+    digest_pattern = re.compile(r"sha256:[0-9a-f]{64}\Z")
+    image_ids: dict[str, str] = {}
+    image_digests: dict[str, list[str]] = {}
+    for name, image in images.items():
+        if not isinstance(name, str) or not isinstance(image, dict):
+            continue
+        image_id = image.get("id")
+        digests = image.get("digests")
+        if (
+            isinstance(image_id, str)
+            and digest_pattern.fullmatch(image_id) is not None
+            and isinstance(digests, list)
+            and all(
+                isinstance(digest, str)
+                and "@sha256:" in digest
+                and digest_pattern.fullmatch(digest.rsplit("@", 1)[-1]) is not None
+                for digest in digests
+            )
+        ):
+            image_ids[name[:64]] = image_id
+            image_digests[name[:64]] = sorted(digests)
+    required_images = {"api", "frontend", "worker", "gateway"}
+    manifest_complete = (
+        re.fullmatch(r"[0-9a-f]{64}", configuration_sha) is not None
+        and required_images <= image_ids.keys()
+        and required_images <= image_digests.keys()
+    )
+    if not manifest_complete:
+        return unavailable
+    return {
+        "status": "local_manifest_matches_source",
+        "manifest_complete": True,
+        "target_artifact_identity_complete": False,
+        "target_association": "not_attested_to_target_url",
+        "image_ids": dict(sorted(image_ids.items())),
+        "image_digests": dict(sorted(image_digests.items())),
+        "configuration_sha256": configuration_sha,
+        "manifest_sha256": hashlib.sha256(encoded).hexdigest(),
     }
 
 
@@ -111,6 +194,7 @@ def build_report(
                 "staff": {"read": 0.5, "proposal": 0.5},
             },
             "operation_counts": operations,
+            "expected_gateway_requests": workload.expected_gateway_requests,
             "operations_per_second": sum(
                 count for key, count in operations.items() if key.endswith(".attempted")
             )

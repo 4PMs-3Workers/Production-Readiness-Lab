@@ -18,6 +18,8 @@ from tools.load.runner import (
     load_workload_fixture,
 )
 
+_TEST_PASSWORD = "private-fictional-load-session-password-53"
+
 
 def test_operation_mix_is_role_specific_and_representative():
     assert _choose_operation("STUDENT", 0.1) == "read"
@@ -29,7 +31,7 @@ def test_operation_mix_is_role_specific_and_representative():
 
 
 def test_login_refreshes_csrf_and_uses_the_matching_session_identity():
-    fixture = load_workload_fixture(55, "b" * 32)
+    fixture = load_workload_fixture(55, "b" * 32, _TEST_PASSWORD)
     credential = fixture.students[0]
 
     def handle(request):
@@ -60,14 +62,16 @@ def test_login_refreshes_csrf_and_uses_the_matching_session_identity():
 
 
 def test_fixture_account_email_is_unique_per_run_id():
-    first = load_workload_fixture(55, "b" * 32)
-    second = load_workload_fixture(55, "c" * 32)
+    first = load_workload_fixture(55, "b" * 32, _TEST_PASSWORD)
+    second = load_workload_fixture(55, "c" * 32, _TEST_PASSWORD)
     assert first.students[0].email != second.students[0].email
+    assert first.password == second.password == _TEST_PASSWORD
+    assert _TEST_PASSWORD not in repr(first)
 
 
 def test_canary_mismatch_fails_before_any_load_write():
     requests = []
-    fixture = load_workload_fixture(55, "b" * 32)
+    fixture = load_workload_fixture(55, "b" * 32, _TEST_PASSWORD)
 
     def handle(request):
         requests.append((request.method, request.url.path))
@@ -87,7 +91,7 @@ def test_canary_mismatch_fails_before_any_load_write():
 
 
 def test_booking_uses_real_csrf_header_and_replays_same_key_and_payload():
-    fixture = load_workload_fixture(88, "c" * 32)
+    fixture = load_workload_fixture(88, "c" * 32, _TEST_PASSWORD)
     credential = fixture.students[0]
     writes = []
     receipt_id = "d" * 32
@@ -123,7 +127,7 @@ def test_booking_uses_real_csrf_header_and_replays_same_key_and_payload():
 
 
 def test_booking_replay_mismatch_remains_in_invariant_inventory():
-    fixture = load_workload_fixture(89, "d" * 32)
+    fixture = load_workload_fixture(89, "d" * 32, _TEST_PASSWORD)
     credential = fixture.students[0]
     writes = 0
     created_id = UUID("d" * 32)
@@ -156,7 +160,7 @@ def test_booking_replay_mismatch_remains_in_invariant_inventory():
 
 
 def test_proposal_uses_expected_context_csrf_and_exact_replay():
-    fixture = load_workload_fixture(42, "e" * 32)
+    fixture = load_workload_fixture(42, "e" * 32, _TEST_PASSWORD)
     credential = fixture.staff[0]
     proposal_id = "f" * 32
     writes = []

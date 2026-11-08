@@ -16,6 +16,7 @@ from tools.load.gateway import (
     collect_gateway_window,
     collect_runtime_signals,
     confirm_candidate_release,
+    verify_prometheus_endpoint,
 )
 from tools.load.invariants import verify_post_run_invariants
 from tools.load.metrics import summarize_gateway_events
@@ -70,6 +71,13 @@ def main(argv: list[str] | None = None) -> int:
         raise LoadSafetyError("PRL_LOAD_LOKI_URL is required to verify candidate release telemetry")
     if args.command == "run" and not os.environ.get("PRL_LOAD_PROMETHEUS_URL"):
         raise LoadSafetyError("PRL_LOAD_PROMETHEUS_URL is required for runtime signal evidence")
+    if (
+        args.command in {"prepare", "run"}
+        and len(os.environ.get("PRL_LOAD_FIXTURE_PASSWORD", "")) < 32
+    ):
+        raise LoadSafetyError(
+            "PRL_LOAD_FIXTURE_PASSWORD must be a private per-run secret of 32+ chars"
+        )
     if args.command == "prepare":
         return asyncio.run(_prepare(args, config))
     if args.command == "cleanup":
@@ -80,7 +88,9 @@ def main(argv: list[str] | None = None) -> int:
 async def _prepare(args: argparse.Namespace, config: LoadConfig) -> int:
     _require_matching_checkout(config.release_sha)
     await _confirm_release(args, config)
-    await create_owned_schema(config, seed=args.seed)
+    await create_owned_schema(
+        config, seed=args.seed, password=os.environ["PRL_LOAD_FIXTURE_PASSWORD"]
+    )
     print(f"Prepared owned schema {config.schema_name} for release {config.release_sha}.")
     print(
         "Configure the candidate API to use this schema, then run the canary-backed load command."
@@ -90,19 +100,17 @@ async def _prepare(args: argparse.Namespace, config: LoadConfig) -> int:
 
 async def _run(args: argparse.Namespace, config: LoadConfig, run_id: str) -> int:
     _require_matching_checkout(config.release_sha)
+    provenance = collect_provenance(_repository_root())
     await _confirm_release(args, config)
+    prometheus_url = os.environ["PRL_LOAD_PROMETHEUS_URL"]
+    await verify_prometheus_endpoint(prometheus_url)
     dataset = await verify_owned_schema(config, run_id=run_id)
-    fixture = load_workload_fixture(args.seed, run_id)
+    fixture = load_workload_fixture(args.seed, run_id, os.environ["PRL_LOAD_FIXTURE_PASSWORD"])
     await confirm_fixture_target(config.target_url, fixture)
     host_start = sample_generator_host()
     workload = await run_workload(config, fixture, seed=args.seed)
     host_end = sample_generator_host()
     loki_url = os.environ.get("PRL_LOAD_LOKI_URL", "")
-    prometheus_url = os.environ.get("PRL_LOAD_PROMETHEUS_URL", "")
-    if not loki_url or not prometheus_url:
-        raise LoadSafetyError(
-            "PRL_LOAD_LOKI_URL and PRL_LOAD_PROMETHEUS_URL are required for SLI/runtime evidence"
-        )
     await asyncio.sleep(5)
     gateway = await collect_gateway_window(
         loki_url,
@@ -110,6 +118,7 @@ async def _run(args: argparse.Namespace, config: LoadConfig, run_id: str) -> int
         workload.started_at,
         workload.ended_at,
         environment=args.environment,
+        expected_records=workload.expected_gateway_requests,
     )
     sli = summarize_gateway_events(
         gateway.events,
@@ -120,10 +129,10 @@ async def _run(args: argparse.Namespace, config: LoadConfig, run_id: str) -> int
     runtime_signals = await collect_runtime_signals(
         prometheus_url, int(workload.duration_seconds) + 15, environment=args.environment
     )
+    runtime_signals_complete = _runtime_signals_complete(runtime_signals)
     invariants = await verify_post_run_invariants(
         config.database_url, workload, expected_release_sha=config.release_sha
     )
-    provenance = collect_provenance(_repository_root())
     payload = build_report(
         target_url=config.target_url,
         environment=args.environment,
@@ -140,6 +149,10 @@ async def _run(args: argparse.Namespace, config: LoadConfig, run_id: str) -> int
     payload["gateway_sli_collection"] = {
         "complete": gateway.complete,
         "records": gateway.returned_records,
+        "expected_records": workload.expected_gateway_requests,
+        "record_count_matches_generator": (
+            gateway.returned_records == workload.expected_gateway_requests
+        ),
         "truncated": gateway.truncated,
         "reason": gateway.reason,
     }
@@ -149,16 +162,27 @@ async def _run(args: argparse.Namespace, config: LoadConfig, run_id: str) -> int
         "cleanup": "retained_until_explicit_cleanup_command",
     }
     sli_achieved = sli.availability.meets_target is True and sli.fast_success.meets_target is True
-    evidence_complete = (
+    sli_evidence_complete = (
         gateway.complete
         and not workload.generator_saturated
         and sli.availability.status == "measured"
         and sli.fast_success.status == "measured"
     )
+    evidence_complete = sli_evidence_complete and runtime_signals_complete
+    local_manifest = provenance.get("local_deployment_manifest")
+    target_artifact_identity_complete = (
+        isinstance(local_manifest, dict)
+        and local_manifest.get("target_artifact_identity_complete") is True
+    )
     payload["acceptance"] = {
+        "local_deployment_manifest_matches_release": (
+            isinstance(local_manifest, dict) and local_manifest.get("manifest_complete") is True
+        ),
+        "target_artifact_identity_complete": target_artifact_identity_complete,
         "availability_target_achieved_in_window": sli.availability.meets_target,
         "fast_success_target_achieved_in_window": sli.fast_success.meets_target,
-        "sli_evidence_complete": evidence_complete,
+        "sli_evidence_complete": sli_evidence_complete,
+        "runtime_signals_complete": runtime_signals_complete,
         "post_run_invariants_passed": bool(invariants["passed"]),
         "seven_day_slo_claimed": False,
     }
@@ -170,7 +194,14 @@ async def _run(args: argparse.Namespace, config: LoadConfig, run_id: str) -> int
         f"{_ratio_text(sli.fast_success.ratio)}; invariants: "
         f"{'passed' if invariants['passed'] else 'failed'}."
     )
-    return 0 if invariants["passed"] and evidence_complete and sli_achieved else 2
+    return (
+        0
+        if invariants["passed"]
+        and evidence_complete
+        and sli_achieved
+        and target_artifact_identity_complete
+        else 2
+    )
 
 
 async def _cleanup(config: LoadConfig, run_id: str) -> int:
@@ -215,6 +246,32 @@ def _validate_run_id(value: str) -> str:
 
 def _ratio_text(value: float | None) -> str:
     return "insufficient evidence" if value is None else f"{value:.3%}"
+
+
+def _runtime_signals_complete(runtime_signals: dict[str, object]) -> bool:
+    signals = runtime_signals.get("signals")
+    required = {
+        "api_scrape_up",
+        "worker_telemetry_scrape_up",
+        "worker_backlog_max",
+        "api_pool_checked_out_max",
+        "api_pool_overflow_max",
+        "lock_timeouts",
+        "pool_timeouts",
+    }
+    return (
+        isinstance(signals, dict)
+        and required.issubset(signals)
+        and all(
+            isinstance(signals[key], dict)
+            and signals[key].get("status") == "measured"
+            and (
+                key not in {"api_scrape_up", "worker_telemetry_scrape_up"}
+                or signals[key].get("value") == 1
+            )
+            for key in required
+        )
+    )
 
 
 if __name__ == "__main__":

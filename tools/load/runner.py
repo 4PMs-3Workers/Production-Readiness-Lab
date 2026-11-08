@@ -40,6 +40,7 @@ class WorkloadResult:
     duration_seconds: float
     started_at: datetime
     ended_at: datetime
+    expected_gateway_requests: int = 0
     operation_counts: Counter[str] = field(default_factory=Counter)
     event_loop_lag_seconds: list[float] = field(default_factory=list)
     created_booking_ids: list[UUID] = field(default_factory=list)
@@ -66,7 +67,7 @@ class _Session:
     appointments: list[UUID] = field(default_factory=list)
 
 
-def load_workload_fixture(seed: int, run_id: str) -> WorkloadFixture:
+def load_workload_fixture(seed: int, run_id: str, password: str) -> WorkloadFixture:
     """Build the credential inventory matching the separately provisioned schema."""
     from tools.load.fixtures import make_fixture_rows
 
@@ -89,7 +90,7 @@ def load_workload_fixture(seed: int, run_id: str) -> WorkloadFixture:
         ],
         staff=[SessionCredential(row.id, row.email, "STAFF") for row in rows.staff],
         proposal_appointments=[row.id for row in rows.appointments[:10]],
-        password=f"Load-{run_id[:12]}-Fictional!9",
+        password=password,
     )
 
 
@@ -111,6 +112,11 @@ async def run_workload(
         raise ValueError("Fixture does not contain the configured number of sessions")
     clients: list[httpx.AsyncClient] = []
     sessions: list[_Session] = []
+    request_counter = {"count": 0}
+
+    def count_request(_request: httpx.Request) -> None:
+        request_counter["count"] += 1
+
     origin = config.target_url.rstrip("/")
     try:
         for index, credential in enumerate(credentials):
@@ -119,11 +125,13 @@ async def run_workload(
                 timeout=15,
                 follow_redirects=False,
                 headers={"Origin": origin},
+                event_hooks={"request": [count_request]},
             )
             clients.append(client)
             sessions.append(await _authenticate(client, credential, fixture.password))
             if index + 1 < len(credentials):
                 await asyncio.sleep(2)
+        request_counter["count"] = 0
         result = WorkloadResult(
             requested_sessions=len(credentials),
             authenticated_sessions=len(sessions),
@@ -141,6 +149,7 @@ async def run_workload(
         ]
         await asyncio.gather(*tasks)
         result.ended_at = datetime.now(UTC)
+        result.expected_gateway_requests = request_counter["count"]
         monitor.cancel()
         try:
             await monitor

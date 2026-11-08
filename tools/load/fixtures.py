@@ -203,9 +203,11 @@ def validate_cleanup_ownership(schema_name: str, run_id: str, persisted_run_id: 
         raise LoadSafetyError("Schema ownership marker does not match; refusing cleanup")
 
 
-async def create_owned_schema(config: LoadConfig, *, seed: int) -> str:
+async def create_owned_schema(config: LoadConfig, *, seed: int, password: str) -> str:
     """Create and seed a new prefixed schema, returning its run ownership token."""
     validate_load_config(config)
+    if len(password) < 32:
+        raise LoadSafetyError("Fixture password must be a private per-run secret of 32+ chars")
     match = _SCHEMA_NAME.fullmatch(config.schema_name)
     if match is None:
         raise LoadSafetyError("Refusing to create a schema outside the load namespace")
@@ -239,7 +241,7 @@ async def create_owned_schema(config: LoadConfig, *, seed: int) -> str:
         async with migration_connection(engine) as connection:
             await connection.run_sync(_upgrade_schema)
         password_service = await PasswordService.create(PasswordPolicy(), 2)
-        password_hash = await password_service.hash(f"Load-{run_id[:12]}-Fictional!9")
+        password_hash = await password_service.hash(password)
         rows = make_fixture_rows(
             seed=seed,
             generated_at=datetime.now(UTC),

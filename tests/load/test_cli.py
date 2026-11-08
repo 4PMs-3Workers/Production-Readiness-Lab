@@ -114,3 +114,53 @@ def test_missing_prometheus_url_fails_before_async_setup(monkeypatch):
             ]
         )
     assert called is False
+
+
+def test_fixture_password_must_be_set_before_prepare_or_run(monkeypatch):
+    monkeypatch.setenv(
+        "PRL_LOAD_DATABASE_URL",
+        "mysql+asyncmy://load:secret@localhost/prl_load_" + "b" * 32,
+    )
+    monkeypatch.setenv("PRL_LOAD_TEST_OPT_IN", OPT_IN_PHRASE)
+    monkeypatch.setenv("PRL_LOAD_LOKI_URL", "https://loki.example.invalid")
+    monkeypatch.delenv("PRL_LOAD_FIXTURE_PASSWORD", raising=False)
+    called = False
+
+    def run_async(_coroutine):
+        nonlocal called
+        called = True
+        raise AssertionError("fixture credentials must be checked before setup")
+
+    monkeypatch.setattr(cli.asyncio, "run", run_async)
+    with pytest.raises(LoadSafetyError, match="PRL_LOAD_FIXTURE_PASSWORD"):
+        cli.main(
+            [
+                "prepare",
+                "--target-url",
+                "https://candidate.example.invalid",
+                "--release-sha",
+                "a" * 40,
+                "--run-id",
+                "b" * 32,
+            ]
+        )
+    assert called is False
+
+
+def test_runtime_signals_missing_data_is_incomplete_evidence():
+    measured = {
+        key: {"status": "measured", "value": 0}
+        for key in (
+            "worker_backlog_max",
+            "api_pool_checked_out_max",
+            "api_pool_overflow_max",
+            "lock_timeouts",
+            "pool_timeouts",
+        )
+    }
+    measured["api_scrape_up"] = {"status": "measured", "value": 1}
+    measured["worker_telemetry_scrape_up"] = {"status": "measured", "value": 1}
+    assert cli._runtime_signals_complete({"signals": measured}) is True
+    measured["lock_timeouts"] = {"status": "unavailable", "value": None}
+    assert cli._runtime_signals_complete({"signals": measured}) is False
+    assert cli._runtime_signals_complete({"signals": {}}) is False
