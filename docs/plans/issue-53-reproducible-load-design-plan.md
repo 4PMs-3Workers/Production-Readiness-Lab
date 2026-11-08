@@ -1,0 +1,78 @@
+# Issue #53 — Reproducible load workload and consistency verification
+
+**Base:** `origin/develop` at `724169a33b852a6cc6b255aff7cb92fffed89908`
+**Branch:** `feature/issue-53-reproducible-booking-load`
+**Worktree:** `D:\Production-Readiness-Lab-issue-53`
+
+## Intent
+
+Provide a repeatable, bounded way to exercise a declared lab release through its real gateway, seed fictional application data in an isolated database, verify business invariants after the run, and export a sanitized report. A short run can prove behavior in its observed window; it cannot claim a seven-day SLO.
+
+## Chosen design
+
+Implement a focused Python package in `tools/load/` using the existing `httpx`, SQLAlchemy/asyncmy, and stdlib dependencies. Divide it into configuration and safety validation, fictional fixture provisioning, an HTTP session workload, gateway/telemetry collection, invariant verification, and report serialization. Use the existing gateway classification values as the authority for SLI numerator/denominator membership. Unknown classifications, absent telemetry, insufficient samples, and generator saturation remain explicit insufficient evidence.
+
+Load writes require an explicit opt-in, a declared candidate release, and an isolated schema with a verified ownership marker. Provision at least ten fictional staff and one thousand valid appointment rows with deterministic data. Only cleanup schemas whose safe prefix and persisted ownership marker match this run. Exercise authenticated sessions through the gateway using returned cookies and CSRF values; writes use unique idempotency keys and replay the same key only for the same payload.
+
+The workload uses twenty concurrent sessions for ten minutes by default and a deterministic mix of reads, bookings, cancellations, and proposal creation. Reports contain finite route templates and aggregate outcomes/latencies, dataset and workload settings, target/source identity, timestamps, resource samples, generator capacity, telemetry availability, invariant results, and the SLI verdict. Exclude response bodies, credentials, cookies, CSRF/session identifiers, consultation descriptions, and personal fields.
+
+## Approaches considered
+
+- Reuse the ordinary demo seed: rejected because it does not provide the required 1,000-appointment dataset and may share persistent demo data.
+- Put the workload in application runtime code or add a load-testing dependency: rejected because the runner is operational tooling and existing dependencies cover HTTP and database access.
+- Use a separately owned, explicitly named load schema and a gateway client: chosen to keep writes isolated, make cleanup ownership checkable, and exercise production request contracts.
+
+## Goals and boundaries
+
+- Deliver fixture, runner, SLI math/classification, invariant checks, sanitized bounded report, and focused tests.
+- Include an opt-in shorter real-MySQL/gateway acceptance path that fails when its prerequisites are missing.
+- Preserve existing auth, CSRF, authorization, idempotency, deadline, transaction, and classification contracts.
+- Do not touch shared schemas or ordinary demo rows; do not add runtime dependencies or claim the 10-minute run proves the seven-day SLO.
+- Final release measurements belong to the declared candidate and deployment configuration; record actual source and artifact/config identity.
+
+## Assumptions
+
+- The operator supplies a candidate gateway URL, matching release identity, and database administrator URL capable of creating/removing only the dedicated load schema.
+- Fixture credentials are fictional, generated for this run, and never included in logs/reports.
+- A run without a complete gateway classification window or required measurements returns an insufficient-evidence result, even when HTTP requests themselves completed.
+- Cleanup is an explicit operation and only deletes a schema created by this run after verifying its ownership row and expected fixture objects.
+
+## Implementation plan
+
+### 1. Safe fixture and configuration
+
+- **Acceptance:** strict preflight rejects missing opt-in, invalid target/release, unsafe schema names, and cleanup without the exact ownership marker; deterministic fixture produces at least 10 staff and 1,000 appointments with valid relationships and statuses.
+- **Files:** `tools/load/config.py`, `tools/load/fixtures.py`, `tools/load/__init__.py`, `tests/load/test_config.py`, `tests/load/test_fixtures.py`.
+- **Steps:** define immutable run config and schema ownership record; validate all destructive arguments before connecting; create/seed only an empty, run-owned schema; add focused tests for invalid and valid configurations/fixture distribution.
+- **Checks:** focused `pytest tests/load/test_config.py tests/load/test_fixtures.py`; `ruff check` on changed Python files.
+- **Commit:** `feat(load): provision isolated reproducible booking fixtures`
+
+### 2. Authenticated workload and measurement
+
+- **Acceptance:** default configuration is 20 sessions/600 seconds; requests use real gateway cookies and CSRF; booking/proposal writes carry correct idempotency and replay semantics; record throughput, per-route latency, classified status/error counts, and generator capacity without sensitive payloads.
+- **Files:** `tools/load/runner.py`, `tools/load/metrics.py`, `tools/load/gateway.py`, `tests/load/test_metrics.py`, `tests/load/test_runner.py`.
+- **Steps:** implement an async HTTP client per session; encode a seeded representative operation mix; parse allowlisted gateway records/telemetry into the existing success, excluded, and service-failure buckets; represent empty/missing signals and saturation as insufficient evidence; enforce report size and field allowlists.
+- **Checks:** focused `pytest tests/load/test_metrics.py tests/load/test_runner.py`; `ruff check` and `black --check` on changed files.
+- **Commit:** `feat(load): run authenticated gateway workload and report SLI inputs`
+
+### 3. Invariants, real integration, and operations guide
+
+- **Acceptance:** post-run checks cover STAFF/STUDENT overlaps, the three-booking cap, appointment/proposal states, exact replay, and expected audit/notification effects; required real MySQL/gateway mode fails if dependencies are missing; docs provide safe setup, run, report interpretation, and cleanup; no seven-day SLO claim.
+- **Files:** `tools/load/invariants.py`, `tools/load/report.py`, `tests/load/test_invariants.py`, `tests/load/test_integration.py`, `docs/tasks/load-testing.md`, `pyproject.toml` only if test discovery/config needs it.
+- **Steps:** verify invariant queries against the isolated schema; build a bounded sanitized report containing actual source/artifact/config identity and measured resource samples; implement an opt-in short integration run; document commands, minimum telemetry, guardrails, and limits.
+- **Checks:** `pytest tests/load`; required opt-in integration command on an isolated MySQL/gateway candidate; relevant format/lint/type checks.
+- **Commit:** `feat(load): verify booking invariants and document lab runs`
+
+## Review focus
+
+- Refuse all writes before network/database activity when opt-in or candidate identity is missing or malformed.
+- Never drop an existing or unowned database; cleanup must verify schema prefix, run UUID, and fixture marker.
+- Preserve the gateway's distinction among success, input/business exclusions, service failures, and unknown classifications.
+- Keep all 4xx business/input conflicts out of success and service-failure counts according to the logged gateway classification.
+- Missing/empty SLI data, too few in-scope samples, telemetry gaps, and generator saturation must not become zero-error success.
+- No credentials, cookies, tokens, names, account/session payloads, consultation text, or raw URLs with query strings in logs/reports.
+- Proposal/book/cancel operations must use valid authorization, CSRF, idempotency, and expected state/context contracts.
+
+## Verification ledger
+
+- Task 1: fixture and guard unit tests passed (`pytest tests/load/test_config.py tests/load/test_fixtures.py -q` → 14 passed); Ruff and Black checks passed. Real MySQL setup could not run because Docker Desktop's Linux engine is not available in this environment; the required integration path remains for Task 3.
