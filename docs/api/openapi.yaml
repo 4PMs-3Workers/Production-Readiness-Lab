@@ -198,6 +198,41 @@ components:
       - expected_updated_at
       title: AccountUpdateRequest
       type: object
+    AdminPurpose:
+      properties:
+        code:
+          title: Code
+          type: string
+        duration_minutes:
+          title: Duration Minutes
+          type: integer
+        id:
+          format: uuid
+          title: Id
+          type: string
+        is_active:
+          title: Is Active
+          type: boolean
+        name:
+          title: Name
+          type: string
+        requires_free_text:
+          title: Requires Free Text
+          type: boolean
+        updated_at:
+          format: date-time
+          title: Updated At
+          type: string
+      required:
+      - id
+      - code
+      - name
+      - duration_minutes
+      - requires_free_text
+      - is_active
+      - updated_at
+      title: AdminPurpose
+      type: object
     AppointmentCancelRequest:
       additionalProperties: false
       properties:
@@ -486,6 +521,69 @@ components:
       - ends_at
       title: AvailableSlot
       type: object
+    BookingConfiguration:
+      properties:
+        booking_horizon_days:
+          title: Booking Horizon Days
+          type: integer
+        start_step_minutes:
+          title: Start Step Minutes
+          type: integer
+        timezone:
+          title: Timezone
+          type: string
+        updated_at:
+          format: date-time
+          title: Updated At
+          type: string
+        windows:
+          items:
+            $ref: '#/components/schemas/WeeklyWindow-Output'
+          title: Windows
+          type: array
+      required:
+      - timezone
+      - start_step_minutes
+      - booking_horizon_days
+      - windows
+      - updated_at
+      title: BookingConfiguration
+      type: object
+    BookingConfigurationReplace:
+      additionalProperties: false
+      properties:
+        booking_horizon_days:
+          maximum: 32767.0
+          minimum: 1.0
+          title: Booking Horizon Days
+          type: integer
+        expected_updated_at:
+          format: date-time
+          title: Expected Updated At
+          type: string
+        start_step_minutes:
+          maximum: 32767.0
+          minimum: 1.0
+          title: Start Step Minutes
+          type: integer
+        timezone:
+          maxLength: 64
+          minLength: 1
+          title: Timezone
+          type: string
+        windows:
+          items:
+            $ref: '#/components/schemas/WeeklyWindow-Input'
+          title: Windows
+          type: array
+      required:
+      - expected_updated_at
+      - timezone
+      - start_step_minutes
+      - booking_horizon_days
+      - windows
+      title: BookingConfigurationReplace
+      type: object
     BookingContextResponse:
       properties:
         business_date:
@@ -687,6 +785,33 @@ components:
       - page_size
       - total
       title: PageResponse[AccountItem]
+      type: object
+    PageResponse_AdminPurpose_:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/AdminPurpose'
+          title: Items
+          type: array
+        page:
+          minimum: 1.0
+          title: Page
+          type: integer
+        page_size:
+          maximum: 100.0
+          minimum: 1.0
+          title: Page Size
+          type: integer
+        total:
+          minimum: 0.0
+          title: Total
+          type: integer
+      required:
+      - items
+      - page
+      - page_size
+      - total
+      title: PageResponse[AdminPurpose]
       type: object
     PageResponse_AppointmentListItem_:
       properties:
@@ -1118,6 +1243,37 @@ components:
       - resolved_by
       title: ProposalResolution
       type: object
+    PurposeCreate:
+      additionalProperties: false
+      properties:
+        code:
+          pattern: ^[A-Z][A-Z0-9_]{0,49}$
+          title: Code
+          type: string
+        duration_minutes:
+          maximum: 32767.0
+          minimum: 1.0
+          title: Duration Minutes
+          type: integer
+        is_active:
+          title: Is Active
+          type: boolean
+        name:
+          maxLength: 150
+          minLength: 1
+          title: Name
+          type: string
+        requires_free_text:
+          title: Requires Free Text
+          type: boolean
+      required:
+      - name
+      - duration_minutes
+      - requires_free_text
+      - is_active
+      - code
+      title: PurposeCreate
+      type: object
     PurposeItem:
       properties:
         code:
@@ -1143,6 +1299,37 @@ components:
       - duration_minutes
       - requires_free_text
       title: PurposeItem
+      type: object
+    PurposeReplace:
+      additionalProperties: false
+      properties:
+        duration_minutes:
+          maximum: 32767.0
+          minimum: 1.0
+          title: Duration Minutes
+          type: integer
+        expected_updated_at:
+          format: date-time
+          title: Expected Updated At
+          type: string
+        is_active:
+          title: Is Active
+          type: boolean
+        name:
+          maxLength: 150
+          minLength: 1
+          title: Name
+          type: string
+        requires_free_text:
+          title: Requires Free Text
+          type: boolean
+      required:
+      - name
+      - duration_minutes
+      - requires_free_text
+      - is_active
+      - expected_updated_at
+      title: PurposeReplace
       type: object
     ReadyResponse:
       properties:
@@ -1529,6 +1716,50 @@ components:
       format: date-time
       title: UtcTimestamp
       type: string
+    WeeklyWindow-Input:
+      additionalProperties: false
+      properties:
+        closes_at:
+          pattern: ^(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$
+          title: Closes At
+          type: string
+        opens_at:
+          pattern: ^(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$
+          title: Opens At
+          type: string
+        weekday:
+          maximum: 7.0
+          minimum: 1.0
+          title: Weekday
+          type: integer
+      required:
+      - weekday
+      - opens_at
+      - closes_at
+      title: WeeklyWindow
+      type: object
+    WeeklyWindow-Output:
+      additionalProperties: false
+      properties:
+        closes_at:
+          format: time
+          title: Closes At
+          type: string
+        opens_at:
+          format: time
+          title: Opens At
+          type: string
+        weekday:
+          maximum: 7.0
+          minimum: 1.0
+          title: Weekday
+          type: integer
+      required:
+      - weekday
+      - opens_at
+      - closes_at
+      title: WeeklyWindow
+      type: object
   securitySchemes:
     prl_session:
       in: cookie
@@ -2317,6 +2548,934 @@ paths:
       summary: Reset Password
       tags:
       - admin accounts
+  /api/v1/admin/booking-configuration:
+    get:
+      description: Read school-wide policy and weekly hours at the same revision.
+      operationId: get_configuration_api_v1_admin_booking_configuration_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookingConfiguration'
+          description: Successful Response
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+      security:
+      - prl_session: []
+      summary: Get Configuration
+      tags:
+      - admin booking configuration
+    put:
+      description: Atomically replace the policy and entire weekly schedule using
+        expected_updated_at. Days omitted from windows are closed. This mutation requires
+        the signed CSRF token in `X-CSRF-Token`. Origin or Referer must match the
+        configured application origin. Origin takes precedence when both are supplied.
+      operationId: replace_configuration_api_v1_admin_booking_configuration_put
+      parameters:
+      - description: Signed token matching the prl_csrf cookie.
+        in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+      - description: Preferred same-origin header. If present, it takes precedence
+          over Referer and must match the configured application origin.
+        in: header
+        name: Origin
+        required: false
+        schema:
+          format: uri
+          type: string
+      - description: Accepted only when Origin is absent; its origin must match the
+          configured application origin.
+        in: header
+        name: Referer
+        required: false
+        schema:
+          format: uri
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookingConfigurationReplace'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookingConfiguration'
+          description: Successful Response
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '413':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '415':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+      security:
+      - prl_session: []
+      summary: Replace Configuration
+      tags:
+      - admin booking configuration
+  /api/v1/admin/purposes:
+    get:
+      description: List active and inactive purposes in code order.
+      operationId: list_purposes_api_v1_admin_purposes_get
+      parameters:
+      - in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          title: Page
+          type: integer
+      - in: query
+        name: page_size
+        required: false
+        schema:
+          default: 20
+          maximum: 100
+          minimum: 1
+          title: Page Size
+          type: integer
+      - in: query
+        name: is_active
+        required: false
+        schema:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Is Active
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageResponse_AdminPurpose_'
+          description: Successful Response
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+      security:
+      - prl_session: []
+      summary: List Purposes
+      tags:
+      - admin booking configuration
+    post:
+      description: Create a purpose. A matching code and values return the existing
+        purpose with 201. This mutation requires the signed CSRF token in `X-CSRF-Token`.
+        Origin or Referer must match the configured application origin. Origin takes
+        precedence when both are supplied.
+      operationId: create_purpose_api_v1_admin_purposes_post
+      parameters:
+      - description: Signed token matching the prl_csrf cookie.
+        in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+      - description: Preferred same-origin header. If present, it takes precedence
+          over Referer and must match the configured application origin.
+        in: header
+        name: Origin
+        required: false
+        schema:
+          format: uri
+          type: string
+      - description: Accepted only when Origin is absent; its origin must match the
+          configured application origin.
+        in: header
+        name: Referer
+        required: false
+        schema:
+          format: uri
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PurposeCreate'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminPurpose'
+          description: Successful Response
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '413':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '415':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+      security:
+      - prl_session: []
+      summary: Create Purpose
+      tags:
+      - admin booking configuration
+  /api/v1/admin/purposes/{purpose_id}:
+    get:
+      description: Read one purpose, including a deactivated purpose.
+      operationId: get_purpose_api_v1_admin_purposes__purpose_id__get
+      parameters:
+      - in: path
+        name: purpose_id
+        required: true
+        schema:
+          format: uuid
+          title: Purpose Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminPurpose'
+          description: Successful Response
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+      security:
+      - prl_session: []
+      summary: Get Purpose
+      tags:
+      - admin booking configuration
+    put:
+      description: Replace mutable purpose fields, including activation, using expected_updated_at.
+        The code and historical associations are retained. This mutation requires
+        the signed CSRF token in `X-CSRF-Token`. Origin or Referer must match the
+        configured application origin. Origin takes precedence when both are supplied.
+      operationId: replace_purpose_api_v1_admin_purposes__purpose_id__put
+      parameters:
+      - in: path
+        name: purpose_id
+        required: true
+        schema:
+          format: uuid
+          title: Purpose Id
+          type: string
+      - description: Signed token matching the prl_csrf cookie.
+        in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+      - description: Preferred same-origin header. If present, it takes precedence
+          over Referer and must match the configured application origin.
+        in: header
+        name: Origin
+        required: false
+        schema:
+          format: uri
+          type: string
+      - description: Accepted only when Origin is absent; its origin must match the
+          configured application origin.
+        in: header
+        name: Referer
+        required: false
+        schema:
+          format: uri
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PurposeReplace'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminPurpose'
+          description: Successful Response
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '413':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '415':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized configuration error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+      security:
+      - prl_session: []
+      summary: Replace Purpose
+      tags:
+      - admin booking configuration
   /api/v1/appointments:
     get:
       operationId: list_appointments_api_v1_appointments_get
