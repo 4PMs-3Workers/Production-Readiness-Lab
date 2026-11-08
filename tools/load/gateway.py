@@ -14,7 +14,7 @@ import httpx
 from tools.deploy.evidence import validate_target_attestation
 from tools.load.metrics import GatewayEvent
 
-MAX_GATEWAY_RECORDS = 10_000
+MAX_GATEWAY_RECORDS = 20_000
 MAX_LOKI_ENTRIES_PER_QUERY = 5_000
 LOKI_QUERY_SLICE_SECONDS = 30
 MAX_TARGET_ATTESTATION_AGE_SECONDS = 900
@@ -72,8 +72,8 @@ async def confirm_candidate_release(
         records, complete = await _query_loki(
             loki_url,
             f'{_gateway_stream(environment)} | json | __error__ = "" | event="gateway.healthcheck"',
-            start_ns,
-            end_ns,
+            max(0, start_ns - 1_000_000_000),
+            end_ns + 1_000_000_000,
             limit=20,
         )
         if not complete:
@@ -102,12 +102,22 @@ async def collect_gateway_window(
 ) -> GatewayWindow:
     stream = _gateway_stream(environment)
     query = f"{stream} " '| json | __error__ = "" | event="gateway.request"'
+    total_limit = min(
+        MAX_GATEWAY_RECORDS,
+        max(limit, (expected_records + 1) if expected_records is not None else limit),
+    )
+    record_filter = (
+        (lambda record: record.get("request_id") in expected_request_ids)
+        if expected_request_ids is not None
+        else None
+    )
     records, complete = await _query_loki_sliced(
         loki_url,
         query,
         max(0, _to_ns(start) - 1_000_000_000),
         _to_ns(end) + 1_000_000_000,
-        total_limit=min(limit, MAX_GATEWAY_RECORDS),
+        total_limit=total_limit,
+        record_filter=record_filter,
     )
     matched_ids: list[object] = []
     duplicate_request_ids = False
@@ -126,7 +136,7 @@ async def collect_gateway_window(
             events.append(_gateway_event(record))
         except (KeyError, TypeError, ValueError):
             malformed += 1
-    truncated = len(records) >= min(limit, MAX_GATEWAY_RECORDS) or (
+    truncated = len(records) >= total_limit or (
         not complete and len(records) >= MAX_LOKI_ENTRIES_PER_QUERY
     )
     count_mismatch = (
@@ -157,23 +167,56 @@ async def collect_gateway_window(
 
 
 async def collect_runtime_signals(
-    prometheus_url: str, duration_seconds: int, *, environment: str = "demo"
+    prometheus_url: str,
+    start_at: datetime,
+    end_at: datetime,
+    *,
+    environment: str = "demo",
 ) -> dict[str, object]:
     """Read finite worker, pool, and lock signals; absence remains explicitly unavailable."""
-    end = datetime.now(UTC)
-    range_seconds = max(1, duration_seconds)
+    if start_at.tzinfo is None or end_at.tzinfo is None or end_at <= start_at:
+        raise ValueError("Runtime signal window must be an increasing timezone-aware interval")
+    range_seconds = max(1, math.ceil((end_at - start_at).total_seconds()))
     queries = _runtime_queries(range_seconds, environment)
     async with httpx.AsyncClient(timeout=10) as client:
-        responses = await _gather_prometheus_queries(client, prometheus_url, queries, end)
-    result: dict[str, object] = {"observed_at": end.isoformat(), "signals": {}}
+        responses = await _gather_prometheus_queries(client, prometheus_url, queries, end_at)
+    result: dict[str, object] = {
+        "observed_at": datetime.now(UTC).isoformat(),
+        "window_start": start_at.isoformat(),
+        "window_end": end_at.isoformat(),
+        "signals": {},
+    }
     signals = result["signals"]
     assert isinstance(signals, dict)
     for key, response in responses.items():
         value = _prometheus_scalar(response)
+        if key in {"api_scrape_samples", "worker_scrape_samples"} and value is not None:
+            minimum_samples = max(1, math.floor(range_seconds / 15))
+            if value < minimum_samples:
+                value = None
         signals[key] = {
             "value": value,
             "status": "measured" if value is not None else "unavailable",
         }
+    api_covered = (
+        signals.get("api_scrape_samples", {}).get("status") == "measured"
+        and signals.get("api_scrape_up", {}).get("value") == 1
+    )
+    worker_covered = (
+        signals.get("worker_scrape_samples", {}).get("status") == "measured"
+        and signals.get("worker_telemetry_scrape_up", {}).get("value") == 1
+    )
+    api_metrics = (
+        "api_pool_checked_out_max",
+        "api_pool_overflow_max",
+        "lock_timeouts",
+        "pool_timeouts",
+    )
+    for key in api_metrics:
+        if not api_covered:
+            signals[key] = {"value": None, "status": "unavailable"}
+    if not worker_covered:
+        signals["worker_backlog_max"] = {"value": None, "status": "unavailable"}
     return result
 
 
@@ -231,8 +274,14 @@ async def verify_prometheus_endpoint(
 def _runtime_queries(range_seconds: int, environment: str) -> dict[str, str]:
     selected_environment = _environment(environment)
     return {
-        "api_scrape_up": 'min(up{job="api"})',
-        "worker_telemetry_scrape_up": 'min(up{job="application-otel"})',
+        "api_scrape_up": f'min(min_over_time(up{{job="api"}}[{range_seconds}s]))',
+        "worker_telemetry_scrape_up": (
+            f'min(min_over_time(up{{job="application-otel"}}[{range_seconds}s]))'
+        ),
+        "api_scrape_samples": f'min(count_over_time(up{{job="api"}}[{range_seconds}s]))',
+        "worker_scrape_samples": (
+            f'min(count_over_time(up{{job="application-otel"}}[{range_seconds}s]))'
+        ),
         "worker_backlog_max": (
             'max(max_over_time(prl_worker_backlog_count{service_name="worker",'
             f'deployment_environment_name="{selected_environment}"' + f"}}[{range_seconds}s]))"
@@ -317,7 +366,13 @@ async def _query_loki(
 
 
 async def _query_loki_sliced(
-    base_url: str, query: str, start_ns: int, end_ns: int, *, total_limit: int
+    base_url: str,
+    query: str,
+    start_ns: int,
+    end_ns: int,
+    *,
+    total_limit: int,
+    record_filter: Callable[[dict[str, object]], bool] | None = None,
 ) -> tuple[list[dict[str, object]], bool]:
     """Query bounded intervals so an individual Loki request stays below its entry cap."""
     records: list[dict[str, object]] = []
@@ -328,11 +383,12 @@ async def _query_loki_sliced(
         rows, complete = await _query_loki(
             base_url, query, cursor, slice_end, limit=MAX_LOKI_ENTRIES_PER_QUERY
         )
+        selected = [row for row in rows if record_filter is None or record_filter(row)]
         if not complete or len(rows) >= MAX_LOKI_ENTRIES_PER_QUERY:
-            return records + rows[: max(0, total_limit - len(records))], False
-        if len(records) + len(rows) > total_limit:
-            return records + rows[: max(0, total_limit - len(records))], False
-        records.extend(rows)
+            return records + selected[: max(0, total_limit - len(records))], False
+        if len(records) + len(selected) > total_limit:
+            return records + selected[: max(0, total_limit - len(records))], False
+        records.extend(selected)
         cursor = slice_end + 1
     return records, True
 

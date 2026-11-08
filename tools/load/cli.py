@@ -133,7 +133,10 @@ async def _run(args: argparse.Namespace, config: LoadConfig, run_id: str) -> int
         generator_saturated=workload.generator_saturated,
     )
     runtime_signals = await collect_runtime_signals(
-        prometheus_url, int(workload.duration_seconds) + 15, environment=args.environment
+        prometheus_url,
+        workload.started_at,
+        workload.ended_at,
+        environment=args.environment,
     )
     runtime_signals_complete = _runtime_signals_complete(runtime_signals)
     invariants = await verify_post_run_invariants(
@@ -277,6 +280,8 @@ def _runtime_signals_complete(runtime_signals: dict[str, object]) -> bool:
     required = {
         "api_scrape_up",
         "worker_telemetry_scrape_up",
+        "api_scrape_samples",
+        "worker_scrape_samples",
         "worker_backlog_max",
         "api_pool_checked_out_max",
         "api_pool_overflow_max",

@@ -152,6 +152,8 @@ def test_runtime_signals_missing_data_is_incomplete_evidence():
         key: {"status": "measured", "value": 0}
         for key in (
             "worker_backlog_max",
+            "api_scrape_samples",
+            "worker_scrape_samples",
             "api_pool_checked_out_max",
             "api_pool_overflow_max",
             "lock_timeouts",
@@ -160,7 +162,11 @@ def test_runtime_signals_missing_data_is_incomplete_evidence():
     }
     measured["api_scrape_up"] = {"status": "measured", "value": 1}
     measured["worker_telemetry_scrape_up"] = {"status": "measured", "value": 1}
+    measured["api_scrape_samples"] = {"status": "measured", "value": 40}
+    measured["worker_scrape_samples"] = {"status": "measured", "value": 40}
     assert cli._runtime_signals_complete({"signals": measured}) is True
+    measured["worker_scrape_samples"] = {"status": "unavailable", "value": None}
+    assert cli._runtime_signals_complete({"signals": measured}) is False
     measured["lock_timeouts"] = {"status": "unavailable", "value": None}
     assert cli._runtime_signals_complete({"signals": measured}) is False
     assert cli._runtime_signals_complete({"signals": {}}) is False
