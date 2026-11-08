@@ -133,6 +133,7 @@ class ComposeAcceptance:
             "seed": secrets.token_urlsafe(32),
         }
         self.scratch = scratch
+        self.evidence_dir = scratch / "deploy"
         self.env_files = self._write_env_files()
         self.env = dict(os.environ)
         for name in ("COMPOSE_FILE", "COMPOSE_PROJECT_NAME", "COMPOSE_PROFILES"):
@@ -142,6 +143,7 @@ class ComposeAcceptance:
             PRL_IMAGE_TAG=self.image_tag,
             PRL_HTTP_PORT=str(self.port),
             SERVICE_RELEASE=self.expected_sha,
+            PRL_DEPLOY_EVIDENCE_DIR=str(self.evidence_dir),
             DOCKER_DEFAULT_PLATFORM="linux/amd64",
         )
         self.base = ["docker", "compose", "--project-name", self.project]
@@ -486,7 +488,7 @@ class ComposeAcceptance:
             target_origin=self.origin,
         )
         attestation = deployment_evidence.create_target_attestation(manifest)
-        attestation_path = ROOT / "build/deploy" / self.expected_sha / "attestation.json"
+        attestation_path = self.evidence_dir / self.expected_sha / "attestation.json"
         deployment_evidence.write_target_attestation(attestation_path, manifest)
         try:
             response = self.http("GET", "/health/artifacts")

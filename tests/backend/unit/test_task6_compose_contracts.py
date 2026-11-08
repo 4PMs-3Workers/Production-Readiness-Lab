@@ -28,7 +28,7 @@ def test_gateway_serves_only_the_deployed_runtime_attestation():
     for overlay_name in ("compose.local.yaml", "compose.https.yaml"):
         overlay = yaml.safe_load((DEPLOY / overlay_name).read_text())
         volumes = overlay["services"]["gateway"]["volumes"]
-        assert "../../build/deploy:/etc/nginx/prl/deploy:ro" in volumes
+        assert "${PRL_DEPLOY_EVIDENCE_DIR:-../../build/deploy}:/etc/nginx/prl/deploy:ro" in volumes
     routes = (DEPLOY / "nginx/routes.conf").read_text()
     nginx = (DEPLOY / "nginx/nginx.conf").read_text()
     assert "location = /health/artifacts" in routes
@@ -411,6 +411,7 @@ def test_compose_acceptance_writes_requested_tls_origin_into_runtime_env(
     runtime_env = Path(stack.env["PRL_RUNTIME_ENV_FILE"]).read_text(encoding="utf-8")
 
     assert "APPLICATION_ORIGIN=https://app.example.invalid:23456\n" in runtime_env
+    assert Path(stack.env["PRL_DEPLOY_EVIDENCE_DIR"]) == tmp_path / "deploy"
 
 
 def test_tls_certificates_for_app_and_ops_hosts_keep_distinct_files(tmp_path: Path):
