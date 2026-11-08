@@ -156,6 +156,7 @@ và retention. Deployment/stable promotion/rollback thuộc issue #45.
 | [Giao diện đề xuất đổi lịch](docs/tasks/change-proposal-ui.md) | Issue #32: lịch sử/context, tạo/thay, quyết định, phục hồi reload và E2E thật. |
 | [Worker hết hạn đề nghị](docs/tasks/change-proposal-expiry-worker.md) | Lệnh chạy process riêng, heartbeat/backlog, shutdown và phục hồi sau crash. |
 | [Demo Docker Compose](docs/tasks/containerized-demo.md) | Tạo secret/env ngoài repo, build, migrate, seed opt-in, vận hành gateway và giữ volume. |
+| [Reproducible booking load lab](docs/tasks/reproducible-booking-load.md) | Issue #53: fixture schema riêng, tải gateway xác thực, SLI, invariant, report và cleanup an toàn. |
 | [Lịch sử và quản lý lịch hẹn](docs/tasks/student-appointment-management.md)     | API lịch sử, ngữ cảnh ngày đặt, hủy lịch và hành vi retry.                         |
 | [Task frontend bootstrap](docs/tasks/frontend-bootstrap.md)                     | Nền tảng, routes, các mốc triển khai, cài đặt và kiểm chứng.                       |
 | [Mock services và UI đặt lịch](docs/tasks/frontend-mock-services.md)            | Chi tiết fixtures, preset, clock và thao tác đặt lịch bằng dữ liệu demo.           |
