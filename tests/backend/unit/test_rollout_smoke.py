@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from uuid import UUID
 
 import httpx
 import pytest
@@ -27,7 +28,10 @@ def test_smoke_searches_only_a_bounded_prefix_of_the_booking_horizon(
         if path == "/api/v1/booking-context":
             body = {"min_booking_date": str(first), "max_booking_date": str(last)}
         elif path == "/api/v1/purposes":
-            body = {"items": [{"id": purpose_id, "code": "CAREER", "requires_free_text": False}]}
+            body = {
+                "items": [{"id": purpose_id, "code": "CAREER", "requires_free_text": False}],
+                "total": 1,
+            }
         elif path == "/api/v1/staff":
             body = {"items": [{"id": staff_id}]}
         else:
@@ -54,10 +58,11 @@ def test_smoke_searches_only_a_bounded_prefix_of_the_booking_horizon(
     assert dates == [first + timedelta(days=offset) for offset in range(queried_days)]
 
 
-@pytest.mark.parametrize("fault", [None, "replay", "effects", "logout"])
+@pytest.mark.parametrize("fault", [None, "replay", "effects", "logout", "purpose-missing"])
 def test_complete_gateway_smoke_and_failed_invariants(fault):
     created, cancelled, logged_out = [0], [0], [False]
     appointment = "33333333-3333-3333-3333-333333333333"
+    purpose_pages = []
 
     def handler(request):
         path = request.url.path
@@ -71,16 +76,26 @@ def test_complete_gateway_smoke_and_failed_invariants(fault):
         elif path == "/api/v1/booking-context":
             body = dict(min_booking_date="2026-11-06", max_booking_date="2026-11-07")
         elif path == "/api/v1/purposes":
-            body = dict(
-                items=[
+            page = int(request.url.params["page"])
+            assert request.url.params["page_size"] == "50"
+            purpose_pages.append(page)
+            if page == 1:
+                items = [
+                    dict(id=str(UUID(int=index + 1)), code=f"A{index:02}", requires_free_text=False)
+                    for index in range(50)
+                ]
+            else:
+                assert page == 2
+                items = [
                     dict(
                         id="11111111-1111-1111-1111-111111111111",
-                        code="CAREER",
+                        code="OTHER" if fault == "purpose-missing" else "CAREER",
                         requires_free_text=False,
                     )
                 ]
-            )
+            body = dict(items=items, total=51)
         elif path == "/api/v1/staff":
+            assert request.url.params["purpose_id"] == "11111111-1111-1111-1111-111111111111"
             body = dict(items=[dict(id="22222222-2222-2222-2222-222222222222")])
         elif path == "/api/v1/availability":
             body = dict(slots=[dict(starts_at="2026-11-06T09:00:00Z")])
@@ -129,3 +144,6 @@ def test_complete_gateway_smoke_and_failed_invariants(fault):
         else:
             assert business_smoke(session, account, effects) == sorted(SMOKE_CHECKS)
             assert (created[0], cancelled[0], logged_out[0]) == (2, 2, True)
+    assert purpose_pages == [1, 2]
+    if fault == "purpose-missing":
+        assert created[0] == 0

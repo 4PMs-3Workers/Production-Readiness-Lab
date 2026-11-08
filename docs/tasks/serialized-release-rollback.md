@@ -161,7 +161,8 @@ and local identities; API, frontend and gateway health; gateway live/ready/login
 and two advancing scan counters from the same worker container. An unchanged
 heartbeat counter cannot satisfy worker progress.
 
-Business smoke searches at most the first 367 allowed booking dates and stops at
+Business smoke pages through the active catalog to find its configured purpose.
+It searches at most the first 367 allowed booking dates and stops at
 the first eligible slot. The school's configured horizon can extend beyond that
 search window.
 

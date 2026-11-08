@@ -13,19 +13,33 @@ from app.schemas.appointments import AppointmentCancelResponse
 Effects = Callable[[str], tuple[int, int, int]]
 PersistedStatus = Callable[[str], str]
 MAX_AVAILABILITY_DATES = 367
+PURPOSE_PAGE_SIZE = 50
+
+
+def smoke_purpose_id(session: SmokeSession, code: str) -> str:
+    page = 1
+    while True:
+        result = session.request(
+            "GET",
+            "/api/v1/purposes",
+            200,
+            private=True,
+            params=dict(page=page, page_size=PURPOSE_PAGE_SIZE),
+        ).json()
+        items = result["items"]
+        for purpose in items:
+            if purpose["code"] == code:
+                if purpose["requires_free_text"] is not False:
+                    raise RolloutError("smoke-failed")
+                return str(UUID(purpose["id"]))
+        if not items or page * PURPOSE_PAGE_SIZE >= result["total"]:
+            raise RolloutError("smoke-failed")
+        page += 1
 
 
 def booking_payload(session: SmokeSession, account: SmokeCredentials) -> dict:
     context = session.request("GET", "/api/v1/booking-context", 200, private=True).json()
-    purposes = session.request(
-        "GET", "/api/v1/purposes?page=1&page_size=50", 200, private=True
-    ).json()
-    purpose = next(
-        p
-        for p in purposes["items"]
-        if p["code"] == account.purpose_code and p["requires_free_text"] is False
-    )
-    purpose_id = str(UUID(purpose["id"]))
+    purpose_id = smoke_purpose_id(session, account.purpose_code)
     staff = session.request(
         "GET",
         "/api/v1/staff",
