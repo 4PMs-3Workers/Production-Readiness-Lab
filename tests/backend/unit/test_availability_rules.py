@@ -538,24 +538,26 @@ def test_dst_starts_skip_gaps_and_include_both_ambiguous_folds(selected_date, wi
 
 
 @pytest.mark.parametrize(
-    ("selected_date", "window"),
+    ("selected_date", "timezone", "window", "expected"),
     [
-        (date(2026, 3, 8), ServiceWindow(time(2), time(4))),
-        (date(2026, 11, 1), ServiceWindow(time(1), time(2))),
+        (date(2026, 3, 8), "America/New_York", ServiceWindow(time(2), time(4)), "12:00"),
+        (date(2026, 11, 1), "America/New_York", ServiceWindow(time(0), time(1)), "13:00"),
+        (date(2026, 3, 8), "America/Havana", ServiceWindow(time(0), time(2)), "12:00"),
     ],
 )
-def test_nonexistent_or_ambiguous_window_boundary_is_configuration_error(selected_date, window):
-    zone = ZoneInfo("America/New_York")
+def test_gap_or_fold_boundary_skips_only_its_window(selected_date, timezone, window, expected):
+    zone = ZoneInfo(timezone)
     now = datetime.combine(selected_date - timedelta(days=1), time(12), tzinfo=zone)
-    with pytest.raises(AvailabilityConfigurationError):
-        generate_slots(
-            selected_date=selected_date,
-            now=now,
-            policy=AvailabilityPolicy("America/New_York", 30, 7),
-            duration_minutes=30,
-            windows=[window],
-            busy=[],
-        )
+    slots = generate_slots(
+        selected_date=selected_date,
+        now=now,
+        policy=AvailabilityPolicy(timezone, 30, 7),
+        duration_minutes=30,
+        windows=[window, ServiceWindow(time(8), time(9))],
+        busy=[],
+    )
+    first = datetime.combine(selected_date, time.fromisoformat(expected), UTC)
+    assert starts(slots) == [first.isoformat(), (first + timedelta(minutes=30)).isoformat()]
 
 
 def test_busy_interval_order_is_validated_by_instant_across_dst_fold():

@@ -1,7 +1,7 @@
 """Real lock hand-offs between administrative writes and booking operations."""
 
 import asyncio
-from datetime import timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -18,6 +18,7 @@ from tests.backend.integration.test_booking_concurrency import _booking_headers,
 from tests.backend.integration.test_change_proposals import create, payload
 from tests.backend.integration.test_student_cancellation import seed
 
+from app.dependencies.clock import get_clock
 from app.models import Appointment, AuditEvent, ChangeProposal, StaffPurpose, User
 from app.repositories import appointments, availability
 
@@ -137,6 +138,51 @@ async def test_student_purpose_count_and_page_use_one_snapshot(booking_env, monk
     assert old == baseline
     remaining = [item for item in old["items"] if item["id"] != str(env.purpose_id)]
     assert new.json() == {**old, "items": remaining, "total": old["total"] - 1}
+
+
+@pytest.mark.parametrize(
+    ("day", "opens", "closes", "utc_hour"),
+    [
+        (date(2026, 3, 8), "02:00:00", "04:00:00", 12),
+        (date(2026, 11, 1), "00:00:00", "01:00:00", 13),
+    ],
+)
+async def test_admin_dst_boundary_preserves_unaffected_availability(
+    booking_env, day, opens, closes, utc_hour
+):
+    env, _, _ = booking_env
+    (admin, csrf), (student, _) = await _clients(booking_env, [await admin_id(env), env.student_id])
+    now = datetime.combine(day - timedelta(days=1), time(12), UTC)
+    env.app.dependency_overrides[get_clock] = lambda: lambda: now
+    async with admin, student:
+        policy = (await admin.get(CONFIGURATION)).json()
+        response = await admin.put(
+            CONFIGURATION,
+            json=policy_body(
+                policy["updated_at"],
+                timezone="America/New_York",
+                start_step_minutes=30,
+                windows=[
+                    window(day.isoweekday(), opens, closes),
+                    window(day.isoweekday(), "08:00:00", "09:00:00"),
+                ],
+            ),
+            headers=_booking_headers(csrf, "dst-policy"),
+        )
+        assert response.status_code == 200, response.json()
+        response = await student.get(
+            "/api/v1/availability",
+            params={
+                "purpose_id": str(env.purpose_id),
+                "staff_id": str(env.staff_id),
+                "date": str(day),
+            },
+        )
+        assert response.status_code == 200, response.json()
+        assert [slot["starts_at"] for slot in response.json()["slots"]] == [
+            f"{day}T{utc_hour}:00:00Z",
+            f"{day}T{utc_hour}:30:00Z",
+        ]
 
 
 async def commit_admin_first(monkeypatch, write, dependent):
