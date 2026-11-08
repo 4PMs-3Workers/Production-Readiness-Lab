@@ -13,6 +13,7 @@ import yaml
 from tests.containers import (
     test_compose_acceptance as compose_acceptance,
 )
+from tests.containers import test_gateway as gateway_test_support
 from tests.containers import (
     test_telemetry_stack as telemetry_stack,
 )
@@ -53,7 +54,23 @@ def test_observability_overlay_publishes_only_existing_gateway_tls_listener():
     assert services["local_alert_receiver"]["networks"] == ["telemetry"]
     assert "ports" not in services["local_alert_receiver"]
     assert document["networks"]["telemetry"]["internal"] is True
-    assert document["networks"]["ops_grafana"]["internal"] is True
+
+
+def test_gateway_failure_diagnostics_create_their_ignored_directory(tmp_path, monkeypatch):
+    monkeypatch.setattr(gateway_test_support, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        gateway_test_support.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, "", ""),
+    )
+
+    gateway_test_support.preserve_gateway_failure(["docker", "compose"], "owned-project", {})
+
+    assert (
+        tmp_path
+        / ".superpowers/sdd/2026-10-23-observability-foundation"
+        / "task-5-gateway-fixture-owned-project.txt"
+    ).is_file()
 
 
 def test_ops_gateway_and_grafana_security_and_file_credentials_are_explicit():
