@@ -61,7 +61,7 @@ def test_report_writer_is_bounded_and_writes_valid_json(tmp_path):
         write_report(target, {"oversized": "x" * (MAX_REPORT_BYTES + 1)})
 
 
-def test_deployed_artifact_identity_requires_matching_passing_manifest(tmp_path):
+def _write_deployment_manifest(tmp_path, *, missing_digest=False):
     source_sha = "a" * 40
     manifest = tmp_path / "build" / "deploy" / source_sha / "manifest.json"
     manifest.parent.mkdir(parents=True)
@@ -72,7 +72,8 @@ def test_deployed_artifact_identity_requires_matching_passing_manifest(tmp_path)
         }
         for name, index in (("api", "a"), ("frontend", "b"), ("worker", "c"), ("gateway", "d"))
     }
-    images["api"]["digests"] = []
+    if missing_digest:
+        images["api"]["digests"] = []
     manifest.write_text(
         json.dumps(
             {
@@ -87,18 +88,42 @@ def test_deployed_artifact_identity_requires_matching_passing_manifest(tmp_path)
                 "configuration_sha256": "e" * 64,
                 "observability_verification": None,
                 "deployment_state": "active",
+                "target_origin": "https://candidate.invalid",
                 "images": images,
             }
         ),
         encoding="utf-8",
     )
+    return source_sha
 
-    result = _deployed_artifact_identity(tmp_path, source_sha)
+
+def test_deployed_artifact_identity_requires_matching_passing_manifest(tmp_path):
+    source_sha = _write_deployment_manifest(tmp_path)
+
+    result = _deployed_artifact_identity(
+        tmp_path, source_sha, target_url="https://candidate.invalid/"
+    )
 
     assert result["manifest_complete"] is True
-    assert result["target_artifact_identity_complete"] is False
-    assert result["target_association"] == "not_attested_to_target_url"
+    assert result["target_artifact_identity_complete"] is True
+    assert result["target_association"] == "matches_configured_target_origin"
     assert result["configuration_sha256"] == "e" * 64
     image_digests = cast(dict[str, list[str]], result["image_digests"])
     assert set(image_digests) == {"api", "frontend", "worker", "gateway"}
     assert _deployed_artifact_identity(tmp_path, "f" * 40)["status"] == "unavailable"
+    assert (
+        _deployed_artifact_identity(tmp_path, source_sha, target_url="https://different.invalid")[
+            "target_artifact_identity_complete"
+        ]
+        is False
+    )
+
+
+def test_deployed_artifact_identity_rejects_incomplete_image_digest_inventory(tmp_path):
+    source_sha = _write_deployment_manifest(tmp_path, missing_digest=True)
+    result = _deployed_artifact_identity(
+        tmp_path, source_sha, target_url="https://candidate.invalid"
+    )
+
+    assert result["manifest_complete"] is False
+    assert result["target_artifact_identity_complete"] is False

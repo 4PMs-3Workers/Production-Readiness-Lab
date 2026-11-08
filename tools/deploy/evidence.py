@@ -15,6 +15,7 @@ import tempfile
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 SCHEMA_REVISION = "20261019_1200_proposal_replay"
 COMMANDS = {"config", "build", "migrate", "seed", "up", "stop", "down", "status", "evidence"}
@@ -47,7 +48,9 @@ V2_FIELDS = V1_FIELDS | {
     "configuration_sha256",
     "observability_verification",
     "deployment_state",
+    "target_origin",
 }
+V2_LEGACY_FIELDS = V2_FIELDS - {"target_origin"}
 
 
 def timestamp():
@@ -92,7 +95,9 @@ def validate(value):
         if type(version) is int and version == 1
         else (V2_FIELDS if type(version) is int and version == 2 else None)
     )
-    if required is None or set(value) != required:
+    if required is None or (
+        set(value) != required and not (version == 2 and set(value) == V2_LEGACY_FIELDS)
+    ):
         raise ValueError("Invalid manifest fields")
     if not isinstance(value["source_sha"], str) or not re.fullmatch(
         r"[0-9a-f]{40}", value["source_sha"]
@@ -119,6 +124,24 @@ def validate(value):
             raise ValueError("Invalid configuration identity")
         if value["deployment_state"] not in {"active", "stopped", "down", "unknown"}:
             raise ValueError("Invalid deployment state")
+        target_origin = value.get("target_origin")
+        if target_origin is not None:
+            try:
+                parsed_origin = urlsplit(target_origin)
+                _ = parsed_origin.port
+            except (TypeError, ValueError):
+                raise ValueError("Invalid target origin") from None
+            if (
+                not isinstance(target_origin, str)
+                or parsed_origin.scheme not in {"http", "https"}
+                or not parsed_origin.hostname
+                or parsed_origin.username is not None
+                or parsed_origin.password is not None
+                or parsed_origin.path not in {"", "/"}
+                or parsed_origin.query
+                or parsed_origin.fragment
+            ):
+                raise ValueError("Invalid target origin")
         telemetry = value["observability_verification"]
         if not value["observability"] and telemetry is not None:
             raise ValueError("Disabled observability has telemetry evidence")
@@ -161,6 +184,7 @@ def create_v2(
     *,
     observability_verification=None,
     deployment_state="unknown",
+    target_origin=None,
     previous=None,
 ):
     now = timestamp()
@@ -182,6 +206,7 @@ def create_v2(
             "configuration_sha256": configuration_sha256,
             "observability_verification": observability_verification,
             "deployment_state": deployment_state,
+            "target_origin": target_origin,
         }
     )
 

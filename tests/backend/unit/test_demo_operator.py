@@ -221,6 +221,7 @@ def test_up_never_runs_privileged_jobs_and_writes_provenance(operator):
     data = json.loads((demo.ROOT / "build/deploy" / ("a" * 40) / "manifest.json").read_text())
     assert data["verification"] == {"command": "up", "status": "passed"}
     assert data["images"]["api"] == data["images"]["worker"]
+    assert data["target_origin"] == "http://localhost:8080"
     assert "private-password" not in json.dumps(data)
 
 

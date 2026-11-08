@@ -40,6 +40,7 @@ def v2_manifest(**updates):
         "verification": {"command": "evidence", "status": "passed"},
         "observability_verification": {"command": "evidence", "status": "degraded"},
         "deployment_state": "active",
+        "target_origin": "https://app.example.invalid",
         "created_at": now,
         "updated_at": now,
     }
@@ -73,6 +74,19 @@ def test_v2_manifest_keeps_disabled_telemetry_explicit_and_strict():
         evidence.validate(
             dict(value, observability_verification={"command": "up", "status": "passed"})
         )
+
+
+def test_v2_manifest_target_origin_is_an_origin_without_credentials_or_path():
+    evidence = module("evidence")
+    assert evidence.validate(v2_manifest())["target_origin"] == "https://app.example.invalid"
+    for target_origin in (
+        "https://user:secret@app.example.invalid",
+        "https://app.example.invalid/private",
+        "https://app.example.invalid/?token=private",
+        "not-a-url",
+    ):
+        with pytest.raises(ValueError, match="target origin"):
+            evidence.validate(v2_manifest(target_origin=target_origin))
 
 
 def test_v1_manifest_remains_readable_with_its_exact_historical_shape():

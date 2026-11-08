@@ -889,6 +889,11 @@ def main(argv=None):
                         failed_images,
                         observability_verification=failed_telemetry,
                         deployment_state=failed_state,
+                        target_origin=(
+                            previous.get("target_origin", demo.origin)
+                            if cleanup and previous is not None
+                            else demo.origin
+                        ),
                         previous=previous,
                     ),
                 )
@@ -919,6 +924,11 @@ def main(argv=None):
             state = _record_state(command, previous)
             if command == "down":
                 state = "down"
+            target_origin = (
+                previous.get("target_origin", demo.origin)
+                if cleanup and previous is not None
+                else demo.origin
+            )
             evidence.write(
                 path,
                 evidence.create_v2(
@@ -931,6 +941,7 @@ def main(argv=None):
                     images,
                     observability_verification=telemetry_check,
                     deployment_state=state,
+                    target_origin=target_origin,
                     previous=previous,
                 ),
             )

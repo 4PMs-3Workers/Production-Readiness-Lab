@@ -10,6 +10,7 @@ import subprocess
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from tools.deploy.evidence import validate as validate_deployment_evidence
 from tools.load.gateway import safe_service_url
@@ -27,7 +28,7 @@ PROVENANCE_FILES = (
 )
 
 
-def collect_provenance(root: Path) -> dict[str, object]:
+def collect_provenance(root: Path, *, target_url: str | None = None) -> dict[str, object]:
     """Read source identity and hashes for the load/runtime configuration in this checkout."""
     source = _git(root, "rev-parse", "HEAD")
     dirty = bool(_git(root, "status", "--porcelain"))
@@ -38,7 +39,7 @@ def collect_provenance(root: Path) -> dict[str, object]:
             hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
         )
     image_digests = _locked_image_digests(root / "tools/infra/images.lock.json")
-    local_manifest = _deployed_artifact_identity(root, source)
+    local_manifest = _deployed_artifact_identity(root, source, target_url=target_url)
     return {
         "checkout_source_sha": source,
         "checkout_has_uncommitted_changes": dirty,
@@ -48,7 +49,9 @@ def collect_provenance(root: Path) -> dict[str, object]:
     }
 
 
-def _deployed_artifact_identity(root: Path, source_sha: str) -> dict[str, object]:
+def _deployed_artifact_identity(
+    root: Path, source_sha: str, *, target_url: str | None = None
+) -> dict[str, object]:
     manifest = root / "build/deploy" / source_sha / "manifest.json"
     unavailable: dict[str, object] = {
         "status": "unavailable",
@@ -98,6 +101,7 @@ def _deployed_artifact_identity(root: Path, source_sha: str) -> dict[str, object
             isinstance(image_id, str)
             and digest_pattern.fullmatch(image_id) is not None
             and isinstance(digests, list)
+            and bool(digests)
             and all(
                 isinstance(digest, str)
                 and "@sha256:" in digest
@@ -112,19 +116,47 @@ def _deployed_artifact_identity(root: Path, source_sha: str) -> dict[str, object
         re.fullmatch(r"[0-9a-f]{64}", configuration_sha) is not None
         and required_images <= image_ids.keys()
         and required_images <= image_digests.keys()
+        and all(image_digests[name] for name in required_images)
     )
     if not manifest_complete:
         return unavailable
+    manifest_origin = value.get("target_origin")
+    target_matches = (
+        isinstance(target_url, str)
+        and isinstance(manifest_origin, str)
+        and _normalized_origin(target_url) == _normalized_origin(manifest_origin)
+    )
     return {
-        "status": "local_manifest_matches_source",
+        "status": (
+            "local_manifest_matches_source_and_target"
+            if target_matches
+            else "local_manifest_matches_source"
+        ),
         "manifest_complete": True,
-        "target_artifact_identity_complete": False,
-        "target_association": "not_attested_to_target_url",
+        "target_artifact_identity_complete": target_matches,
+        "target_association": (
+            "matches_configured_target_origin" if target_matches else "target_origin_unverified"
+        ),
+        "target_origin": manifest_origin,
         "image_ids": dict(sorted(image_ids.items())),
         "image_digests": dict(sorted(image_digests.items())),
         "configuration_sha256": configuration_sha,
         "manifest_sha256": hashlib.sha256(encoded).hexdigest(),
     }
+
+
+def _normalized_origin(value: str) -> str:
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return ""
+    try:
+        port = parsed.port
+    except ValueError:
+        return ""
+    scheme = parsed.scheme.lower()
+    host = parsed.hostname.lower()
+    default_port = 80 if scheme == "http" else 443
+    return f"{scheme}://{host}" + (f":{port}" if port is not None and port != default_port else "")
 
 
 def sample_generator_host() -> dict[str, object]:
