@@ -15,6 +15,27 @@ from tools.load.invariants import verify_post_run_invariants
 from tools.load.runner import confirm_fixture_target, load_workload_fixture, run_workload
 
 
+def _schema_database_url(mysql_url, schema_name):
+    return make_url(mysql_url).set(database=schema_name).render_as_string(hide_password=False)
+
+
+@pytest.mark.parametrize("password", ["test-only-password", "p@ss:/word%with+symbols"])
+def test_mysql_acceptance_url_preserves_connection_credentials(password):
+    from sqlalchemy.engine import URL
+
+    original = URL.create(
+        "mysql+asyncmy", username="lab", password=password, host="127.0.0.1", port=3306
+    )
+    configured = make_url(
+        _schema_database_url(original.render_as_string(hide_password=False), "prl_load_" + "a" * 32)
+    )
+
+    assert configured.password == password
+    assert configured.database == "prl_load_" + "a" * 32
+    assert configured.host == original.host
+    assert configured.username == original.username
+
+
 @pytest.mark.mysql
 @pytest.mark.asyncio
 async def test_mysql_load_schema_prepare_verify_and_cleanup(request):
@@ -32,7 +53,7 @@ async def test_mysql_load_schema_prepare_verify_and_cleanup(request):
     config = LoadConfig(
         target_url="http://127.0.0.1:8000",
         release_sha=source_sha,
-        database_url=str(make_url(mysql_url).set(database=schema_name)),
+        database_url=_schema_database_url(mysql_url, schema_name),
         opt_in=OPT_IN_PHRASE,
         duration_seconds=1,
         sessions=20,
@@ -95,7 +116,7 @@ async def test_mysql_load_schema_prepare_verify_and_cleanup(request):
     finally:
         await drop_owned_schema(config, run_id=run_id)
 
-    admin = create_async_engine(str(make_url(mysql_url)), poolclass=NullPool)
+    admin = create_async_engine(make_url(mysql_url), poolclass=NullPool)
     try:
         async with admin.connect() as connection:
             exists = await connection.scalar(
