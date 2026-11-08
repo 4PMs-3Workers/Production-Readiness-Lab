@@ -58,6 +58,8 @@ include = [
     "tests/backend/unit/test_offhost_monitor.py",
     "tools/deploy/rollout*.py",
     "tests/rollout",
+    "tools/load",
+    "tests/load",
 ]
 extraPaths = ["src/backend", "tools/infra/offhost"]
 venvPath = "."
@@ -65,7 +67,7 @@ venv = ".venv"
 pythonVersion = "3.11"
 
 [tool.pytest.ini_options]
-testpaths = ["tests/backend"]
+testpaths = ["tests/backend", "tests/load"]
 pythonpath = ["src/backend", "tests/backend/integration"]
 addopts = ["--import-mode=importlib"]
 asyncio_mode = "auto"

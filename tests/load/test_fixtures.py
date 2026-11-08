@@ -22,6 +22,7 @@ def test_fixture_is_reproducible_and_has_required_relationships():
         "COMPLETED",
         "CANCELLED",
         "CHANGE_PENDING",
+        "UPCOMING",
     }
 
 

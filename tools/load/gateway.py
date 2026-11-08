@@ -1,0 +1,280 @@
+"""Candidate-release confirmation and bounded gateway/Prometheus collection."""
+
+import json
+import math
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from urllib.parse import urlsplit, urlunsplit
+
+import httpx
+from tools.load.metrics import GatewayEvent
+
+MAX_GATEWAY_RECORDS = 10_000
+_ENVIRONMENTS = frozenset({"demo", "local"})
+
+
+@dataclass(frozen=True)
+class GatewayWindow:
+    events: list[GatewayEvent]
+    complete: bool
+    returned_records: int
+    truncated: bool
+    reason: str | None = None
+
+
+async def confirm_candidate_release(
+    target_url: str,
+    loki_url: str,
+    release_sha: str,
+    *,
+    environment: str = "demo",
+    timeout_seconds: float = 30,
+) -> None:
+    """Prove the target gateway health event is emitted under the declared release."""
+    start_ns = _to_ns(datetime.now(UTC))
+    async with httpx.AsyncClient(timeout=5, follow_redirects=False) as client:
+        response = await client.get(f"{target_url.rstrip('/')}/health/gateway")
+    if response.status_code != 200:
+        raise RuntimeError("Candidate gateway health check failed")
+    deadline = datetime.now(UTC).timestamp() + timeout_seconds
+    while datetime.now(UTC).timestamp() <= deadline:
+        end_ns = _to_ns(datetime.now(UTC))
+        records, complete = await _query_loki(
+            loki_url,
+            f'{_gateway_stream(environment)} | json | __error__ = "" | event="gateway.healthcheck"',
+            start_ns,
+            end_ns,
+            limit=20,
+        )
+        if not complete:
+            raise RuntimeError("Candidate release telemetry is unavailable")
+        for entry in records:
+            if entry.get("release") == release_sha and entry.get("event") == "gateway.healthcheck":
+                return
+        await _pause(1)
+    raise RuntimeError("Gateway did not report the declared candidate release")
+
+
+async def collect_gateway_window(
+    loki_url: str,
+    release_sha: str,
+    start: datetime,
+    end: datetime,
+    *,
+    environment: str = "demo",
+    limit: int = MAX_GATEWAY_RECORDS,
+) -> GatewayWindow:
+    stream = _gateway_stream(environment)
+    query = f"{stream} " '| json | __error__ = "" | event="gateway.request"'
+    records, complete = await _query_loki(
+        loki_url, query, _to_ns(start), _to_ns(end), limit=min(limit, MAX_GATEWAY_RECORDS)
+    )
+    events: list[GatewayEvent] = []
+    malformed = 0
+    mismatched_release = 0
+    for record in records:
+        if record.get("release") != release_sha:
+            mismatched_release += 1
+            continue
+        try:
+            events.append(_gateway_event(record))
+        except (KeyError, TypeError, ValueError):
+            malformed += 1
+    truncated = len(records) >= min(limit, MAX_GATEWAY_RECORDS)
+    complete = complete and not truncated and malformed == 0 and mismatched_release == 0
+    reason = None
+    if truncated:
+        reason = "gateway_record_limit_reached"
+    elif malformed:
+        reason = "malformed_gateway_records"
+    elif mismatched_release:
+        reason = "gateway_release_mismatch"
+    elif not complete:
+        reason = "gateway_telemetry_unavailable"
+    return GatewayWindow(events, complete, len(records), truncated, reason)
+
+
+async def collect_runtime_signals(
+    prometheus_url: str, duration_seconds: int, *, environment: str = "demo"
+) -> dict[str, object]:
+    """Read finite worker, pool, and lock signals; absence remains explicitly unavailable."""
+    end = datetime.now(UTC)
+    range_seconds = max(1, duration_seconds)
+    queries = {
+        "worker_backlog_max": (
+            'max(prl_worker_backlog_count{service_name="worker",'
+            f'deployment_environment_name="{_environment(environment)}"' + "})"
+        ),
+        "api_pool_checked_out_max": (
+            f'max_over_time(prl_db_pool_checked_out{{job="api"}}[{range_seconds}s])'
+        ),
+        "api_pool_overflow_max": (
+            f'max_over_time(prl_db_pool_overflow{{job="api"}}[{range_seconds}s])'
+        ),
+        "lock_timeouts": (
+            f'sum(increase(prl_db_failures_total{{reason="lock_timeout"}}[{range_seconds}s]))'
+        ),
+        "pool_timeouts": (
+            f'sum(increase(prl_db_failures_total{{reason="pool_timeout"}}[{range_seconds}s]))'
+        ),
+    }
+    async with httpx.AsyncClient(timeout=10) as client:
+        responses = await _gather_prometheus_queries(client, prometheus_url, queries, end)
+    result: dict[str, object] = {"observed_at": end.isoformat(), "signals": {}}
+    signals = result["signals"]
+    assert isinstance(signals, dict)
+    for key, response in responses.items():
+        value = _prometheus_scalar(response)
+        signals[key] = {
+            "value": value,
+            "status": "measured" if value is not None else "unavailable",
+        }
+    return result
+
+
+async def _gather_prometheus_queries(
+    client: httpx.AsyncClient, base_url: str, queries: dict[str, str], end: datetime
+) -> dict[str, object]:
+    import asyncio
+
+    async def query_one(query: str) -> object:
+        response = await client.get(
+            f"{base_url.rstrip('/')}/api/v1/query",
+            params={"query": query, "time": end.timestamp()},
+        )
+        response.raise_for_status()
+        return response.json()
+
+    names = list(queries)
+    results = await asyncio.gather(
+        *(query_one(queries[name]) for name in names), return_exceptions=True
+    )
+    return {
+        name: None if isinstance(response, Exception) else response
+        for name, response in zip(names, results, strict=True)
+    }
+
+
+async def _query_loki(
+    base_url: str, query: str, start_ns: int, end_ns: int, *, limit: int
+) -> tuple[list[dict[str, object]], bool]:
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(
+                f"{base_url.rstrip('/')}/loki/api/v1/query_range",
+                params={
+                    "query": query,
+                    "start": str(start_ns),
+                    "end": str(end_ns),
+                    "direction": "forward",
+                    "limit": str(limit),
+                },
+            )
+        response.raise_for_status()
+        payload = response.json()
+    except (httpx.HTTPError, ValueError):
+        return [], False
+    if payload.get("status") != "success" or not isinstance(payload.get("data"), dict):
+        return [], False
+    result = payload["data"].get("result")
+    if not isinstance(result, list):
+        return [], False
+    records: list[dict[str, object]] = []
+    for stream in result:
+        if not isinstance(stream, dict) or not isinstance(stream.get("values"), list):
+            return records, False
+        for value in stream["values"]:
+            try:
+                line = json.loads(value[1])
+            except (IndexError, TypeError, json.JSONDecodeError):
+                return records, False
+            if not isinstance(line, dict):
+                return records, False
+            records.append(line)
+            if len(records) >= limit:
+                return records, True
+    return records, True
+
+
+def _gateway_event(record: dict[str, object]) -> GatewayEvent:
+    route = record["route"]
+    method = record["method"]
+    status = record["status"]
+    duration = record["duration_seconds"]
+    classification = record["classification"]
+    if isinstance(duration, str):
+        try:
+            duration = float(duration)
+        except ValueError:
+            raise ValueError("invalid gateway request duration") from None
+    if (
+        not isinstance(route, str)
+        or not route.startswith("/")
+        or len(route) > 128
+        or "?" in route
+        or "#" in route
+        or not isinstance(method, str)
+        or method not in {"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD", "OTHER"}
+        or isinstance(status, bool)
+        or not isinstance(status, int)
+        or not isinstance(duration, (int, float))
+        or isinstance(duration, bool)
+        or not math.isfinite(duration)
+        or duration < 0
+        or not isinstance(classification, str)
+    ):
+        raise ValueError("invalid gateway access record")
+    return GatewayEvent(route, method, status, float(duration), classification)
+
+
+def _prometheus_scalar(response: object) -> float | None:
+    if not isinstance(response, dict) or response.get("status") != "success":
+        return None
+    data = response.get("data")
+    if not isinstance(data, dict):
+        return None
+    result = data.get("result")
+    if not isinstance(result, list) or not result:
+        return None
+    values = [row.get("value") for row in result if isinstance(row, dict)]
+    if not values or not isinstance(values[0], list):
+        return None
+    try:
+        number = float(values[0][1])
+    except (IndexError, TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _to_ns(value: datetime) -> int:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("Loki query times must be timezone-aware")
+    return int(value.astimezone(UTC).timestamp() * 1_000_000_000)
+
+
+def _environment(environment: str) -> str:
+    if environment not in _ENVIRONMENTS:
+        raise ValueError("Environment must be a declared lab environment")
+    return environment
+
+
+def _gateway_stream(environment: str) -> str:
+    return (
+        '{service_name="gateway",deployment_environment_name="' + _environment(environment) + '"}'
+    )
+
+
+async def _pause(seconds: float) -> None:
+    import asyncio
+
+    await asyncio.sleep(seconds)
+
+
+def safe_service_url(url: str) -> str:
+    """Return a credential-free service origin suitable for bounded reports."""
+    parsed = urlsplit(url)
+    hostname = parsed.hostname or ""
+    if ":" in hostname and not hostname.startswith("["):
+        hostname = f"[{hostname}]"
+    authority = f"{hostname}:{parsed.port}" if parsed.port is not None else hostname
+    return urlunsplit((parsed.scheme, authority, "", "", ""))

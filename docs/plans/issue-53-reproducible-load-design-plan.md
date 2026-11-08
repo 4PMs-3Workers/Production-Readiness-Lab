@@ -49,18 +49,18 @@ The workload uses twenty concurrent sessions for ten minutes by default and a de
 
 ### 2. Authenticated workload and measurement
 
-- **Acceptance:** default configuration is 20 sessions/600 seconds; requests use real gateway cookies and CSRF; booking/proposal writes carry correct idempotency and replay semantics; record throughput, per-route latency, classified status/error counts, and generator capacity without sensitive payloads.
-- **Files:** `tools/load/runner.py`, `tools/load/metrics.py`, `tools/load/gateway.py`, `tests/load/test_metrics.py`, `tests/load/test_runner.py`.
-- **Steps:** implement an async HTTP client per session; encode a seeded representative operation mix; parse allowlisted gateway records/telemetry into the existing success, excluded, and service-failure buckets; represent empty/missing signals and saturation as insufficient evidence; enforce report size and field allowlists.
-- **Checks:** focused `pytest tests/load/test_metrics.py tests/load/test_runner.py`; `ruff check` and `black --check` on changed files.
+- **Acceptance:** default configuration is 20 sessions/600 seconds; requests use real gateway cookies and CSRF; booking/proposal writes carry correct idempotency and replay semantics; record throughput, per-route latency, classified status/error counts, and generator capacity without sensitive payloads. A failed replay remains visible to invariant checks; the checked-out migration source must match the declared candidate release.
+- **Files:** `tools/load/runner.py`, `tools/load/metrics.py`, `tools/load/gateway.py`, `tools/load/report.py`, `tools/load/invariants.py`, `tools/load/cli.py`, `tools/load/fixtures.py`, `tests/load/test_metrics.py`, `tests/load/test_gateway.py`, `tests/load/test_runner.py`, `tests/load/test_report.py`, `tests/load/test_cli.py`, `tests/load/test_fixtures.py`, `pyproject.toml`.
+- **Steps:** implement an async HTTP client per session; encode a seeded representative operation mix; parse allowlisted gateway records/telemetry into the existing success, excluded, and service-failure buckets; represent empty/missing signals and saturation as insufficient evidence; enforce report size and field allowlists; verify data/audit/notification invariants and source identity.
+- **Checks:** `pytest tests/load`; `ruff check`, `black --check`, and `pyright` on load tooling and tests.
 - **Commit:** `feat(load): run authenticated gateway workload and report SLI inputs`
 
-### 3. Invariants, real integration, and operations guide
+### 3. Real integration and operations guide
 
-- **Acceptance:** post-run checks cover STAFF/STUDENT overlaps, the three-booking cap, appointment/proposal states, exact replay, and expected audit/notification effects; required real MySQL/gateway mode fails if dependencies are missing; docs provide safe setup, run, report interpretation, and cleanup; no seven-day SLO claim.
-- **Files:** `tools/load/invariants.py`, `tools/load/report.py`, `tests/load/test_invariants.py`, `tests/load/test_integration.py`, `docs/tasks/load-testing.md`, `pyproject.toml` only if test discovery/config needs it.
-- **Steps:** verify invariant queries against the isolated schema; build a bounded sanitized report containing actual source/artifact/config identity and measured resource samples; implement an opt-in short integration run; document commands, minimum telemetry, guardrails, and limits.
-- **Checks:** `pytest tests/load`; required opt-in integration command on an isolated MySQL/gateway candidate; relevant format/lint/type checks.
+- **Acceptance:** required real MySQL/gateway mode fails if prerequisites or candidate identity are missing; docs provide safe setup, the short and standard run commands, report interpretation, and cleanup; no seven-day SLO claim.
+- **Files:** `docs/tasks/reproducible-booking-load.md`, `README.md`.
+- **Steps:** document the implemented opt-in real integration path, separate candidate database setup, required telemetry, safety guardrails, evidence and limits.
+- **Checks:** documentation/source diff review; Docker-backed real MySQL/gateway run when a disposable lab stack is available.
 - **Commit:** `feat(load): verify booking invariants and document lab runs`
 
 ## Review focus
@@ -76,3 +76,4 @@ The workload uses twenty concurrent sessions for ten minutes by default and a de
 ## Verification ledger
 
 - Task 1: fixture and guard unit tests passed (`pytest tests/load/test_config.py tests/load/test_fixtures.py -q` → 14 passed); Ruff and Black checks passed. Real MySQL setup could not run because Docker Desktop's Linux engine is not available in this environment; the required integration path remains for Task 3.
+- Task 2: load tests passed (`pytest tests/load -q` → 33 passed); Ruff, Black, and Pyright passed. A full lab gateway/MySQL run has not been executed because Docker Desktop's Linux engine is unavailable and no external lab endpoints/credentials are configured.

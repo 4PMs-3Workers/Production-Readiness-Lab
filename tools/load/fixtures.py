@@ -41,13 +41,20 @@ class FixtureRows:
 
 
 def make_fixture_rows(
-    *, seed: int, generated_at: datetime, password_hash: str, appointment_count: int = 1_000
+    *,
+    seed: int,
+    generated_at: datetime,
+    password_hash: str,
+    appointment_count: int = 1_000,
+    run_id: str = "0" * 32,
 ) -> FixtureRows:
     """Build a stable 10-staff/40-student dataset without reading real user data."""
     if generated_at.tzinfo is None or generated_at.utcoffset() is None:
         raise ValueError("generated_at must be timezone-aware")
     if appointment_count < 1_000 or appointment_count > 10_000:
         raise ValueError("appointment_count must be between 1000 and 10000")
+    if len(run_id) != 32 or any(character not in "0123456789abcdef" for character in run_id):
+        raise ValueError("run_id must be a lowercase UUID hex string")
     now = generated_at.astimezone(UTC)
 
     def identifier(kind: str, index: int = 0) -> UUID:
@@ -56,7 +63,7 @@ def make_fixture_rows(
     staff = [
         User(
             id=identifier("staff", index),
-            email=f"load-staff-{index:02d}@load.example.invalid",
+            email=f"load-{run_id[-8:]}-staff-{index:02d}@load.example.invalid",
             name=f"Load Staff {index:02d}",
             role="STAFF",
             password_hash=password_hash,
@@ -67,7 +74,7 @@ def make_fixture_rows(
     students = [
         User(
             id=identifier("student", index),
-            email=f"load-student-{index:03d}@load.example.invalid",
+            email=f"load-{run_id[-8:]}-student-{index:03d}@load.example.invalid",
             name=f"Load Student {index:03d}",
             role="STUDENT",
             password_hash=password_hash,
@@ -93,9 +100,13 @@ def make_fixture_rows(
         staff_index = index % len(staff)
         student_index = index % len(students)
         active_proposal = index < 10
-        if active_proposal:
-            starts_at = now + timedelta(days=5, minutes=index * 15)
-            status = "CHANGE_PENDING"
+        active_booking = 10 <= index < 20
+        if active_proposal or active_booking:
+            starts_at = now + timedelta(
+                days=5 if active_proposal else 6,
+                minutes=(index % 10) * 15,
+            )
+            status = "CHANGE_PENDING" if active_proposal else "UPCOMING"
             created_at = now - timedelta(days=1)
             outcome_at = None
             outcome_by = None
@@ -174,10 +185,13 @@ def make_fixture_rows(
 
 
 def _upgrade_schema(connection) -> None:
+    from pathlib import Path
+
     from alembic import command
     from alembic.config import Config
 
-    config = Config("alembic.ini")
+    repository_root = Path(__file__).resolve().parents[2]
+    config = Config(str(repository_root / "alembic.ini"))
     config.attributes["connection"] = connection
     command.upgrade(config, "head")
 
@@ -230,6 +244,7 @@ async def create_owned_schema(config: LoadConfig, *, seed: int) -> str:
             seed=seed,
             generated_at=datetime.now(UTC),
             password_hash=password_hash,
+            run_id=run_id,
         )
         async with engine.begin() as connection:
             await connection.execute(
@@ -279,6 +294,42 @@ async def create_owned_schema(config: LoadConfig, *, seed: int) -> str:
         if engine is not None:
             await engine.dispose()
         await admin.dispose()
+
+
+async def verify_owned_schema(config: LoadConfig, *, run_id: str) -> dict[str, int]:
+    """Confirm the configured application URL resolves to this run's seeded schema."""
+    validate_load_config(config)
+    match = _SCHEMA_NAME.fullmatch(config.schema_name)
+    if match is None or match.group(1) != run_id:
+        raise LoadSafetyError("Run ID does not match the configured load schema")
+    engine = create_async_engine(
+        make_url(config.database_url), poolclass=NullPool, connect_args={"connect_timeout": 5}
+    )
+    try:
+        async with engine.connect() as connection:
+            marker = await connection.execute(
+                text(
+                    "SELECT source_sha, fixture_count FROM prl_load_ownership "
+                    "WHERE run_id = :run_id"
+                ),
+                {"run_id": run_id},
+            )
+            ownership = marker.one_or_none()
+            if ownership is None or ownership[0] != config.release_sha:
+                raise LoadSafetyError("Fixture ownership or release marker does not match")
+            staff_count = await connection.scalar(
+                text("SELECT COUNT(*) FROM users WHERE role = 'STAFF' AND email LIKE 'load-%'")
+            )
+            appointment_count = await connection.scalar(text("SELECT COUNT(*) FROM appointments"))
+            if (
+                int(staff_count or 0) < 10
+                or int(appointment_count or 0) != int(ownership[1])
+                or int(appointment_count or 0) < 1_000
+            ):
+                raise LoadSafetyError("Owned load fixture is incomplete")
+            return {"staff": int(staff_count), "appointments": int(appointment_count)}
+    finally:
+        await engine.dispose()
 
 
 def _bulk_add(connection, objects: list[object]) -> None:
