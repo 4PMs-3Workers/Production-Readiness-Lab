@@ -14,7 +14,14 @@ from pathlib import Path
 
 from tools.deploy.release import render
 from tools.deploy.release_images import LOCAL_IMAGE_FORMAT, local_image_identity
-from tools.deploy.release_manifest import MAX_JSON, Manifest, ReleaseError, load_json
+from tools.deploy.release_manifest import (
+    GRANTS_PATH,
+    MAX_JSON,
+    ROOT,
+    Manifest,
+    ReleaseError,
+    load_json,
+)
 from tools.deploy.rollout_schema import CATALOG_SQL, REVISION_SQL, SchemaSnapshot, snapshot
 from tools.deploy.rollout_state import Reason, RolloutError
 
@@ -52,20 +59,28 @@ class ReleaseRuntime:
         *,
         overlay: str = "local",
         observability: bool = False,
+        root: Path = ROOT,
     ):
         self.base, self.environment = list(base), dict(environment)
         self.origin, self.project, self.scratch = origin, project, scratch
         self.overlay, self.observability = overlay, observability
+        self.root = root
         self.deadline = Deadline(600)
         self.manifest: Manifest | None = None
         self.overlay_path: Path | None = None
 
     def command(
-        self, args: list[str], *, reason: Reason = "rollout-failed", cap: float = 180
+        self,
+        args: list[str],
+        *,
+        reason: Reason = "rollout-failed",
+        cap: float = 180,
+        input_data: bytes | None = None,
     ) -> bytes:
         try:
             result = subprocess.run(
                 args,
+                input=input_data,
                 env=self.environment,
                 capture_output=True,
                 check=False,
@@ -79,11 +94,20 @@ class ReleaseRuntime:
             self.deadline.remaining()
             raise RolloutError(reason) from None
 
-    def compose(self, *args: str, reason: Reason = "rollout-failed", cap: float = 180) -> bytes:
+    def compose(
+        self,
+        *args: str,
+        reason: Reason = "rollout-failed",
+        cap: float = 180,
+        input_data: bytes | None = None,
+    ) -> bytes:
         if self.overlay_path is None:
             raise RolloutError("invalid-manifest")
         return self.command(
-            self.base + ["-f", str(self.overlay_path), *args], reason=reason, cap=cap
+            self.base + ["-f", str(self.overlay_path), *args],
+            reason=reason,
+            cap=cap,
+            input_data=input_data,
         )
 
     def select(self, manifest: Manifest) -> None:
@@ -92,7 +116,7 @@ class ReleaseRuntime:
             self.observability,
         ):
             raise RolloutError("incompatible-configuration")
-        raw = render(manifest)
+        raw = render(manifest, root=self.root, allow_previous=True)
         self.scratch.mkdir(parents=True, exist_ok=True, mode=0o700)
         path = self.scratch / (hashlib.sha256(raw).hexdigest() + ".yaml")
         if path.is_symlink() or (path.exists() and path.read_bytes() != raw):
@@ -425,14 +449,32 @@ class ReleaseRuntime:
         return self.database_identity()
 
     def apply_grants(self) -> None:
+        if self.manifest is None:
+            raise RolloutError("invalid-manifest")
+        try:
+            grants = (self.root / GRANTS_PATH).read_bytes()
+        except OSError:
+            raise RolloutError("incompatible-configuration") from None
+        digest = hashlib.sha256(grants).hexdigest()
+        if not any(
+            item.path == GRANTS_PATH and item.sha256 == digest
+            for item in self.manifest.configuration.files
+        ):
+            raise RolloutError("incompatible-configuration")
+        # An existing container can still mount the old SQL file inode.
+        # Apply the exact reviewed bytes over stdin without restarting MySQL.
         self.compose(
             "exec",
             "-T",
             "mysql",
             "bash",
-            "/opt/prl/apply-grants.sh",
+            "-ec",
+            'export MYSQL_PWD="${MYSQL_ROOT_PASSWORD:?}"\n'
+            "exec mysql --no-defaults --protocol=socket --host=localhost "
+            "--socket=/var/run/mysqld/mysqld.sock -uroot --connect-timeout=5",
             reason="migration-failed",
             cap=15,
+            input_data=grants,
         )
 
     def appointment_status(self, appointment: str) -> str:

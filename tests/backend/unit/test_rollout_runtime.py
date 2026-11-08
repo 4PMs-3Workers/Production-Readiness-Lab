@@ -2,7 +2,7 @@ import json
 
 import pytest
 from tests.backend.unit.test_release_manifest import manifest_data
-from tools.deploy.release_manifest import Manifest, canonical, parse
+from tools.deploy.release_manifest import GRANTS_PATH, ROOT, Manifest, canonical, parse
 from tools.deploy.rollout_runtime import Deadline, ReleaseRuntime
 from tools.deploy.rollout_state import RolloutError
 
@@ -79,6 +79,27 @@ def test_rollout_never_drops_volume_downgrades_or_rebuilds(tmp_path, monkeypatch
     assert all("--no-build" in call for call in calls if call[0] == "up")
     assert any("--no-deps" in call and "migrate" in call for call in calls)
     assert not any("mysql" in call for call in calls)
+
+
+def test_existing_mysql_receives_verified_grants_over_stdin(tmp_path, monkeypatch):
+    host = runtime(tmp_path)
+    host.select(manifest())
+    sql = (ROOT / GRANTS_PATH).read_bytes()
+    host.root = tmp_path
+    path = tmp_path / GRANTS_PATH
+    path.parent.mkdir(parents=True)
+    path.write_bytes(sql)
+    calls = []
+    monkeypatch.setattr(host, "compose", lambda *args, **kwargs: calls.append((args, kwargs)))
+    host.apply_grants()
+    [(args, options)] = calls
+    assert args[:3] == ("exec", "-T", "mysql")
+    assert options["input_data"] == sql
+    assert "/opt/prl/apply-grants.sh" not in args
+    path.write_bytes(sql + b"\n-- unexpected change\n")
+    with pytest.raises(RolloutError, match="incompatible-configuration"):
+        host.apply_grants()
+    assert len(calls) == 1
 
 
 def test_deadline_never_restarts_the_budget_between_stages():

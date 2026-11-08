@@ -10,7 +10,7 @@ import re
 import subprocess
 import sys
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -262,6 +262,9 @@ def _configuration_identity(
     overlay: str,
     observability: bool,
     selections: dict[str, object],
+    *,
+    root: Path | None = None,
+    overrides: Mapping[str, str] | None = None,
 ) -> str:
     files = list(CONFIG_COMMON)
     if overlay == "local":
@@ -272,9 +275,11 @@ def _configuration_identity(
         files.extend(CONFIG_OBSERVABILITY)
     inputs = []
     for relative in files:
-        path = CONFIG_ROOT / relative
+        path = (root or CONFIG_ROOT) / relative
         try:
-            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            digest = overrides.get(relative) if overrides is not None else None
+            if digest is None:
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
         except OSError:
             raise OperationFailed() from None
         inputs.append({"path": relative, "sha256": digest})
@@ -415,6 +420,7 @@ class Demo:
         for name in ("COMPOSE_FILE", "COMPOSE_PROFILES", "COMPOSE_PROJECT_NAME"):
             if os.environ.get(name):
                 raise OperationFailed()
+        self.configuration_selections = selections
         self.configuration_sha256 = _configuration_identity(overlay, observability, selections)
         self.observability_result = None
 

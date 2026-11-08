@@ -17,6 +17,7 @@ from tools.deploy.release_manifest import (
     canonical,
     configuration,
     parse,
+    previous_configuration,
     proof,
     read,
     require_compatible,
@@ -87,6 +88,29 @@ def test_roundtrip_atomic_write_and_separate_pr_head(tmp_path):
     assert list(tmp_path.iterdir()) == [path]
     assert manifest.provenance.pr_head_sha != manifest.provenance.source_sha
     require_configuration(manifest.configuration)
+
+
+def test_reviewed_predecessor_requires_opt_in_and_exact_configuration(tmp_path):
+    current = configuration("local", False)
+    previous = previous_configuration(current)
+    assert previous is not None
+    with pytest.raises(ReleaseError, match="incompatible-configuration"):
+        require_configuration(previous)
+    require_configuration(previous, allow_previous=True)
+
+    for item in current.files:
+        path = tmp_path / item.path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes((ROOT / item.path).read_bytes())
+    # Changes outside the two reviewed files cannot be excused by the transition.
+    with (tmp_path / "tools/deploy/nginx/routes.conf").open("ab") as output:
+        output.write(b"\n# unreviewed\n")
+    with pytest.raises(ReleaseError, match="incompatible-configuration"):
+        require_configuration(previous, tmp_path, allow_previous=True)
+    # A third version of either reviewed file cannot use this transition either.
+    with (tmp_path / "tools/deploy/mysql/grants.sql").open("ab") as output:
+        output.write(b"\n-- unreviewed\n")
+    assert previous_configuration(configuration("local", False, tmp_path)) is None
 
 
 @pytest.mark.parametrize(
