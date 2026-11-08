@@ -76,5 +76,5 @@ The workload uses twenty concurrent sessions for ten minutes by default and a de
 ## Verification ledger
 
 - Task 1: fixture and guard unit tests passed (`pytest tests/load/test_config.py tests/load/test_fixtures.py -q` → 14 passed); Ruff and Black checks passed. Real MySQL setup could not run because Docker Desktop's Linux engine is not available in this environment; the required integration path remains for Task 3.
-- Task 2: load tests passed (`pytest tests/load -q` → 35 passed); Ruff, Black, and Pyright passed. A full lab gateway/MySQL run has not been executed because Docker Desktop's Linux engine is unavailable and no external lab endpoints/credentials are configured.
+- Task 2: load tests passed (`pytest tests/load -q` → 36 passed); Ruff, Black, and Pyright passed. A full lab gateway/MySQL run has not been executed because Docker Desktop's Linux engine is unavailable and no external lab endpoints/credentials are configured.
 - Task 3: operations guide and README index are in place. Docker Desktop service start was attempted but Windows denied access to `com.docker.service`; the Linux engine remained unavailable. No external lab endpoints/credentials are configured, so real integration evidence remains pending.

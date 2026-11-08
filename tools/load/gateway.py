@@ -2,8 +2,11 @@
 
 import json
 import math
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import lru_cache
+from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
@@ -123,10 +126,10 @@ def _runtime_queries(range_seconds: int, environment: str) -> dict[str, str]:
             f'deployment_environment_name="{selected_environment}"' + f"}}[{range_seconds}s]))"
         ),
         "api_pool_checked_out_max": (
-            f'max_over_time(prl_db_pool_checked_out{{job="api"}}[{range_seconds}s])'
+            f'max(max_over_time(prl_db_pool_checked_out{{job="api"}}[{range_seconds}s]))'
         ),
         "api_pool_overflow_max": (
-            f'max_over_time(prl_db_pool_overflow{{job="api"}}[{range_seconds}s])'
+            f'max(max_over_time(prl_db_pool_overflow{{job="api"}}[{range_seconds}s]))'
         ),
         "lock_timeouts": (
             f'sum(increase(prl_db_failures_total{{reason="lock_timeout"}}[{range_seconds}s]))'
@@ -214,10 +217,8 @@ def _gateway_event(record: dict[str, object]) -> GatewayEvent:
             raise ValueError("invalid gateway request duration") from None
     if (
         not isinstance(route, str)
-        or not route.startswith("/")
+        or route not in _allowed_gateway_routes()
         or len(route) > 128
-        or "?" in route
-        or "#" in route
         or not isinstance(method, str)
         or method not in {"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD", "OTHER"}
         or isinstance(status, bool)
@@ -230,6 +231,33 @@ def _gateway_event(record: dict[str, object]) -> GatewayEvent:
     ):
         raise ValueError("invalid gateway access record")
     return GatewayEvent(route, method, status, float(duration), classification)
+
+
+@lru_cache(maxsize=1)
+def _allowed_gateway_routes() -> frozenset[str]:
+    """Read only the finite route labels emitted by the checked-out gateway map."""
+    route_map = Path(__file__).resolve().parents[2] / "tools/deploy/nginx/route-map.conf"
+    try:
+        lines = route_map.read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        raise RuntimeError("Unable to load the published gateway route allowlist") from error
+    start = next(
+        (index for index, line in enumerate(lines) if "$prl_route {" in line),
+        None,
+    )
+    if start is None:
+        raise RuntimeError("Published gateway route map is missing")
+    routes = {"__unmatched__", "/health/gateway"}
+    route_value = re.compile(r'"(?P<route>/[^";]+)"\s*;\s*$')
+    for line in lines[start + 1 :]:
+        if line.strip() == "}":
+            break
+        match = route_value.search(line)
+        if match is not None:
+            routes.add(match.group("route"))
+    if len(routes) == 2:
+        raise RuntimeError("Published gateway route map contains no route templates")
+    return frozenset(routes)
 
 
 def _prometheus_scalar(response: object) -> float | None:

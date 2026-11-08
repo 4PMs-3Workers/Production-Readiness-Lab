@@ -25,16 +25,20 @@ def test_gateway_event_accepts_only_sanitized_route_fields():
     assert result.status == 409
     assert result.classification == "excluded"
 
-    with pytest.raises(ValueError):
-        _gateway_event(
-            {
-                "route": "/api/v1/appointments?student=private",
-                "method": "GET",
-                "status": 200,
-                "duration_seconds": 0.1,
-                "classification": "success",
-            }
-        )
+    for unsafe_route in (
+        "/api/v1/appointments?student=private",
+        "/api/v1/admin/accounts/alice@example.com",
+    ):
+        with pytest.raises(ValueError):
+            _gateway_event(
+                {
+                    "route": unsafe_route,
+                    "method": "GET",
+                    "status": 200,
+                    "duration_seconds": 0.1,
+                    "classification": "success",
+                }
+            )
 
 
 def test_gateway_window_is_incomplete_when_release_does_not_match(monkeypatch):
@@ -76,10 +80,17 @@ def test_prometheus_missing_series_is_not_reported_as_zero():
 
 
 def test_worker_backlog_signal_captures_peak_over_the_observed_window():
-    query = _runtime_queries(600, "demo")["worker_backlog_max"]
+    queries = _runtime_queries(600, "demo")
+    query = queries["worker_backlog_max"]
     assert query == (
         'max(max_over_time(prl_worker_backlog_count{service_name="worker",'
         'deployment_environment_name="demo"}[600s]))'
+    )
+    assert queries["api_pool_checked_out_max"] == (
+        'max(max_over_time(prl_db_pool_checked_out{job="api"}[600s]))'
+    )
+    assert queries["api_pool_overflow_max"] == (
+        'max(max_over_time(prl_db_pool_overflow{job="api"}[600s]))'
     )
 
 
