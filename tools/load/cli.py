@@ -193,9 +193,13 @@ def _repository_root() -> Path:
 
 def _require_matching_checkout(release_sha: str) -> None:
     provenance = collect_provenance(_repository_root())
-    if provenance["checkout_source_sha"] != release_sha:
+    if (
+        provenance["checkout_source_sha"] != release_sha
+        or provenance["checkout_has_uncommitted_changes"]
+    ):
         raise LoadSafetyError(
-            "Local checkout HEAD must match --release-sha so fixture migrations match the candidate"
+            "Local checkout must be clean and HEAD must match --release-sha "
+            "so fixture migrations match the candidate"
         )
 
 

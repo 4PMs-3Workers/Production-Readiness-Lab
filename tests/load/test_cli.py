@@ -65,8 +65,21 @@ def test_candidate_release_must_match_local_migration_source(monkeypatch):
     monkeypatch.setattr(
         cli,
         "collect_provenance",
-        lambda _root: {"checkout_source_sha": "a" * 40},
+        lambda _root: {
+            "checkout_source_sha": "a" * 40,
+            "checkout_has_uncommitted_changes": False,
+        },
     )
     cli._require_matching_checkout("a" * 40)
-    with pytest.raises(LoadSafetyError, match="checkout HEAD must match"):
+    with pytest.raises(LoadSafetyError, match="checkout must be clean"):
         cli._require_matching_checkout("b" * 40)
+    monkeypatch.setattr(
+        cli,
+        "collect_provenance",
+        lambda _root: {
+            "checkout_source_sha": "a" * 40,
+            "checkout_has_uncommitted_changes": True,
+        },
+    )
+    with pytest.raises(LoadSafetyError, match="checkout must be clean"):
+        cli._require_matching_checkout("a" * 40)

@@ -13,7 +13,7 @@ prove the seven-day availability SLO.
   schemas outside `prl_load_<32 lowercase UUID hex>` and requires a persisted
   run ownership marker before cleanup.
 - Use an HTTPS candidate origin. Plain HTTP is accepted only for a loopback lab
-  target. The requested release SHA must equal both the local checkout `HEAD`
+  target. The requested release SHA must equal both a clean local checkout `HEAD`
   and the gateway health event release.
 - Provide Loki and Prometheus URLs that expose the candidate's gateway and
   existing worker/database signals. Keep credentials out of command arguments,
@@ -26,8 +26,8 @@ prove the seven-day availability SLO.
 
 All write commands require the exact opt-in value
 `I_UNDERSTAND_THIS_WRITES_TO_AN_ISOLATED_LAB_SCHEMA`. The tool checks arguments
-before opening network or database connections. The candidate API must be
-configured to use the newly created schema before the run can proceed; a
+and clean source identity before opening network or database connections. The
+candidate API must be configured to use the newly created schema before the run can proceed; a
 run-specific canary login and `/auth/me` identity check refuses a mismatched
 database before workload writes.
 
