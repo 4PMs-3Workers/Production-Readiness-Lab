@@ -6,18 +6,20 @@ from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from tests.backend.integration.test_admin_booking_configuration import (
     CONFIGURATION,
     PURPOSES,
     policy_body,
     purpose_body,
+    window,
 )
 from tests.backend.integration.test_booking_concurrency import _booking_headers, _clients, _payload
 from tests.backend.integration.test_change_proposals import create, payload
 from tests.backend.integration.test_student_cancellation import seed
 
 from app.models import Appointment, AuditEvent, ChangeProposal, StaffPurpose, User
-from app.repositories import appointments
+from app.repositories import appointments, availability
 
 pytestmark = [pytest.mark.mysql, pytest.mark.booking_stress]
 
@@ -35,6 +37,106 @@ async def admin_id(env):
             )
         )
     return identifier
+
+
+async def commit_during_read(read, write, read_started, resume_read):
+    async with asyncio.TaskGroup() as tasks:
+        pending = tasks.create_task(read())
+        try:
+            await asyncio.wait_for(read_started.wait(), 5)
+            mutation = await write()
+            assert mutation.status_code == 200, mutation.json()
+        finally:
+            resume_read.set()
+    result = pending.result()
+    assert result.status_code == 200, result.json()
+    return result.json()
+
+
+async def test_availability_uses_one_snapshot_for_settings_and_windows(booking_env, monkeypatch):
+    env, day, starts_at = booking_env
+    (admin, csrf), (student, _) = await _clients(booking_env, [await admin_id(env), env.student_id])
+    read_started, resume_read = asyncio.Event(), asyncio.Event()
+    original = availability.read_settings
+
+    async def pause_after_settings(db):
+        row = await original(db)
+        read_started.set()
+        await resume_read.wait()
+        return row
+
+    params = {
+        "purpose_id": str(env.purpose_id),
+        "staff_id": str(env.staff_id),
+        "date": day.isoformat(),
+    }
+    async with admin, student:
+        before = (await admin.get(CONFIGURATION)).json()
+        replacement = policy_body(
+            before["updated_at"],
+            start_step_minutes=30,
+            windows=[window(day.isoweekday(), "12:00:00", "13:00:00")],
+        )
+        with monkeypatch.context() as patch:
+            patch.setattr(availability, "read_settings", pause_after_settings)
+            old = await commit_during_read(
+                lambda: student.get("/api/v1/availability", params=params),
+                lambda: admin.put(
+                    CONFIGURATION, json=replacement, headers=_booking_headers(csrf, "replace")
+                ),
+                read_started,
+                resume_read,
+            )
+        new = await student.get("/api/v1/availability", params=params)
+        assert new.status_code == 200, new.json()
+
+    def starts(*minutes):
+        return [
+            (starts_at + timedelta(minutes=offset)).isoformat().replace("+00:00", "Z")
+            for offset in minutes
+        ]
+
+    assert [slot["starts_at"] for slot in old["slots"]] == starts(*range(0, 91, 15))
+    assert [slot["starts_at"] for slot in new.json()["slots"]] == starts(240, 270)
+
+
+async def test_student_purpose_count_and_page_use_one_snapshot(booking_env, monkeypatch):
+    env, _, _ = booking_env
+    (admin, csrf), (student, _) = await _clients(booking_env, [await admin_id(env), env.student_id])
+    read_started, resume_read = asyncio.Event(), asyncio.Event()
+    original = AsyncSession.scalar
+
+    async def pause_after_purpose_count(db, statement, *args, **kwargs):
+        result = await original(db, statement, *args, **kwargs)
+        sql = str(statement).lower()
+        if "count(" in sql and "from purposes" in sql:
+            read_started.set()
+            await resume_read.wait()
+        return result
+
+    path = f"{PURPOSES}/{env.purpose_id}"
+    async with admin, student:
+        before = (await admin.get(path)).json()
+        listing = await student.get("/api/v1/purposes")
+        assert listing.status_code == 200, listing.json()
+        baseline = listing.json()
+        with monkeypatch.context() as patch:
+            patch.setattr(AsyncSession, "scalar", pause_after_purpose_count)
+            old = await commit_during_read(
+                lambda: student.get("/api/v1/purposes"),
+                lambda: admin.put(
+                    path,
+                    json=purpose_body(before, is_active=False),
+                    headers=_booking_headers(csrf, "deactivate"),
+                ),
+                read_started,
+                resume_read,
+            )
+        new = await student.get("/api/v1/purposes")
+        assert new.status_code == 200, new.json()
+    assert old == baseline
+    remaining = [item for item in old["items"] if item["id"] != str(env.purpose_id)]
+    assert new.json() == {**old, "items": remaining, "total": old["total"] - 1}
 
 
 async def commit_admin_first(monkeypatch, write, dependent):

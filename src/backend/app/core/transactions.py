@@ -134,6 +134,7 @@ async def read_transaction(
     db: AsyncSession,
     settings: Settings,
     *,
+    consistent_snapshot: bool = False,
     span_factory: SpanFactory | None = None,
     failure_callback: FailureCallback | None = None,
 ) -> AsyncIterator[None]:
@@ -143,6 +144,8 @@ async def read_transaction(
             transaction = db.begin()
             await transaction.start()
             try:
+                if consistent_snapshot:
+                    await db.connection(execution_options={"isolation_level": "REPEATABLE READ"})
                 yield
             finally:
                 if transaction.is_active:
