@@ -12,6 +12,7 @@ from app.schemas.appointments import AppointmentCancelResponse
 
 Effects = Callable[[str], tuple[int, int, int]]
 PersistedStatus = Callable[[str], str]
+MAX_AVAILABILITY_DATES = 367
 
 
 def booking_payload(session: SmokeSession, account: SmokeCredentials) -> dict:
@@ -34,11 +35,12 @@ def booking_payload(session: SmokeSession, account: SmokeCredentials) -> dict:
     ).json()["items"]
     if account.staff_id is not None:
         staff = [p for p in staff if p["id"] == account.staff_id]
-    selected = date.fromisoformat(context["min_booking_date"])
+    first = date.fromisoformat(context["min_booking_date"])
     last = date.fromisoformat(context["max_booking_date"])
-    if last < selected or (last - selected).days > 366:
+    if last < first:
         raise RolloutError("smoke-failed")
-    while selected <= last:
+    for offset in range(min((last - first).days + 1, MAX_AVAILABILITY_DATES)):
+        selected = first + timedelta(days=offset)
         for member in staff:
             staff_id = str(UUID(member["id"]))
             slots = session.request(
@@ -52,7 +54,6 @@ def booking_payload(session: SmokeSession, account: SmokeCredentials) -> dict:
                 return dict(
                     purpose_id=purpose_id, staff_id=staff_id, starts_at=slots[0]["starts_at"]
                 )
-        selected += timedelta(days=1)
     raise RolloutError("smoke-failed")
 
 
