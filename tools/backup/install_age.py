@@ -37,11 +37,23 @@ def _download(url: str, deadline: Deadline) -> bytearray:
         data = bytearray()
         try:
             with urllib.request.urlopen(url, timeout=min(20, deadline.remaining())) as response:
+                headers = getattr(response, "headers", None)
+                content_length = headers.get("Content-Length") if headers is not None else None
+                try:
+                    expected_length = int(content_length) if content_length is not None else None
+                except (TypeError, ValueError):
+                    raise RemoteError(Code.TRANSPORT) from None
+                if expected_length is not None and expected_length < 0:
+                    raise RemoteError(Code.TRANSPORT)
                 while True:
                     deadline.remaining()
                     block = response.read(65536)
                     deadline.remaining()
                     if not block:
+                        if expected_length is not None and len(data) != expected_length:
+                            raise http.client.IncompleteRead(
+                                bytes(data), max(0, expected_length - len(data))
+                            )
                         return data
                     data.extend(block)
                     if len(data) > 32 * 1024**2:

@@ -11,6 +11,7 @@ import time
 import urllib.error
 import zipfile
 from email.message import Message
+from typing import cast
 
 import pytest
 from tools.backup import install_age
@@ -139,6 +140,38 @@ def test_install_discards_partial_response_before_retry(tmp_path, monkeypatch, r
 
     assert partial.closed
     assert {path.name: path.read_bytes() for path in destination.iterdir()} == payloads
+
+
+def test_install_retries_real_http_response_ending_before_content_length(
+    tmp_path, monkeypatch, release, clock
+):
+    data, _ = release()
+
+    class Socket:
+        def __init__(self, payload):
+            self.payload = io.BytesIO(payload)
+
+        def makefile(self, *_args, **_kwargs):
+            return self.payload
+
+        def close(self):
+            self.payload.close()
+
+    interrupted = http.client.HTTPResponse(
+        cast(
+            socket.socket,
+            Socket(b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc"),
+        )
+    )
+    interrupted.begin()
+    requests = downloads(monkeypatch, [interrupted, io.BytesIO(data)])
+    destination = tmp_path / "bin"
+
+    installed = install_age.install(destination)
+
+    assert installed.read_bytes() == b"age executable"
+    assert len(requests) == 2
+    assert clock.sleeps == [1]
 
 
 @pytest.mark.parametrize(
