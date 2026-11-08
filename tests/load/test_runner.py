@@ -251,6 +251,32 @@ def test_cancel_consumes_each_seeded_appointment_once():
     assert len(cancel_requests) == 1
 
 
+def test_cancel_response_loss_keeps_appointment_in_effect_inventory():
+    fixture = load_workload_fixture(92, "a" * 32, _TEST_PASSWORD)
+    credential = fixture.students[0]
+    appointment_id = UUID(str(credential.appointment_id))
+
+    def handle(_request):
+        raise httpx.ReadTimeout("response lost after cancellation commit")
+
+    async def run():
+        result = WorkloadResult(1, 1, 1, datetime.now(UTC), datetime.now(UTC))
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(handle),
+            base_url="https://candidate.invalid",
+        ) as client:
+            session = _Session(credential, client, "csrf", [appointment_id])
+            outcome = await _cancel(session, result)
+        return result, session, outcome
+
+    result, session, outcome = asyncio.run(run())
+
+    assert outcome == "ambiguous_write"
+    assert result.cancelled_appointment_ids == [appointment_id]
+    assert result.ambiguous_write_failures == 1
+    assert session.appointments == []
+
+
 def test_proposal_uses_expected_context_csrf_and_exact_replay():
     fixture = load_workload_fixture(42, "e" * 32, _TEST_PASSWORD)
     credential = fixture.staff[0]

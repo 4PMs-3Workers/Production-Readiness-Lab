@@ -105,8 +105,9 @@ def test_deployed_artifact_identity_requires_matching_passing_manifest(tmp_path)
     )
 
     assert result["manifest_complete"] is True
-    assert result["target_artifact_identity_complete"] is True
-    assert result["target_association"] == "matches_configured_target_origin"
+    assert result["target_artifact_identity_complete"] is False
+    assert result["configured_target_origin_matches"] is True
+    assert result["target_association"] == "origin_matches_but_runtime_unverified"
     assert result["configuration_sha256"] == "e" * 64
     image_digests = cast(dict[str, list[str]], result["image_digests"])
     assert set(image_digests) == {"api", "frontend", "worker", "gateway"}

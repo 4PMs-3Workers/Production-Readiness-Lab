@@ -103,11 +103,13 @@ For target-bound provenance, run the containerized demo's `evidence` command on
 the host running this candidate, using the same target origin. It records the
 active container image IDs/digests, configuration identity, and normalized
 application origin in `build/deploy/<release-sha>/manifest.json`. The load
-runner accepts those artifacts only when the manifest matches the clean source
-SHA, reports an active deployment, and names the exact configured target
-origin. It also joins the gateway health response to its own request log by
-request ID and checks the release SHA. A manifest from another origin or an
-unmatched health event leaves target artifact identity incomplete.
+runner records those local artifacts only when the manifest matches the clean
+source SHA, reports an active deployment, and names the configured target
+origin. The origin match is informational: it does not prove that the responding
+target is running those exact images. The gateway health response is joined to
+its own request log by request ID and checked for the release SHA, but target
+artifact identity remains incomplete until the gateway supplies a runtime-bound
+attestation for all measured services.
 
 The command exits nonzero if an invariant fails, the load generator saturates,
 gateway/runtime evidence is incomplete, target artifact identity is unverified,

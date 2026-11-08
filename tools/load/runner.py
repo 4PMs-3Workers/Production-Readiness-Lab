@@ -372,10 +372,21 @@ async def _cancel(session: _Session, result: WorkloadResult | None = None) -> st
     if not session.appointments:
         return "no_owned_appointment"
     appointment_id = session.appointments.pop(0)
-    response = await session.client.post(f"/api/v1/appointments/{appointment_id}/cancel", json={})
-    outcome = _http_outcome(response.status_code, expected={200})
-    if result is not None and outcome == "success":
+    if result is not None:
+        # A lost response cannot tell us whether the transaction committed. Keep the
+        # appointment in the post-run effect inventory so the database check decides.
         result.cancelled_appointment_ids.append(appointment_id)
+    try:
+        response = await session.client.post(
+            f"/api/v1/appointments/{appointment_id}/cancel", json={}
+        )
+    except httpx.HTTPError:
+        if result is not None:
+            result.ambiguous_write_failures += 1
+        return "ambiguous_write"
+    outcome = _http_outcome(response.status_code, expected={200})
+    if result is not None and response.status_code >= 500:
+        result.ambiguous_write_failures += 1
     return outcome
 
 

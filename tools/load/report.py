@@ -121,21 +121,23 @@ def _deployed_artifact_identity(
     if not manifest_complete:
         return unavailable
     manifest_origin = value.get("target_origin")
-    target_matches = (
+    configured_target_origin_matches = (
         isinstance(target_url, str)
         and isinstance(manifest_origin, str)
         and _normalized_origin(target_url) == _normalized_origin(manifest_origin)
     )
     return {
-        "status": (
-            "local_manifest_matches_source_and_target"
-            if target_matches
-            else "local_manifest_matches_source"
-        ),
+        "status": "local_manifest_matches_source",
         "manifest_complete": True,
-        "target_artifact_identity_complete": target_matches,
+        # A locally inspected stack and a declared URL do not prove that the
+        # responding target is running those images. Keep acceptance incomplete
+        # until the gateway exposes a runtime-bound artifact attestation.
+        "target_artifact_identity_complete": False,
+        "configured_target_origin_matches": configured_target_origin_matches,
         "target_association": (
-            "matches_configured_target_origin" if target_matches else "target_origin_unverified"
+            "origin_matches_but_runtime_unverified"
+            if configured_target_origin_matches
+            else "target_origin_unverified"
         ),
         "target_origin": manifest_origin,
         "image_ids": dict(sorted(image_ids.items())),
