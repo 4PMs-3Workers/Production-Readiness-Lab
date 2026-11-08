@@ -134,6 +134,7 @@ class ComposeAcceptance:
         }
         self.scratch = scratch
         self.evidence_dir = scratch / "deploy"
+        self.evidence_dir.mkdir(parents=True, exist_ok=True)
         self.env_files = self._write_env_files()
         self.env = dict(os.environ)
         for name in ("COMPOSE_FILE", "COMPOSE_PROJECT_NAME", "COMPOSE_PROFILES"):
