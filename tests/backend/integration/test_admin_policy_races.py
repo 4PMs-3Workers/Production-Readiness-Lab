@@ -13,8 +13,10 @@ from tests.backend.integration.test_admin_booking_configuration import (
     purpose_body,
 )
 from tests.backend.integration.test_booking_concurrency import _booking_headers, _clients, _payload
+from tests.backend.integration.test_change_proposals import create, payload
+from tests.backend.integration.test_student_cancellation import seed
 
-from app.models import Appointment, StaffPurpose, User
+from app.models import Appointment, AuditEvent, ChangeProposal, StaffPurpose, User
 from app.repositories import appointments
 
 pytestmark = [pytest.mark.mysql, pytest.mark.booking_stress]
@@ -137,3 +139,93 @@ async def test_admin_changes_win_before_booking_without_rewriting_confirmed_slot
         )
         link = await db.get(StaffPurpose, (env.staff_id, env.purpose_id))
         assert link is not None and link.is_accepting
+
+
+@pytest.mark.parametrize(
+    "change,status,error", [("closed", 409, "STAFF_UNAVAILABLE"), ("inactive", 404, "NOT_FOUND")]
+)
+async def test_waiting_proposal_acceptance_revalidates_after_admin_changes(
+    booking_env, monkeypatch, change, status, error
+):
+    env, _, start = booking_env
+    identifier = await seed(env, start)
+    proposal, _ = await create(
+        env, identifier, payload(start + timedelta(hours=1)), env.app.state.settings
+    )
+    (admin, admin_csrf), (student, student_csrf) = await _clients(
+        booking_env, [await admin_id(env), env.student_id]
+    )
+    async with admin, student:
+        if change == "closed":
+            before = (await admin.get(CONFIGURATION)).json()
+            path, body = CONFIGURATION, policy_body(before["updated_at"])
+        else:
+            path = f"{PURPOSES}/{env.purpose_id}"
+            before = (await admin.get(path)).json()
+            body = purpose_body(before, is_active=False)
+        accept = f"/api/v1/appointments/{identifier}/change-proposals/{proposal.id}/accept"
+        updated, rejected = await commit_admin_first(
+            monkeypatch,
+            lambda: admin.put(path, json=body, headers=_booking_headers(admin_csrf, "policy")),
+            lambda: student.post(
+                accept, json={}, headers=_booking_headers(student_csrf, "proposal")
+            ),
+        )
+        assert updated.status_code == 200, updated.json()
+        assert rejected.status_code == status, rejected.json()
+        assert rejected.json()["error"]["code"] == error
+
+    async with env.factory() as db:
+        stored = await db.get(Appointment, identifier)
+        assert stored is not None and stored.status == "CHANGE_PENDING"
+        assert (stored.starts_at, stored.ends_at, stored.duration_minutes) == (
+            start,
+            start + timedelta(minutes=30),
+            30,
+        )
+        pending = await db.get(ChangeProposal, proposal.id)
+        assert pending is not None and pending.status == "PENDING"
+        assert (
+            await db.scalar(
+                select(AuditEvent.id).where(AuditEvent.action == "CHANGE_PROPOSAL_ACCEPTED")
+            )
+            is None
+        )
+
+
+async def test_staff_cannot_enable_a_purpose_deactivated_by_waited_admin_write(
+    booking_env, monkeypatch
+):
+    env, _, _ = booking_env
+    (admin, admin_csrf), (staff, staff_csrf) = await _clients(
+        booking_env, [await admin_id(env), env.staff_id]
+    )
+    path = f"{PURPOSES}/{env.purpose_id}"
+    preference = f"/api/v1/staff/me/purposes/{env.purpose_id}"
+    async with admin, staff:
+        before = (await admin.get(path)).json()
+        updated, rejected = await commit_admin_first(
+            monkeypatch,
+            lambda: admin.put(
+                path,
+                json=purpose_body(before, is_active=False),
+                headers=_booking_headers(admin_csrf, "policy"),
+            ),
+            lambda: staff.put(
+                preference,
+                json={"is_accepting": True},
+                headers=_booking_headers(staff_csrf, "preference"),
+            ),
+        )
+        assert updated.status_code == 200, updated.json()
+        assert rejected.status_code == 409
+        assert rejected.json()["error"]["code"] == "PURPOSE_INACTIVE"
+        disabled = await staff.put(
+            preference,
+            json={"is_accepting": False},
+            headers=_booking_headers(staff_csrf, "preference"),
+        )
+        assert disabled.status_code == 200 and not disabled.json()["is_accepting"]
+    async with env.factory() as db:
+        link = await db.get(StaffPurpose, (env.staff_id, env.purpose_id))
+        assert link is not None and not link.is_accepting
