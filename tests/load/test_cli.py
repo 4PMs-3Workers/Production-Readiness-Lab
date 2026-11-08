@@ -83,3 +83,34 @@ def test_candidate_release_must_match_local_migration_source(monkeypatch):
     )
     with pytest.raises(LoadSafetyError, match="checkout must be clean"):
         cli._require_matching_checkout("a" * 40)
+
+
+def test_missing_prometheus_url_fails_before_async_setup(monkeypatch):
+    monkeypatch.setenv(
+        "PRL_LOAD_DATABASE_URL",
+        "mysql+asyncmy://load:secret@localhost/prl_load_" + "b" * 32,
+    )
+    monkeypatch.setenv("PRL_LOAD_TEST_OPT_IN", OPT_IN_PHRASE)
+    monkeypatch.setenv("PRL_LOAD_LOKI_URL", "https://loki.example.invalid")
+    monkeypatch.delenv("PRL_LOAD_PROMETHEUS_URL", raising=False)
+    called = False
+
+    def run_async(_coroutine):
+        nonlocal called
+        called = True
+        raise AssertionError("required telemetry must be checked before setup")
+
+    monkeypatch.setattr(cli.asyncio, "run", run_async)
+    with pytest.raises(LoadSafetyError, match="PRL_LOAD_PROMETHEUS_URL"):
+        cli.main(
+            [
+                "run",
+                "--target-url",
+                "https://candidate.example.invalid",
+                "--release-sha",
+                "a" * 40,
+                "--run-id",
+                "b" * 32,
+            ]
+        )
+    assert called is False

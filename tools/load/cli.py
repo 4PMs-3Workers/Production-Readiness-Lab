@@ -66,6 +66,10 @@ def main(argv: list[str] | None = None) -> int:
     validate_load_config(config)
     if config.schema_name != f"prl_load_{run_id}":
         raise LoadSafetyError("PRL_LOAD_DATABASE_URL schema must match --run-id")
+    if args.command in {"prepare", "run"} and not os.environ.get("PRL_LOAD_LOKI_URL"):
+        raise LoadSafetyError("PRL_LOAD_LOKI_URL is required to verify candidate release telemetry")
+    if args.command == "run" and not os.environ.get("PRL_LOAD_PROMETHEUS_URL"):
+        raise LoadSafetyError("PRL_LOAD_PROMETHEUS_URL is required for runtime signal evidence")
     if args.command == "prepare":
         return asyncio.run(_prepare(args, config))
     if args.command == "cleanup":
