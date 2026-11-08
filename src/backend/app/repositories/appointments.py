@@ -149,7 +149,7 @@ async def lock_service_settings(db: AsyncSession) -> ServiceSetting | None:
 
 
 async def lock_service_settings_for_account_change(db: AsyncSession) -> ServiceSetting | None:
-    """Serialize account-role changes with booking and other account changes."""
+    """Take the exclusive singleton lock for administrative changes."""
     statement = (
         select(ServiceSetting)
         .where(ServiceSetting.id == 1)
