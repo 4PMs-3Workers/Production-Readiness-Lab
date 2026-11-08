@@ -1,6 +1,6 @@
 """Manage the catalog without removing records referenced by appointments."""
 
-from datetime import UTC, timedelta
+from datetime import timedelta
 from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -108,7 +108,7 @@ async def replace_purpose(
         }
         if not changes:
             return AdminPurpose.model_validate(purpose), False
-        if purpose.updated_at != request.expected_updated_at.astimezone(UTC):
+        if purpose.updated_at != request.expected_updated_at:
             raise AppError(409, "PURPOSE_VERSION_CONFLICT", "Purpose changed; reload it", "input")
 
         for key, value in changes.items():

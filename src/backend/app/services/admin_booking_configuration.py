@@ -1,7 +1,7 @@
 """Read and replace the school-wide booking policy as a single resource."""
 
 from collections.abc import Iterable
-from datetime import UTC, timedelta
+from datetime import timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -63,7 +63,7 @@ async def replace_configuration(
         windows_changed = current.keys() != desired
         if not changes and not windows_changed:
             return _snapshot(policy, current), False
-        if policy.updated_at != request.expected_updated_at.astimezone(UTC):
+        if policy.updated_at != request.expected_updated_at:
             raise AppError(
                 409,
                 "BOOKING_CONFIGURATION_VERSION_CONFLICT",

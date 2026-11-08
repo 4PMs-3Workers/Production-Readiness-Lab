@@ -144,6 +144,8 @@ async def test_purpose_duration_uses_the_positive_mysql_range(admin_policy_env, 
     "changes",
     [
         {"timezone": "Invented/Zone"},
+        {"timezone": "Factory"},
+        {"timezone": "America"},
         {"start_step_minutes": 0},
         {"booking_horizon_days": 32768},
         {"windows": [window(0, "08:00:00", "09:00:00")]},
@@ -167,6 +169,27 @@ async def test_invalid_policy_and_overlaps_leave_configuration_intact(admin_poli
     assert rejected.status_code == 422, rejected.json()
     assert rejected.json()["error"]["code"] == "VALIDATION_ERROR"
     assert (await client.get(CONFIGURATION)).json() == baseline
+
+
+@pytest.mark.parametrize(
+    "revision",
+    ["0001-01-01T00:00:00+00:01", "9999-12-31T23:59:59-00:01"],
+)
+async def test_revision_outside_utc_range_is_rejected_on_both_resources(admin_policy_env, revision):
+    client, _, _, _ = admin_policy_env
+    headers = write_headers(client)
+    created = await client.post(PURPOSES, json=PURPOSE, headers=headers)
+    assert created.status_code == 201, created.json()
+    item = created.json()
+    for path, payload in (
+        (CONFIGURATION, policy_body(revision)),
+        (f"{PURPOSES}/{item['id']}", purpose_body(item, expected_updated_at=revision)),
+    ):
+        baseline = (await client.get(path)).json()
+        response = await client.put(path, json=payload, headers=headers)
+        assert response.status_code == 422, response.json()
+        assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+        assert (await client.get(path)).json() == baseline
 
 
 async def test_adjacent_windows_and_other_days_are_ordered_and_omitted_days_closed(

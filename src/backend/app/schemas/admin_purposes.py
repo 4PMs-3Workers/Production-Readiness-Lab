@@ -4,9 +4,9 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, StrictBool, StringConstraints
+from pydantic import BaseModel, ConfigDict, StrictBool, StringConstraints
 
-from app.schemas.common import PaginationParams, PositiveSmallInt
+from app.schemas.common import PaginationParams, PositiveSmallInt, RevisionTimestamp
 
 
 class AdminPurposeQuery(PaginationParams):
@@ -29,7 +29,7 @@ class PurposeCreate(PurposeValues):
 
 
 class PurposeReplace(PurposeValues):
-    expected_updated_at: AwareDatetime
+    expected_updated_at: RevisionTimestamp
 
 
 class AdminPurpose(BaseModel):

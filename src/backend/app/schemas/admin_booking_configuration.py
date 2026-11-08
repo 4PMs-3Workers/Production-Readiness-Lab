@@ -2,11 +2,11 @@
 
 import re
 from datetime import datetime, time
+from importlib.resources import files
 from typing import Annotated
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import (
-    AwareDatetime,
     BaseModel,
     BeforeValidator,
     ConfigDict,
@@ -16,9 +16,18 @@ from pydantic import (
     model_validator,
 )
 
-from app.schemas.common import PositiveSmallInt
+from app.schemas.common import PositiveSmallInt, RevisionTimestamp
 
 WALL_TIME = r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$"
+LOCATION_ZONES = frozenset(
+    line.split("\t")[2]
+    for line in files("tzdata.zoneinfo")
+    .joinpath("zone.tab")
+    .read_text(encoding="utf-8")
+    .splitlines()
+    if line and not line.startswith("#")
+)
+PORTABLE_ZONES = LOCATION_ZONES | {"UTC", "Etc/UTC"}
 
 
 def parse_wall_time(value: object) -> time:
@@ -61,7 +70,7 @@ class BookingConfiguration(BaseModel):
 class BookingConfigurationReplace(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    expected_updated_at: AwareDatetime
+    expected_updated_at: RevisionTimestamp
     timezone: str = Field(min_length=1, max_length=64)
     start_step_minutes: PositiveSmallInt
     booking_horizon_days: PositiveSmallInt
@@ -70,9 +79,11 @@ class BookingConfigurationReplace(BaseModel):
     @field_validator("timezone")
     @classmethod
     def known_zone(cls, value: str) -> str:
+        if value not in PORTABLE_ZONES:
+            raise ValueError("Use an IANA location timezone or UTC")
         try:
             ZoneInfo(value)
-        except (ValueError, ZoneInfoNotFoundError):
+        except (ValueError, ZoneInfoNotFoundError, OSError):
             raise ValueError("Unknown IANA timezone") from None
         return value
 

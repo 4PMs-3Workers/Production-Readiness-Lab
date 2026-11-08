@@ -27,13 +27,15 @@ proposal acceptance. Reactivation restores eligibility only for staff who are st
 and accepting that purpose. A staff member can turn off an existing association while the
 purpose is inactive.
 
-The booking configuration accepts IANA timezone keys. Weekly windows use ISO weekdays
+The booking configuration accepts IANA location timezone keys, such as
+`Asia/Ho_Chi_Minh`, and the UTC names `UTC` and `Etc/UTC`. Weekly windows use ISO weekdays
 1–7 and local `HH:MM:SS` times from `00:00:00` through `23:59:59`. A window must open before it
 closes on the same day. Adjacent windows are allowed and remain separate. Duplicates and
 same-day overlaps are invalid. An omitted weekday is closed. An empty array closes the
 whole week. Reads order windows by weekday, opening time and closing time.
 
-Use the `updated_at` from the preceding GET as `expected_updated_at`. Send all desired windows
+Use the `updated_at` from the preceding GET as `expected_updated_at`. An offset timestamp
+must also be representable in UTC. Send all desired windows
 in the same request as the policy fields. For example, this payload keeps only the listed
 Monday window.
 
