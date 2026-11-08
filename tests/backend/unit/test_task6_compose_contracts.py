@@ -24,6 +24,20 @@ DEPLOY = ROOT / "tools/deploy"
 INFRA = ROOT / "tools/infra"
 
 
+def test_gateway_serves_only_the_deployed_runtime_attestation():
+    for overlay_name in ("compose.local.yaml", "compose.https.yaml"):
+        overlay = yaml.safe_load((DEPLOY / overlay_name).read_text())
+        volumes = overlay["services"]["gateway"]["volumes"]
+        assert "../../build/deploy:/etc/nginx/prl/deploy:ro" in volumes
+    routes = (DEPLOY / "nginx/routes.conf").read_text()
+    nginx = (DEPLOY / "nginx/nginx.conf").read_text()
+    assert "location = /health/artifacts" in routes
+    assert "alias /etc/nginx/prl/deploy/$prl_release/attestation.json;" in routes
+    assert "add_header X-Request-ID $request_id always;" in routes
+    assert '"GET:/health/artifacts" "gateway.healthcheck";' in nginx
+    assert '"GET:/health/artifacts" "/health/artifacts";' in nginx
+
+
 def test_observability_overlay_publishes_only_existing_gateway_tls_listener():
     document = yaml.safe_load((DEPLOY / "compose.observability.yaml").read_text())
     services = document["services"]

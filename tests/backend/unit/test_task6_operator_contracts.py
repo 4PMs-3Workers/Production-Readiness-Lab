@@ -89,6 +89,58 @@ def test_v2_manifest_target_origin_is_an_origin_without_credentials_or_path():
             evidence.validate(v2_manifest(target_origin=target_origin))
 
 
+def test_runtime_attestation_contains_active_application_image_identity(tmp_path):
+    evidence = module("evidence")
+    images = {
+        name: {"id": "sha256:" + letter * 64, "digests": []}
+        for name, letter in (("api", "a"), ("frontend", "b"), ("worker", "c"), ("gateway", "d"))
+    }
+    manifest = evidence.create_v2(
+        "a" * 40,
+        "https",
+        False,
+        "b" * 64,
+        "evidence",
+        "passed",
+        images,
+        deployment_state="active",
+        target_origin="https://app.example.invalid",
+    )
+    path = tmp_path / "attestation.json"
+
+    evidence.write_target_attestation(path, manifest)
+    result = evidence.validate_target_attestation(json.loads(path.read_text()))
+
+    assert result["source_sha"] == "a" * 40
+    assert result["target_origin"] == "https://app.example.invalid"
+    assert set(result["images"]) == {"api", "frontend", "worker", "gateway"}
+    assert result["attestation_sha256"]
+    with pytest.raises(ValueError, match="fingerprint"):
+        evidence.validate_target_attestation(dict(result, configuration_sha256="c" * 64))
+    evidence.write_unavailable_target_attestation(path)
+    assert json.loads(path.read_text()) == {"schema_version": 1, "status": "unavailable"}
+
+
+def test_runtime_attestation_is_unavailable_for_non_active_manifest():
+    evidence = module("evidence")
+    value = evidence.create_v2(
+        "a" * 40,
+        "https",
+        False,
+        "b" * 64,
+        "down",
+        "passed",
+        {},
+        deployment_state="down",
+        target_origin="https://app.example.invalid",
+    )
+
+    assert evidence.create_target_attestation(value) == {
+        "schema_version": 1,
+        "status": "unavailable",
+    }
+
+
 def test_v1_manifest_remains_readable_with_its_exact_historical_shape():
     evidence = module("evidence")
     value = evidence.create("a" * 40, "https", "up", "passed", {})

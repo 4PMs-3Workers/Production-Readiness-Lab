@@ -128,6 +128,8 @@ def operator(monkeypatch, tmp_path):
                     }
                 )
         if args[:2] == ["docker", "inspect"]:
+            if any("|{{.State.Running}}" in value for value in args):
+                return "sha256:" + "c" * 64 + "|true"
             return "true" if "{{.State.Running}}" in args else "healthy"
         if args[:2] == ["docker", "logs"]:
             from datetime import datetime
@@ -223,6 +225,22 @@ def test_up_never_runs_privileged_jobs_and_writes_provenance(operator):
     assert data["images"]["api"] == data["images"]["worker"]
     assert data["target_origin"] == "http://localhost:8080"
     assert "private-password" not in json.dumps(data)
+    attestation = json.loads(
+        (demo.ROOT / "build/deploy" / ("a" * 40) / "attestation.json").read_text()
+    )
+    assert attestation == {"schema_version": 1, "status": "unavailable"}
+
+
+def test_evidence_publishes_runtime_attestation_for_active_stack(operator):
+    demo, _calls = operator
+    assert demo.main(["up", "--overlay", "local"]) == 0
+    assert demo.main(["evidence", "--overlay", "local"]) == 0
+    attestation = json.loads(
+        (demo.ROOT / "build/deploy" / ("a" * 40) / "attestation.json").read_text()
+    )
+    assert attestation["status"] == "active"
+    assert attestation["source_sha"] == "a" * 40
+    assert set(attestation["images"]) == {"api", "frontend", "worker", "gateway"}
 
 
 def test_observability_up_starts_and_validates_backup_exporter(operator, monkeypatch):

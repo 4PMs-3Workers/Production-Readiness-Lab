@@ -25,6 +25,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
+from tools.deploy import evidence as deployment_evidence
 from tools.deploy.worker_status import WorkerProgress, WorkerProgressTracker, latest_worker_progress
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -140,6 +141,7 @@ class ComposeAcceptance:
         self.env.update(
             PRL_IMAGE_TAG=self.image_tag,
             PRL_HTTP_PORT=str(self.port),
+            SERVICE_RELEASE=self.expected_sha,
             DOCKER_DEFAULT_PLATFORM="linux/amd64",
         )
         self.base = ["docker", "compose", "--project-name", self.project]
@@ -458,6 +460,48 @@ class ComposeAcceptance:
             return gateway.status_code == 200 and api.status_code == 200
 
         self.wait_for(ready, seconds=90, failure="The local gateway/API readiness check timed out")
+
+    def verify_runtime_attestation_endpoint(self) -> None:
+        images = {}
+        for service in ("api", "frontend", "worker", "gateway"):
+            container_id = require_success(
+                self.compose("ps", "-q", service), "A runtime-attestation service is missing"
+            )
+            image_id = require_success(
+                invoke(["docker", "inspect", "--format", "{{.Image}}", container_id]),
+                "A runtime-attestation image identity could not be inspected",
+            )
+            if not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id):
+                raise AcceptanceFailure("A runtime-attestation image identity is invalid")
+            images[service] = {"id": image_id, "digests": []}
+        manifest = deployment_evidence.create_v2(
+            self.expected_sha,
+            "local",
+            False,
+            "f" * 64,
+            "evidence",
+            "passed",
+            images,
+            deployment_state="active",
+            target_origin=self.origin,
+        )
+        attestation = deployment_evidence.create_target_attestation(manifest)
+        attestation_path = ROOT / "build/deploy" / self.expected_sha / "attestation.json"
+        deployment_evidence.write_target_attestation(attestation_path, manifest)
+        try:
+            response = self.http("GET", "/health/artifacts")
+            if (
+                response.status_code != 200
+                or response.headers.get("X-Request-ID") is None
+                or response.json() != attestation
+            ):
+                raise AcceptanceFailure("The gateway runtime-attestation response did not match")
+        finally:
+            attestation_path.unlink(missing_ok=True)
+            try:
+                attestation_path.parent.rmdir()
+            except OSError:
+                pass
 
     def require_worker_identity(self) -> tuple[str, str]:
         api_id = require_success(self.compose("ps", "-q", "api"), "The API container is missing")
@@ -1163,6 +1207,7 @@ def test_real_compose_smoke_and_lifecycle_acceptance(tmp_path: Path) -> None:
     stack = ComposeAcceptance(tmp_path)
     try:
         stack.start()
+        stack.verify_runtime_attestation_endpoint()
         stack.unicode_login_through_gateway()
         worker_appointment, proposal_id, staff_name, booking_date = stack.create_worker_case()
         stack.run_playwright(worker_appointment, staff_name, booking_date)
