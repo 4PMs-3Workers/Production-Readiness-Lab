@@ -2,6 +2,8 @@
 
 import importlib.util
 import json
+import os
+import stat
 import subprocess
 import sys
 from datetime import UTC
@@ -225,9 +227,7 @@ def test_up_never_runs_privileged_jobs_and_writes_provenance(operator):
     assert data["images"]["api"] == data["images"]["worker"]
     assert data["target_origin"] == "http://localhost:8080"
     assert "private-password" not in json.dumps(data)
-    attestation = json.loads(
-        (demo.ROOT / "build/deploy" / ("a" * 40) / "attestation.json").read_text()
-    )
+    attestation = json.loads(demo.evidence.public_attestation_path(demo.ROOT, "a" * 40).read_text())
     assert attestation == {"schema_version": 1, "status": "unavailable"}
 
 
@@ -235,12 +235,37 @@ def test_evidence_publishes_runtime_attestation_for_active_stack(operator):
     demo, _calls = operator
     assert demo.main(["up", "--overlay", "local"]) == 0
     assert demo.main(["evidence", "--overlay", "local"]) == 0
-    attestation = json.loads(
-        (demo.ROOT / "build/deploy" / ("a" * 40) / "attestation.json").read_text()
-    )
+    attestation = json.loads(demo.evidence.public_attestation_path(demo.ROOT, "a" * 40).read_text())
     assert attestation["status"] == "active"
     assert attestation["source_sha"] == "a" * 40
     assert set(attestation["images"]) == {"api", "frontend", "worker", "gateway"}
+
+
+def test_status_preserves_active_runtime_attestation(operator):
+    demo, _calls = operator
+    assert demo.main(["up", "--overlay", "local"]) == 0
+    assert demo.main(["evidence", "--overlay", "local"]) == 0
+    attestation_path = demo.evidence.public_attestation_path(demo.ROOT, "a" * 40)
+    before = attestation_path.read_bytes()
+
+    assert demo.main(["status", "--overlay", "local"]) == 0
+
+    assert attestation_path.read_bytes() == before
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX umask permissions are not available on Windows")
+def test_operator_attestation_tree_is_traversable_under_restrictive_umask(operator):
+    demo, _calls = operator
+    old_umask = os.umask(0o077)
+    try:
+        assert demo.main(["up", "--overlay", "local"]) == 0
+        assert demo.main(["evidence", "--overlay", "local"]) == 0
+    finally:
+        os.umask(old_umask)
+
+    path = demo.evidence.public_attestation_path(demo.ROOT, "a" * 40)
+    for directory in (path.parent, path.parent.parent, path.parent.parent.parent):
+        assert stat.S_IMODE(directory.stat().st_mode) & 0o755 == 0o755
 
 
 def test_observability_up_starts_and_validates_backup_exporter(operator, monkeypatch):

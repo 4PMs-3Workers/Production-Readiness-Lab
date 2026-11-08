@@ -104,10 +104,12 @@ compose configuration, then run its `evidence` command on the host running this
 candidate and using the same target origin. It records active container image
 IDs/digests and configuration identity in
 `build/deploy/<release-sha>/manifest.json` and publishes a sanitized
-`attestation.json` into the read-only directory mounted by the gateway. The
-load runner checkout must have those two sanitized files at the same
-`build/deploy/<release-sha>/` path (run the load tool on that host or copy only
-the manifest and attestation files to the generator checkout). The
+`attestation.json` into the dedicated `build-public/deploy/<release-sha>/`
+tree mounted read-only by the gateway. The load runner checkout needs the
+sanitized manifest at `build/deploy/<release-sha>/manifest.json`; the gateway
+serves the attestation from the public tree, so no local attestation copy is
+needed. Run the load tool on the deployment host or copy only the sanitized
+manifest to the generator checkout. The
 gateway serves this current runtime evidence at `/health/artifacts`. The load
 runner requires the response's attestation fingerprint and image inventory to
 match the local evidence, source SHA, configuration, and target origin. It also

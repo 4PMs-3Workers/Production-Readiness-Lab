@@ -828,6 +828,7 @@ def main(argv=None):
                 raise OperationFailed()
             require_clean_source(sha)
             path = ROOT / "build/deploy" / sha / "manifest.json"
+            attestation_path = evidence.public_attestation_path(ROOT, sha)
             try:
                 previous = evidence.validate(json.loads(path.read_text(encoding="utf-8")))
             except FileNotFoundError:
@@ -863,7 +864,7 @@ def main(argv=None):
             ):
                 raise ConfigurationIdentityMismatch()
             if command in {"up", "evidence", "stop", "down"}:
-                evidence.write_unavailable_target_attestation(path.with_name("attestation.json"))
+                evidence.write_unavailable_target_attestation(attestation_path)
             try:
                 demo.execute(command)
                 if command == "config":
@@ -924,9 +925,8 @@ def main(argv=None):
                     previous=previous,
                 )
                 evidence.write(path, failed_manifest)
-                evidence.write_target_attestation(
-                    path.with_name("attestation.json"), failed_manifest
-                )
+                if command != "status":
+                    evidence.write_target_attestation(attestation_path, failed_manifest)
                 raise
             if cleanup and previous is not None:
                 record_overlay, record_observability = _previous_mode(previous)
@@ -973,7 +973,8 @@ def main(argv=None):
                 previous=previous,
             )
             evidence.write(path, manifest)
-            evidence.write_target_attestation(path.with_name("attestation.json"), manifest)
+            if command != "status":
+                evidence.write_target_attestation(attestation_path, manifest)
         telemetry_label = (
             f"; telemetry={demo.observability_result['status']}"
             if demo.observability_result is not None

@@ -33,7 +33,7 @@ services:
       - ./nginx/gateway-entrypoint.sh:/usr/local/sbin/prl-gateway-entrypoint:ro
       - ./nginx:/etc/nginx/prl:ro
       - ./nginx/local.conf:/etc/nginx/server.conf:ro
-      - ${PRL_DEPLOY_EVIDENCE_DIR:-../../build/deploy}:/etc/nginx/deploy-evidence:ro
+      - ${PRL_DEPLOY_EVIDENCE_DIR:-../../build-public/deploy}:/etc/nginx/deploy-evidence:ro
     networks:
       edge: {}
       proxy: {}

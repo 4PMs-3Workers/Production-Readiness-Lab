@@ -294,9 +294,14 @@ def validate_target_attestation(value):
     return value
 
 
-def write_target_attestation(path, manifest):
+def write_target_attestation(path, manifest, *, public_root=None):
     """Atomically publish non-secret runtime evidence for the read-only gateway mount."""
-    _write_public_attestation(path, create_target_attestation(manifest))
+    _write_public_attestation(path, create_target_attestation(manifest), public_root=public_root)
+
+
+def public_attestation_path(root, source_sha):
+    """Return the dedicated host tree mounted read-only by the gateway."""
+    return Path(root) / "build-public" / "deploy" / source_sha / "attestation.json"
 
 
 def write_unavailable_target_attestation(path):
@@ -304,9 +309,25 @@ def write_unavailable_target_attestation(path):
     _write_public_attestation(path, {"schema_version": 1, "status": "unavailable"})
 
 
-def _write_public_attestation(path, value):
+def _write_public_attestation(path, value, *, public_root=None):
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    parents = (path.parent, *path.parent.parents)
+    if public_root is None:
+        public_root = next(
+            (directory for directory in parents if directory.name == "build-public"), None
+        )
+    if public_root is not None:
+        public_root = Path(public_root)
+        relative_parent = path.parent.resolve().relative_to(public_root.resolve())
+        public_root.mkdir(parents=True, exist_ok=True, mode=0o755)
+        os.chmod(public_root, 0o755)
+        directory = public_root
+        for part in relative_parent.parts:
+            directory = directory / part
+            directory.mkdir(exist_ok=True, mode=0o755)
+            os.chmod(directory, 0o755)
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
     descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=".attestation-")
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as output:

@@ -490,7 +490,9 @@ class ComposeAcceptance:
         )
         attestation = deployment_evidence.create_target_attestation(manifest)
         attestation_path = self.evidence_dir / self.expected_sha / "attestation.json"
-        deployment_evidence.write_target_attestation(attestation_path, manifest)
+        deployment_evidence.write_target_attestation(
+            attestation_path, manifest, public_root=self.evidence_dir
+        )
         try:
             response = self.http("GET", "/health/artifacts")
             if (

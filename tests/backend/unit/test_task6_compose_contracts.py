@@ -30,7 +30,7 @@ def test_gateway_serves_only_the_deployed_runtime_attestation():
         overlay = yaml.safe_load((DEPLOY / overlay_name).read_text())
         volumes = overlay["services"]["gateway"]["volumes"]
         assert (
-            "${PRL_DEPLOY_EVIDENCE_DIR:-../../build/deploy}:/etc/nginx/deploy-evidence:ro"
+            "${PRL_DEPLOY_EVIDENCE_DIR:-../../build-public/deploy}:/etc/nginx/deploy-evidence:ro"
             in volumes
         )
     routes = (DEPLOY / "nginx/routes.conf").read_text()
