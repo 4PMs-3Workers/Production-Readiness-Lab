@@ -4,11 +4,9 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictBool, StringConstraints
+from pydantic import AwareDatetime, BaseModel, ConfigDict, StrictBool, StringConstraints
 
-from app.schemas.common import PaginationParams
-
-PositiveSmallInt = Annotated[int, Field(strict=True, ge=1, le=32767)]
+from app.schemas.common import PaginationParams, PositiveSmallInt
 
 
 class AdminPurposeQuery(PaginationParams):
