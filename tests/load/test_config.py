@@ -2,7 +2,12 @@ from urllib.parse import quote
 
 import pytest
 from sqlalchemy.engine import make_url
-from tools.load.config import LoadConfig, LoadSafetyError, validate_load_config
+from tools.load.config import (
+    LoadConfig,
+    LoadSafetyError,
+    server_level_database_url,
+    validate_load_config,
+)
 
 
 def valid_config(**overrides):
@@ -59,3 +64,23 @@ def test_database_url_redaction_removes_password():
 
     assert "very-secret" not in config.safe_database_label
     assert config.safe_database_label == "mysql+asyncmy://load:***@localhost/prl_load_" + "b" * 32
+
+
+def test_database_url_rejects_options_that_can_redirect_the_schema():
+    with pytest.raises(LoadSafetyError, match="unsupported options"):
+        validate_load_config(
+            valid_config(
+                database_url="mysql+asyncmy://load:secret@localhost/prl_load_"
+                + "b" * 32
+                + "?db=shared_demo"
+            )
+        )
+
+
+def test_server_level_url_has_no_default_database_and_preserves_safe_charset():
+    server = server_level_database_url(
+        "mysql+asyncmy://load:secret@localhost/prl_load_" + "b" * 32 + "?charset=utf8mb4"
+    )
+
+    assert server.database is None
+    assert dict(server.query) == {"charset": "utf8mb4"}

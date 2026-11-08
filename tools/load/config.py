@@ -10,6 +10,7 @@ from sqlalchemy.engine import URL, make_url
 OPT_IN_PHRASE = "I_UNDERSTAND_THIS_WRITES_TO_AN_ISOLATED_LAB_SCHEMA"
 _RELEASE_SHA = re.compile(r"[0-9a-f]{40}\Z")
 _SCHEMA = re.compile(r"prl_load_[0-9a-f]{32}\Z")
+_DATABASE_QUERY_OPTIONS = frozenset({"charset"})
 
 
 class LoadSafetyError(ValueError):
@@ -77,7 +78,22 @@ def validate_load_config(config: LoadConfig) -> LoadConfig:
         raise LoadSafetyError("Database URL must target a dedicated prl_load_<run UUID> schema")
     if not database_url.username or not database_url.host:
         raise LoadSafetyError("Database URL must include a user and host")
+    if set(database_url.query) - _DATABASE_QUERY_OPTIONS:
+        raise LoadSafetyError("Database URL contains unsupported options that can redirect writes")
     return config
+
+
+def server_level_database_url(database_url: str) -> URL:
+    """Build an admin URL that cannot inherit a schema from the configured tenant URL."""
+    tenant = make_url(database_url)
+    return URL.create(
+        drivername=tenant.drivername,
+        username=tenant.username,
+        password=tenant.password,
+        host=tenant.host,
+        port=tenant.port,
+        query=dict(tenant.query),
+    )
 
 
 def _is_loopback(hostname: str) -> bool:

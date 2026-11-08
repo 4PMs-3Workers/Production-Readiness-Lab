@@ -100,7 +100,7 @@ async def _prepare(args: argparse.Namespace, config: LoadConfig) -> int:
 
 async def _run(args: argparse.Namespace, config: LoadConfig, run_id: str) -> int:
     _require_matching_checkout(config.release_sha)
-    provenance = collect_provenance(_repository_root())
+    provenance = collect_provenance(_repository_root(), target_url=config.target_url)
     await _confirm_release(args, config)
     prometheus_url = os.environ["PRL_LOAD_PROMETHEUS_URL"]
     await verify_prometheus_endpoint(prometheus_url)
@@ -119,6 +119,7 @@ async def _run(args: argparse.Namespace, config: LoadConfig, run_id: str) -> int
         workload.ended_at,
         environment=args.environment,
         expected_records=workload.expected_gateway_requests,
+        expected_request_ids=workload.gateway_request_ids,
     )
     sli = summarize_gateway_events(
         gateway.events,

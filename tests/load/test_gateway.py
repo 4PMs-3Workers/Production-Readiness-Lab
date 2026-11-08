@@ -9,6 +9,7 @@ from tools.load.gateway import (
     _runtime_queries,
     _to_ns,
     collect_gateway_window,
+    confirm_candidate_release,
     safe_service_url,
     verify_prometheus_endpoint,
 )
@@ -103,6 +104,103 @@ def test_gateway_window_is_incomplete_when_logs_drop_expected_records(monkeypatc
     assert result.reason == "gateway_record_count_mismatch"
 
 
+def test_gateway_window_matches_exact_request_ids_not_an_unrelated_replacement(monkeypatch):
+    async def fake_query(*args, **kwargs):
+        return (
+            [
+                {
+                    "release": "a" * 40,
+                    "request_id": "unrelated",
+                    "route": "/api/v1/auth/me",
+                    "method": "GET",
+                    "status": 200,
+                    "duration_seconds": 0.1,
+                    "classification": "success",
+                }
+            ],
+            True,
+        )
+
+    monkeypatch.setattr("tools.load.gateway._query_loki", fake_query)
+    result = asyncio.run(
+        collect_gateway_window(
+            "http://localhost:3100",
+            "a" * 40,
+            datetime(2026, 11, 8, tzinfo=UTC),
+            datetime(2026, 11, 8, 0, 0, 2, tzinfo=UTC),
+            expected_records=1,
+            expected_request_ids={"expected"},
+        )
+    )
+
+    assert result.complete is False
+    assert result.returned_records == 0
+    assert result.reason == "gateway_record_count_mismatch"
+
+
+def test_health_probe_requires_the_matching_gateway_log_request_id(monkeypatch):
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, *_args, **_kwargs):
+            return httpx.Response(200, headers={"X-Request-ID": "probe-request"})
+
+    async def fake_query(*_args, **_kwargs):
+        return (
+            [
+                {
+                    "release": "a" * 40,
+                    "event": "gateway.healthcheck",
+                    "request_id": "different-request",
+                }
+            ],
+            True,
+        )
+
+    async def no_wait(*_args):
+        return None
+
+    monkeypatch.setattr("tools.load.gateway.httpx.AsyncClient", lambda **_kwargs: FakeClient())
+    monkeypatch.setattr("tools.load.gateway._query_loki", fake_query)
+    monkeypatch.setattr("tools.load.gateway._pause", no_wait)
+
+    with pytest.raises(RuntimeError, match="did not report"):
+        asyncio.run(
+            confirm_candidate_release(
+                "https://candidate.invalid",
+                "https://loki.invalid",
+                "a" * 40,
+                timeout_seconds=0.01,
+            )
+        )
+
+
+def test_loki_query_slices_never_request_more_than_server_entry_limit(monkeypatch):
+    from tools.load.gateway import MAX_LOKI_ENTRIES_PER_QUERY, _query_loki_sliced
+
+    limits = []
+
+    async def fake_query(_base, _query, start, end, *, limit):
+        limits.append(limit)
+        assert end >= start
+        return ([{"request_id": str(len(limits))}], True)
+
+    monkeypatch.setattr("tools.load.gateway._query_loki", fake_query)
+    records, complete = asyncio.run(
+        _query_loki_sliced(
+            "http://localhost:3100", '{service="gateway"}', 0, 60_000_000_000, total_limit=10_000
+        )
+    )
+
+    assert complete is True
+    assert len(records) == 3
+    assert limits == [MAX_LOKI_ENTRIES_PER_QUERY] * 3
+
+
 def test_prometheus_missing_series_is_not_reported_as_zero():
     assert _prometheus_scalar({"status": "success", "data": {"result": []}}) is None
     assert (
@@ -184,8 +282,8 @@ def test_worker_backlog_signal_captures_peak_over_the_observed_window():
     assert queries["api_pool_overflow_max"] == (
         'max(max_over_time(prl_db_pool_overflow{job="api"}[600s]))'
     )
-    assert queries["lock_timeouts"].endswith("or vector(0)")
-    assert queries["pool_timeouts"].endswith("or vector(0)")
+    assert "or vector(0)" not in queries["lock_timeouts"]
+    assert "or vector(0)" not in queries["pool_timeouts"]
 
 
 def test_query_times_require_timezone_and_service_url_is_redacted():

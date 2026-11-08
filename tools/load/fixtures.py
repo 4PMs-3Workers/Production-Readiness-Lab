@@ -1,5 +1,6 @@
 """Deterministic fictional fixture generation and explicitly owned schema lifecycle."""
 
+import asyncio
 import hashlib
 import re
 from dataclasses import dataclass
@@ -10,7 +11,12 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.pool import NullPool
-from tools.load.config import LoadConfig, LoadSafetyError, validate_load_config
+from tools.load.config import (
+    LoadConfig,
+    LoadSafetyError,
+    server_level_database_url,
+    validate_load_config,
+)
 
 from app.core.passwords import PasswordPolicy, PasswordService
 from app.core.schema_lifecycle import migration_connection
@@ -212,12 +218,14 @@ async def create_owned_schema(config: LoadConfig, *, seed: int, password: str) -
     if match is None:
         raise LoadSafetyError("Refusing to create a schema outside the load namespace")
     run_id = match.group(1)
-    admin_url = make_url(config.database_url).set(database=None)
+    admin_url = server_level_database_url(config.database_url)
     admin = create_async_engine(admin_url, poolclass=NullPool, connect_args={"connect_timeout": 5})
     schema_created = False
     engine: AsyncEngine | None = None
     try:
         async with admin.begin() as connection:
+            if await connection.scalar(text("SELECT DATABASE()")) is not None:
+                raise LoadSafetyError("Admin connection unexpectedly selected a database")
             existing = await connection.execute(
                 text(
                     "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = :name"
@@ -226,19 +234,36 @@ async def create_owned_schema(config: LoadConfig, *, seed: int, password: str) -
             )
             if existing.scalar_one_or_none() is not None:
                 raise LoadSafetyError("Dedicated load schema already exists; refusing reuse")
-            await connection.execute(
-                text(
-                    f"CREATE DATABASE `{config.schema_name}` "
-                    "CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci"
+            create_task = asyncio.create_task(
+                connection.execute(
+                    text(
+                        f"CREATE DATABASE `{config.schema_name}` "
+                        "CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci"
+                    )
                 )
             )
-            schema_created = True
+            try:
+                await asyncio.shield(create_task)
+            except asyncio.CancelledError:
+                # DDL may commit server-side even if cancellation arrives before the
+                # client receives its result. Await the in-flight result so rollback
+                # knows whether this invocation owns a schema to remove.
+                try:
+                    await create_task
+                except Exception:
+                    raise
+                schema_created = True
+                raise
+            else:
+                schema_created = True
         engine = create_async_engine(
             make_url(config.database_url),
             poolclass=NullPool,
             connect_args={"connect_timeout": 5},
         )
         async with migration_connection(engine) as connection:
+            if await connection.scalar(text("SELECT DATABASE()")) != config.schema_name:
+                raise LoadSafetyError("Migration connection resolved to an unexpected schema")
             await connection.run_sync(_upgrade_schema)
         password_service = await PasswordService.create(PasswordPolicy(), 2)
         password_hash = await password_service.hash(password)
@@ -249,6 +274,8 @@ async def create_owned_schema(config: LoadConfig, *, seed: int, password: str) -
             run_id=run_id,
         )
         async with engine.begin() as connection:
+            if await connection.scalar(text("SELECT DATABASE()")) != config.schema_name:
+                raise LoadSafetyError("Fixture connection resolved to an unexpected schema")
             await connection.execute(
                 text(
                     "CREATE TABLE prl_load_ownership ("
@@ -285,7 +312,7 @@ async def create_owned_schema(config: LoadConfig, *, seed: int, password: str) -
                         lambda sync_conn, values=collection: _bulk_add(sync_conn, values)
                     )
         return run_id
-    except Exception:
+    except BaseException:
         if engine is not None:
             await engine.dispose()
         if schema_created:
@@ -340,6 +367,7 @@ def _bulk_add(connection, objects: list[object]) -> None:
     with Session(connection, join_transaction_mode="create_savepoint") as session:
         session.add_all(objects)
         session.flush()
+        session.commit()
 
 
 async def drop_owned_schema(config: LoadConfig, *, run_id: str) -> None:
@@ -348,10 +376,12 @@ async def drop_owned_schema(config: LoadConfig, *, run_id: str) -> None:
     match = _SCHEMA_NAME.fullmatch(config.schema_name)
     if match is None or match.group(1) != run_id:
         raise LoadSafetyError("Cleanup run ID does not match the schema name")
-    admin_url = make_url(config.database_url).set(database=None)
+    admin_url = server_level_database_url(config.database_url)
     admin = create_async_engine(admin_url, poolclass=NullPool, connect_args={"connect_timeout": 5})
     try:
         async with admin.begin() as connection:
+            if await connection.scalar(text("SELECT DATABASE()")) is not None:
+                raise LoadSafetyError("Admin connection unexpectedly selected a database")
             exists = await connection.execute(
                 text(
                     "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = :name"

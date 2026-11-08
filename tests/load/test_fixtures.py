@@ -1,8 +1,20 @@
 from datetime import UTC, datetime
 
 import pytest
+from sqlalchemy import Integer, create_engine, text
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from tools.load.config import LoadSafetyError
-from tools.load.fixtures import make_fixture_rows, validate_cleanup_ownership
+from tools.load.fixtures import _bulk_add, make_fixture_rows, validate_cleanup_ownership
+
+
+class _FixtureBase(DeclarativeBase):
+    pass
+
+
+class _FixtureRecord(_FixtureBase):
+    __tablename__ = "fixture_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
 
 def test_fixture_is_reproducible_and_has_required_relationships():
@@ -59,3 +71,15 @@ def test_cleanup_requires_matching_schema_and_persisted_run_marker():
     ):
         with pytest.raises(LoadSafetyError):
             validate_cleanup_ownership(*candidate)
+
+
+def test_bulk_add_releases_savepoint_so_rows_survive_outer_commit():
+    engine = create_engine("sqlite://")
+    _FixtureBase.metadata.create_all(engine)
+
+    with engine.begin() as connection:
+        _bulk_add(connection, [_FixtureRecord(id=1)])
+
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT COUNT(*) FROM fixture_records")) == 1
+    engine.dispose()

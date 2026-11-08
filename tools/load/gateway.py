@@ -14,6 +14,8 @@ import httpx
 from tools.load.metrics import GatewayEvent
 
 MAX_GATEWAY_RECORDS = 10_000
+MAX_LOKI_ENTRIES_PER_QUERY = 5_000
+LOKI_QUERY_SLICE_SECONDS = 30
 _ENVIRONMENTS = frozenset({"demo", "local"})
 
 
@@ -40,6 +42,9 @@ async def confirm_candidate_release(
         response = await client.get(f"{target_url.rstrip('/')}/health/gateway")
     if response.status_code != 200:
         raise RuntimeError("Candidate gateway health check failed")
+    request_id = response.headers.get("X-Request-ID")
+    if not request_id:
+        raise RuntimeError("Candidate gateway health response is missing its request ID")
     deadline = datetime.now(UTC).timestamp() + timeout_seconds
     while datetime.now(UTC).timestamp() <= deadline:
         end_ns = _to_ns(datetime.now(UTC))
@@ -53,7 +58,11 @@ async def confirm_candidate_release(
         if not complete:
             raise RuntimeError("Candidate release telemetry is unavailable")
         for entry in records:
-            if entry.get("release") == release_sha and entry.get("event") == "gateway.healthcheck":
+            if (
+                entry.get("release") == release_sha
+                and entry.get("event") == "gateway.healthcheck"
+                and entry.get("request_id") == request_id
+            ):
                 return
         await _pause(1)
     raise RuntimeError("Gateway did not report the declared candidate release")
@@ -68,12 +77,23 @@ async def collect_gateway_window(
     environment: str = "demo",
     limit: int = MAX_GATEWAY_RECORDS,
     expected_records: int | None = None,
+    expected_request_ids: set[str] | None = None,
 ) -> GatewayWindow:
     stream = _gateway_stream(environment)
     query = f"{stream} " '| json | __error__ = "" | event="gateway.request"'
-    records, complete = await _query_loki(
-        loki_url, query, _to_ns(start), _to_ns(end), limit=min(limit, MAX_GATEWAY_RECORDS)
+    records, complete = await _query_loki_sliced(
+        loki_url,
+        query,
+        max(0, _to_ns(start) - 1_000_000_000),
+        _to_ns(end) + 1_000_000_000,
+        total_limit=min(limit, MAX_GATEWAY_RECORDS),
     )
+    matched_ids: list[object] = []
+    duplicate_request_ids = False
+    if expected_request_ids is not None:
+        records = [record for record in records if record.get("request_id") in expected_request_ids]
+        matched_ids = [record.get("request_id") for record in records]
+        duplicate_request_ids = len(matched_ids) != len(set(matched_ids))
     events: list[GatewayEvent] = []
     malformed = 0
     mismatched_release = 0
@@ -85,14 +105,19 @@ async def collect_gateway_window(
             events.append(_gateway_event(record))
         except (KeyError, TypeError, ValueError):
             malformed += 1
-    truncated = len(records) >= min(limit, MAX_GATEWAY_RECORDS)
-    count_mismatch = expected_records is not None and len(records) != expected_records
+    truncated = len(records) >= min(limit, MAX_GATEWAY_RECORDS) or (
+        not complete and len(records) >= MAX_LOKI_ENTRIES_PER_QUERY
+    )
+    count_mismatch = (
+        expected_request_ids is not None and set(expected_request_ids) != set(matched_ids)
+    ) or (expected_records is not None and len(records) != expected_records)
     complete = (
         complete
         and not truncated
         and malformed == 0
         and mismatched_release == 0
         and not count_mismatch
+        and not duplicate_request_ids
     )
     reason = None
     if truncated:
@@ -103,6 +128,8 @@ async def collect_gateway_window(
         reason = "gateway_release_mismatch"
     elif count_mismatch:
         reason = "gateway_record_count_mismatch"
+    elif duplicate_request_ids:
+        reason = "duplicate_gateway_request_ids"
     elif not complete:
         reason = "gateway_telemetry_unavailable"
     return GatewayWindow(events, complete, len(records), truncated, reason)
@@ -196,12 +223,10 @@ def _runtime_queries(range_seconds: int, environment: str) -> dict[str, str]:
             f'max(max_over_time(prl_db_pool_overflow{{job="api"}}[{range_seconds}s]))'
         ),
         "lock_timeouts": (
-            f'sum(increase(prl_db_failures_total{{reason="lock_timeout"}}[{range_seconds}s])) '
-            "or vector(0)"
+            f'sum(increase(prl_db_failures_total{{reason="lock_timeout"}}[{range_seconds}s]))'
         ),
         "pool_timeouts": (
-            f'sum(increase(prl_db_failures_total{{reason="pool_timeout"}}[{range_seconds}s])) '
-            "or vector(0)"
+            f'sum(increase(prl_db_failures_total{{reason="pool_timeout"}}[{range_seconds}s]))'
         ),
     }
 
@@ -241,7 +266,7 @@ async def _query_loki(
                     "start": str(start_ns),
                     "end": str(end_ns),
                     "direction": "forward",
-                    "limit": str(limit),
+                    "limit": str(min(limit, MAX_LOKI_ENTRIES_PER_QUERY)),
                 },
             )
         response.raise_for_status()
@@ -265,8 +290,29 @@ async def _query_loki(
             if not isinstance(line, dict):
                 return records, False
             records.append(line)
-            if len(records) >= limit:
+            if len(records) >= min(limit, MAX_LOKI_ENTRIES_PER_QUERY):
                 return records, True
+    return records, True
+
+
+async def _query_loki_sliced(
+    base_url: str, query: str, start_ns: int, end_ns: int, *, total_limit: int
+) -> tuple[list[dict[str, object]], bool]:
+    """Query bounded intervals so an individual Loki request stays below its entry cap."""
+    records: list[dict[str, object]] = []
+    cursor = start_ns
+    slice_ns = LOKI_QUERY_SLICE_SECONDS * 1_000_000_000
+    while cursor <= end_ns:
+        slice_end = min(end_ns, cursor + slice_ns - 1)
+        rows, complete = await _query_loki(
+            base_url, query, cursor, slice_end, limit=MAX_LOKI_ENTRIES_PER_QUERY
+        )
+        if not complete or len(rows) >= MAX_LOKI_ENTRIES_PER_QUERY:
+            return records + rows[: max(0, total_limit - len(records))], False
+        if len(records) + len(rows) > total_limit:
+            return records + rows[: max(0, total_limit - len(records))], False
+        records.extend(rows)
+        cursor = slice_end + 1
     return records, True
 
 

@@ -41,6 +41,7 @@ class WorkloadResult:
     started_at: datetime
     ended_at: datetime
     expected_gateway_requests: int = 0
+    gateway_request_ids: set[str] = field(default_factory=set, repr=False)
     operation_counts: Counter[str] = field(default_factory=Counter)
     event_loop_lag_seconds: list[float] = field(default_factory=list)
     created_booking_ids: list[UUID] = field(default_factory=list)
@@ -48,6 +49,7 @@ class WorkloadResult:
     created_proposal_ids: list[UUID] = field(default_factory=list)
     verified_replay_count: int = 0
     idempotency_failures: int = 0
+    ambiguous_write_failures: int = 0
 
     @property
     def generator_saturated(self) -> bool:
@@ -113,9 +115,15 @@ async def run_workload(
     clients: list[httpx.AsyncClient] = []
     sessions: list[_Session] = []
     request_counter = {"count": 0}
+    gateway_request_ids: set[str] = set()
 
-    def count_request(_request: httpx.Request) -> None:
+    async def count_request(_request: httpx.Request) -> None:
         request_counter["count"] += 1
+
+    async def capture_request_id(response: httpx.Response) -> None:
+        request_id = response.headers.get("X-Request-ID")
+        if request_id:
+            gateway_request_ids.add(request_id)
 
     origin = config.target_url.rstrip("/")
     try:
@@ -125,25 +133,36 @@ async def run_workload(
                 timeout=15,
                 follow_redirects=False,
                 headers={"Origin": origin},
-                event_hooks={"request": [count_request]},
+                event_hooks={"request": [count_request], "response": [capture_request_id]},
             )
             clients.append(client)
             sessions.append(await _authenticate(client, credential, fixture.password))
             if index + 1 < len(credentials):
                 await asyncio.sleep(2)
         request_counter["count"] = 0
+        gateway_request_ids.clear()
         result = WorkloadResult(
             requested_sessions=len(credentials),
             authenticated_sessions=len(sessions),
             duration_seconds=duration,
             started_at=datetime.now(UTC),
             ended_at=datetime.now(UTC),
+            gateway_request_ids=gateway_request_ids,
         )
         deadline = time.monotonic() + duration
         monitor = asyncio.create_task(_monitor_event_loop(result, deadline))
         tasks = [
             asyncio.create_task(
-                _run_session(index, session, fixture, config, seed, deadline, result)
+                _run_session(
+                    index,
+                    session,
+                    fixture,
+                    config,
+                    seed,
+                    deadline,
+                    result,
+                    next((item for item in sessions if item.credential.role == "STUDENT"), None),
+                )
             )
             for index, session in enumerate(sessions)
         ]
@@ -181,7 +200,8 @@ async def _authenticate(
     if not isinstance(csrf_token, str) or not csrf_token:
         raise RuntimeError("Candidate returned an invalid CSRF token")
     client.headers["X-CSRF-Token"] = csrf_token
-    return _Session(credential, client, csrf_token)
+    appointments = [credential.appointment_id] if credential.appointment_id is not None else []
+    return _Session(credential, client, csrf_token, appointments)
 
 
 async def confirm_fixture_target(
@@ -216,13 +236,22 @@ async def _run_session(
     seed: int,
     deadline: float,
     result: WorkloadResult,
+    availability_session: _Session | None,
 ) -> None:
     rng = random.Random(seed + index)
+    first_operation = True
     while time.monotonic() < deadline:
-        operation = _choose_operation(session.credential.role, rng.random())
+        operation = (
+            "proposal"
+            if first_operation and session.credential.role == "STAFF"
+            else _choose_operation(session.credential.role, rng.random())
+        )
+        first_operation = False
         result.operation_counts[f"{operation}.attempted"] += 1
         try:
-            outcome = await _perform_operation(operation, session, fixture, config, rng, result)
+            outcome = await _perform_operation(
+                operation, session, fixture, config, rng, result, availability_session
+            )
         except (httpx.HTTPError, ValueError, KeyError, TypeError, RuntimeError):
             outcome = "client_or_contract_error"
         result.operation_counts[f"{operation}.{outcome}"] += 1
@@ -242,6 +271,7 @@ async def _perform_operation(
     config: LoadConfig,
     rng: random.Random,
     result: WorkloadResult,
+    availability_session: _Session | None = None,
 ) -> str:
     if operation == "read":
         route = (
@@ -256,7 +286,7 @@ async def _perform_operation(
     if operation == "cancel":
         return await _cancel(session, result)
     if operation == "proposal":
-        return await _propose(session, fixture, rng, result)
+        return await _propose(session, fixture, rng, result, availability_session)
     raise ValueError("Unsupported workload operation")
 
 
@@ -286,21 +316,50 @@ async def _book(
         "starts_at": selected,
     }
     key = str(uuid4())
-    created = await session.client.post(
-        "/api/v1/appointments", json=body, headers={"Idempotency-Key": key}
-    )
+    route = "/api/v1/appointments"
+    headers = {"Idempotency-Key": key}
+    try:
+        created = await session.client.post(route, json=body, headers=headers)
+    except httpx.HTTPError:
+        try:
+            created = await session.client.post(route, json=body, headers=headers)
+        except httpx.HTTPError:
+            if result is not None:
+                result.ambiguous_write_failures += 1
+            return "ambiguous_write"
     if created.status_code == 409:
         return "business_conflict"
     if created.status_code not in {200, 201}:
-        return _http_outcome(created.status_code, expected={200, 201})
-    appointment_id = UUID(created.json()["id"])
+        if created.status_code < 500:
+            return _http_outcome(created.status_code, expected={200, 201})
+        try:
+            created = await session.client.post(route, json=body, headers=headers)
+        except httpx.HTTPError:
+            if result is not None:
+                result.ambiguous_write_failures += 1
+            return "ambiguous_write"
+    receipt = _receipt(created, ("id", "status", "created_at"))
+    if receipt is None:
+        try:
+            created = await session.client.post(route, json=body, headers=headers)
+        except httpx.HTTPError:
+            if result is not None:
+                result.ambiguous_write_failures += 1
+            return "ambiguous_write"
+        receipt = _receipt(created, ("id", "status", "created_at"))
+    if receipt is None or receipt["status"] != "UPCOMING":
+        if result is not None:
+            result.ambiguous_write_failures += 1
+        return "ambiguous_write"
+    appointment_id = UUID(str(receipt["id"]))
     session.appointments.append(appointment_id)
     if result is not None:
         result.created_booking_ids.append(appointment_id)
-    replay = await session.client.post(
-        "/api/v1/appointments", json=body, headers={"Idempotency-Key": key}
-    )
-    if not _same_receipt(replay, appointment_id):
+    try:
+        replay = await session.client.post(route, json=body, headers=headers)
+    except httpx.HTTPError:
+        replay = None
+    if not _same_receipt(replay, receipt):
         if result is not None:
             result.idempotency_failures += 1
         return "idempotency_replay_failed"
@@ -310,8 +369,6 @@ async def _book(
 
 
 async def _cancel(session: _Session, result: WorkloadResult | None = None) -> str:
-    if not session.appointments and session.credential.appointment_id is not None:
-        session.appointments.append(session.credential.appointment_id)
     if not session.appointments:
         return "no_owned_appointment"
     appointment_id = session.appointments.pop(0)
@@ -327,6 +384,7 @@ async def _propose(
     fixture: WorkloadFixture,
     rng: random.Random,
     result: WorkloadResult | None = None,
+    availability_session: _Session | None = None,
 ) -> str:
     try:
         staff_index = fixture.staff.index(session.credential)
@@ -340,7 +398,10 @@ async def _propose(
         return _http_outcome(history.status_code, expected={200})
     context = history.json()["context"]
     selected_date = datetime.now(_BUSINESS_TIMEZONE).date() + timedelta(days=3)
-    availability = await session.client.get(
+    # Availability is student-only. The staff session performs history and mutation calls;
+    # a distinct authenticated student session supplies a policy-valid slot preview.
+    slot_session = availability_session or session
+    availability = await slot_session.client.get(
         "/api/v1/availability",
         params={
             "purpose_id": str(fixture.purpose_id),
@@ -361,16 +422,61 @@ async def _propose(
     }
     key = str(uuid4())
     route = f"/api/v1/staff/me/appointments/{appointment_id}/change-proposals"
-    created = await session.client.post(route, json=body, headers={"Idempotency-Key": key})
+    headers = {"Idempotency-Key": key}
+    try:
+        created = await session.client.post(route, json=body, headers=headers)
+    except httpx.HTTPError:
+        try:
+            created = await session.client.post(route, json=body, headers=headers)
+        except httpx.HTTPError:
+            if result is not None:
+                result.ambiguous_write_failures += 1
+            return "ambiguous_write"
     if created.status_code == 409:
         return "business_conflict"
     if created.status_code not in {200, 201}:
-        return _http_outcome(created.status_code, expected={200, 201})
-    proposal_id = UUID(created.json()["id"])
+        if created.status_code < 500:
+            return _http_outcome(created.status_code, expected={200, 201})
+        try:
+            created = await session.client.post(route, json=body, headers=headers)
+        except httpx.HTTPError:
+            if result is not None:
+                result.ambiguous_write_failures += 1
+            return "ambiguous_write"
+    receipt = _receipt(
+        created,
+        ("id", "appointment_id", "created_version", "created_at", "expires_at"),
+    )
+    if receipt is None:
+        try:
+            created = await session.client.post(route, json=body, headers=headers)
+        except httpx.HTTPError:
+            if result is not None:
+                result.ambiguous_write_failures += 1
+            return "ambiguous_write"
+        receipt = _receipt(
+            created,
+            ("id", "appointment_id", "created_version", "created_at", "expires_at"),
+        )
+    if receipt is None:
+        if result is not None:
+            result.ambiguous_write_failures += 1
+        return "ambiguous_write"
+    if (
+        receipt["appointment_id"] != str(appointment_id)
+        or receipt["created_version"] != context["proposal_version"] + 1
+    ):
+        if result is not None:
+            result.ambiguous_write_failures += 1
+        return "ambiguous_write"
+    proposal_id = UUID(str(receipt["id"]))
     if result is not None:
         result.created_proposal_ids.append(proposal_id)
-    replay = await session.client.post(route, json=body, headers={"Idempotency-Key": key})
-    if not _same_receipt(replay, proposal_id):
+    try:
+        replay = await session.client.post(route, json=body, headers=headers)
+    except httpx.HTTPError:
+        replay = None
+    if not _same_receipt(replay, receipt):
         if result is not None:
             result.idempotency_failures += 1
         return "idempotency_replay_failed"
@@ -393,11 +499,50 @@ def _http_outcome(status: int, *, expected: set[int]) -> str:
     return "unexpected_http_status"
 
 
-def _same_receipt(response: httpx.Response, expected_id: UUID) -> bool:
-    if response.status_code != 200:
+def _receipt(response: httpx.Response, keys: tuple[str, ...]) -> dict[str, object] | None:
+    if response.status_code not in {200, 201}:
+        return None
+    try:
+        value = response.json()
+    except ValueError:
+        return None
+    if not isinstance(value, dict) or any(key not in value for key in keys):
+        return None
+    receipt = {key: value[key] for key in keys}
+    try:
+        UUID(str(receipt["id"]))
+        if "appointment_id" in receipt:
+            UUID(str(receipt["appointment_id"]))
+    except ValueError:
+        return None
+    for key in ("created_at", "expires_at"):
+        if key in receipt:
+            timestamp = receipt[key]
+            if not isinstance(timestamp, str):
+                return None
+            try:
+                parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            except ValueError:
+                return None
+            if parsed.tzinfo is None or parsed.utcoffset() is None:
+                return None
+    if "created_version" in receipt and (
+        isinstance(receipt["created_version"], bool)
+        or not isinstance(receipt["created_version"], int)
+        or receipt["created_version"] < 0
+    ):
+        return None
+    return receipt
+
+
+def _same_receipt(response: httpx.Response | None, expected: dict[str, object]) -> bool:
+    if response is None or response.status_code != 200:
         return False
     try:
-        return UUID(response.json()["id"]) == expected_id
+        actual = response.json()
+        return isinstance(actual, dict) and all(
+            actual.get(key) == value for key, value in expected.items()
+        )
     except (KeyError, TypeError, ValueError):
         return False
 
