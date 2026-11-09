@@ -198,6 +198,7 @@ async def collect_runtime_signals(
                 "api_scrape_samples",
                 "worker_scrape_samples",
                 "worker_backlog_samples",
+                "worker_backlog_fresh_samples",
             }
             and value is not None
         ):
@@ -216,10 +217,9 @@ async def collect_runtime_signals(
         signals.get("worker_scrape_samples", {}).get("status") == "measured"
         and signals.get("worker_telemetry_scrape_up", {}).get("value") == 1
         and signals.get("worker_backlog_samples", {}).get("status") == "measured"
-        and signals.get("worker_backlog_slot_count", {}).get("value") is not None
-        and signals.get("expected_worker_slot_count", {}).get("value") is not None
-        and signals.get("worker_backlog_slot_count", {}).get("value")
-        == signals.get("expected_worker_slot_count", {}).get("value")
+        and signals.get("worker_backlog_fresh_samples", {}).get("status") == "measured"
+        and signals.get("expected_worker_slot_count", {}).get("value", 0) > 0
+        and signals.get("missing_worker_backlog_slots", {}).get("value") == 0
     )
     api_metrics = (
         "api_pool_checked_out_max",
@@ -301,13 +301,18 @@ def _runtime_queries(range_seconds: int, environment: str) -> dict[str, str]:
             'min(count_over_time(prl_worker_backlog_count_ratio{service_name="worker",'
             f'deployment_environment_name="{selected_environment}"' + f"}}[{range_seconds}s]))"
         ),
-        "worker_backlog_slot_count": (
-            'count(count_over_time(prl_worker_backlog_count_ratio{service_name="worker",'
+        "worker_backlog_fresh_samples": (
+            'min(count_over_time(prl:worker:backlog_snapshot_fresh{service_name="worker",'
             f'deployment_environment_name="{selected_environment}"' + f"}}[{range_seconds}s]))"
         ),
         "expected_worker_slot_count": (
-            'count(prl_expected_worker_slot{job="local-alert-receiver",service_name="worker",'
-            f'deployment_environment_name="{selected_environment}"' + "})"
+            'count(prl_expected_worker_slot{job="local-alert-receiver",service_name="worker"})'
+        ),
+        "missing_worker_backlog_slots": (
+            'count(prl_expected_worker_slot{job="local-alert-receiver",service_name="worker"}'
+            " unless on(worker_slot) "
+            'prl:worker:backlog_snapshot_fresh{service_name="worker",'
+            f'deployment_environment_name="{selected_environment}"' + "}) or vector(0)"
         ),
         "worker_backlog_max": (
             'max(max_over_time(prl_worker_backlog_count_ratio{service_name="worker",'

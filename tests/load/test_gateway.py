@@ -479,11 +479,14 @@ def test_worker_backlog_signal_captures_peak_over_the_observed_window():
         'deployment_environment_name="demo"}[600s]))'
     )
     assert "worker_backlog_samples" in queries
-    assert "worker_backlog_slot_count" in queries
+    assert "missing_worker_backlog_slots" in queries
+    assert "prl:worker:backlog_snapshot_fresh" in queries["worker_backlog_fresh_samples"]
+    assert "prl:worker:backlog_snapshot_fresh" in queries["missing_worker_backlog_slots"]
     assert (
         'prl_expected_worker_slot{job="local-alert-receiver"'
         in queries["expected_worker_slot_count"]
     )
+    assert "unless on(worker_slot)" in queries["missing_worker_backlog_slots"]
     assert queries["api_pool_checked_out_max"] == (
         'max(max_over_time(prl_db_pool_checked_out{job="api"}[600s]))'
     )
@@ -517,7 +520,19 @@ def test_runtime_collection_uses_workload_end_after_delayed_collection(monkeypat
                                 (
                                     "1"
                                     if name.endswith("_up")
-                                    else "2" if "slot_count" in name else "40"
+                                    else (
+                                        "2"
+                                        if name == "expected_worker_slot_count"
+                                        else (
+                                            "0"
+                                            if name == "missing_worker_backlog_slots"
+                                            else (
+                                                "40"
+                                                if name == "worker_backlog_fresh_samples"
+                                                else "40"
+                                            )
+                                        )
+                                    )
                                 ),
                             ]
                         }
@@ -555,6 +570,7 @@ def test_runtime_collection_uses_workload_end_after_delayed_collection(monkeypat
                                         "api_scrape_samples",
                                         "worker_scrape_samples",
                                         "worker_backlog_samples",
+                                        "worker_backlog_fresh_samples",
                                     }
                                     else "1" if name.endswith("_up") else "40"
                                 ),
@@ -584,7 +600,11 @@ def test_runtime_collection_uses_workload_end_after_delayed_collection(monkeypat
                                 (
                                     "1"
                                     if name == "worker_backlog_samples"
-                                    else "1" if name.endswith("_up") else "40"
+                                    else (
+                                        "1"
+                                        if name == "worker_backlog_fresh_samples"
+                                        else "1" if name.endswith("_up") else "40"
+                                    )
                                 ),
                             ]
                         }
@@ -611,7 +631,7 @@ def test_runtime_collection_uses_workload_end_after_delayed_collection(monkeypat
                                 "0",
                                 (
                                     "1"
-                                    if name == "worker_backlog_slot_count"
+                                    if name == "missing_worker_backlog_slots"
                                     else (
                                         "2"
                                         if name == "expected_worker_slot_count"
