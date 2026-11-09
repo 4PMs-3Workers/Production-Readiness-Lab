@@ -213,12 +213,14 @@ async def collect_runtime_signals(
         signals.get("api_scrape_samples", {}).get("status") == "measured"
         and signals.get("api_scrape_up", {}).get("value") == 1
     )
+    expected_worker_slot_count = signals.get("expected_worker_slot_count", {}).get("value")
     worker_covered = (
         signals.get("worker_scrape_samples", {}).get("status") == "measured"
         and signals.get("worker_telemetry_scrape_up", {}).get("value") == 1
         and signals.get("worker_backlog_samples", {}).get("status") == "measured"
         and signals.get("worker_backlog_fresh_samples", {}).get("status") == "measured"
-        and signals.get("expected_worker_slot_count", {}).get("value", 0) > 0
+        and expected_worker_slot_count is not None
+        and expected_worker_slot_count > 0
         and signals.get("missing_worker_backlog_slots", {}).get("value") == 0
     )
     api_metrics = (

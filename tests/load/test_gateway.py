@@ -651,6 +651,40 @@ def test_runtime_collection_uses_workload_end_after_delayed_collection(monkeypat
     missing_signals = cast(dict[str, dict[str, object]], missing["signals"])
     assert missing_signals["worker_backlog_max"]["status"] == "unavailable"
 
+    async def no_expected_worker_inventory(_client, _url, queries, _query_end):
+        return {
+            name: {
+                "status": "success",
+                "data": {
+                    "result": (
+                        []
+                        if name == "expected_worker_slot_count"
+                        else [
+                            {
+                                "value": [
+                                    "0",
+                                    (
+                                        "1"
+                                        if name.endswith("_up")
+                                        else "0" if name == "missing_worker_backlog_slots" else "40"
+                                    ),
+                                ]
+                            }
+                        ]
+                    )
+                },
+            }
+            for name in queries
+        }
+
+    monkeypatch.setattr(
+        "tools.load.gateway._gather_prometheus_queries", no_expected_worker_inventory
+    )
+    no_inventory = asyncio.run(collect_runtime_signals("https://prom.invalid", start, end))
+    no_inventory_signals = cast(dict[str, dict[str, object]], no_inventory["signals"])
+    assert no_inventory_signals["expected_worker_slot_count"]["status"] == "unavailable"
+    assert no_inventory_signals["worker_backlog_max"]["status"] == "unavailable"
+
 
 def test_query_times_require_timezone_and_service_url_is_redacted():
     assert _to_ns(datetime(2026, 11, 8, tzinfo=UTC)) > 0
