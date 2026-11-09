@@ -2,6 +2,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { isMockMode } from '@/lib/application-mode';
+import { adminSections, type AdminSection } from '@/features/admin/admin-routes';
 
 import { PortalAccount, PortalProfile } from './portal-account';
 import styles from './portal-shell.module.css';
@@ -21,7 +22,7 @@ export function PortalShell({
     | 'preferences'
     | 'unavailability'
     | 'notifications'
-    | 'accounts';
+    | AdminSection;
   audience?: 'student' | 'staff' | 'admin';
 }) {
   const portalHome =
@@ -49,7 +50,7 @@ export function PortalShell({
     section === 'notifications';
   const sectionTitle =
     audience === 'admin'
-      ? 'Quản lý tài khoản'
+      ? adminSections[section in adminSections ? (section as AdminSection) : 'accounts'].title
       : audience === 'staff' && staffActive
         ? staffSections[section]
         : section === 'home'
@@ -103,13 +104,16 @@ export function PortalShell({
         </div>
         {audience === 'admin' ? (
           <nav aria-label="Điều hướng quản trị">
-            <Link
-              href="/admin/accounts"
-              className={`${styles.navLink} ${styles.activeLink}`}
-              aria-current="page"
-            >
-              Quản lý tài khoản
-            </Link>
+            {Object.entries(adminSections).map(([key, item]) => (
+              <Link
+                key={key}
+                href={item.path}
+                className={`${styles.navLink} ${section === key ? styles.activeLink : ''}`}
+                aria-current={section === key ? 'page' : undefined}
+              >
+                {item.title}
+              </Link>
+            ))}
           </nav>
         ) : audience === 'staff' ? (
           <nav aria-label="Điều hướng nhân viên">
@@ -238,14 +242,18 @@ export function PortalShell({
           </span>
           <strong>
             {audience === 'admin'
-              ? 'Quản lý tài khoản nội bộ'
+              ? section === 'accounts'
+                ? 'Quản lý tài khoản nội bộ'
+                : 'Khả dụng cho lịch mới'
               : audience === 'staff'
                 ? 'Hỗ trợ sinh viên hiệu quả'
                 : 'Luôn có người đồng hành'}
           </strong>
           <p>
             {audience === 'admin'
-              ? 'Thay đổi quyền, trạng thái và mật khẩu kết thúc các phiên đăng nhập của tài khoản được cập nhật.'
+              ? section === 'accounts'
+                ? 'Thay đổi quyền, trạng thái và mật khẩu kết thúc các phiên đăng nhập của tài khoản được cập nhật.'
+                : 'Lịch đã xác nhận giữ nguyên thời điểm và thời lượng đã lưu.'
               : audience === 'staff'
                 ? 'Thông tin lịch và trạng thái tiếp nhận được cập nhật từ hệ thống.'
                 : 'Chọn một cuộc hẹn để trao đổi về học tập, nghiên cứu và định hướng của bạn.'}
