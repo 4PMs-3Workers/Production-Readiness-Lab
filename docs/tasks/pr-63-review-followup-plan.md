@@ -41,6 +41,7 @@ Run each focused suite after its tests and implementation. Finish with load/back
 - Gateway event collection accepts the measured 22,554-request standard workload while keeping a finite 50,000-record aggregate ceiling and the existing 5,000-row per-query ceiling.
 - Successful and failed `status`/`config` checks write under `checks/` and preserve the active deployment manifest and public attestation.
 - Focused tests reproduce all five GitHub findings and reviewer follow-ups for exact worker-slot identity, stale snapshots, missing inventory, and truthful output paths.
+- On the current `develop` merge, reviewed rollout compatibility recognizes the three backward-compatible PR #63 config additions for the predecessor release, while still rejecting unrelated drift and leaving HTTPS-only inventories unaffected.
 
 ### Implementation parts
 
@@ -54,8 +55,14 @@ Run each focused suite after its tests and implementation. Finish with load/back
 - [x] Reproduced all five GitHub findings and four final-review follow-ups with focused regressions; targeted assertions failed before their implementation changes.
 - [x] Run all load tests, affected backend suites, formatting, lint, and `git diff --check`.
 - [x] Run Pyright 1.1.407 locally: 0 errors, 0 warnings, 0 informations.
-- [ ] Push the final SHA and verify final PR CI.
+- [ ] Push the updated-develop fix and verify final PR CI.
 - [ ] Complete follow-up review of the final diff, push, and verify CI on the final SHA.
+
+### Updated-develop CI follow-up
+
+The PR Actions synthetic merge includes `develop` commit `92d9157`, which added `test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host`. That test exposed three PR #63 file identity changes not yet listed in `ADMIN_POLICY_TRANSITION`: the local public evidence mount and gateway artifact-health routing. Add exact prior/current hashes, apply only transition entries present in the selected overlay inventory, and extend the release-manifest regression. Commit: `fix(rollout): preserve attestation upgrade compatibility`.
+
+The regression initially failed on the current branch, then passed after the transition update. `docker info` cannot connect to the local Docker Desktop Linux Engine, so the long Linux container rehearsal must be verified by PR CI.
 
 ### Ruling
 
@@ -65,11 +72,15 @@ When no deployment manifest exists, keep the existing initial `status`/`config` 
 
 - [x] `tests/load`: 65 passed, 1 skipped.
 - [x] `tests/backend/unit`: 1,487 passed, 1 skipped on the final sequential rerun. One prior subprocess timeout occurred while the load suite ran concurrently; the same test passed alone in 1.72 seconds.
+- [x] After merging current `develop`, `tests/backend/unit`: 1,505 passed, 1 skipped; release-manifest transition suite: 57 passed.
 - [x] Focused post-format regressions: 75 passed, 1 skipped.
 - [x] After final-review fixes, combined `tests/load` and deployment operator suite: 121 passed, 2 skipped.
 - [x] Final inventory-missing follow-up: focused gateway/report/deployment regressions 76 passed, 1 skipped; full `tests/load` 65 passed, 1 skipped.
+- [x] Latest `tests/load`: 65 passed, 1 skipped; latest Pyright 1.1.407: 0 errors, 0 warnings, 0 informations.
 - [x] Black check and Ruff check passed; `git diff --check` passed.
 - [x] Implement and commit load coverage/budget, manifest-based attestation identity, read-only evidence preservation, exact worker freshness, and truthful output path.
 - [x] Treat an empty expected-worker inventory as unavailable without raising; rerun full load tests.
+- [x] Allow the three backward-compatible public-attestation configuration changes in reviewed predecessor transitions, while keeping HTTPS overlay-specific paths optional and unrelated drift rejected.
 - [x] Pyright 1.1.407 passed locally with 0 errors, 0 warnings, and 0 informations.
+- [ ] Updated-develop rollout compatibility regression and full local suites.
 - [ ] Final PR CI is pending.
