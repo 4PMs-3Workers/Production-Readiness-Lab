@@ -252,3 +252,14 @@ The PDF prints exact original excerpts and embeds the complete sources plus the
 current AI Usage Log. Prompt excerpts and condensed input/output records are
 labeled separately. AppendixA spans2pages for legibility; the8main pages and
 execution/data appendices remain, making12pages total. No experiment rerun.
+
+
+## AI attribution and appendix consistency update on09/11/2026
+
+The embedded log header now identifies initial Codex work on01/11, the student's
+self-execution on02/11 and personal diff review/notes on03/11. Claude/Anthropic
+external feedback supplied by the student is declared, with no unverified blanket
+claim about its repo/test access. ai-usage-manifest.json and prompts/manifest.json
+cover the log's canonical UTF-8/LF bytes and tool roles. Printed appendix wording,
+review finding/evidence links and B1/B3 reference placement are revised.
+Original prompt bytes, raw ZIP, code/tests/config and measured outcomes unchanged.

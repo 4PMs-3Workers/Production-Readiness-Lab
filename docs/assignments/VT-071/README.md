@@ -363,3 +363,11 @@ excerpts/full planning prompt and separates them from the condensed usage table.
 The PDF embeds the complete user prompt, planning prompt and AI Usage Log, like
 the earlier assignment's Attachments workflow. Main content remains8pages;
 four appendix pages bring the report to12pages. No source/test change or new run.
+
+
+## AI tool disclosure and dated attribution
+
+[AI Usage Log](ai-usage-log.md) now opens with the01/02/03-November timeline and
+declares Codex plus Claude (Anthropic) review feedback relayed by the student.
+[AI log manifest](ai-usage-manifest.json) records tools, attribution, byte size
+and SHA256 for the embedded log. Original prompt checksums remain unchanged.

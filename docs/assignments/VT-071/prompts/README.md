@@ -23,7 +23,7 @@ PDF in toàn bộ prompt này và nhúng dưới tên `Prompt_plan_BT3_VT071.txt
 ## Prompt review sau test và bảng lịch sử
 
 PDF giữ đoạn prompt post-test review đã được lưu trước đó; không gắn nhãn toàn
-bộ transcript cho phần chỉ còn trích đoạn. BảngU1-U30 trong
+bộ transcript cho phần chỉ còn trích đoạn. BảngU1-U31 trong
 [ai-usage-log.md](../ai-usage-log.md) là tóm tắt input/output/quyết định, không phải
 nguyên văn từng prompt. AI Usage Log đầy đủ cũng được nhúng vào PDF dưới tên
 `AI_Usage_Log_BT3_VT071.md` để có thể đọc khi không truy cập mạng.
@@ -31,3 +31,14 @@ nguyên văn từng prompt. AI Usage Log đầy đủ cũng được nhúng vào
 [manifest.json](manifest.json) có size/SHA256, nguồn của từng tệp và các đoạn
 trích dùng trong PDF. Prompt tổng, prompt giao agent và bản tóm tắt output được
 phân biệt rõ; không bổ sung lượt thực thi hoặc AI response chưa có bản ghi.
+
+
+## AI Usage Log và khai báo công cụ
+
+[ai-usage-manifest.json](../ai-usage-manifest.json) ghi ngày cập nhật, attribution
+01/02/03-November, vai trò Codex và Claude (Anthropic), size/SHA256 của log nhúng.
+Log dùng UTF-8/LF để Git blob, file nguồn và tệp nhúng có cùng bytes. Entry thứba
+trong manifest tại đây trỏ tới log đó; hai entry prompt gốc vẫn giữ nguyên hash.
+Claude được khai báo qua các nhận xét người học chuyển vào chat; mô tả quyền
+truy cập/test của lượt rà soát ngoài không được suy đoán hoặc nhập vào tổng test
+do Codex/người học thực hiện.

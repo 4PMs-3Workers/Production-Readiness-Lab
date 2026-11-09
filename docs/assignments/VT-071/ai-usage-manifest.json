@@ -1,0 +1,40 @@
+{
+  "updated_on_local_date": "2026-11-09",
+  "timezone": "Asia/Bangkok",
+  "file": "ai-usage-log.md",
+  "pdf_attachment": "AI_Usage_Log_BT3_VT071.md",
+  "encoding": "UTF-8, LF line endings",
+  "bytes": 17247,
+  "sha256": "29d1c76b1c67d0182a620fee7b395920f9b36cc33dec152ca27c18c8d0a957cc",
+  "tools": [
+    {
+      "name": "Codex",
+      "role": "Repository/lecture analysis, plan, tests/patch, post-test review, experiments, evidence and PDF authoring; one coding-agent subtask reused."
+    },
+    {
+      "name": "Claude",
+      "provider": "Anthropic",
+      "role": "External review feedback relayed by the student in chat; changes checked against source and attributable logs.",
+      "model_version": "not independently verified",
+      "access_and_execution_scope": "Some supplied reviews self-report repo/sandbox checks. These remain external-review claims; no blanket assertion of no repo access or no test execution, and no addition to student/Codex run totals."
+    }
+  ],
+  "execution_timeline": [
+    {
+      "date": "2026-11-01",
+      "actor": "Codex",
+      "activity": "Initial engineering work and experiments."
+    },
+    {
+      "date": "2026-11-02",
+      "actor": "Student",
+      "activity": "Functional/OpenAPI41pass, TC18, coverage, mutation, production-pool load; evidence/student-20261102."
+    },
+    {
+      "date": "2026-11-03",
+      "actor": "Student",
+      "activity": "Confirmed diff reading/oral preparation and supplied seven personal review notes."
+    }
+  ],
+  "team_review": "No team approval or merge recorded by this update."
+}

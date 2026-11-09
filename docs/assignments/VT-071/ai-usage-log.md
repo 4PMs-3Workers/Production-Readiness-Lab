@@ -1,12 +1,36 @@
 # AI Usage Log - actual interactions
 
-Date: 2026-11-01, Asia/Bangkok. Tool: Codex with shell, GitHub connector, Python,
-ReportLab/Poppler and one coding-agent subtask reused for post-test review.
-This is AI-assisted work. No human review/approval or manual student execution is claimed.
+Initial work:2026-11-01. Attribution updated:2026-11-09, Asia/Bangkok.
+
+## Execution and review attribution by date
+
+- 01/11: Codex performed the initial planning, patch/test work and experiments.
+- 02/11: the student personally reran41functional/OpenAPI tests, TC18, coverage,
+  mutation and the production-pool load; separate captured evidence is preserved.
+- 03/11: the student confirmed reading the four-file production diff, completing
+  oral-preparation questions and supplied seven personal review statements.
+- Team approval/merge is not recorded. Student review and self-execution above
+  are distinct from the earlier Codex phase. See U23-U31 and the student ledger.
+
+## AI tools and contribution scope
+
+Codex with one coding-agent subtask: repository/lecture analysis, implementation
+plan, tests/patch, post-test review, experiments and PDF authoring. Shell/Git,
+GitHub connector, Python/MySQL and ReportLab/Poppler support those activities.
+
+Claude (Anthropic, review feedback relayed by the student in chat): supplied
+external review inputs on coverage/greenlet, mock/DB contracts, mutation/M5,
+NullPool/production-pool interpretation, PR scope and report consistency. Codex
+checked proposed changes against repository files and attributable execution logs
+before using them. The model version and external tool access are not independently
+established here. Some supplied reviews self-report repository/sandbox checks;
+they remain external-review claims and are not counted as Codex/student test runs.
+This disclosure does not assert that Claude never accessed a repository or ran tests.
 
 Original prompt sources: [complete user prompt](prompts/original-request.txt),
 [verbatim planning prompt](prompts/plan-prompt.txt), and
-[provenance/checksums](prompts/manifest.json). The table below is a condensed
+[provenance/checksums](prompts/manifest.json). Tool/timeline attribution is recorded in [ai-usage-manifest.json](ai-usage-manifest.json).
+The table below is a condensed
 interaction history, not a verbatim transcript of each prompt. The PDF now prints
 original excerpts and the full planning prompt, with complete source files embedded.
 
@@ -193,3 +217,14 @@ into a prompt/source page and a condensed usage/decision page; embedded full use
 prompt, planning prompt and AI Usage Log in the PDF, with hashes for source checks.
 Main content remains8pages; appendices now4pages, total12. Source, tests, original
 measurement logs, reflection330words and student-authored review notes unchanged.
+
+
+U31: On09/11/2026 the user identified a stale blanket denial in the embedded
+usage-log header and missing Claude attribution. Codex replaced the header with
+dated01/02/03-November responsibilities and declared Claude/Anthropic review
+feedback supplied by the student, without inventing model/access/execution
+metadata. Added a canonical-LF AI-log checksum/tool manifest and refreshed the
+embedded log. AppendixA now ties kept/changed/rejected outputs to named evidence
+and summarizes supported versus insufficient review findings. Moved original-red
+and student-pool references into B1/B3. Original prompts, raw evidence,330-word
+reflection and personal review notes remain unchanged. No test/load rerun or merge.
