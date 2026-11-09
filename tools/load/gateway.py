@@ -14,7 +14,9 @@ import httpx
 from tools.deploy.evidence import validate_target_attestation
 from tools.load.metrics import GatewayEvent
 
-MAX_GATEWAY_RECORDS = 20_000
+# A 600-second, 20-session run produced 22,554 request IDs before saturation.
+# Keep a finite hard ceiling while leaving headroom for normal workload variance.
+MAX_GATEWAY_RECORDS = 50_000
 MAX_LOKI_ENTRIES_PER_QUERY = 5_000
 LOKI_QUERY_SLICE_SECONDS = 30
 MAX_TARGET_ATTESTATION_AGE_SECONDS = 900
@@ -190,7 +192,15 @@ async def collect_runtime_signals(
     assert isinstance(signals, dict)
     for key, response in responses.items():
         value = _prometheus_scalar(response)
-        if key in {"api_scrape_samples", "worker_scrape_samples"} and value is not None:
+        if (
+            key
+            in {
+                "api_scrape_samples",
+                "worker_scrape_samples",
+                "worker_backlog_samples",
+            }
+            and value is not None
+        ):
             minimum_samples = max(1, math.floor(range_seconds / 15))
             if value < minimum_samples:
                 value = None
@@ -205,6 +215,11 @@ async def collect_runtime_signals(
     worker_covered = (
         signals.get("worker_scrape_samples", {}).get("status") == "measured"
         and signals.get("worker_telemetry_scrape_up", {}).get("value") == 1
+        and signals.get("worker_backlog_samples", {}).get("status") == "measured"
+        and signals.get("worker_backlog_slot_count", {}).get("value") is not None
+        and signals.get("expected_worker_slot_count", {}).get("value") is not None
+        and signals.get("worker_backlog_slot_count", {}).get("value")
+        == signals.get("expected_worker_slot_count", {}).get("value")
     )
     api_metrics = (
         "api_pool_checked_out_max",
@@ -282,8 +297,20 @@ def _runtime_queries(range_seconds: int, environment: str) -> dict[str, str]:
         "worker_scrape_samples": (
             f'min(count_over_time(up{{job="application-otel"}}[{range_seconds}s]))'
         ),
+        "worker_backlog_samples": (
+            'min(count_over_time(prl_worker_backlog_count_ratio{service_name="worker",'
+            f'deployment_environment_name="{selected_environment}"' + f"}}[{range_seconds}s]))"
+        ),
+        "worker_backlog_slot_count": (
+            'count(count_over_time(prl_worker_backlog_count_ratio{service_name="worker",'
+            f'deployment_environment_name="{selected_environment}"' + f"}}[{range_seconds}s]))"
+        ),
+        "expected_worker_slot_count": (
+            'count(prl_expected_worker_slot{job="local-alert-receiver",service_name="worker",'
+            f'deployment_environment_name="{selected_environment}"' + "})"
+        ),
         "worker_backlog_max": (
-            'max(max_over_time(prl_worker_backlog_count{service_name="worker",'
+            'max(max_over_time(prl_worker_backlog_count_ratio{service_name="worker",'
             f'deployment_environment_name="{selected_environment}"' + f"}}[{range_seconds}s]))"
         ),
         "api_pool_checked_out_max": (

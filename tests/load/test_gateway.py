@@ -5,6 +5,7 @@ from typing import cast
 import httpx
 import pytest
 from tools.load.gateway import (
+    MAX_GATEWAY_RECORDS,
     _gateway_event,
     _prometheus_scalar,
     _runtime_queries,
@@ -157,19 +158,20 @@ def test_gateway_window_applies_workload_budget_after_matching_request_ids(monke
         slices += 1
         expected = [
             {**event, "request_id": f"expected-{index}"}
-            for index in range(start_index, min(start_index + 600, 12_000))
+            for index in range(start_index, min(start_index + 600, 22_554))
         ]
         unrelated = [{**event, "request_id": f"noise-{slices}-{index}"} for index in range(500)]
         return unrelated + expected, True
 
     monkeypatch.setattr("tools.load.gateway._query_loki", fake_query)
-    ids = {f"expected-{index}" for index in range(12_000)}
+    ids = {f"expected-{index}" for index in range(22_554)}
+    assert MAX_GATEWAY_RECORDS >= len(ids)
     result = asyncio.run(
         collect_gateway_window(
             "http://localhost:3100",
             "a" * 40,
             datetime(2026, 11, 8, tzinfo=UTC),
-            datetime(2026, 11, 8, 0, 10, tzinfo=UTC),
+            datetime(2026, 11, 8, 0, 20, tzinfo=UTC),
             expected_records=len(ids),
             expected_request_ids=ids,
         )
@@ -177,7 +179,7 @@ def test_gateway_window_applies_workload_budget_after_matching_request_ids(monke
 
     assert result.complete is True
     assert result.returned_records == len(ids)
-    assert slices == 21
+    assert slices == 41
 
 
 def test_release_preflight_pads_loki_start_for_whole_second_timestamps(monkeypatch):
@@ -473,8 +475,14 @@ def test_worker_backlog_signal_captures_peak_over_the_observed_window():
     queries = _runtime_queries(600, "demo")
     query = queries["worker_backlog_max"]
     assert query == (
-        'max(max_over_time(prl_worker_backlog_count{service_name="worker",'
+        'max(max_over_time(prl_worker_backlog_count_ratio{service_name="worker",'
         'deployment_environment_name="demo"}[600s]))'
+    )
+    assert "worker_backlog_samples" in queries
+    assert "worker_backlog_slot_count" in queries
+    assert (
+        'prl_expected_worker_slot{job="local-alert-receiver"'
+        in queries["expected_worker_slot_count"]
     )
     assert queries["api_pool_checked_out_max"] == (
         'max(max_over_time(prl_db_pool_checked_out{job="api"}[600s]))'
@@ -499,7 +507,23 @@ def test_runtime_collection_uses_workload_end_after_delayed_collection(monkeypat
         observed["queries"] = queries
         observed["end"] = query_end
         return {
-            name: {"status": "success", "data": {"result": [{"value": ["0", "40"]}]}}
+            name: {
+                "status": "success",
+                "data": {
+                    "result": [
+                        {
+                            "value": [
+                                "0",
+                                (
+                                    "1"
+                                    if name.endswith("_up")
+                                    else "2" if "slot_count" in name else "40"
+                                ),
+                            ]
+                        }
+                    ]
+                },
+            }
             for name in queries
         }
 
@@ -513,12 +537,31 @@ def test_runtime_collection_uses_workload_end_after_delayed_collection(monkeypat
     assert result["window_end"] == end.isoformat()
     result_signals = cast(dict[str, dict[str, object]], result["signals"])
     assert result_signals["worker_scrape_samples"]["status"] == "measured"
+    assert result_signals["worker_backlog_max"]["status"] == "measured"
 
     async def sparse_gather(_client, _url, queries, _query_end):
         return {
             name: {
                 "status": "success",
-                "data": {"result": [{"value": ["0", "39" if "scrape_samples" in name else "40"]}]},
+                "data": {
+                    "result": [
+                        {
+                            "value": [
+                                "0",
+                                (
+                                    "39"
+                                    if name
+                                    in {
+                                        "api_scrape_samples",
+                                        "worker_scrape_samples",
+                                        "worker_backlog_samples",
+                                    }
+                                    else "1" if name.endswith("_up") else "40"
+                                ),
+                            ]
+                        }
+                    ]
+                },
             }
             for name in queries
         }
@@ -528,6 +571,65 @@ def test_runtime_collection_uses_workload_end_after_delayed_collection(monkeypat
     sparse_signals = cast(dict[str, dict[str, object]], sparse["signals"])
     assert sparse_signals["api_scrape_samples"]["status"] == "unavailable"
     assert sparse_signals["worker_backlog_max"]["status"] == "unavailable"
+
+    async def sparse_worker_metrics(_client, _url, queries, _query_end):
+        return {
+            name: {
+                "status": "success",
+                "data": {
+                    "result": [
+                        {
+                            "value": [
+                                "0",
+                                (
+                                    "1"
+                                    if name == "worker_backlog_samples"
+                                    else "1" if name.endswith("_up") else "40"
+                                ),
+                            ]
+                        }
+                    ]
+                },
+            }
+            for name in queries
+        }
+
+    monkeypatch.setattr("tools.load.gateway._gather_prometheus_queries", sparse_worker_metrics)
+    sparse_worker = asyncio.run(collect_runtime_signals("https://prom.invalid", start, end))
+    sparse_worker_signals = cast(dict[str, dict[str, object]], sparse_worker["signals"])
+    assert sparse_worker_signals["worker_backlog_samples"]["status"] == "unavailable"
+    assert sparse_worker_signals["worker_backlog_max"]["status"] == "unavailable"
+
+    async def missing_worker_slot(_client, _url, queries, _query_end):
+        return {
+            name: {
+                "status": "success",
+                "data": {
+                    "result": [
+                        {
+                            "value": [
+                                "0",
+                                (
+                                    "1"
+                                    if name == "worker_backlog_slot_count"
+                                    else (
+                                        "2"
+                                        if name == "expected_worker_slot_count"
+                                        else "1" if name.endswith("_up") else "40"
+                                    )
+                                ),
+                            ]
+                        }
+                    ]
+                },
+            }
+            for name in queries
+        }
+
+    monkeypatch.setattr("tools.load.gateway._gather_prometheus_queries", missing_worker_slot)
+    missing = asyncio.run(collect_runtime_signals("https://prom.invalid", start, end))
+    missing_signals = cast(dict[str, dict[str, object]], missing["signals"])
+    assert missing_signals["worker_backlog_max"]["status"] == "unavailable"
 
 
 def test_query_times_require_timezone_and_service_url_is_redacted():
