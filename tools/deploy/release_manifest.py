@@ -243,7 +243,9 @@ def configuration(overlay: str, observability: bool, root: Path = ROOT) -> Confi
 GRANTS_PATH = "tools/deploy/mysql/grants.sql"
 
 # Issue #50 adds routes and runtime privileges without removing the base release's
-# routes or grants. No other file difference is covered by this transition.
+# routes or grants. Issue #53 adds a read-only public attestation mount and health
+# endpoint without changing the existing host's deployment state. These exact file
+# identities let the reviewed upgrade preserve and later restore that predecessor.
 ADMIN_POLICY_TRANSITION = {
     GRANTS_PATH: (
         "6350525d0dace2a66459f486606e2f45a1d84e48cc673e0ab1a38f8e3c49a926",
@@ -253,17 +255,32 @@ ADMIN_POLICY_TRANSITION = {
         "1c5c8eaa269404fff5f30bd8eecd5733768891b5226684bb5f867748b29ce5fd",
         "47b24ed0346691dbc949d958fe351f29af893727bbecdde172793358a83fd90c",
     ),
+    "tools/deploy/compose.local.yaml": (
+        "c6017399bdf443a3ac5e27d6e64cc6bec3e7fc1f038baf9e71332a9c99d2bf44",
+        "5766741d8e44c72fc5487cd689ca658a6780e9f8cf804481df4f3a9a89bbb758",
+    ),
+    "tools/deploy/nginx/nginx.conf": (
+        "35220da5abdb389321cb47f8688286fc0d4e6a70ea54442db4d087998178248b",
+        "dd8331ac797a1f5bfa5c05eb3a33af815fd188346058860d9e9e27e631343597",
+    ),
+    "tools/deploy/nginx/routes.conf": (
+        "5e9f6e34f6911366c0c785f1ab62249e4bb58f9bcaed112c74f8637e1532e925",
+        "ebfdcf0a4efcf8f13b8a9423e69ed251ea70a5ebc8193eefcf4d477b4ed5fc22",
+    ),
 }
 
 
 def previous_configuration(current: Configuration) -> Configuration | None:
     hashes = {item.path: item.sha256 for item in current.files}
-    if any(hashes.get(path) != after for path, (_, after) in ADMIN_POLICY_TRANSITION.items()):
+    transition = {
+        path: versions for path, versions in ADMIN_POLICY_TRANSITION.items() if path in hashes
+    }
+    if not transition or any(hashes[path] != after for path, (_, after) in transition.items()):
         return None
     data = current.model_dump(exclude={"sha256"})
     for item in data["files"]:
-        if item["path"] in ADMIN_POLICY_TRANSITION:
-            item["sha256"] = ADMIN_POLICY_TRANSITION[item["path"]][0]
+        if item["path"] in transition:
+            item["sha256"] = transition[item["path"]][0]
     data["sha256"] = hashlib.sha256(canonical(data)).hexdigest()
     return parse(canonical(data), Configuration)
 
