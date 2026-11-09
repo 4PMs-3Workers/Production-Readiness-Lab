@@ -133,6 +133,27 @@ def test_deployed_artifact_identity_requires_matching_passing_manifest(tmp_path)
     )
 
 
+def test_deployed_artifact_identity_uses_manifest_when_public_attestation_is_separate(tmp_path):
+    source_sha = _write_deployment_manifest(tmp_path)
+    public = tmp_path / "build-public" / "deploy" / source_sha
+    public.mkdir(parents=True)
+    attestation = json.loads(
+        (tmp_path / "build" / "deploy" / source_sha / "attestation.json").read_text()
+    )
+    (public / "attestation.json").write_text(json.dumps(attestation), encoding="utf-8")
+    (tmp_path / "build" / "deploy" / source_sha / "attestation.json").unlink()
+
+    result = _deployed_artifact_identity(
+        tmp_path,
+        source_sha,
+        target_url="https://candidate.invalid",
+        target_attestation_sha256=attestation["attestation_sha256"],
+    )
+
+    assert result["target_artifact_identity_complete"] is True
+    assert result["runtime_attestation_sha256"] == attestation["attestation_sha256"]
+
+
 def test_deployed_artifact_identity_rejects_incomplete_image_identity(tmp_path):
     source_sha = _write_deployment_manifest(tmp_path, missing_image_id=True)
     result = _deployed_artifact_identity(

@@ -146,20 +146,16 @@ def _deployed_artifact_identity(
         and isinstance(manifest_origin, str)
         and _normalized_origin(target_url) == _normalized_origin(manifest_origin)
     )
-    attestation_path = manifest.with_name("attestation.json")
     try:
-        attestation_value = json.loads(attestation_path.read_text(encoding="utf-8"))
-        attestation_value = validate_target_attestation(attestation_value)
         expected_attestation = create_target_attestation(value)
-    except (OSError, ValueError, TypeError, KeyError):
-        attestation_value = None
+        expected_attestation = validate_target_attestation(expected_attestation)
+    except (ValueError, TypeError, KeyError):
         expected_attestation = {"status": "unavailable"}
-    local_attestation_matches = attestation_value == expected_attestation
     runtime_attestation_matches = (
-        isinstance(attestation_value, dict)
-        and local_attestation_matches
+        isinstance(expected_attestation, dict)
+        and expected_attestation.get("status") == "active"
         and isinstance(target_attestation_sha256, str)
-        and target_attestation_sha256 == attestation_value.get("attestation_sha256")
+        and target_attestation_sha256 == expected_attestation.get("attestation_sha256")
     )
     return {
         "status": (
@@ -186,9 +182,7 @@ def _deployed_artifact_identity(
         "configuration_sha256": configuration_sha,
         "manifest_sha256": hashlib.sha256(encoded).hexdigest(),
         "runtime_attestation_sha256": (
-            attestation_value.get("attestation_sha256")
-            if isinstance(attestation_value, dict)
-            else None
+            target_attestation_sha256 if runtime_attestation_matches else None
         ),
     }
 
