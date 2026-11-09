@@ -60,7 +60,7 @@ Run each focused suite after its tests and implementation. Finish with load/back
 
 ### Updated-develop CI follow-up
 
-The PR Actions synthetic merge includes `develop` commit `92d9157`, which added `test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host`. That test exposed three PR #63 file identity changes not yet listed in `ADMIN_POLICY_TRANSITION`: the local public evidence mount and gateway artifact-health routing. Add exact prior/current hashes, apply only transition entries present in the selected overlay inventory, and extend the release-manifest regression. Commit: `fix(rollout): preserve attestation upgrade compatibility`.
+The PR Actions synthetic merge includes `develop` commit `92d9157`, which added `test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host`. That test exposed PR #63 file identity changes not yet listed in `ADMIN_POLICY_TRANSITION`: the public evidence mounts in both local and HTTPS Compose overlays and gateway artifact-health routing. Add exact prior/current hashes, apply only transition entries present in the selected overlay inventory, and assert predecessor hashes separately for local and HTTPS. A final review found the HTTPS Compose hash was still absent; the focused regression first failed with the current hash where it expected the predecessor hash. Add that transition entry and rerun the release-manifest tests and full suites.
 
 The regression initially failed on the current branch, then passed after the transition update. `docker info` cannot connect to the local Docker Desktop Linux Engine, so the long Linux container rehearsal must be verified by PR CI.
 
