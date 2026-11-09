@@ -114,6 +114,9 @@ def test_reviewed_predecessor_requires_opt_in_and_exact_configuration(tmp_path):
     assert https_hashes["tools/deploy/nginx/routes.conf"] == (
         "5e9f6e34f6911366c0c785f1ab62249e4bb58f9bcaed112c74f8637e1532e925"
     )
+    assert https_hashes["tools/deploy/compose.https.yaml"] == (
+        "319fdc5b8334164a1577bde4b63cbf2d730dc76dd99e54fc7cb735b2a703af4b"
+    )
     with pytest.raises(ReleaseError, match="incompatible-configuration"):
         require_configuration(previous)
     require_configuration(previous, allow_previous=True)

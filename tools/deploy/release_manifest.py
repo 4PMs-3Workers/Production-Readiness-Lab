@@ -259,6 +259,10 @@ ADMIN_POLICY_TRANSITION = {
         "c6017399bdf443a3ac5e27d6e64cc6bec3e7fc1f038baf9e71332a9c99d2bf44",
         "5766741d8e44c72fc5487cd689ca658a6780e9f8cf804481df4f3a9a89bbb758",
     ),
+    "tools/deploy/compose.https.yaml": (
+        "319fdc5b8334164a1577bde4b63cbf2d730dc76dd99e54fc7cb735b2a703af4b",
+        "0811f0b010706d59351e7f3a0c4951b9f788731913877c1d88a805be1c0ad305",
+    ),
     "tools/deploy/nginx/nginx.conf": (
         "35220da5abdb389321cb47f8688286fc0d4e6a70ea54442db4d087998178248b",
         "dd8331ac797a1f5bfa5c05eb3a33af815fd188346058860d9e9e27e631343597",
