@@ -950,9 +950,48 @@ async def test_admin_mutations_work_with_deployed_runtime_grants(account_env, my
         await sign_in(client)
         async with runtime_engine.begin() as connection:
             with pytest.raises(SQLAlchemyError):
-                await connection.exec_driver_sql(
-                    "UPDATE service_settings SET timezone = 'UTC' WHERE id = 1"
-                )
+                await connection.exec_driver_sql("DELETE FROM service_settings WHERE id = 1")
+            with pytest.raises(SQLAlchemyError):
+                await connection.exec_driver_sql("UPDATE purposes SET code = 'FORBIDDEN'")
+            with pytest.raises(SQLAlchemyError):
+                await connection.exec_driver_sql("DELETE FROM purposes")
+        policy_path = "/api/v1/admin/booking-configuration"
+        policy = (await client.get(policy_path)).json()
+        replacement = {
+            "expected_updated_at": policy["updated_at"],
+            "timezone": "UTC",
+            "start_step_minutes": 20,
+            "booking_horizon_days": 9,
+            "windows": [{"weekday": 1, "opens_at": "08:00:00", "closes_at": "11:00:00"}],
+        }
+        applied = await client.put(policy_path, json=replacement, headers=write_headers(client))
+        assert applied.status_code == 200, applied.json()
+        assert applied.json()["windows"] == replacement["windows"]
+        replacement["expected_updated_at"] = applied.json()["updated_at"]
+        replacement["windows"] = []
+        assert (
+            await client.put(policy_path, json=replacement, headers=write_headers(client))
+        ).status_code == 200
+        purpose_path = "/api/v1/admin/purposes"
+        values = {
+            "name": "Runtime consultation",
+            "duration_minutes": 25,
+            "requires_free_text": False,
+            "is_active": True,
+        }
+        purpose = await client.post(
+            purpose_path,
+            json={"code": "RUNTIME_CONSULTATION", **values},
+            headers=write_headers(client),
+        )
+        assert purpose.status_code == 201, purpose.json()
+        item = purpose.json()
+        updated = await client.put(
+            f"{purpose_path}/{item['id']}",
+            json={**values, "is_active": False, "expected_updated_at": item["updated_at"]},
+            headers=write_headers(client),
+        )
+        assert updated.status_code == 200 and updated.json()["is_active"] is False
         create = await client.post(
             ADMIN_ACCOUNTS,
             json={
@@ -1003,6 +1042,10 @@ async def test_admin_mutations_work_with_deployed_runtime_grants(account_env, my
             "ACCOUNT_CREATED",
             "ACCOUNT_UPDATED",
             "ACCOUNT_PASSWORD_RESET",
+            "BOOKING_CONFIGURATION_UPDATED",
+            "BOOKING_CONFIGURATION_UPDATED",
+            "PURPOSE_CREATED",
+            "PURPOSE_UPDATED",
         ]
     )
     assert admin_sessions and all(session.revoked_at is not None for session in admin_sessions)

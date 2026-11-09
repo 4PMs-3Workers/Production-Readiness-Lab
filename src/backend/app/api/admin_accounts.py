@@ -60,7 +60,9 @@ ACCOUNT_WRITE_DESCRIPTION = (
 )
 
 
-def account_responses(success: int, *statuses: int) -> dict[int | str, dict[str, Any]]:
+def account_responses(
+    success: int, *statuses: int, description: str = "Sanitized account-management error"
+) -> dict[int | str, dict[str, Any]]:
     headers = {
         "X-Request-ID": {"schema": {"type": "string"}},
         "Cache-Control": {"schema": {"type": "string"}},
@@ -70,7 +72,7 @@ def account_responses(success: int, *statuses: int) -> dict[int | str, dict[str,
         responses[status] = {
             "model": ErrorResponse,
             "headers": headers | {"X-Error-Class": {"schema": {"type": "string"}}},
-            "description": "Sanitized account-management error",
+            "description": description,
         }
     return responses
 

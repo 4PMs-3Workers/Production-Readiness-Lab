@@ -56,15 +56,24 @@ class StateStore:
         except ReleaseError:
             raise RolloutError("invalid-state") from None
 
-    def save(self, state: HostState) -> None:
+    def save(self, state: HostState, *, previous_configuration_sha256: str | None = None) -> None:
         # Retirement is not a second authoritative commit. Content addressing
         # retains every prepared snapshot if the subsequent state replace fails;
         # later refusals/interruptions can archive their own distinct snapshot.
         prior = self.load()
+        if previous_configuration_sha256 is not None and (
+            prior is None
+            or prior.stable is None
+            or prior.stable != state.stable
+            or prior.previous_stable != state.previous_stable
+            or state.operation is None
+            or state.operation.phase != "preflight"
+        ):
+            raise RolloutError("incompatible-configuration")
         if prior is not None:
             if (prior.project, prior.configuration_sha256) != (
                 state.project,
-                state.configuration_sha256,
+                previous_configuration_sha256 or state.configuration_sha256,
             ):
                 raise RolloutError("incompatible-configuration")
             if prior.operation is not None and (

@@ -30,7 +30,7 @@ def validate_policy(policy: AvailabilityPolicy) -> ZoneInfo:
         raise AvailabilityConfigurationError("Availability policy is invalid")
     try:
         return ZoneInfo(policy.timezone)
-    except (ValueError, ZoneInfoNotFoundError) as exc:
+    except (ValueError, ZoneInfoNotFoundError, OSError) as exc:
         raise AvailabilityConfigurationError("Availability timezone is invalid") from exc
 
 
@@ -77,35 +77,6 @@ def _local_boundary_instants(
     return tuple(sorted(instants))
 
 
-def _unique_boundary(local_date: date, wall_time: time, zone: ZoneInfo) -> datetime:
-    instants = _local_boundary_instants(local_date, wall_time, zone)
-    if len(instants) != 1:
-        raise AvailabilityConfigurationError(
-            "Service and business-day boundaries must map to one instant"
-        )
-    return instants[0]
-
-
-def business_day_bounds(*, selected_date: date, zone: ZoneInfo) -> TimeInterval:
-    """Map local midnight boundaries independently into a UTC half-open interval."""
-    if not isinstance(selected_date, date) or isinstance(selected_date, datetime):
-        raise BookingDateError("Booking date is invalid")
-    if not isinstance(zone, ZoneInfo):
-        raise AvailabilityConfigurationError("Availability timezone is invalid")
-    try:
-        next_date = selected_date + timedelta(days=1)
-    except OverflowError as exc:
-        raise BookingDateError("Booking date has no representable next day") from exc
-    try:
-        starts_at = _unique_boundary(selected_date, time.min, zone)
-        ends_at = _unique_boundary(next_date, time.min, zone)
-    except OverflowError as exc:
-        raise BookingDateError("Booking date cannot map to UTC") from exc
-    if starts_at >= ends_at:
-        raise AvailabilityConfigurationError("Business-day boundaries are invalid")
-    return TimeInterval(starts_at=starts_at, ends_at=ends_at)
-
-
 def _first_utc_for_local_date(local_date: date, zone: ZoneInfo) -> datetime:
     """Find the first instant of a local date, including a midnight gap or fold."""
     midnight = datetime.combine(local_date, time.min).replace(tzinfo=zone)
@@ -124,8 +95,8 @@ def _first_utc_for_local_date(local_date: date, zone: ZoneInfo) -> datetime:
     return high
 
 
-def history_day_bounds(*, selected_date: date, zone: ZoneInfo) -> TimeInterval:
-    """Map one local calendar date into UTC for historical appointment reads."""
+def business_day_bounds(*, selected_date: date, zone: ZoneInfo) -> TimeInterval:
+    """Map the first instants of adjacent local dates into a half-open UTC interval."""
     if not isinstance(selected_date, date) or isinstance(selected_date, datetime):
         raise BookingDateError("Booking date is invalid")
     if not isinstance(zone, ZoneInfo):
@@ -139,6 +110,10 @@ def history_day_bounds(*, selected_date: date, zone: ZoneInfo) -> TimeInterval:
     if starts_at > ends_at:
         raise AvailabilityConfigurationError("Business-day boundaries are invalid")
     return TimeInterval(starts_at=starts_at, ends_at=ends_at)
+
+
+def history_day_bounds(*, selected_date: date, zone: ZoneInfo) -> TimeInterval:
+    return business_day_bounds(selected_date=selected_date, zone=zone)
 
 
 def _validate_windows(windows: Sequence[ServiceWindow]) -> tuple[ServiceWindow, ...]:
@@ -219,6 +194,8 @@ def generate_slots(
         )
     )
     day_bounds = business_day_bounds(selected_date=selected_date, zone=zone)
+    if day_bounds.starts_at == day_bounds.ends_at:
+        return ()
     try:
         duration = timedelta(minutes=duration_minutes)
         step = timedelta(minutes=policy.start_step_minutes)
@@ -229,8 +206,12 @@ def generate_slots(
     slots: set[tuple[datetime, datetime]] = set()
 
     for window in ordered_windows:
-        window_start = _unique_boundary(selected_date, window.opens_at, zone)
-        window_end = _unique_boundary(selected_date, window.closes_at, zone)
+        opening = _local_boundary_instants(selected_date, window.opens_at, zone)
+        closing = _local_boundary_instants(selected_date, window.closes_at, zone)
+        # A gap or fold at either boundary closes this window for the date.
+        if len(opening) != 1 or len(closing) != 1:
+            continue
+        window_start, window_end = opening[0], closing[0]
         if window_start < day_bounds.starts_at or window_end > day_bounds.ends_at:
             raise AvailabilityConfigurationError("Service window lies outside its business day")
         wall_start = datetime.combine(selected_date, window.opens_at)

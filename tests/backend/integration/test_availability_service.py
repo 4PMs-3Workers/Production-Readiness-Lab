@@ -96,6 +96,10 @@ class _FakeSession:
     def in_transaction(self):
         return self._active
 
+    async def connection(self, *, execution_options):
+        assert self._active
+        assert execution_options == {"isolation_level": "REPEATABLE READ"}
+
     async def rollback(self):
         self.rollbacks += 1
         self._active = False

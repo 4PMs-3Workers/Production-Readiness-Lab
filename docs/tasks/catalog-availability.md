@@ -50,11 +50,14 @@ mật khẩu và nội dung tư vấn không được đưa vào response/log.
 
 - Ngày hiện tại `D` được tính từ clock một lần trong timezone cấu hình DB. Chỉ nhận ngày từ
   `D+1` đến `D+booking_horizon_days`, tính cả hai đầu. Ngày dịch vụ không có window trả slot rỗng.
-- Biên ngày được dựng từ nửa đêm local của ngày chọn và ngày tiếp theo, rồi đổi từng biên sang
-  UTC. Response timestamp có timezone, chuẩn hóa UTC với `Z` và giữ microsecond.
+- Biên ngày dùng thời điểm UTC đầu tiên của từng ngày địa phương, kể cả khi đổi giờ lúc
+  nửa đêm. Response timestamp chuẩn hóa UTC với `Z` và giữ microsecond.
 - Start đầu tiên được neo vào `opens_at` của từng service window; các start kế tiếp tăng theo
   `start_step_minutes`, giữ phần giây có trong giờ cấu hình. Toàn bộ buổi gặp phải vừa trong
   một window; hai window tiếp giáp không được gộp. Duration lấy từ purpose đang hoạt động.
+- Khi chuyển giờ DST, một window đóng riêng cho ngày đó nếu giờ mở hoặc đóng bị bỏ qua
+  hoặc lặp lại. Các window còn lại vẫn mở. Bên trong window có biên hợp lệ, hệ thống bỏ
+  qua giờ bắt đầu bị thiếu và xét cả hai thời điểm UTC cho giờ bắt đầu lặp lại.
 - Khoảng là nửa mở `[starts_at, ends_at)`. Slot bị loại khi
   `slot.start < busy.end and slot.end > busy.start`; hai khoảng chỉ tiếp giáp không xung đột.
   Chỉ `UPCOMING` và `CHANGE_PENDING` chiếm chỗ. Lịch gốc của `CHANGE_PENDING` vẫn chiếm chỗ;
@@ -63,6 +66,8 @@ mật khẩu và nội dung tư vấn không được đưa vào response/log.
 - Busy gồm unavailability của staff được chọn, lịch đang chiếm chỗ của staff đó và lịch đang
   chiếm chỗ của sinh viên trong session, bất kể purpose/staff của lịch hiện hữu. Không áp quota
   ba lịch trong GET availability.
+- Catalog và availability dùng một snapshot đọc `REPEATABLE READ` cho mỗi request để các
+  truy vấn cùng thấy một phiên bản dữ liệu khi admin cập nhật đồng thời.
 - Availability chạy một transaction đọc với deadline, tối đa 7 SELECT nghiệp vụ (settings,
   purpose, staff eligibility, windows, unavailability, lịch staff, lịch sinh viên). Lịch chỉ
   chiếu hai cột thời gian cần thiết; không query theo từng slot, không DML, không locking read.

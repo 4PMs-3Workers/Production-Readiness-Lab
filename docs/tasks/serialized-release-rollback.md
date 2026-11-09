@@ -43,8 +43,8 @@ Prepare the existing external inputs described in the
 
 The manifest's configuration hash covers allowlisted public files/profile. The
 host binding additionally records the foundation's public host configuration
-identity. Neither hash includes credentials. Changing the host binding fails
-closed; investigate and review configuration changes instead of deleting state.
+identity. Neither hash includes credentials. A changed host binding requires a
+reviewed transition. Preserve the state and investigate any unexpected mismatch.
 
 ## Deploy, inspect and roll back
 
@@ -68,6 +68,31 @@ fetches the strict manifest, verifies its immutable identity, image/config/sourc
 identities, profile and schema compatibility, and checks the complete Compose
 plan before changing running application services. All application builds are
 removed from the generated final overlay; Compose uses `--no-build --pull never`.
+
+### Upgrade a host to administrative booking configuration
+
+Finish any pending operation on the base checkout first. Update the same checkout
+and deploy the new manifest with the existing stable digest in `previous_stable`.
+Keep the same Compose project, profile, ports, and origins. The reviewed transition
+matches the exact old and new digests of `grants.sql` and `route-map.conf`, the
+cached base manifest, and the original host binding. The controller updates that
+binding together with the deploy operation after the candidate passes preflight.
+
+The deployment sends the verified grant SQL to the running MySQL container and
+recreates the gateway with the new routes. The added privileges and routes are
+compatible with the base release. A rollback from the updated checkout restores
+the base manifest's exact images while retaining the current host binding, grants,
+gateway configuration, and MySQL volume, provided the persisted policy is
+compatible. Preflight checks the saved service hours and local midnights using
+the retained backend's timezone rules. It covers the booking horizon and a full
+Gregorian cycle of recurring weekday rules beyond it. A nonexistent or repeated
+boundary returns `rollback-incompatible` before replacing the running release.
+The controller also rechecks the policy after draining the API and resumes the
+same API container if the policy changed during preflight. The saved policy
+remains in MySQL. An admin can explicitly save compatible hours and retry the
+same rollback. The Linux rehearsal verifies the spring-forward availability
+response on both images, the refusal with the incompatible policy in place,
+and successful rollback after an admin saves a compatible policy.
 
 The delivered schema contract accepts `20261019_1200_proposal_replay`. Only the
 initial bootstrap may start with an empty schema. Existing schemas require exactly
@@ -144,6 +169,11 @@ Readiness verifies selected frontend/API/worker image references, source labels
 and local identities; API, frontend and gateway health; gateway live/ready/login;
 and two advancing scan counters from the same worker container. An unchanged
 heartbeat counter cannot satisfy worker progress.
+
+Business smoke pages through the active catalog to find its configured purpose.
+It searches at most the first 367 allowed booking dates and stops at
+the first eligible slot. The school's configured horizon can extend beyond that
+search window.
 
 With observability enabled, replacement stops the gateway log rotator before its
 namespace owner, recreates the gateway, then recreates the rotator. Readiness also

@@ -10,6 +10,7 @@ from pathlib import Path
 from tools.deploy.release_images import Registry, archive_image
 from tools.deploy.release_manifest import (
     CHECKS,
+    ROOT,
     SCHEMA,
     Manifest,
     Proof,
@@ -71,8 +72,10 @@ def candidate(
     )
 
 
-def render(spec: Spec, *, backup: bool = False) -> bytes:
-    require_compatible(spec)
+def render(
+    spec: Spec, *, backup: bool = False, root: Path = ROOT, allow_previous: bool = False
+) -> bytes:
+    require_compatible(spec, root, allow_previous=allow_previous)
     names = {name: spec.images[key].reference for name, key in spec.services.items()}
     if spec.configuration.observability:
         # The merged backup-monitoring foundation reuses the shared backend.

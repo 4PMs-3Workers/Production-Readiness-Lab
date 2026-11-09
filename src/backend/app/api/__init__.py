@@ -24,6 +24,15 @@ def _register_admin_accounts() -> None:
 _register_admin_accounts()
 
 
+def _register_admin_booking_configuration() -> None:
+    from app.api.admin_booking_configuration import router
+
+    api_v1_router.include_router(router)
+
+
+_register_admin_booking_configuration()
+
+
 def _register_catalog() -> None:
     from app.api.catalog import router
 
