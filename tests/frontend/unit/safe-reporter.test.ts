@@ -3,7 +3,13 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
-import type { FullResult, TestCase, TestResult } from '@playwright/test/reporter';
+import type {
+  FullConfig,
+  FullResult,
+  Suite,
+  TestCase,
+  TestResult,
+} from '@playwright/test/reporter';
 import SafeReporter from '../safe-reporter';
 
 it('allowlists CI evidence even when a failed test embeds secrets in every diagnostic surface', () => {
@@ -56,6 +62,41 @@ it('allowlists CI evidence even when a failed test embeds secrets in every diagn
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+it.each(['passed', 'skipped', 'missing', 'retry', 'global-error'] as const)(
+  'enforces same-invocation discovery coverage for %s',
+  async (condition) => {
+    const directory = mkdtempSync(join(tmpdir(), 'safe-required-'));
+    const outputFile = join(directory, 'summary.json');
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const testCase = {
+      id: 'stable-id',
+      location: { file: '/repo/catalog.spec.ts', line: 1, column: 1 },
+      parent: { project: () => ({ name: 'api-desktop' }) },
+      title: 'private-title',
+    } as unknown as TestCase;
+    try {
+      const reporter = new SafeReporter({ outputFile, requireComplete: true });
+      reporter.onBegin({} as FullConfig, { allTests: () => [testCase] } as unknown as Suite);
+      if (condition !== 'missing')
+        reporter.onTestEnd(testCase, {
+          status: condition === 'skipped' ? 'skipped' : 'passed',
+          retry: condition === 'retry' ? 1 : 0,
+        } as TestResult);
+      if (condition === 'global-error') reporter.onError({ message: 'private-error' });
+      const result = await reporter.onEnd({ status: 'passed' } as FullResult);
+      const summary = JSON.parse(readFileSync(outputFile, 'utf8'));
+      expect(summary.complete).toBe(condition === 'passed');
+      expect(summary.status).toBe(condition === 'passed' ? 'passed' : 'failed');
+      expect(result).toEqual(condition === 'passed' ? undefined : { status: 'failed' });
+      expect(summary.expected).toHaveLength(1);
+      expect(readFileSync(outputFile, 'utf8')).not.toMatch(/private-title|private-error/);
+    } finally {
+      stdout.mockRestore();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  },
+);
 
 it('identifies cases/projects independently of completion order and retries', () => {
   const directory = mkdtempSync(join(tmpdir(), 'safe-case-'));
