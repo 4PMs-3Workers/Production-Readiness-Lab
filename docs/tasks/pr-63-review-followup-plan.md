@@ -37,10 +37,10 @@ Run each focused suite after its tests and implementation. Finish with load/back
 ### Acceptance checks
 
 - Load provenance verifies the gateway attestation fingerprint from the validated deployment manifest without requiring a colocated public attestation file.
-- Worker backlog PromQL uses the Collector-exported `_ratio` gauge, requires enough metric samples across the recorded workload window, and covers every configured expected worker slot.
+- Worker backlog PromQL uses the Collector-exported `_ratio` gauge, requires enough data and `backlog_snapshot_fresh` samples across the recorded workload window, and checks each configured `worker_slot` identity for current freshness.
 - Gateway event collection accepts the measured 22,554-request standard workload while keeping a finite 50,000-record aggregate ceiling and the existing 5,000-row per-query ceiling.
 - Successful and failed `status`/`config` checks write under `checks/` and preserve the active deployment manifest and public attestation.
-- Focused tests reproduce all five review findings before implementation and pass after.
+- Focused tests reproduce all five GitHub findings and reviewer follow-ups for exact worker-slot identity, stale snapshots, and truthful output paths.
 
 ### Implementation parts
 
@@ -51,10 +51,10 @@ Run each focused suite after its tests and implementation. Finish with load/back
 
 ### Progress
 
-- [x] Reproduced all five findings with focused tests; the direct regression assertions failed before the relevant implementation changes.
+- [x] Reproduced all five GitHub findings and three final-review follow-ups with focused regressions; targeted PromQL assertions failed before their implementation changes.
 - [x] Run all load tests, affected backend suites, formatting, lint, and `git diff --check`.
 - [ ] Run Pyright and final PR CI; local Pyright cannot start because both `pyright` and `npm` are absent.
-- [ ] Review full diff, commit each completed part, push, and verify CI on the final SHA.
+- [ ] Complete follow-up review of the final diff, push, and verify CI on the final SHA.
 
 ### Ruling
 
@@ -63,8 +63,9 @@ When no deployment manifest exists, keep the existing initial `status`/`config` 
 ### Verification record
 
 - [x] `tests/load`: 65 passed, 1 skipped.
-- [x] `tests/backend/unit`: 1,486 passed, 1 skipped on the sequential rerun. One prior subprocess timeout occurred while the load suite ran concurrently; the same test passed alone in 1.72 seconds.
+- [x] `tests/backend/unit`: 1,487 passed, 1 skipped on the final sequential rerun. One prior subprocess timeout occurred while the load suite ran concurrently; the same test passed alone in 1.72 seconds.
 - [x] Focused post-format regressions: 75 passed, 1 skipped.
+- [x] After final-review fixes, combined `tests/load` and deployment operator suite: 121 passed, 2 skipped.
 - [x] Black check and Ruff check passed; `git diff --check` passed.
-- [x] Implement and commit load coverage/budget, manifest-based attestation identity, and read-only evidence preservation.
+- [x] Implement and commit load coverage/budget, manifest-based attestation identity, read-only evidence preservation, exact worker freshness, and truthful output path.
 - [ ] Pyright and final CI are pending; the local shell currently has no `pyright` or `npm` executable.
