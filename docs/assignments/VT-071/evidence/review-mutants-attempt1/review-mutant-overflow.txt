@@ -1,0 +1,23 @@
+F                                                                        [100%]
+================================== FAILURES ===================================
+_____________ test_export_rejects_overflow_instead_of_truncation ______________
+tests\backend\integration\test_appointment_export.py:190: in test_export_rejects_overflow_instead_of_truncation
+    assert response.status_code == 409
+E   assert 200 == 409
+E    +  where 200 = <Response [200 OK]>.status_code
+---------------------------- Captured stderr setup ----------------------------
+INFO  [alembic.runtime.migration] Context impl MySQLImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> a1b2c3d4e5f6, Initial schema — all 11 application tables.
+INFO  [alembic.runtime.migration] Running upgrade a1b2c3d4e5f6 -> 20261016_1200_audit_reqid128, Expand audit request IDs to match the gateway contract.
+INFO  [alembic.runtime.migration] Running upgrade 20261016_1200_audit_reqid128 -> 20261017_2350_student_profile, Add optional student profile fields without changing existing account data.
+INFO  [alembic.runtime.migration] Running upgrade 20261017_2350_student_profile -> 20261019_1200_proposal_replay, Persist proposal creation receipts and optimistic creation contexts.
+---------------------------- Captured stdout call -----------------------------
+{"timestamp":"2026-11-01T10:06:34.159090Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","route":"/api/v1/auth/login","response_complete":true,"duration_seconds":0.30406280000170227,"status":200,"method":"POST","request_id":"2104516f2a2eac92921ed3aa5184b132","trace_id":"7826ea51e3e463c51ddaabf744aae413"}
+{"timestamp":"2026-11-01T10:06:34.241695Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","route":"/api/v1/appointments/export","response_complete":true,"duration_seconds":0.08452170000236947,"status":200,"method":"GET","request_id":"02736aa022d5b0f82be917d1ed7e5a32","trace_id":"bdcfc109e0b219cd9d27c14d72aa42ce"}
+{"timestamp":"2026-11-01T10:06:34.344939Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","route":"/api/v1/appointments/export","response_complete":true,"duration_seconds":0.08062730000528973,"status":200,"method":"GET","request_id":"78e81605bd716791b389ab9003ec3f0c","trace_id":"7cc12056371b8c8ba6d114d42acea13d"}
+=========================== short test summary info ===========================
+FAILED tests/backend/integration/test_appointment_export.py::test_export_rejects_overflow_instead_of_truncation
+1 failed in 4.47s
+
+EXIT_CODE=1

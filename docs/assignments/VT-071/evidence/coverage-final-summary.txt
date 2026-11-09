@@ -1,0 +1,8 @@
+Name                                             Stmts   Miss Branch BrPart  Cover
+----------------------------------------------------------------------------------
+src\backend\app\api\appointments.py                 62      9     10      3    81%
+src\backend\app\repositories\appointments.py        69     23     12      2    62%
+src\backend\app\schemas\appointments.py             62      3      2      1    94%
+src\backend\app\services\appointment_export.py      34      1      8      1    95%
+----------------------------------------------------------------------------------
+TOTAL                                              227     36     32      7    80%

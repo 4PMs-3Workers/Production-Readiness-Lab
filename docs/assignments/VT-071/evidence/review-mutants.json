@@ -1,0 +1,48 @@
+{
+  "submission_source_commit": "81552d3c85075f6ebb1583178b52264163450d35",
+  "experimental_branch": "codex/bt3-23001952-vt071-mutants-verified",
+  "experimental_restored_head": "02b77e3d636fed2e5110ba0bb81d069e7ca22ce3",
+  "mutants": [
+    {
+      "mutant": "owner",
+      "commit": "e81249977e8b3a4171f5cbefcc7b65d5a926dd72",
+      "test": "test_export_real_login_scope_contract_and_inactive_catalog",
+      "expected": "KILLED",
+      "observed": "KILLED",
+      "exit_code": 1
+    },
+    {
+      "mutant": "overflow",
+      "commit": "72e05f70a281c022983ca075525ea71ed4aaeba9",
+      "test": "test_export_rejects_overflow_instead_of_truncation",
+      "expected": "KILLED",
+      "observed": "KILLED",
+      "exit_code": 1
+    },
+    {
+      "mutant": "role_primary",
+      "commit": "5876f656c6fbade7620ff0f3b5b9223c949d6002",
+      "test": "test_export_real_session_role_is_denied",
+      "expected": "SURVIVED",
+      "observed": "SURVIVED",
+      "exit_code": 0
+    },
+    {
+      "mutant": "role_all",
+      "commit": "9bdf7edb1d7e3f1ba82ad412df61f8d5ad96f8fa",
+      "test": "test_export_real_session_role_is_denied",
+      "expected": "KILLED",
+      "observed": "KILLED",
+      "exit_code": 1
+    },
+    {
+      "mutant": "source_and_unique",
+      "commit": "604c0e7e6743b0305503348e5f87d408881a4170",
+      "test": "test_export_source_cardinality_after_retry",
+      "expected": "KILLED",
+      "observed": "KILLED",
+      "exit_code": 1
+    }
+  ],
+  "submission_restore_diff": ""
+}

@@ -87,6 +87,7 @@ def test_openapi_export_is_deterministic_without_database(tmp_path):
         "/api/v1/staff",
         "/api/v1/availability",
         "/api/v1/appointments",
+        "/api/v1/appointments/export",
         "/api/v1/appointments/{appointment_id}",
         "/api/v1/appointments/{appointment_id}/cancel",
         "/api/v1/booking-context",
@@ -108,6 +109,11 @@ def test_openapi_export_is_deterministic_without_database(tmp_path):
         "/api/v1/notifications/{notification_id}/read",
     }
     staff_list = document["paths"]["/api/v1/staff/me/appointments"]["get"]
+    export = document["paths"]["/api/v1/appointments/export"]["get"]
+    assert export["security"] == [{"prl_session": []}]
+    assert {p["name"] for p in export["parameters"]} == {"status"}
+    assert set(export["responses"]["200"]["content"]) == {"text/csv"}
+    assert "Content-Disposition" in export["responses"]["200"]["headers"]
     assert staff_list["security"] == [{"prl_session": []}]
     staff_parameters = {parameter["name"]: parameter for parameter in staff_list["parameters"]}
     assert {"page", "page_size", "status", "date"} <= staff_parameters.keys()

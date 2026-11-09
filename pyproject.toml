@@ -71,6 +71,7 @@ addopts = ["--import-mode=importlib"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
+    "load: opt-in performance diagnostics, excluded from functional CI",
     "mysql: requires a dedicated MySQL 8.4 test database",
     "booking_stress: use bounded extended HTTP deadlines for high-concurrency booking tests",
 ]
@@ -78,6 +79,11 @@ markers = [
 [tool.black]
 line-length = 100
 target-version = ["py311"]
+
+[tool.coverage.run]
+branch = true
+concurrency = ["greenlet", "thread"]
+core = "ctrace"
 
 [tool.ruff]
 line-length = 100

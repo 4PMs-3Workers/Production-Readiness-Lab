@@ -1,0 +1,70 @@
+........................................................................ [  7%]
+........................................................................ [ 14%]
+......FFF............................................................... [ 21%]
+...........................................F............................ [ 28%]
+........................................................................ [ 35%]
+........................................................................ [ 42%]
+........................................................................ [ 49%]
+...............FFF...................................................... [ 56%]
+........................................................................ [ 64%]
+F....................................................................... [ 71%]
+........................................................................ [ 78%]
+........................................................................ [ 85%]
+........................................................................ [ 92%]
+........................................................................ [ 99%]
+...                                                                      [100%]
+================================== FAILURES ===================================
+______ test_recovery_help_requires_no_database_credentials_or_resources _______
+tests\backend\unit\test_backup_cli.py:23: in test_recovery_help_requires_no_database_credentials_or_resources
+    assert result.returncode == 0 and "scheduled" in result.stdout and "restore" in result.stdout
+E   assert (1 == 0)
+E    +  where 1 = CompletedProcess(args=['D:\\SE\\.venv\\Scripts\\python.exe', '-m', 'app.backup', '--help'], returncode=1, stdout='', s...\python.exe: Error while finding module specification for 'app.backup' (ModuleNotFoundError: No module named 'app')\n").returncode
+_________ test_recovery_cli_never_echoes_bad_arguments_or_credentials _________
+tests\backend\unit\test_backup_cli.py:39: in test_recovery_cli_never_echoes_bad_arguments_or_credentials
+    assert result.returncode == 2 and result.stderr == ""
+E   assert (1 == 2)
+E    +  where 1 = CompletedProcess(args=['D:\\SE\\.venv\\Scripts\\python.exe', '-m', 'app.backup', 'private-invalid-argument'], returnco...\python.exe: Error while finding module specification for 'app.backup' (ModuleNotFoundError: No module named 'app')\n").returncode
+________ test_status_works_without_a_database_or_telemetry_connection _________
+tests\backend\unit\test_backup_cli.py:52: in test_status_works_without_a_database_or_telemetry_connection
+    assert result.returncode == 0
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['D:\\SE\\.venv\\Scripts\\python.exe', '-m', 'app.backup', 'status'], returncode=1, stdout='', s...\python.exe: Error while finding module specification for 'app.backup' (ModuleNotFoundError: No module named 'app')\n").returncode
+___ test_overlapping_process_is_refused_and_lock_releases_after_owner_exit ____
+tests\backend\unit\test_backup_retention.py:78: in test_overlapping_process_is_refused_and_lock_releases_after_owner_exit
+    assert result.returncode == 0 and result.stderr == b""
+E   assert (1 == 0)
+E    +  where 1 = CompletedProcess(args=['D:\\SE\\.venv\\Scripts\\python.exe', '-c', "\nimport sys\nfrom pathlib import Path\nfrom app.b...most recent call last):\r\n  File "<string>", line 4, in <module>\r\nModuleNotFoundError: No module named \'app\'\r\n').returncode
+_ test_deployment_commands_reject_bad_database_url_without_echoing_secrets[schema] _
+tests\backend\unit\test_deploy_cli.py:22: in test_deployment_commands_reject_bad_database_url_without_echoing_secrets
+    assert "Deployment operation failed" in result.stderr
+E   assert 'Deployment operation failed' in 'Traceback (most recent call last):\n  File "<frozen runpy>", line 198, in _run_module_as_main\n  File "<frozen runpy>...tlp.proto.http._log_exporter import OTLPLogExporter\nModuleNotFoundError: No module named \'opentelemetry.exporter\'\n'
+E    +  where 'Traceback (most recent call last):\n  File "<frozen runpy>", line 198, in _run_module_as_main\n  File "<frozen runpy>...tlp.proto.http._log_exporter import OTLPLogExporter\nModuleNotFoundError: No module named \'opentelemetry.exporter\'\n' = CompletedProcess(args=['D:\\SE\\.venv\\Scripts\\python.exe', '-m', 'app.deploy', 'schema'], returncode=1, stdout='', s...lp.proto.http._log_exporter import OTLPLogExporter\nModuleNotFoundError: No module named \'opentelemetry.exporter\'\n').stderr
+_ test_deployment_commands_reject_bad_database_url_without_echoing_secrets[migrate] _
+tests\backend\unit\test_deploy_cli.py:22: in test_deployment_commands_reject_bad_database_url_without_echoing_secrets
+    assert "Deployment operation failed" in result.stderr
+E   assert 'Deployment operation failed' in 'Traceback (most recent call last):\n  File "<frozen runpy>", line 198, in _run_module_as_main\n  File "<frozen runpy>...tlp.proto.http._log_exporter import OTLPLogExporter\nModuleNotFoundError: No module named \'opentelemetry.exporter\'\n'
+E    +  where 'Traceback (most recent call last):\n  File "<frozen runpy>", line 198, in _run_module_as_main\n  File "<frozen runpy>...tlp.proto.http._log_exporter import OTLPLogExporter\nModuleNotFoundError: No module named \'opentelemetry.exporter\'\n' = CompletedProcess(args=['D:\\SE\\.venv\\Scripts\\python.exe', '-m', 'app.deploy', 'migrate'], returncode=1, stdout='', ...lp.proto.http._log_exporter import OTLPLogExporter\nModuleNotFoundError: No module named \'opentelemetry.exporter\'\n').stderr
+___________ test_unknown_deployment_command_never_echoes_arguments ____________
+tests\backend\unit\test_deploy_cli.py:36: in test_unknown_deployment_command_never_echoes_arguments
+    assert result.returncode == 2
+E   AssertionError: assert 1 == 2
+E    +  where 1 = CompletedProcess(args=['D:\\SE\\.venv\\Scripts\\python.exe', '-m', 'app.deploy', 'secret-as-invalid-argument'], return...lp.proto.http._log_exporter import OTLPLogExporter\nModuleNotFoundError: No module named \'opentelemetry.exporter\'\n').returncode
+____________ test_openapi_export_is_deterministic_without_database ____________
+tests\backend\unit\test_openapi_export.py:45: in test_openapi_export_is_deterministic_without_database
+    assert set(document["paths"]) == {
+E   AssertionError: assert {'/api/v1/app.../accept', ...} == {'/api/v1/app...decline', ...}
+E     
+E     Extra items in the left set:
+E     '/api/v1/appointments/export'
+E     Use -v to get more diff
+=========================== short test summary info ===========================
+FAILED tests/backend/unit/test_backup_cli.py::test_recovery_help_requires_no_database_credentials_or_resources
+FAILED tests/backend/unit/test_backup_cli.py::test_recovery_cli_never_echoes_bad_arguments_or_credentials
+FAILED tests/backend/unit/test_backup_cli.py::test_status_works_without_a_database_or_telemetry_connection
+FAILED tests/backend/unit/test_backup_retention.py::test_overlapping_process_is_refused_and_lock_releases_after_owner_exit
+FAILED tests/backend/unit/test_deploy_cli.py::test_deployment_commands_reject_bad_database_url_without_echoing_secrets[schema]
+FAILED tests/backend/unit/test_deploy_cli.py::test_deployment_commands_reject_bad_database_url_without_echoing_secrets[migrate]
+FAILED tests/backend/unit/test_deploy_cli.py::test_unknown_deployment_command_never_echoes_arguments
+FAILED tests/backend/unit/test_openapi_export.py::test_openapi_export_is_deterministic_without_database
+8 failed, 1003 passed in 76.46s (0:01:16)
+EXIT_CODE=1

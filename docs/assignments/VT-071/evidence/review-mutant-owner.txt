@@ -1,0 +1,25 @@
+F                                                                        [100%]
+================================== FAILURES ===================================
+_________ test_export_real_login_scope_contract_and_inactive_catalog __________
+tests\backend\integration\test_appointment_export.py:143: in test_export_real_login_scope_contract_and_inactive_catalog
+    assert [row["id"] for row in exported] == [str(value) for value in expected]
+E   AssertionError: assert ['00000000-00...000000000064'] == ['00000000-00...000000000064']
+E     
+E     At index 2 diff: '00000000-0000-0000-0000-00000001869f' != '00000000-0000-0000-0000-000000000064'
+E     Left contains one more item: '00000000-0000-0000-0000-000000000064'
+E     Use -v to get more diff
+---------------------------- Captured stderr setup ----------------------------
+INFO  [alembic.runtime.migration] Context impl MySQLImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> a1b2c3d4e5f6, Initial schema — all 11 application tables.
+INFO  [alembic.runtime.migration] Running upgrade a1b2c3d4e5f6 -> 20261016_1200_audit_reqid128, Expand audit request IDs to match the gateway contract.
+INFO  [alembic.runtime.migration] Running upgrade 20261016_1200_audit_reqid128 -> 20261017_2350_student_profile, Add optional student profile fields without changing existing account data.
+INFO  [alembic.runtime.migration] Running upgrade 20261017_2350_student_profile -> 20261019_1200_proposal_replay, Persist proposal creation receipts and optimistic creation contexts.
+---------------------------- Captured stdout call -----------------------------
+{"timestamp":"2026-11-01T10:08:24.742698Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","duration_seconds":0.3231028000009246,"method":"POST","response_complete":true,"trace_id":"dce56568192f9fa414693070f8dcc479","request_id":"09b404954913b7c89bb90c3234f25b20","route":"/api/v1/auth/login","status":200}
+{"timestamp":"2026-11-01T10:08:24.767013Z","service":"api","environment":"test","release":"unknown","event":"http.server.request","duration_seconds":0.021458100003656,"method":"GET","response_complete":true,"trace_id":"bc99aacbbf2eb38aca131405530a0119","request_id":"eee2e2ac81c8bdb94f4b58f7d639f5fa","route":"/api/v1/appointments/export","status":200}
+=========================== short test summary info ===========================
+FAILED tests/backend/integration/test_appointment_export.py::test_export_real_login_scope_contract_and_inactive_catalog
+1 failed in 2.73s
+
+EXIT_CODE=1

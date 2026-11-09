@@ -1,0 +1,4 @@
+npm notice run @prl/frontend@0.1.0 typecheck
+npm notice run next typegen && tsc --noEmit
+Generating route types...
+✓ Types generated successfully

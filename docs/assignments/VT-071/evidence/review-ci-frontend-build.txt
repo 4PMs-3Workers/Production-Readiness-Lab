@@ -1,0 +1,39 @@
+npm notice run @prl/frontend@0.1.0 build
+npm notice run next build
+▲ Next.js 16.4.1 (Turbopack)
+✓ Running next.config.ts took 29ms
+⚠ No build cache found. Please configure build caching for faster rebuilds. Read more: https://nextjs.org/docs/messages/no-cache
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 2.2s
+  Running TypeScript ...
+  Finished TypeScript in 5.3s ...
+  Collecting page data using 15 workers ...
+  Generating static pages using 15 workers (0/14) ...
+  Generating static pages using 15 workers (3/14) 
+  Generating static pages using 15 workers (6/14) 
+  Generating static pages using 15 workers (10/14) 
+✓ Generating static pages using 15 workers (14/14) in 347ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /appointments
+├ ƒ /appointments/[id]
+├ ○ /booking
+├ ○ /booking/result
+├ ○ /home
+├ ○ /login
+├ ○ /notifications
+├ ○ /profile
+├ ○ /staff/appointments
+├ ƒ /staff/appointments/[id]
+├ ○ /staff/notifications
+├ ○ /staff/preferences
+└ ○ /staff/unavailability
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
