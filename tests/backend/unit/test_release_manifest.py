@@ -90,8 +90,16 @@ def test_roundtrip_atomic_write_and_separate_pr_head(tmp_path):
     require_configuration(manifest.configuration)
 
 
-def test_reviewed_predecessor_requires_opt_in_and_exact_configuration(tmp_path):
-    current = configuration("local", False)
+@pytest.mark.parametrize(
+    ("overlay", "observability"), [("local", False), ("https", False), ("https", True)]
+)
+@pytest.mark.parametrize(
+    "reviewed_path", ["tools/deploy/mysql/grants.sql", "tools/deploy/nginx/route-map.conf"]
+)
+def test_reviewed_predecessor_requires_opt_in_and_exact_configuration(
+    tmp_path, overlay, observability, reviewed_path
+):
+    current = configuration(overlay, observability)
     previous = previous_configuration(current)
     assert previous is not None
     with pytest.raises(ReleaseError, match="incompatible-configuration"):
@@ -108,9 +116,9 @@ def test_reviewed_predecessor_requires_opt_in_and_exact_configuration(tmp_path):
     with pytest.raises(ReleaseError, match="incompatible-configuration"):
         require_configuration(previous, tmp_path, allow_previous=True)
     # A third version of either reviewed file cannot use this transition either.
-    with (tmp_path / "tools/deploy/mysql/grants.sql").open("ab") as output:
-        output.write(b"\n-- unreviewed\n")
-    assert previous_configuration(configuration("local", False, tmp_path)) is None
+    with (tmp_path / reviewed_path).open("ab") as output:
+        output.write(b"\n# unreviewed\n")
+    assert previous_configuration(configuration(overlay, observability, tmp_path)) is None
 
 
 @pytest.mark.parametrize(

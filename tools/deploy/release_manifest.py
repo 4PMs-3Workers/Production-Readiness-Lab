@@ -242,8 +242,9 @@ def configuration(overlay: str, observability: bool, root: Path = ROOT) -> Confi
 
 GRANTS_PATH = "tools/deploy/mysql/grants.sql"
 
-# Issue #50 adds routes and runtime privileges without removing the base release's
-# routes or grants. No other file difference is covered by this transition.
+# Issue #50 adds routes/runtime privileges; BT3 adds the student export route.
+# Both preserve the base routes/grants. Only these exact two file versions are
+# covered by the reviewed transition; other configuration drift still fails closed.
 ADMIN_POLICY_TRANSITION = {
     GRANTS_PATH: (
         "6350525d0dace2a66459f486606e2f45a1d84e48cc673e0ab1a38f8e3c49a926",
@@ -251,7 +252,7 @@ ADMIN_POLICY_TRANSITION = {
     ),
     "tools/deploy/nginx/route-map.conf": (
         "1c5c8eaa269404fff5f30bd8eecd5733768891b5226684bb5f867748b29ce5fd",
-        "47b24ed0346691dbc949d958fe351f29af893727bbecdde172793358a83fd90c",
+        "a21773dd60ab774b23b854523f51186637bc9a94e85d4e5488e4aec15280d7ee",
     ),
 }
 
