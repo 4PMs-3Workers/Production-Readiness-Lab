@@ -1,4 +1,10 @@
 const messages: Record<string, string> = {
+  PURPOSE_NOT_FOUND: 'Không tìm thấy nhu cầu tư vấn. Hãy tải lại danh mục.',
+  PURPOSE_CODE_CONFLICT: 'Mã nhu cầu đã được sử dụng với thông tin khác. Hãy kiểm tra danh mục.',
+  PURPOSE_VERSION_CONFLICT:
+    'Nhu cầu đã thay đổi. Hãy tải bản hiện tại và xem xét trước khi lưu lại.',
+  BOOKING_CONFIGURATION_VERSION_CONFLICT:
+    'Cấu hình đã thay đổi. Hãy tải bản hiện tại và xem xét trước khi lưu lại.',
   EMAIL_ALREADY_EXISTS: 'Email đã được sử dụng bởi một tài khoản khác.',
   ACCOUNT_VERSION_CONFLICT:
     'Tài khoản đã được cập nhật ở phiên khác. Hãy tải lại và xem xét trước khi lưu lại.',
