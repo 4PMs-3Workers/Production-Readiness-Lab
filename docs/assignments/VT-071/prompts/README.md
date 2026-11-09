@@ -23,7 +23,7 @@ PDF in toàn bộ prompt này và nhúng dưới tên `Prompt_plan_BT3_VT071.txt
 ## Prompt review sau test và bảng lịch sử
 
 PDF giữ đoạn prompt post-test review đã được lưu trước đó; không gắn nhãn toàn
-bộ transcript cho phần chỉ còn trích đoạn. BảngU1-U31 trong
+bộ transcript cho phần chỉ còn trích đoạn. BảngU1-U32 trong
 [ai-usage-log.md](../ai-usage-log.md) là tóm tắt input/output/quyết định, không phải
 nguyên văn từng prompt. AI Usage Log đầy đủ cũng được nhúng vào PDF dưới tên
 `AI_Usage_Log_BT3_VT071.md` để có thể đọc khi không truy cập mạng.

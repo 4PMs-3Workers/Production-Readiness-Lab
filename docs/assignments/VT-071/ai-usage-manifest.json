@@ -4,8 +4,8 @@
   "file": "ai-usage-log.md",
   "pdf_attachment": "AI_Usage_Log_BT3_VT071.md",
   "encoding": "UTF-8, LF line endings",
-  "bytes": 17247,
-  "sha256": "29d1c76b1c67d0182a620fee7b395920f9b36cc33dec152ca27c18c8d0a957cc",
+  "bytes": 18360,
+  "sha256": "18396f10ddd50078c3a85d61bb0e85b9c962302e73bd0ee09db4a779915cc148",
   "tools": [
     {
       "name": "Codex",
@@ -34,6 +34,11 @@
       "date": "2026-11-03",
       "actor": "Student",
       "activity": "Confirmed diff reading/oral preparation and supplied seven personal review notes."
+    },
+    {
+      "date": "2026-11-09",
+      "actor": "Codex",
+      "activity": "Release-transition integration repair on develop92d9157 + submission6184652;98related Windows unit tests passed; Linux backend/rollback verified separately by PR55 CI."
     }
   ],
   "team_review": "No team approval or merge recorded by this update."

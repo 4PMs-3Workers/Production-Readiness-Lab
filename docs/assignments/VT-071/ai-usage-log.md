@@ -9,6 +9,9 @@ Initial work:2026-11-01. Attribution updated:2026-11-09, Asia/Bangkok.
   mutation and the production-pool load; separate captured evidence is preserved.
 - 03/11: the student confirmed reading the four-file production diff, completing
   oral-preparation questions and supplied seven personal review statements.
+- 09/11: Codex reproduced and repaired the release-transition hash mismatch on
+  an isolated integration of develop92d9157 with submission6184652; related
+  Windows unit checks passed98cases. Full Linux checks are run through PR55 CI.
 - Team approval/merge is not recorded. Student review and self-execution above
   are distinct from the earlier Codex phase. See U23-U31 and the student ledger.
 
@@ -228,3 +231,16 @@ embedded log. AppendixA now ties kept/changed/rejected outputs to named evidence
 and summarizes supported versus insufficient review findings. Moved original-red
 and student-pool references into B1/B3. Original prompts, raw evidence,330-word
 reflection and personal review notes remain unchanged. No test/load rerun or merge.
+
+
+U32: The student asked to fix the two remaining PR55 failures. Codex reproduced
+the release-predecessor unit failure on synthetic merge808bc790 (develop92d9157
+plus submission6184652). The seven generated export-route additions changed the
+gateway hash; the grants hash and predecessor hashes were unchanged. Updated
+the exact current route-map hash without weakening configuration drift checks.
+Expanded the existing opt-in/drift test across both reviewed files and three
+supported profiles. Local related tests:98passed/13.92s; Black/Ruff and generator
+check pass. Work began on isolated codex/bt3-release-compat-20261109; PR55 is
+updated by fast-forward only, retaining all cited commits and not merging into
+develop. See ci-integration-20261109.md. Linux backend/rollback verdicts come from
+the new CI run, not these Windows unit tests; historical load data is unchanged.

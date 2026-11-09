@@ -1,6 +1,6 @@
 # CI integration follow-up - 09/11/2026
 
-The report remains a snapshot of the original BT3 code/evidence at6184652 and the
+The original BT3 code/evidence is preserved at6184652 and the
 student's measured source15526cb. All original commit permalinks and experiment
 branches are retained. This follow-up is Codex-executed integration work, not a
 new student load experiment or a change to the historical PASS/FAIL evidence.
