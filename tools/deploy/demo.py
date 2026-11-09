@@ -988,8 +988,7 @@ def main(argv=None):
         )
         print(
             f"Deployment {command} passed; business verification=passed{telemetry_label}; "
-            f"evidence: build/deploy/{sha}/"
-            f"{'checks/' + command + '.json' if read_only else 'manifest.json'}"
+            f"evidence: {result_path.relative_to(ROOT).as_posix()}"
         )
         return 0
     except ConfigurationIdentityMismatch:

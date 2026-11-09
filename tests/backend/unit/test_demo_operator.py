@@ -262,6 +262,14 @@ def test_status_preserves_active_runtime_attestation(operator):
     assert (manifest_path.parent / "checks/config.json").is_file()
 
 
+def test_initial_status_reports_the_manifest_path(operator, capsys):
+    demo, _calls = operator
+
+    assert demo.main(["status", "--overlay", "local"]) == 0
+
+    assert "evidence: build/deploy/" + "a" * 40 + "/manifest.json" in capsys.readouterr().out
+
+
 @pytest.mark.parametrize("command", ["status", "config"])
 def test_failed_read_only_check_preserves_active_evidence(operator, monkeypatch, command):
     demo, _calls = operator
