@@ -828,6 +828,7 @@ def main(argv=None):
                 raise OperationFailed()
             require_clean_source(sha)
             path = ROOT / "build/deploy" / sha / "manifest.json"
+            read_only = command in {"status", "config"}
             attestation_path = evidence.public_attestation_path(ROOT, sha)
             try:
                 previous = evidence.validate(json.loads(path.read_text(encoding="utf-8")))
@@ -837,6 +838,11 @@ def main(argv=None):
                 raise OperationFailed() from None
             if previous is not None and previous["source_sha"] != sha:
                 raise OperationFailed()
+            result_path = (
+                path.parent / "checks" / f"{command}.json"
+                if read_only and previous is not None
+                else path
+            )
             cleanup = command in {"status", "stop", "down"}
             if cleanup and previous is not None:
                 selected_overlay, selected_observability = _previous_mode(previous)
@@ -924,8 +930,8 @@ def main(argv=None):
                     ),
                     previous=previous,
                 )
-                evidence.write(path, failed_manifest)
-                if command != "status":
+                evidence.write(result_path, failed_manifest)
+                if not read_only:
                     evidence.write_target_attestation(attestation_path, failed_manifest)
                 raise
             if cleanup and previous is not None:
@@ -972,8 +978,8 @@ def main(argv=None):
                 target_origin=target_origin,
                 previous=previous,
             )
-            evidence.write(path, manifest)
-            if command != "status":
+            evidence.write(result_path, manifest)
+            if not read_only:
                 evidence.write_target_attestation(attestation_path, manifest)
         telemetry_label = (
             f"; telemetry={demo.observability_result['status']}"
@@ -982,7 +988,8 @@ def main(argv=None):
         )
         print(
             f"Deployment {command} passed; business verification=passed{telemetry_label}; "
-            f"evidence: build/deploy/{sha}/manifest.json"
+            f"evidence: build/deploy/{sha}/"
+            f"{'checks/' + command + '.json' if read_only else 'manifest.json'}"
         )
         return 0
     except ConfigurationIdentityMismatch:

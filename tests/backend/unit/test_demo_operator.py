@@ -246,11 +246,48 @@ def test_status_preserves_active_runtime_attestation(operator):
     assert demo.main(["up", "--overlay", "local"]) == 0
     assert demo.main(["evidence", "--overlay", "local"]) == 0
     attestation_path = demo.evidence.public_attestation_path(demo.ROOT, "a" * 40)
+    manifest_path = demo.ROOT / "build/deploy" / ("a" * 40) / "manifest.json"
     before = attestation_path.read_bytes()
+    manifest_before = manifest_path.read_bytes()
 
     assert demo.main(["status", "--overlay", "local"]) == 0
 
     assert attestation_path.read_bytes() == before
+    assert manifest_path.read_bytes() == manifest_before
+    assert (manifest_path.parent / "checks/status.json").is_file()
+
+    assert demo.main(["config", "--overlay", "local"]) == 0
+    assert attestation_path.read_bytes() == before
+    assert manifest_path.read_bytes() == manifest_before
+    assert (manifest_path.parent / "checks/config.json").is_file()
+
+
+@pytest.mark.parametrize("command", ["status", "config"])
+def test_failed_read_only_check_preserves_active_evidence(operator, monkeypatch, command):
+    demo, _calls = operator
+    assert demo.main(["up", "--overlay", "local"]) == 0
+    assert demo.main(["evidence", "--overlay", "local"]) == 0
+    attestation_path = demo.evidence.public_attestation_path(demo.ROOT, "a" * 40)
+    manifest_path = demo.ROOT / "build/deploy" / ("a" * 40) / "manifest.json"
+    attestation_before = attestation_path.read_bytes()
+    manifest_before = manifest_path.read_bytes()
+    original_execute = demo.Demo.execute
+
+    def fail_check(self, selected_command):
+        if selected_command == command:
+            raise RuntimeError("simulated read-only check failure")
+        return original_execute(self, selected_command)
+
+    monkeypatch.setattr(demo.Demo, "execute", fail_check)
+
+    assert demo.main([command, "--overlay", "local"]) == 1
+    assert attestation_path.read_bytes() == attestation_before
+    assert manifest_path.read_bytes() == manifest_before
+    check_path = manifest_path.parent / "checks" / f"{command}.json"
+    assert json.loads(check_path.read_text())["verification"] == {
+        "command": command,
+        "status": "failed",
+    }
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX umask permissions are not available on Windows")
