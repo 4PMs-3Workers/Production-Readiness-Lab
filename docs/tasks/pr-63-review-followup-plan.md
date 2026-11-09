@@ -31,3 +31,40 @@ Run each focused suite after its tests and implementation. Finish with load/back
 - [x] Agent guidance updated with all eight review edge cases.
 - [x] Local verification: `tests/load` 64 passed/1 skipped; focused deployment and task-6 contract tests 58 passed/1 skipped; installer tests 28 passed; Black, Ruff, Pyright, Prettier, and `git diff --check` passed.
 - [ ] Verify Linux-only restrictive-umask test and all applicable PR/push workflows on the final pushed SHA.
+
+## Follow-up for the next PR review (2026-11-09)
+
+### Acceptance checks
+
+- Load provenance verifies the gateway attestation fingerprint from the validated deployment manifest without requiring a colocated public attestation file.
+- Worker backlog PromQL uses the Collector-exported `_ratio` gauge, requires enough metric samples across the recorded workload window, and covers every configured expected worker slot.
+- Gateway event collection accepts the measured 22,554-request standard workload while keeping a finite 50,000-record aggregate ceiling and the existing 5,000-row per-query ceiling.
+- Successful and failed `status`/`config` checks write under `checks/` and preserve the active deployment manifest and public attestation.
+- Focused tests reproduce all five review findings before implementation and pass after.
+
+### Implementation parts
+
+1. **Worker evidence and bounded workload budget** — `tools/load/gateway.py`, `tests/load/test_gateway.py`, agent guidance. Test exported metric name, stale/missing worker coverage, expected slot count, and the measured 22,554-ID workload. Commit: `fix(load): cover measured workload and worker evidence`.
+2. **Public runtime attestation identity** — `tools/load/report.py`, `tests/load/test_report.py`. Test the documented split between private manifest and public attestation. Commit: `fix(load): verify gateway attestation from manifest`.
+3. **Read-only deployment checks** — `tools/deploy/demo.py`, `tests/backend/unit/test_demo_operator.py`. Preserve active artifacts on successful and failed status/config commands. Commit: `fix(deploy): preserve evidence during read-only checks`.
+4. **Review safeguards** — this plan and `pr-63-agent-guidance.md`. Record measured limits and data-source contracts. Commit: `docs: record PR 63 review safeguards`.
+
+### Progress
+
+- [x] Reproduced all five findings with focused tests; the direct regression assertions failed before the relevant implementation changes.
+- [x] Run all load tests, affected backend suites, formatting, lint, and `git diff --check`.
+- [ ] Run Pyright and final PR CI; local Pyright cannot start because both `pyright` and `npm` are absent.
+- [ ] Review full diff, commit each completed part, push, and verify CI on the final SHA.
+
+### Ruling
+
+When no deployment manifest exists, keep the existing initial `status`/`config` command record at the primary path for compatibility. When any prior manifest exists, write the read-only result under `checks/` and preserve the prior manifest and attestation. This keeps existing empty-stack contracts while protecting active acceptance evidence.
+
+### Verification record
+
+- [x] `tests/load`: 65 passed, 1 skipped.
+- [x] `tests/backend/unit`: 1,486 passed, 1 skipped on the sequential rerun. One prior subprocess timeout occurred while the load suite ran concurrently; the same test passed alone in 1.72 seconds.
+- [x] Focused post-format regressions: 75 passed, 1 skipped.
+- [x] Black check and Ruff check passed; `git diff --check` passed.
+- [x] Implement and commit load coverage/budget, manifest-based attestation identity, and read-only evidence preservation.
+- [ ] Pyright and final CI are pending; the local shell currently has no `pyright` or `npm` executable.
