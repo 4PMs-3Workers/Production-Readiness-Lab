@@ -53,7 +53,8 @@ Run each focused suite after its tests and implementation. Finish with load/back
 
 - [x] Reproduced all five GitHub findings and four final-review follow-ups with focused regressions; targeted assertions failed before their implementation changes.
 - [x] Run all load tests, affected backend suites, formatting, lint, and `git diff --check`.
-- [ ] Run Pyright and final PR CI; local Pyright cannot start because both `pyright` and `npm` are absent.
+- [x] Run Pyright 1.1.407 locally: 0 errors, 0 warnings, 0 informations.
+- [ ] Push the final SHA and verify final PR CI.
 - [ ] Complete follow-up review of the final diff, push, and verify CI on the final SHA.
 
 ### Ruling
@@ -70,4 +71,5 @@ When no deployment manifest exists, keep the existing initial `status`/`config` 
 - [x] Black check and Ruff check passed; `git diff --check` passed.
 - [x] Implement and commit load coverage/budget, manifest-based attestation identity, read-only evidence preservation, exact worker freshness, and truthful output path.
 - [x] Treat an empty expected-worker inventory as unavailable without raising; rerun full load tests.
-- [ ] Pyright and final CI are pending; the local shell currently has no `pyright` or `npm` executable.
+- [x] Pyright 1.1.407 passed locally with 0 errors, 0 warnings, and 0 informations.
+- [ ] Final PR CI is pending.
