@@ -1,0 +1,2 @@
+npm notice run @prl/frontend@0.1.0 lint
+npm notice run node ../../tools/scripts/lint-frontend.mjs

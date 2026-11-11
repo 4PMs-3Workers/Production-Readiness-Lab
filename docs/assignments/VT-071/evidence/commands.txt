@@ -1,0 +1,52 @@
+Working directory: checkout of official baseline aa8c5b0, branch codex/bt3-23001952-vt071.
+Dates in report: 2026-11-01, Asia/Bangkok; JSON telemetry timestamps UTC.
+MYSQL_TEST_URL set only in process environment to dedicated loopback MySQL 8.4.13.
+
+Red (before implementation; temporary PYTHONPATH dependency overlay):
+python -m pytest tests/backend/integration/test_appointment_export.py -q --require-mysql --tb=short
+Observed: red.txt, 5 failed, 9 passed, exit 1, 24.47s.
+Preliminary missing-package failure is setup-error.txt and excluded from red.
+
+Green and reviewed green (before mutation):
+python -m pytest tests/backend/integration/test_appointment_export.py tests/backend/unit/test_appointment_export.py -q --require-mysql --tb=short
+Observed: green.txt 25 passed; green-reviewed.txt 27 passed.
+
+Mutation, on temporary local branch codex/bt3-23001952-vt071-mutation:
+booking._resolve_replay final return changed from return _receipt(row), True to return None.
+python -m pytest tests/backend/integration/test_appointment_export.py::test_booking_replay_after_cancellation_exports_one_source_row -q --require-mysql --tb=short
+Observed: mutation.txt, 1 failed, exit 1 (503 != 200).
+git switch codex/bt3-23001952-vt071
+git diff aa8c5b0be057754f9b3409c8699537d4aeb887b9 -- src/backend/app/services/booking.py
+Observed: empty diff. Restored coverage suite passes.
+
+Final environment: separate venv, pip install -r requirements-dev.txt coverage==7.17.0 -e .
+No dependency overlay/PYTHONPATH needed. Captured versions in environment.json.
+
+Final coverage:
+python -m coverage run --branch --source=app -m pytest tests/backend/integration/test_appointment_export.py tests/backend/unit/test_appointment_export.py tests/backend/unit/test_openapi_export.py -q --require-mysql --tb=short
+python -m coverage json -o docs/assignments/VT-071/evidence/coverage-final.json
+python -m coverage report --include='*/services/appointment_export.py,*/repositories/appointments.py,*/api/appointments.py,*/schemas/appointments.py'
+Observed: 33 passed, exit 0; line/branch details in JSON, combined metric in summary.
+
+Order check:
+python tools/scripts/vt071_reverse_tests.py
+Observed: reverse-order.txt, 29 passed, exit 0.
+
+Performance (both runs, BT3_RUN_LOAD=1):
+python -m pytest tests/backend/integration/test_appointment_export_load.py -q -s --require-mysql --tb=short
+Observed: load-initial.txt / performance-initial.json, then improved diagnostics in
+load.txt / performance.json; both fail error-count gate, no default deadline change.
+
+Regression final:
+python -m pytest tests/backend/unit tests/backend/integration/test_student_appointment_history.py tests/backend/integration/test_appointments_api.py tests/backend/integration/test_booking_concurrency.py::test_concurrent_same_key_replays_one_immutable_receipt tests/backend/integration/test_booking_concurrency.py::test_http_replay_after_cancellation_returns_original_receipt -q --require-mysql --tb=short
+Observed: regression-final.txt, 1013 passed, exit 0, 84.36s.
+
+Contract export:
+python tools/scripts/export_openapi.py
+Deterministic output is exercised by existing test_openapi_export.py, now updated
+for the new CSV path and cookie security/schema/header contract.
+
+Static:
+python -m ruff check [four changed production files, export tests, OpenAPI test, reverse-order helper]
+git diff --check
+No force push or merge. Exact immutable submission/evidence SHA is recorded in PDF.

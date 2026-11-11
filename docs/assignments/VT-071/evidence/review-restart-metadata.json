@@ -1,0 +1,11 @@
+{
+  "source_commit": "60fb77ac0c101a23142378fd147a7bf36ca1e067",
+  "harness_unchanged": true,
+  "harness_git_blob": "7bde11bdffe5a4b293beef9733b83a3b1cde4637",
+  "previous_performance_sha256_restored": "a5f79b022fdc6590b5f54170e899037d33a43c6e5aadcb9bb0df3085f4bd6c95",
+  "preflight": "2026-11-01 10:33:44.371199\t8.4.13\nUptime\t12\n",
+  "server_start_log": "review-restart-server.txt",
+  "schema_lifecycle": "same fixture as previous runs creates/migrates/drops a unique schema",
+  "pre_burst_work": "migration, synthetic seed, login and one serial request; not empty-cache cold start",
+  "comparison_limit": "same review harness; old harness differs, so do not infer a causal improvement"
+}

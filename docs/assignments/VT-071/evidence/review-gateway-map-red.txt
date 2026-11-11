@@ -1,0 +1,12 @@
+F                                                                        [100%]
+================================== FAILURES ===================================
+__________ test_generated_gateway_route_map_matches_business_openapi __________
+tests\containers\test_gateway_observability.py:1393: in test_generated_gateway_route_map_matches_business_openapi
+    assert result.returncode == 0, result.stdout + result.stderr
+E   AssertionError: gateway route map is stale; run tools/infra/generate_gateway_routes.py
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['D:\\SE\\tmp\\bt3-venv\\Scripts\\python.exe', 'tools/infra/generate_gateway_routes.py', '--check'], returncode=1, stdout='', stderr='gateway route map is stale; run tools/infra/generate_gateway_routes.py\n').returncode
+=========================== short test summary info ===========================
+FAILED tests/containers/test_gateway_observability.py::test_generated_gateway_route_map_matches_business_openapi
+1 failed in 0.70s

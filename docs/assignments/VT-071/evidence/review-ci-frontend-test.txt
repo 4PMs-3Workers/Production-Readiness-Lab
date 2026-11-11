@@ -1,0 +1,15 @@
+npm notice run @prl/frontend@0.1.0 test
+npm notice run vitest run --config vitest.config.ts
+
+ RUN  v5.0.4 D:/SE/tmp/bt3-vt071
+
+
+ Test Files  36 passed (36)
+      Tests  349 passed (349)
+   Start at  22:09:17
+   Duration  14.38s (tests 46%, environment 35%, setup 8%, transform 7%, import 3%)
+
+Environment  jsdom was created 36 times · 36.73s total, 35% of tracked time
+             create it once per worker with pool: 'vmThreads' (keeps per-file isolation) or isolate: false (shares it across files)
+             learn more: https://vitest.dev/guide/improving-performance#test-environments
+

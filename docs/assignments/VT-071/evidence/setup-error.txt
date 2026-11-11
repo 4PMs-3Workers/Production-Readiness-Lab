@@ -1,0 +1,16 @@
+ImportError while loading conftest 'D:\SE\tmp\bt3-vt071\tests\backend\integration\conftest.py'.
+tests\backend\integration\conftest.py:34: in <module>
+    from app.factory import create_app
+src\backend\app\factory.py:15: in <module>
+    from app.api import api_v1_router
+src\backend\app\api\__init__.py:42: in <module>
+    _register_appointments()
+src\backend\app\api\__init__.py:37: in _register_appointments
+    from app.api.appointments import router
+src\backend\app\api\appointments.py:17: in <module>
+    from app.observability.database import record_database_failure
+src\backend\app\observability\__init__.py:3: in <module>
+    from app.observability.runtime import TelemetryRuntime, create_telemetry
+src\backend\app\observability\runtime.py:11: in <module>
+    from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
+E   ModuleNotFoundError: No module named 'opentelemetry.exporter'

@@ -1,0 +1,68 @@
+......FFFFFFF....                                                        [100%]
+================================== FAILURES ===================================
+____________ test_csv_text_and_formula_contract[\tplain-'\tplain] _____________
+tests\backend\unit\test_appointment_export.py:64: in test_csv_text_and_formula_contract
+    assert parsed[0]["location"] == expected
+E   assert '\tplain' == "'\tplain"
+E     
+E     - '	plain
+E     ? -
+E     + 	plain
+____________ test_csv_text_and_formula_contract[\rplain-'\rplain] _____________
+tests\backend\unit\test_appointment_export.py:64: in test_csv_text_and_formula_contract
+    assert parsed[0]["location"] == expected
+E   assert '\rplain' == "'\rplain"
+E     
+E     - '
+E     + 
+E       plain
+____________ test_csv_text_and_formula_contract[\nplain-'\nplain] _____________
+tests\backend\unit\test_appointment_export.py:64: in test_csv_text_and_formula_contract
+    assert parsed[0]["location"] == expected
+E   assert '\nplain' == "'\nplain"
+E     
+E     - '
+E     + 
+E       plain
+__________ test_csv_text_and_formula_contract[\uff1d1+1-'\uff1d1+1] ___________
+tests\backend\unit\test_appointment_export.py:64: in test_csv_text_and_formula_contract
+    assert parsed[0]["location"] == expected
+E   assert '＝1+1' == "'＝1+1"
+E     
+E     - '＝1+1
+E     ? -
+E     + ＝1+1
+____________ test_csv_text_and_formula_contract[\uff0b1-'\uff0b1] _____________
+tests\backend\unit\test_appointment_export.py:64: in test_csv_text_and_formula_contract
+    assert parsed[0]["location"] == expected
+E   assert '＋1' == "'＋1"
+E     
+E     - '＋1
+E     ? -
+E     + ＋1
+____________ test_csv_text_and_formula_contract[\uff0d1-'\uff0d1] _____________
+tests\backend\unit\test_appointment_export.py:64: in test_csv_text_and_formula_contract
+    assert parsed[0]["location"] == expected
+E   assert '－1' == "'－1"
+E     
+E     - '－1
+E     ? -
+E     + －1
+____________ test_csv_text_and_formula_contract[\uff20X-'\uff20X] _____________
+tests\backend\unit\test_appointment_export.py:64: in test_csv_text_and_formula_contract
+    assert parsed[0]["location"] == expected
+E   assert '＠X' == "'＠X"
+E     
+E     - '＠X
+E     ? -
+E     + ＠X
+=========================== short test summary info ===========================
+FAILED tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[\tplain-'\tplain]
+FAILED tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[\rplain-'\rplain]
+FAILED tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[\nplain-'\nplain]
+FAILED tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[\uff1d1+1-'\uff1d1+1]
+FAILED tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[\uff0b1-'\uff0b1]
+FAILED tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[\uff0d1-'\uff0d1]
+FAILED tests/backend/unit/test_appointment_export.py::test_csv_text_and_formula_contract[\uff20X-'\uff20X]
+7 failed, 10 passed in 1.64s
+EXIT_CODE=1

@@ -1,0 +1,274 @@
+{
+  "source_parent": "84d868425996322f0536f8c277bcc1cc0f038ed4",
+  "final_harness_sha256": "af6175f9dfb1ec328316aae310e995ddaa838306933609638ca69134680d27fe",
+  "production_changes": false,
+  "protocol": "80 clients, one student session, 100 owned + 1 foreign row; serial request, cold, warmup80, five warm bursts",
+  "timeouts_seconds": {
+    "connect": 1,
+    "pool": 0.5,
+    "read_transaction": 1,
+    "request": 3
+  },
+  "server": "One new MySQL process, PID 35104, localhost:3371; no restart between these comparisons",
+  "attempts": [
+    {
+      "attempt": 1,
+      "pool_mode": "production",
+      "raw": "review-pool-attempt1-production-performance.json",
+      "errors": 340,
+      "requests": 560,
+      "phase_errors": {
+        "cold": 39,
+        "warmup80": 45,
+        "warm1": 45,
+        "warm2": 43,
+        "warm3": 55,
+        "warm4": 58,
+        "warm5": 55
+      },
+      "p95_success_by_phase": {
+        "cold": 0.6858531999896513,
+        "warmup80": 0.6380674000101862,
+        "warm1": 0.6733347000117647,
+        "warm2": 0.5866422000108287,
+        "warm3": 0.6637031000136631,
+        "warm4": 0.7672997000045143,
+        "warm5": 0.830190800013952
+      },
+      "failure_stages": {
+        "auth": 340
+      },
+      "operation_failures": {},
+      "verified_auth_pool_queue_timeouts": null,
+      "max_sampled_pool_checked_out": null,
+      "max_threads_running": 3,
+      "max_threads_connected": 11,
+      "aborted_clients_delta": 0,
+      "host_cpu_percent_range": [
+        20.334928229665074,
+        34.23423423423423
+      ],
+      "max_event_loop_lag_p95_seconds": 0.23276959999930114,
+      "final_active_owned_processes_excluding_observer": null
+    },
+    {
+      "attempt": 1,
+      "pool_mode": "null",
+      "raw": "review-pool-attempt1-null-performance.json",
+      "errors": 0,
+      "requests": 560,
+      "phase_errors": {
+        "cold": 0,
+        "warmup80": 0,
+        "warm1": 0,
+        "warm2": 0,
+        "warm3": 0,
+        "warm4": 0,
+        "warm5": 0
+      },
+      "p95_success_by_phase": {
+        "cold": 1.1991239999915706,
+        "warmup80": 1.804139200001373,
+        "warm1": 1.6500012999895262,
+        "warm2": 1.6118636000028346,
+        "warm3": 1.5899841000064043,
+        "warm4": 1.5876723999972455,
+        "warm5": 1.8091091999958735
+      },
+      "failure_stages": {},
+      "operation_failures": {},
+      "verified_auth_pool_queue_timeouts": null,
+      "max_sampled_pool_checked_out": null,
+      "max_threads_running": 2,
+      "max_threads_connected": 81,
+      "aborted_clients_delta": 0,
+      "host_cpu_percent_range": [
+        16.627358490566035,
+        24.07407407407407
+      ],
+      "max_event_loop_lag_p95_seconds": 0.5616925000067567,
+      "final_active_owned_processes_excluding_observer": null
+    },
+    {
+      "attempt": 2,
+      "pool_mode": "production",
+      "raw": "review-pool-attempt2-production-performance.json",
+      "errors": 295,
+      "requests": 560,
+      "phase_errors": {
+        "cold": 49,
+        "warmup80": 45,
+        "warm1": 45,
+        "warm2": 35,
+        "warm3": 43,
+        "warm4": 35,
+        "warm5": 43
+      },
+      "p95_success_by_phase": {
+        "cold": 0.7459529000043403,
+        "warmup80": 0.845729200009373,
+        "warm1": 0.6340452000004007,
+        "warm2": 0.7262141999963205,
+        "warm3": 0.7582498999981908,
+        "warm4": 0.7228478000033647,
+        "warm5": 0.6371630999929039
+      },
+      "failure_stages": {
+        "auth": 295
+      },
+      "operation_failures": {
+        "auth_execute": 295
+      },
+      "verified_auth_pool_queue_timeouts": 295,
+      "max_sampled_pool_checked_out": 10,
+      "max_threads_running": 3,
+      "max_threads_connected": 11,
+      "aborted_clients_delta": 0,
+      "host_cpu_percent_range": [
+        12.878787878787879,
+        16.76470588235294
+      ],
+      "max_event_loop_lag_p95_seconds": 0.11344700001063757,
+      "final_active_owned_processes_excluding_observer": null
+    },
+    {
+      "attempt": 2,
+      "pool_mode": "null",
+      "raw": "review-pool-attempt2-null-performance.json",
+      "errors": 83,
+      "requests": 560,
+      "phase_errors": {
+        "cold": 0,
+        "warmup80": 0,
+        "warm1": 80,
+        "warm2": 0,
+        "warm3": 0,
+        "warm4": 3,
+        "warm5": 0
+      },
+      "p95_success_by_phase": {
+        "cold": 1.732605600001989,
+        "warmup80": 1.4588058000081219,
+        "warm1": null,
+        "warm2": 1.530194399994798,
+        "warm3": 1.7044934000005014,
+        "warm4": 1.6886598999990383,
+        "warm5": 1.3568260000029113
+      },
+      "failure_stages": {
+        "export": 83
+      },
+      "operation_failures": {
+        "rollback": 83
+      },
+      "verified_auth_pool_queue_timeouts": 0,
+      "max_sampled_pool_checked_out": null,
+      "max_threads_running": 2,
+      "max_threads_connected": 81,
+      "aborted_clients_delta": 83,
+      "host_cpu_percent_range": [
+        12.925598991172759,
+        24.257158292814694
+      ],
+      "max_event_loop_lag_p95_seconds": 0.8212992999906419,
+      "final_active_owned_processes_excluding_observer": null
+    },
+    {
+      "attempt": 3,
+      "pool_mode": "production",
+      "raw": "review-pool-production-performance.json",
+      "errors": 302,
+      "requests": 560,
+      "phase_errors": {
+        "cold": 49,
+        "warmup80": 46,
+        "warm1": 45,
+        "warm2": 35,
+        "warm3": 41,
+        "warm4": 45,
+        "warm5": 41
+      },
+      "p95_success_by_phase": {
+        "cold": 0.8615642999939155,
+        "warmup80": 0.8807679000019561,
+        "warm1": 0.7334941000008257,
+        "warm2": 0.7012299000052735,
+        "warm3": 0.7368891999940388,
+        "warm4": 0.6999704000045313,
+        "warm5": 0.624588999999105
+      },
+      "failure_stages": {
+        "auth": 302
+      },
+      "operation_failures": {
+        "auth_execute": 302
+      },
+      "verified_auth_pool_queue_timeouts": 302,
+      "max_sampled_pool_checked_out": 10,
+      "max_threads_running": 3,
+      "max_threads_connected": 11,
+      "aborted_clients_delta": 0,
+      "host_cpu_percent_range": [
+        11.290322580645162,
+        29.411764705882348
+      ],
+      "max_event_loop_lag_p95_seconds": 0.09608160000061616,
+      "final_active_owned_processes_excluding_observer": 0
+    },
+    {
+      "attempt": 3,
+      "pool_mode": "null",
+      "raw": "review-pool-null-performance.json",
+      "errors": 0,
+      "requests": 560,
+      "phase_errors": {
+        "cold": 0,
+        "warmup80": 0,
+        "warm1": 0,
+        "warm2": 0,
+        "warm3": 0,
+        "warm4": 0,
+        "warm5": 0
+      },
+      "p95_success_by_phase": {
+        "cold": 1.5667601000022842,
+        "warmup80": 1.5582333999918774,
+        "warm1": 1.5567678999941563,
+        "warm2": 1.351268099999288,
+        "warm3": 1.3648357000056421,
+        "warm4": 1.5085957999981474,
+        "warm5": 1.5377072999981465
+      },
+      "failure_stages": {},
+      "operation_failures": {},
+      "verified_auth_pool_queue_timeouts": 0,
+      "max_sampled_pool_checked_out": null,
+      "max_threads_running": 3,
+      "max_threads_connected": 81,
+      "aborted_clients_delta": 0,
+      "host_cpu_percent_range": [
+        17.09090909090909,
+        18.595041322314053
+      ],
+      "max_event_loop_lag_p95_seconds": 0.5678855000005569,
+      "final_active_owned_processes_excluding_observer": 0
+    }
+  ],
+  "limits": [
+    "New explicit-checkout profiling protocol, not historical unchanged harness",
+    "Different fresh migrated UUID schema per parameter case; runs sequential on one Windows host",
+    "Attempt1 order null then production; attempts2 and3 production then null; not randomized or a causal A/B trial",
+    "Attempt1 lacks exact auth leaf type; attempt2 adds module and isinstance SQLAlchemy TimeoutError",
+    "Attempt3 excludes monitor connection from PROCESSLIST; attempts1/2 include the observer itself",
+    "Sampling nominally250ms can be delayed by event-loop lag; no exclusion of short-lived orphan queries",
+    "Execute includes buffered wire fetch; Result.all timing is extraction only; timings include scheduling",
+    "Host CPU is all-core mean, harness process CPU is not mysqld CPU; no per-core profile"
+  ],
+  "functional_recheck": {
+    "passed": 41,
+    "skipped_opt_in_load": 2,
+    "seconds": 26.96
+  },
+  "measured_source_commit": "c664a5de9ad6eb3d2b085c3438f49cfc714cfb3b",
+  "later_ci_changes": "load markers and explicit factory keyword; no new load measurement"
+}

@@ -1,0 +1,11 @@
+Verified after restore and all functional/coverage checks; before evidence-only commit.
+COMMAND: git rev-parse aa8c5b0be057754f9b3409c8699537d4aeb887b9:src/backend/app/services/booking.py
+304611cb18f18de89a677d896b847d140f880dc8
+EXIT_CODE=0
+COMMAND: git hash-object src/backend/app/services/booking.py
+304611cb18f18de89a677d896b847d140f880dc8
+EXIT_CODE=0
+COMMAND: git diff aa8c5b0be057754f9b3409c8699537d4aeb887b9 -- src/backend/app/services/booking.py
+EXIT_CODE=0
+COMMAND: git merge-base --is-ancestor a500f24b0aea8ac249251dfd30f534ffaa53a867 HEAD
+EXIT_CODE=1

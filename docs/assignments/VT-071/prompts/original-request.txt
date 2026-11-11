@@ -1,0 +1,814 @@
+# PROMPT HOÀN CHỈNH – BÀI TẬP CÁ NHÂN 3 – SOFTWARE ENGINEERING 2026
+
+## I. VAI TRÒ VÀ NHIỆM VỤ
+
+Bạn là chuyên gia Software Engineering, AI-assisted Software Development, Software Testing, Quality Engineering, Test-driven Development, Git/GitHub và Code Review, có kinh nghiệm phân tích và phát triển các dự án phần mềm thực tế dựa trên repository GitHub.
+
+Hãy hỗ trợ tôi thực hiện **Bài tập cá nhân 3 – APP-03 – VT-071** một cách đầy đủ, chính xác, có lập luận kỹ thuật chặt chẽ và bằng chứng thực thi có thể kiểm chứng.
+
+Bạn phải sử dụng:
+
+1. Toàn bộ đề bài gốc được cung cấp nguyên văn tại Phần III.
+2. Hai slide bài giảng Lecture 06 và Lecture 07 đã được đính kèm.
+3. Source code thực tế trong repository GitHub chính thức của nhóm.
+4. Kết quả thực thi code, test, mutation experiment và các bằng chứng kiểm chứng thực tế.
+5. Khung chấm điểm chính thức của giảng viên.
+
+**Nhiệm vụ không chỉ là viết một báo cáo lý thuyết. Bạn phải thực hiện một quy trình AI-assisted software development và testing có kiểm soát, từ specification, implementation plan, test-first implementation, AI patch review đến mutation testing, performance experiment và engineering evidence.**
+
+### Kết quả đầu ra bắt buộc
+
+**1. Một file PDF hoàn chỉnh:**
+
+`BT3_23001952_VT-071.pdf`
+
+Tối đa 8 trang nội dung chính; phụ lục AI Usage Log và ảnh/log thực thi không tính vào giới hạn.
+
+**2. Một GitHub branch hoặc Pull Request thực tế:**
+
+Chứa các test và patch nhỏ phục vụ bài tập, cùng README ngắn hướng dẫn chạy test.
+
+**3. Bằng chứng kỹ thuật có thể kiểm chứng:**
+
+- Baseline commit hash.
+- AI implementation plan và phần review.
+- Test thất bại đúng lý do trước patch.
+- Patch nhỏ và diff được review.
+- Test pass sau patch.
+- Mutation/deliberate-bug experiment.
+- Coverage và flaky-test analysis.
+- Performance/risk experiment.
+- Traceability từ requirements đến code, tests và kết quả.
+
+Không được chỉ tạo nội dung giả lập cho báo cáo rồi trình bày như đã thực hiện.
+
+## II. THÔNG TIN CÁ NHÂN VÀ NGUỒN TÀI LIỆU
+
+### 1. Thông tin cá nhân
+
+- Họ và tên: **Nguyễn Tố Uyên**
+- Mã sinh viên: **23001952**
+- Mã biến thể: **VT-071**
+- Team ID: **SE2026-T18**
+- Vai trò: **Thành viên**
+- Mã đề tài: **APP-03**
+- Tên dự án: **Production Readiness Lab**
+- Nhóm GitHub: **4PMs&3Workers**
+- Repository: https://github.com/4PMs-3Workers/Production-Readiness-Lab
+
+Tên PDF cuối cùng phải chính xác là `BT3_23001952_VT-071.pdf`.
+
+### 2. Slide bài giảng bắt buộc
+
+Hai slide bài giảng đã được đính kèm trong cuộc trò chuyện hoặc thư mục tài liệu nguồn.
+
+**Lecture 06 – AI-assisted Software Development & Vibe Coding**
+
+File: `Lecture_06_AI_Assisted_Software_Development_and_Vibe_Coding_v3.pptx`
+
+Đọc toàn bộ slide, ưu tiên vận dụng những nội dung liên quan:
+
+- Vibe coding, AI-assisted development và agentic engineering.
+- Trách nhiệm của kỹ sư khi AI sinh code.
+- Vòng lặp **SPEC → PLAN → GENERATE → VERIFY → INTEGRATE**.
+- Prompt dưới dạng mini specification.
+- Context engineering và repository-level/task-level context.
+- Vertical slice và small reviewable diff.
+- Human checkpoints: review plan, review diff, quyết định merge.
+- AI-generated code failure modes.
+- Scope, Design, Correctness, Evidence trong code review.
+- Verification thông qua nhiều nguồn bằng chứng độc lập.
+- Quyền hạn và giới hạn của coding agents.
+- GitHub branch, commit, PR, review và traceability.
+- Engineering evidence và AI usage disclosure.
+
+**Lecture 07 – Software Testing & Quality Engineering**
+
+File: `Lecture_07_Software_Testing_and_Quality_Engineering.pptx`
+
+Đọc toàn bộ slide, ưu tiên vận dụng:
+
+- Verification và validation.
+- Risk-based testing.
+- Unit, integration, API và E2E tests.
+- Functional correctness, Reliability, Security và Performance.
+- Test design từ requirements, risks, partitions, boundaries và states.
+- Test cases với setup, action, assertions và cleanup.
+- Test doubles: stub, fake, mock và real dependencies.
+- Rủi ro khi mocks che giấu integration failures.
+- API contract testing.
+- Regression testing.
+- Red–green testing.
+- Line coverage, branch coverage và risk coverage.
+- Flaky tests.
+- AI-generated tests và các assumptions không đáng tin.
+- Deliberate bugs và mutation testing.
+- CI quality gates.
+- Engineering evidence và test quality.
+
+**Lưu ý:** Kỹ thuật decision table là yêu cầu bắt buộc của biến thể VT-071. Hãy áp dụng đúng kỹ thuật này, kể cả khi slide sử dụng thêm các kỹ thuật thiết kế test khác. Không thay decision table bằng equivalence partitioning, boundary value analysis hoặc state transition testing.
+
+### 3. Nguyên tắc tham khảo bài giảng
+
+- Phải đọc và phân tích nội dung thực tế của cả hai slide trước khi làm.
+- Ưu tiên thuật ngữ, phương pháp và tư duy giảng viên đã giảng dạy.
+- Không sao chép nguyên các ví dụ trong slide để thay thế dự án APP-03.
+- Có thể vận dụng hoặc mở rộng kiến thức nếu phục vụ yêu cầu bài tập, nhưng phải phân biệt với nội dung được slide trực tiếp hỗ trợ.
+- Không tự bịa số slide, định nghĩa hoặc kết luận của giảng viên.
+- Mỗi khái niệm lý thuyết quan trọng cần được liên hệ với một quyết định, test, đoạn code hoặc evidence thực tế.
+- Mục tiêu không phải viết thật nhiều lý thuyết, mà phải chứng minh được quy trình engineering và chất lượng bằng evidence.
+
+---
+
+## III. ĐỀ BÀI GỐC – GIỮ NGUYÊN 100% NỘI DUNG
+
+**QUY ĐỊNH BẮT BUỘC:** Toàn bộ nội dung từ đây đến hết khung chấm điểm là đề bài gốc. Không thay đổi, thêm, bớt, thay số liệu, đổi cách diễn đạt hoặc loại bỏ bất kỳ yêu cầu nào. Các hướng dẫn ở những phần còn lại của prompt chỉ giúp làm rõ cách thực hiện, không được ghi đè đề bài.
+
+---
+
+Để làm được bài này các em cần đọc kiến thức từ 2 file slide bài giảng của thầy (lecture 6 & 7)
+
+## BT cá nhân 3 – APP-03 – VT-071
+
+BỐI CẢNH CÁ NHÂN HÓA (VT-071) Sinh viên: Nguyễn Tố Uyên — 23001952. Nhóm: SE2026-T18. Vai trò: Thành viên. Dự án: “APP-03 – Production Readiness Lab”. Repository chính thức: [https://github.com/4PMs-3Workers/Production-Readiness-Lab](https://github.com/4PMs-3Workers/Production-Readiness-Lab)  Change request riêng: Thêm endpoint/API xuất dữ liệu; chỉ người có quyền mới tải được và dữ liệu phải đúng phạm vi. Risk trọng tâm: mock che giấu contract sai với database hoặc dịch vụ ngoài. Kỹ thuật thiết kế test bắt buộc: decision table. Mutation/deliberate bug bắt buộc: bỏ idempotency/concurrency guard. Mức tải kiểm chứng: 80 người dùng/tác vụ đồng thời; mục tiêu p95 không quá 2.5 giây. Ràng buộc làm việc với AI: Cho AI review patch sau khi chạy test; bạn phải chỉ ra ít nhất một nhận xét đúng và một nhận xét không đủ evidence.  YÊU CẦU THỰC HIỆN  1. Specification và AI-assisted plan (15 điểm) - Chuyển change request thành: 01 problem statement, 3–5 acceptance criteria và ít nhất 2 non-functional constraints. - Chỉ ra invariant/contract quan trọng nhất cần được bảo vệ. - Dùng coding agent tạo implementation plan trước khi code. Ghi prompt, assumptions và các file agent dự định thay đổi. - Review plan bằng repository thật; sửa hoặc bác bỏ ít nhất 2 điểm bằng evidence.  2. Test strategy dựa trên risk (20 điểm) - Lập test strategy gồm unit, integration/API và E2E; nêu rõ test nào không cần thiết. - Lập bảng tối thiểu 10 test cases: ID, risk/requirement, test level, precondition/input, expected result, priority. - Bắt buộc áp dụng kỹ thuật “decision table”; giải thích cách chọn test data. - Có ít nhất 2 negative tests và 1 failure-path test gắn với risk riêng.  3. Test-first AI-assisted implementation (25 điểm) - Chọn một vertical slice nhỏ nhưng chạy được của change request. - Tạo nhánh Git riêng; ghi commit ban đầu được dùng làm baseline. - Viết hoặc sinh test để test thất bại đúng lý do trước khi sửa code; lưu evidence của lần fail. - Dùng AI hỗ trợ tạo patch nhỏ; review diff trước khi chấp nhận. Không merge code không hiểu. - Sau patch, chạy lại test và ghi evidence pass; nêu file/commit/PR liên quan. - Nếu repository chưa đủ điều kiện triển khai change request, tạo executable test harness hoặc characterization test trên module gần nhất và giải thích giới hạn.  4. Đánh giá chất lượng test — “Who tests the tests?” (25 điểm) - Đưa deliberate bug/mutation “bỏ idempotency/concurrency guard” vào một nhánh hoặc commit tạm thời, không để lại trong nhánh nộp bài. - Chứng minh ít nhất một test phát hiện mutation. Nếu mutation sống sót, bổ sung/sửa test rồi chạy lại. - Phân tích coverage: line/branch coverage nếu công cụ hỗ trợ, và risk coverage theo acceptance criteria. Không dùng tỷ lệ coverage đơn độc để kết luận chất lượng. - Kiểm tra ít nhất 2 nguy cơ flaky test: time, order/shared state, network, concurrency hoặc random data. - Thực hiện kiểm chứng tải ở mức 80 tác vụ đồng thời và so sánh với mục tiêu p95 2.5 giây; nếu không thể chạy tải thật, trình bày harness, dữ liệu giả lập và giới hạn kết luận.  5. Engineering evidence và reflection (15 điểm) - Tạo traceability: Acceptance criterion/Risk → Test case → Test file → Commit/PR → Kết quả. - Lập AI Usage Log: công cụ, prompt chính, output được dùng, thay đổi/bác bỏ và evidence. - Chỉ ra 2 điểm AI-generated code/tests có vẻ hợp lý nhưng không đáng tin ngay. - Viết reflection 250–350 từ: điều gì khiến confidence tăng lên, điều gì vẫn chưa được chứng minh và test tiếp theo có giá trị cao nhất.  ĐẦU RA - 01 file PDF tối đa 8 trang nội dung chính; phụ lục AI Usage Log và ảnh/log thực thi không tính vào giới hạn. - 01 link GitHub branch hoặc PR; có README ngắn hướng dẫn chạy test. Không merge nếu nhóm chưa review. - Tên file: BT3_23001952_VT-071.pdf - Bài phải sử dụng đúng dự án, change request, risk, test technique, mutation, mức tải và ràng buộc AI của VT-071. - Đây là bài cá nhân. Không sao chép test plan, test data, mutation experiment, prompt hoặc reflection của thành viên khác, kể cả cùng nhóm.
+
+HƯỚNG DẪN NỘP BÀI
+
+1\. Nơi nộp
+Nộp bài cá nhân trực tiếp vào Assignment “Bài tập cá nhân 3” trên Google Classroom. Không gửi bài qua email.
+
+2\. Thành phần phải nộp
+• 01 file PDF duy nhất, tối đa 8 trang nội dung chính.
+• 01 link GitHub branch hoặc Pull Request chứa test và patch nhỏ.
+• Tên file: BT3_23001952\_\<Mã biến thể>.pdf
+Ví dụ: BT3_23001898_VT-001.pdf.
+• Phụ lục AI Usage Log và ảnh/log thực thi không tính vào giới hạn trang.
+
+3\. Thông tin bắt buộc ở trang đầu
+• Họ và tên; mã sinh viên 23001952.
+• Mã biến thể ghi trong tên bài.
+• Team ID, mã đề tài, repository và baseline commit hash.
+• Link branch/PR.
+• Cam kết: “Tôi chịu trách nhiệm về toàn bộ code, test và nội dung bài làm; tôi đã khai báo việc sử dụng AI.”
+
+4\. Cấu trúc bài làm
+• Specification, acceptance criteria và invariant.
+• AI-assisted implementation plan và phần review.
+• Risk-based test strategy và bảng test cases.
+• Evidence test fail → patch → test pass.
+• Mutation/deliberate-bug experiment.
+• Coverage, flaky-test review và performance/risk experiment.
+• Traceability, AI Usage Log và reflection.
+
+5\. Evidence từ GitHub
+Ghi rõ đường dẫn file, commit/PR và lệnh chạy test. Không nộp ảnh chụp thay cho code hoặc test có thể chạy. Không merge nếu nhóm chưa review.
+
+6\. Quy tắc dùng AI
+Được phép dùng AI để lập kế hoạch, sinh code và test, nhưng phải review diff, kiểm tra assumptions và chứng minh correctness bằng evidence. Không được dùng “AI nói đúng” làm bằng chứng.
+
+7\. Lưu ý
+• Phải dùng đúng change request, risk, test technique, mutation, tải/p95 và ràng buộc AI của biến thể cá nhân.
+• Đây là bài cá nhân, kể cả khi cùng làm trên repository của nhóm.
+• Deadline và chính sách nộp lại theo Assignment trên Google Classroom.
+• Giảng viên có thể yêu cầu chạy test hoặc giải thích bất kỳ dòng code/test nào trong buổi vấn đáp.
+
+### Khung chấm điểm
+
+| Tiêu chí                                             | Điểm | Yêu cầu                                                                                                                                                        |
+| :--------------------------------------------------- | ---- | :------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Specification và AI-assisted plan**                | 15   | Problem statement rõ; 3–5 acceptance criteria kiểm thử được; có constraints, invariant/contract; review và sửa/bác bỏ ≥2 điểm trong plan của AI bằng evidence. |
+| **Risk-based test strategy và test design**          | 20   | Phân bổ hợp lý unit/integration/API/E2E; ≥10 cases có traceability, priority, negative/failure paths; dùng đúng kỹ thuật test của biến thể.                    |
+| **Test-first implementation và review AI patch**     | 25   | Có baseline; test fail đúng lý do trước patch; patch nhỏ, hiểu được; evidence fail→pass; file/commit/PR và cách chạy tái lập được.                             |
+| **Đánh giá sức mạnh của test suite**                 | 20   | Mutation/deliberate bug được test phát hiện; nếu sống sót có sửa test; phân tích coverage trong context; kiểm tra flaky risks.                                 |
+| **Performance/risk experiment**                      | 5    | Có harness và dữ liệu; so sánh với tải/p95 riêng; nêu giới hạn kết luận trung thực.                                                                            |
+| **Engineering evidence, traceability và reflection** | 15   | Traceability đầy đủ; AI Usage Log; chỉ ra ≥2 điểm AI chưa đáng tin; reflection 250–350 từ có evidence và residual risk.                                        |
+
+---
+
+## IV. NGUYÊN TẮC THỰC HIỆN VÀ KIỂM CHỨNG
+
+Các hướng dẫn dưới đây nhằm làm rõ cách hoàn thành đề bài, không phải bổ sung hoặc sửa đổi yêu cầu chính thức.
+
+### 1. Evidence phải đến từ thực tế
+
+- Không được bịa tên file, module, function, API, database table, branch, commit SHA hoặc URL Pull Request.
+- Không được tự tạo thông báo test pass/fail và gán cho một lần thực thi chưa xảy ra.
+- Không được trình bày test đã chạy khi thực tế mới chỉ viết test plan.
+- Phải sử dụng file, function và dependencies có thật trong repository.
+- Nếu một phần là thiết kế hoặc implementation đề xuất, phải ghi rõ trạng thái đó.
+- Nếu thiếu điều kiện chạy test, hãy sử dụng phương án test harness theo đề và giải thích giới hạn.
+
+Phân biệt rõ:
+
+**Verified evidence:** kết quả đã kiểm chứng qua code, Git hoặc test execution.
+
+**Proposed implementation:** code hoặc thiết kế đề xuất nhưng chưa được áp dụng/chạy.
+
+**Assumption:** thông tin chưa xác nhận.
+
+**Planned test:** kiểm thử dự kiến chưa thực hiện.
+
+**Observed result:** kết quả thực tế lấy từ công cụ hoặc log.
+
+Không tự suy luận một test pass chỉ vì code có vẻ đúng.
+
+### 2. Giới hạn thay đổi repository
+
+- Chỉ tạo thay đổi trên nhánh riêng phục vụ BT3.
+- Không chỉnh sửa trực tiếp branch chính của nhóm.
+- Không force push hoặc ghi đè công việc của người khác.
+- Không tự động merge code khi chưa có review của nhóm.
+- Không đưa secrets, token, mật khẩu hoặc dữ liệu nhạy cảm thật vào code/test/prompt.
+- Ưu tiên fixture và test database độc lập.
+- Không chạy destructive tests lên môi trường production.
+- Bảo đảm deliberate bug không còn trong branch nộp bài.
+- Code được thêm phải nhỏ, có lý do, có test và có thể review.
+
+## V. HƯỚNG DẪN THỰC HIỆN THEO 5 PHẦN BÀI TẬP
+
+### PHẦN 1. SPECIFICATION VÀ AI-ASSISTED PLAN
+
+#### 1.1. Kiểm tra repository
+
+Trước khi thiết kế feature, hãy:
+
+- Truy cập repository chính thức.
+- Xác định default branch và baseline commit SHA.
+- Ghi nhận ngày kiểm tra.
+- Đọc README, cấu trúc project, tài liệu API và instructions liên quan.
+- Xác định framework, backend, authentication, authorization và database.
+- Tìm những endpoint hoặc feature hiện tại có liên quan tới việc xuất dữ liệu.
+- Tìm luồng đọc dữ liệu, kiểm tra quyền và các cơ chế idempotency/concurrency guard hiện có.
+- Kiểm tra test framework và lệnh chạy test.
+- Xác định integration boundaries giữa backend, database hoặc dịch vụ ngoài.
+
+Không giả định hệ thống có những công nghệ hay module chưa được kiểm chứng.
+
+#### 1.2. Problem statement
+
+Viết một problem statement cho change request:
+
+**Thêm endpoint/API xuất dữ liệu; chỉ người có quyền mới tải được và dữ liệu phải đúng phạm vi.**
+
+Problem statement cần thể hiện vấn đề, người dùng liên quan và hậu quả nếu quyền truy cập hoặc phạm vi dữ liệu không được kiểm soát.
+
+Không chốt sẵn công nghệ hoặc framework trong problem statement.
+
+#### 1.3. Acceptance criteria
+
+Viết từ 3 đến 5 acceptance criteria với các đặc điểm:
+
+- Có mã AC-01, AC-02, ...
+- Dùng Given/When/Then.
+- Mô tả hành vi quan sát được.
+- Có thể kiểm thử tự động.
+- Bao quát truy cập hợp lệ, truy cập trái phép, giới hạn phạm vi và một failure path quan trọng.
+- Không gắn một cách vô lý vào implementation details.
+
+Lựa chọn trạng thái, quyền hạn, loại dữ liệu và format export dựa trên repository hoặc đánh dấu assumption.
+
+#### 1.4. Non-functional constraints và invariant
+
+Xác định ít nhất 2 non-functional constraints liên quan đến Security, Performance, Reliability hoặc data integrity.
+
+Phải sử dụng đúng:
+
+- 80 concurrent users/tasks.
+- Mục tiêu p95 ≤ 2.5 giây.
+
+Chỉ rõ invariant/contract quan trọng nhất. Ưu tiên invariant về người dùng chỉ có thể xuất dữ liệu trong phạm vi được phép, nếu phù hợp với domain thực tế.
+
+Cần xác định vị trí kiểm tra invariant ở backend/database hoặc boundary phù hợp, không phụ thuộc riêng vào UI.
+
+#### 1.5. AI-generated implementation plan
+
+Trước khi viết code, dùng AI/coding agent tạo một implementation plan.
+
+Lưu lại:
+
+- Prompt thực tế.
+- Assumptions.
+- Files dự định sửa/tạo.
+- API contract dự kiến.
+- Test strategy sơ bộ.
+- Những rủi ro hoặc dependencies có thể ảnh hưởng.
+
+Sau đó đọc source code và **sửa hoặc bác bỏ ít nhất 2 điểm trong AI plan bằng evidence từ repository thật**.
+
+Không tự tạo lỗi cho AI sau khi đã viết bài; phải giữ được bản plan ban đầu và phần review.
+
+### PHẦN 2. RISK-BASED TEST STRATEGY
+
+#### 2.1. Phân tích risks
+
+Ưu tiên risk riêng của VT-071:
+
+**Mock che giấu contract sai với database hoặc dịch vụ ngoài.**
+
+Phải phân tích tại sao một unit test sử dụng mock có thể pass trong khi application tương tác sai với schema, query, response format, authorization context hoặc contract thật.
+
+Nêu rõ boundary nào cần integration/API test sử dụng dependency thực trong test environment.
+
+#### 2.2. Test portfolio
+
+Lập strategy có:
+
+- Unit tests cho logic cục bộ.
+- Integration tests cho database hoặc service boundary.
+- API tests cho authentication, authorization và response contract.
+- E2E tests cho critical user journey nếu phù hợp.
+
+Nêu rõ test nào chưa cần thiết hoặc không đem lại đủ giá trị trong phạm vi vertical slice này, kèm lý do.
+
+Không mặc định càng nhiều E2E tests càng tốt.
+
+#### 2.3. Bảng test cases
+
+Tạo tối thiểu 10 test cases, đầy đủ:
+
+| Test ID | Risk/Requirement | Test level | Precondition/Input | Expected result | Priority |
+|---|---|---|---|---|---|
+
+Test cases cần:
+
+- Liên kết với acceptance criteria.
+- Có mức ưu tiên rõ ràng.
+- Có ít nhất 2 negative tests.
+- Có ít nhất 1 failure-path test gắn với mock/real contract mismatch.
+- Có các điều kiện về role, scope và access control.
+- Có trường hợp liên quan tới boundary với database hoặc external service.
+- Phù hợp với feature thật và môi trường hiện có.
+
+#### 2.4. Decision table – bắt buộc
+
+Phải thiết kế một **decision table thực sự**, không chỉ liệt kê test cases rồi gọi đó là decision table.
+
+Bảng cần chứa:
+
+- Conditions.
+- Các giá trị điều kiện.
+- Rules hoặc các tổ hợp điều kiện.
+- Actions/Expected outcomes.
+- Test case ID tương ứng.
+
+Chọn điều kiện từ yêu cầu thực tế, ví dụ trạng thái authentication, authorization, data scope và input validity nếu phù hợp.
+
+Giải thích vì sao chọn những combinations đó và vì sao có thể bỏ bớt combinations không hợp lệ hoặc ít rủi ro.
+
+Test data phải nhất quán với decision table, không được tạo expected result thiếu căn cứ.
+
+### PHẦN 3. TEST-FIRST AI-ASSISTED IMPLEMENTATION
+
+#### 3.1. Vertical slice
+
+Chọn một vertical slice nhỏ nhưng thực thi được, đại diện cho change request.
+
+Không triển khai cả một hệ thống export lớn nếu chỉ cần một slice có thể chứng minh requirement trọng tâm.
+
+Vertical slice phải đủ để kiểm tra một behavior quan trọng thông qua API hoặc executable harness.
+
+#### 3.2. Baseline và branch
+
+- Lấy commit SHA thực tế làm baseline.
+- Tạo branch Git riêng theo tên phù hợp với VT-071.
+- Ghi nhận branch và baseline.
+- Không làm thay đổi branch chính của nhóm.
+
+#### 3.3. Test-first / Red phase
+
+Trước khi sửa implementation:
+
+- Viết hoặc sinh test từ acceptance criteria.
+- Chạy test thật.
+- Kiểm tra test thất bại vì thiếu/sai behavior cần triển khai.
+- Không chấp nhận test thất bại do syntax error, missing dependency hoặc setup sai làm bằng chứng red phase hợp lệ.
+- Lưu command, log, file và commit liên quan nếu có.
+
+#### 3.4. AI patch / Green phase
+
+- Dùng AI hỗ trợ tạo một patch nhỏ.
+- Giữ lại prompt và phần output thực tế.
+- Review diff theo Scope, Design, Correctness và Evidence.
+- Kiểm tra security, data scope và API contract.
+- Chạy lại test.
+- Lưu evidence pass/fail thực tế.
+- Không chấp nhận AI tự tuyên bố patch đã đúng khi chưa có test execution.
+
+#### 3.5. AI review sau khi chạy test
+
+Đây là ràng buộc AI riêng của VT-071:
+
+**Phải cho AI review patch sau khi chạy test.**
+
+Thực hiện theo thứ tự:
+
+1. Chạy test.
+2. Cung cấp patch/diff và kết quả test cho AI review.
+3. Ghi lại nhận xét thực tế của AI.
+4. Xác định ít nhất một nhận xét đúng, có bằng chứng từ code/test.
+5. Xác định ít nhất một nhận xét chưa đủ evidence.
+6. Giải thích vì sao chấp nhận hoặc không chấp nhận từng nhận xét.
+
+Không thay bước này bằng review plan trước khi code.
+
+#### 3.6. Phương án fallback
+
+Nếu repository chưa đủ điều kiện triển khai endpoint/API export:
+
+- Chọn module gần nhất có thật.
+- Tạo executable test harness hoặc characterization test.
+- Sử dụng code thật hoặc hợp đồng phù hợp.
+- Giải thích điều gì đã được kiểm chứng.
+- Chỉ rõ những hành vi chưa thể kết luận đối với hệ thống thực tế.
+
+Không viết rằng đã hoàn thành endpoint production nếu chỉ mới kiểm chứng bằng harness.
+
+### PHẦN 4. WHO TESTS THE TESTS?
+
+#### 4.1. Mutation / deliberate bug
+
+Thực hiện mutation bắt buộc:
+
+**Bỏ idempotency/concurrency guard.**
+
+Mutation cần áp dụng vào code hoặc harness phù hợp với behavior cần bảo vệ.
+
+Nếu endpoint export là thao tác đọc thuần túy và không có idempotency/concurrency guard tương ứng, không được tự tạo một guard giả rồi báo cáo như đang tồn tại. Hãy xác định cơ chế tạo export job, xử lý task, duplicate requests hoặc module/harness gần nhất có thể kiểm thử mutation và giải thích giới hạn.
+
+Quy trình thực hiện:
+
+1. Xác nhận baseline test pass.
+2. Tạo mutation trong nhánh/commit tạm thời.
+3. Chạy test trên phiên bản mutated.
+4. Ghi lại test nào phát hiện mutation.
+5. Nếu mutation sống sót, bổ sung/sửa test.
+6. Chạy lại để kiểm tra khả năng phát hiện.
+7. Khôi phục implementation đúng.
+8. Xác nhận nhánh nộp bài không chứa deliberate bug.
+
+#### 4.2. Coverage
+
+Nếu công cụ hỗ trợ, thu thập:
+
+- Line coverage.
+- Branch coverage.
+
+Đồng thời phân tích risk coverage theo acceptance criteria.
+
+Giải thích rõ:
+
+- Những behavior đã được kiểm thử.
+- Những behavior chưa có bằng chứng.
+- Những điều coverage cao không chứng minh được.
+- Mức confidence thực tế sau khi kiểm thử.
+
+Không lấy 100% coverage làm bằng chứng software hoàn toàn đúng.
+
+#### 4.3. Flaky-test review
+
+Kiểm tra ít nhất 2 nguy cơ flaky test từ:
+
+- Time.
+- Test order/shared state.
+- Network.
+- Concurrency.
+- Random test data.
+
+Với mỗi nguy cơ, ghi:
+
+- Nguyên nhân.
+- Evidence hoặc cách tái hiện.
+- Ảnh hưởng tới độ tin cậy.
+- Biện pháp kiểm soát.
+- Trạng thái đã kiểm chứng hoặc chưa kiểm chứng.
+
+#### 4.4. Performance/risk experiment
+
+Thực hiện kiểm chứng ở mức:
+
+**80 người dùng/tác vụ đồng thời, p95 mục tiêu không quá 2.5 giây.**
+
+Cần ghi:
+
+- Công cụ/harness.
+- Môi trường thực thi.
+- Dữ liệu đầu vào hoặc fixtures.
+- Số tác vụ đồng thời.
+- Số lần chạy và cách đo.
+- Latency measurements.
+- p95 thực tế nếu đã chạy được.
+- Error/failure count.
+- Kết luận pass/fail so với mục tiêu.
+- Giới hạn thí nghiệm.
+
+Nếu không chạy được tải thật, phải trình bày harness, phương án giả lập và giới hạn kết luận đúng yêu cầu đề bài.
+
+Không tự bịa p95 hoặc khẳng định hệ thống đạt hiệu năng mà không có log.
+
+### PHẦN 5. ENGINEERING EVIDENCE VÀ REFLECTION
+
+#### 5.1. Traceability
+
+Tạo bảng:
+
+**Acceptance Criterion/Risk → Test Case → Test File → Commit/PR → Result**
+
+Các thành phần phải liên kết được với nhau.
+
+Không dùng tên file hoặc commit giả.
+
+Nếu test chưa chạy, ghi rõ trạng thái thay vì điền PASS.
+
+#### 5.2. AI Usage Log
+
+Bổ sung:
+
+- Công cụ AI thực tế.
+- Prompt chính.
+- AI implementation plan.
+- Assumptions ban đầu.
+- Những chỉnh sửa/bác bỏ khi review plan.
+- AI-generated patch.
+- Post-test AI review.
+- Nhận xét AI đúng.
+- Nhận xét AI chưa đủ evidence.
+- Những hạn chế của AI-generated code/tests.
+
+#### 5.3. Hai điểm AI-generated code/tests chưa đáng tin
+
+Chỉ ra ít nhất hai vấn đề thực sự xuất hiện trong output hoặc cần kiểm chứng thêm, ví dụ:
+
+- Test chỉ kiểm tra HTTP status nhưng không xác minh data scope.
+- Mock không phản ánh đúng database contract.
+- AI giả định một permission rule không tồn tại.
+- AI bỏ qua concurrent requests.
+- AI tạo expected result dựa trên chính implementation.
+
+Chỉ sử dụng các ví dụ này khi phù hợp với output/code thực tế.
+
+#### 5.4. Reflection 250–350 từ
+
+Viết reflection bằng tiếng Việt, khoảng 250–350 từ, có lập luận cá nhân.
+
+Reflection cần trả lời:
+
+1. Điều gì khiến confidence vào thay đổi tăng lên?
+2. Test fail → patch → pass đã chứng minh điều gì?
+3. Mutation experiment nói lên điều gì về sức mạnh của test suite?
+4. Những gì vẫn chưa được chứng minh?
+5. Test tiếp theo có giá trị cao nhất là gì và vì sao?
+
+Reflection phải dựa trên evidence thực tế, không được tự tuyên bố đã thực hiện những công việc chưa xảy ra.
+
+## VI. PHỤ LỤC AI USAGE LOG VÀ EXECUTION EVIDENCE
+
+Tạo phụ lục riêng sau phần nội dung chính.
+
+**Phụ lục AI Usage Log** cần phản ánh đúng các tương tác AI đã diễn ra, không chỉ liệt kê chung chung tên công cụ.
+
+**Phụ lục execution evidence** có thể gồm:
+
+- Baseline metadata.
+- Test commands và output cần thiết.
+- Red-phase failure log.
+- Green-phase passing log.
+- Git diff hoặc link đến diff.
+- Mutation execution log.
+- Coverage output.
+- Performance experiment output.
+- GitHub commit/branch/PR links.
+
+Có thể dùng ảnh hoặc trích log ngắn để bổ trợ, nhưng không được thay thế code/test executable đã được yêu cầu.
+
+Các phụ lục này không tính vào giới hạn 8 trang nội dung chính.
+
+## VII. YÊU CẦU VỀ GITHUB BRANCH / PULL REQUEST
+
+Hãy thực sự tạo và cung cấp một GitHub branch hoặc PR nếu quyền truy cập và công cụ cho phép.
+
+### Nội dung branch/PR
+
+- Test files.
+- Small implementation patch hoặc executable harness theo điều kiện đề bài.
+- README ngắn giải thích setup, run commands, test commands và expected results.
+- Mô tả scope và các assumptions.
+- Không chứa deliberate bug ở trạng thái cuối.
+- Không chứa thông tin nhạy cảm hoặc production data.
+- Có các commits giúp truy vết quá trình nếu thực hiện được.
+
+### Review và bảo vệ repository
+
+Không tự merge. Không tác động tới branch chính. Nếu tạo PR, giữ ở trạng thái phù hợp để nhóm review.
+
+Không được cung cấp link branch/PR giả hoặc link tới một branch chưa thực sự được tạo.
+
+Nếu thiếu quyền ghi GitHub hoặc môi trường không thể đẩy code, phải nêu rõ tình trạng, không tuyên bố đã hoàn thành phần GitHub. Có thể chuẩn bị các thay đổi cục bộ để người dùng đưa lên repository, nhưng phải công khai phần nào chưa thực hiện được.
+
+## VIII. ĐỊNH DẠNG PDF
+
+### 1. File cuối cùng
+
+Tên chính xác:
+
+`BT3_23001952_VT-071.pdf`
+
+### 2. Thông tin bắt buộc ở trang đầu
+
+**BÀI TẬP CÁ NHÂN 3 – SOFTWARE ENGINEERING 2026**
+
+**APP-03 – PRODUCTION READINESS LAB**
+
+- Họ và tên: Nguyễn Tố Uyên
+- Mã sinh viên: 23001952
+- Mã biến thể: VT-071
+- Team ID: SE2026-T18
+- Vai trò: Thành viên
+- Repository: https://github.com/4PMs-3Workers/Production-Readiness-Lab
+- Baseline commit hash: [GIÁ TRỊ ĐÃ XÁC MINH]
+- GitHub branch/PR: [LINK THỰC TẾ]
+
+Cam kết phải được ghi nguyên văn:
+
+“Tôi chịu trách nhiệm về toàn bộ code, test và nội dung bài làm; tôi đã khai báo việc sử dụng AI.”
+
+### 3. Bố cục gợi ý
+
+Có thể bố trí nội dung chính thành:
+
+- Trang 1: Thông tin cá nhân, problem statement, acceptance criteria và invariant.
+- Trang 2: AI implementation plan, assumptions và review bằng evidence.
+- Trang 3: Risk-based test strategy và decision table.
+- Trang 4: Bảng test cases và giải thích lựa chọn dữ liệu.
+- Trang 5: Vertical slice, baseline, red → patch → green evidence.
+- Trang 6: Mutation experiment và đánh giá sức mạnh test suite.
+- Trang 7: Coverage, flaky-test review và performance/risk experiment.
+- Trang 8: Traceability, AI review findings và reflection.
+- Những trang tiếp theo: AI Usage Log và execution evidence.
+
+Đây là bố cục tham khảo, có thể điều chỉnh nhưng không được bỏ bất kỳ yêu cầu nào của đề gốc.
+
+### 4. Yêu cầu trình bày
+
+- Khổ giấy A4.
+- Tối đa 8 trang nội dung chính.
+- Phụ lục bắt đầu ở trang mới.
+- Font Unicode hỗ trợ tiếng Việt.
+- Cỡ chữ rõ ràng, dễ đọc.
+- Heading đánh số thống nhất.
+- Bảng không bị tràn lề.
+- Code và log sử dụng font monospace phù hợp.
+- Không sao chép toàn bộ source code vào PDF.
+- Ưu tiên bảng để trình bày test strategy, decision table, test cases, mutation và traceability.
+- Có số trang.
+- Có các link GitHub thực tế.
+- Không giảm font quá nhỏ chỉ để nhồi nội dung.
+
+Sau khi tạo PDF, kiểm tra số trang, bảng biểu, dấu tiếng Việt, đường dẫn GitHub và sự nhất quán giữa các kết quả.
+
+## IX. QUY TRÌNH THỰC HIỆN BẮT BUỘC
+
+Hãy thực hiện theo đúng trình tự để có thể thu thập evidence thật.
+
+**Bước 1:** Đọc đề bài gốc, rubric, Lecture 06 và Lecture 07.
+
+**Bước 2:** Truy cập repository GitHub, xác minh branch, baseline commit và source code liên quan.
+
+**Bước 3:** Xây dựng problem statement, acceptance criteria, non-functional constraints và invariant.
+
+**Bước 4:** Dùng coding agent lập implementation plan trước khi sửa code.
+
+**Bước 5:** Review AI plan bằng repository thật và lưu lại ít nhất hai điểm sửa hoặc bác bỏ.
+
+**Bước 6:** Thiết kế risk-based test strategy, decision table và tối thiểu 10 test cases.
+
+**Bước 7:** Chọn vertical slice và tạo branch riêng.
+
+**Bước 8:** Viết test trước implementation, chạy test, xác minh red phase và lưu evidence.
+
+**Bước 9:** Dùng AI hỗ trợ tạo patch nhỏ; review diff trước khi chấp nhận.
+
+**Bước 10:** Chạy lại test sau patch, xác minh green phase và lưu evidence.
+
+**Bước 11:** Cho AI review patch sau khi chạy test; đánh giá ít nhất một nhận xét đúng và một nhận xét chưa đủ evidence.
+
+**Bước 12:** Thực hiện deliberate mutation bỏ idempotency/concurrency guard trên nhánh/commit tạm, kiểm tra khả năng phát hiện của test và khôi phục code đúng.
+
+**Bước 13:** Đánh giá line/branch coverage nếu có, risk coverage và ít nhất hai flaky-test risks.
+
+**Bước 14:** Thực hiện performance/risk experiment với 80 concurrent tasks và so sánh p95 với 2.5 giây, hoặc triển khai fallback harness có giải thích giới hạn.
+
+**Bước 15:** Chuẩn bị README, commits và GitHub branch/PR thực tế; không merge nếu chưa được nhóm review.
+
+**Bước 16:** Tạo traceability, AI Usage Log và reflection 250–350 từ.
+
+**Bước 17:** Viết báo cáo, định dạng và xuất PDF.
+
+**Bước 18:** Kiểm tra PDF và đối chiếu toàn bộ kết quả với rubric chính thức.
+
+## X. CHECKLIST TỰ KIỂM TRA THEO RUBRIC
+
+Trước khi hoàn tất, bảo đảm:
+
+**Specification và AI-assisted plan**
+- Có đúng 01 problem statement.
+- Có 3–5 acceptance criteria kiểm thử được.
+- Có ít nhất 2 non-functional constraints.
+- Có invariant/contract.
+- Có AI plan trước code, prompt và assumptions.
+- Có ít nhất 2 điểm sửa/bác bỏ AI plan bằng evidence.
+
+**Risk-based test strategy**
+- Có unit, integration/API và E2E strategy.
+- Nêu test nào không cần thiết.
+- Có ít nhất 10 test cases đủ cột.
+- Có decision table đúng cấu trúc.
+- Có giải thích chọn test data.
+- Có ít nhất 2 negative tests và 1 failure-path test.
+- Có kiểm chứng risk mock che giấu contract sai.
+
+**Test-first implementation**
+- Có vertical slice executable.
+- Có baseline commit.
+- Có branch riêng.
+- Có test fail đúng lý do trước patch.
+- Có patch nhỏ được review.
+- Có test pass sau patch.
+- Có file/commit/PR và run commands.
+- Có README hướng dẫn chạy test.
+
+**Test quality**
+- Có mutation bỏ idempotency/concurrency guard.
+- Mutation được kiểm thử; sửa test nếu mutation sống sót.
+- Mutation không còn trong nhánh cuối.
+- Có coverage analysis.
+- Có risk coverage theo acceptance criteria.
+- Có ít nhất 2 flaky-test risks.
+- Có performance experiment với 80 concurrent tasks.
+- Có so sánh p95 với mục tiêu 2.5 giây và giới hạn kết luận.
+
+**Engineering evidence**
+- Có traceability từ AC/risk đến test, file, commit và kết quả.
+- Có AI Usage Log.
+- Có AI review sau khi chạy test.
+- Có ít nhất một AI review comment đúng.
+- Có ít nhất một AI review comment thiếu evidence.
+- Có 2 điểm AI-generated code/tests chưa đáng tin ngay.
+- Có reflection 250–350 từ.
+
+**Submission**
+- Đúng tên PDF `BT3_23001952_VT-071.pdf`.
+- Nội dung chính không quá 8 trang.
+- Phụ lục tách riêng.
+- Có GitHub branch/PR link thật.
+- Có baseline commit SHA thật.
+- Có thông tin cá nhân chính xác.
+- Có cam kết nguyên văn.
+- Không merge khi nhóm chưa review.
+
+## XI. NGUYÊN TẮC QUYẾT ĐỊNH VÀ GIỚI HẠN
+
+Khi gặp một thông tin chưa rõ, hãy kiểm tra repository hoặc xác định assumption trước khi đưa ra quyết định.
+
+Ưu tiên giải pháp có scope nhỏ, kiểm chứng được và phù hợp với cấu trúc dự án hiện tại.
+
+Không tạo thêm framework, service, database hoặc dependency chỉ để làm bài trông phức tạp.
+
+Không thay đổi observable behavior ngoài change request nếu không có lý do.
+
+Không đánh đồng mock test pass với contract integration đúng.
+
+Không đánh đồng test pass với software hoàn toàn đúng.
+
+Không đánh đồng coverage cao với test suite mạnh.
+
+Không dùng lời nhận xét của AI để thay thế evidence.
+
+Không tự giả lập GitHub activity, test execution hoặc performance results.
+
+Nếu không có quyền hoặc công cụ để hoàn thành một thao tác, hãy thực hiện tối đa những phần có thể kiểm chứng và nói rõ giới hạn. Không biến kết quả chưa thực hiện thành kết quả giả.
+
+## XII. YÊU CẦU CUỐI CÙNG
+
+Hãy tạo bài làm có chất lượng kỹ thuật và học thuật tốt, thể hiện rõ quá trình:
+
+**SPEC → PLAN → GENERATE → VERIFY → INTEGRATE**
+
+Đồng thời chứng minh chất lượng test thông qua:
+
+**Test design → Red phase → Patch → Green phase → Mutation → Coverage/risk analysis → Engineering evidence.**
+
+Bài phải sử dụng chính xác dự án, change request, mock/contract risk, decision table, mutation idempotency/concurrency guard, 80 concurrent tasks, p95 2.5 giây và post-test AI review của biến thể VT-071.
+
+**ĐẦU RA CUỐI CÙNG:**
+
+1. Link tải file PDF `BT3_23001952_VT-071.pdf`.
+2. Link GitHub branch hoặc PR thực tế.
+3. Thông tin baseline commit.
+4. Tóm tắt những test đã chạy và trạng thái fail/pass thật.
+5. Kết quả mutation experiment.
+6. Kết quả hoặc giới hạn performance experiment.
+7. Xác nhận số trang nội dung chính, phụ lục và những tiêu chí chưa thể kiểm chứng nếu có.
+
+Không chỉ viết dàn ý, giải thích lý thuyết hoặc đưa mã nguồn PDF. Hãy thực hiện toàn bộ các bước có thể thực hiện được, bảo đảm engineering evidence trung thực và không tự nhận hoàn thành những thao tác chưa diễn ra.
+
+**HÃY BẮT ĐẦU BẰNG VIỆC ĐỌC LECTURE 06, LECTURE 07 VÀ KIỂM TRA REPOSITORY GITHUB CHÍNH THỨC, SAU ĐÓ TRIỂN KHAI BÀI TẬP THEO ĐÚNG TRÌNH TỰ VÀ RUBRIC CỦA BIẾN THỂ VT-071.**

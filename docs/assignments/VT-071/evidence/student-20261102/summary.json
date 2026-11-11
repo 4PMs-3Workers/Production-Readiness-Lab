@@ -1,0 +1,210 @@
+{
+  "execution_date_local": "2026-11-02",
+  "timezone": "Asia/Bangkok",
+  "executor": "Student (self-reported manual terminal execution)",
+  "verification": "Codex read supplied terminal output and local artifacts; no test/load rerun for this collection",
+  "source_commit": "15526cbac4b48ae8c6f2430e8cd50931fb78872b",
+  "functional": {
+    "passed": 41,
+    "seconds": 45.39,
+    "source": "captured functional.txt"
+  },
+  "tc18": {
+    "passed": 1,
+    "seconds": 4.09,
+    "source": "captured tc18.txt"
+  },
+  "coverage_tests": {
+    "passed": 41,
+    "seconds": 69.38,
+    "source": "student-pasted terminal output; saved coverage JSON cross-checked by Codex without rerunning tests"
+  },
+  "service_coverage": {
+    "covered_lines": 34,
+    "num_statements": 34,
+    "percent_covered": 100.0,
+    "percent_covered_display": "100",
+    "missing_lines": 0,
+    "excluded_lines": 0,
+    "percent_statements_covered": 100.0,
+    "percent_statements_covered_display": "100",
+    "num_branches": 8,
+    "num_partial_branches": 0,
+    "covered_branches": 8,
+    "missing_branches": 0,
+    "percent_branches_covered": 100.0,
+    "percent_branches_covered_display": "100"
+  },
+  "diff_coverage": {
+    "covered": 50,
+    "executable_changed": 50,
+    "branch_arcs": 10
+  },
+  "coverage_timestamp_local": "2026-11-02T08:40:58.909618",
+  "mutation": {
+    "mutants": [
+      {
+        "mutant": "owner",
+        "commit": "0203961808aea43b475c5f1fed6f63e5ca7d412e",
+        "test": "test_export_real_login_scope_contract_and_inactive_catalog",
+        "expected": "KILLED",
+        "observed": "KILLED",
+        "exit_code": 1
+      },
+      {
+        "mutant": "overflow",
+        "commit": "cda5c4b7d67d70eb2dae6f898f75e074adfd5225",
+        "test": "test_export_rejects_overflow_instead_of_truncation",
+        "expected": "KILLED",
+        "observed": "KILLED",
+        "exit_code": 1
+      },
+      {
+        "mutant": "role_primary",
+        "commit": "db9d1eff35ee5651aee83a71d2a7537df3fc3374",
+        "test": "test_export_real_session_role_is_denied",
+        "expected": "SURVIVED",
+        "observed": "SURVIVED",
+        "exit_code": 0
+      },
+      {
+        "mutant": "role_all",
+        "commit": "10c0fb4b220849d3875a22131332824afc026f51",
+        "test": "test_export_real_session_role_is_denied",
+        "expected": "KILLED",
+        "observed": "KILLED",
+        "exit_code": 1
+      },
+      {
+        "mutant": "source_and_unique",
+        "commit": "f70e9d5c36994621f81e9e1a18244f1e5e2d7612",
+        "test": "test_export_source_cardinality_after_retry",
+        "expected": "KILLED",
+        "observed": "KILLED",
+        "exit_code": 1
+      }
+    ],
+    "kills": 4,
+    "survivors": 1,
+    "source_restore_diff": "",
+    "published_experiment_branch": "codex/bt3-23001952-vt071-student-mutants-20261102",
+    "restored_experiment_head": "721ffc04cf51fb80ed9a9312b2a7ffdc66392995",
+    "not_ancestors_of_submission": true,
+    "local_experiment_branch": "codex/bt3-23001952-vt071-mutants-verified",
+    "published_experiment_branch_url": "https://github.com/4PMs-3Workers/Production-Readiness-Lab/tree/codex/bt3-23001952-vt071-student-mutants-20261102"
+  },
+  "pool": {
+    "timestamp_utc": "2026-11-02T01:44:45.297421+00:00",
+    "mode": "production",
+    "pool_size": 5,
+    "max_overflow": 5,
+    "pool_timeout_seconds": 0.5,
+    "connect_timeout_seconds": 1,
+    "read_timeout_seconds": 1,
+    "request_timeout_seconds": 3,
+    "requests": 560,
+    "successes": 248,
+    "errors": 312,
+    "http503": 312,
+    "failure_stage": "auth",
+    "leaf_exception": "sqlalchemy.exc.TimeoutError",
+    "verified_auth_pool_queue_timeouts": 312,
+    "p95_success_range_seconds": [
+      0.6190050000150222,
+      0.8341000000073109
+    ],
+    "phases": [
+      {
+        "phase": "cold",
+        "requests": 80,
+        "errors": 49,
+        "p95_success_seconds": 0.7019395000243094,
+        "auth_pool_queue_timeouts": 49
+      },
+      {
+        "phase": "warmup80",
+        "requests": 80,
+        "errors": 45,
+        "p95_success_seconds": 0.8341000000073109,
+        "auth_pool_queue_timeouts": 45
+      },
+      {
+        "phase": "warm1",
+        "requests": 80,
+        "errors": 45,
+        "p95_success_seconds": 0.7744382999953814,
+        "auth_pool_queue_timeouts": 45
+      },
+      {
+        "phase": "warm2",
+        "requests": 80,
+        "errors": 42,
+        "p95_success_seconds": 0.7293729000084568,
+        "auth_pool_queue_timeouts": 42
+      },
+      {
+        "phase": "warm3",
+        "requests": 80,
+        "errors": 41,
+        "p95_success_seconds": 0.7811310999968555,
+        "auth_pool_queue_timeouts": 41
+      },
+      {
+        "phase": "warm4",
+        "requests": 80,
+        "errors": 45,
+        "p95_success_seconds": 0.6532990999985486,
+        "auth_pool_queue_timeouts": 45
+      },
+      {
+        "phase": "warm5",
+        "requests": 80,
+        "errors": 45,
+        "p95_success_seconds": 0.6190050000150222,
+        "auth_pool_queue_timeouts": 45
+      }
+    ],
+    "all_successes_have_exact_scope_and100rows": true,
+    "pytest_result": "1 failed in10.63s; acceptance gate failed after raw JSON written"
+  },
+  "openapi_gateway": {
+    "openapi_diff": "empty, per supplied terminal output",
+    "gateway_operations": 31,
+    "source": "student-pasted terminal output; not independently rerun"
+  },
+  "limits": [
+    "Single student load run; same host/MySQL as Codex302/560, not an independent environment or causal improvement comparison",
+    "No claim student reran historical red phase, original M0, NullPool, reverse order, full backend, frontend, Docker or PDF generation",
+    "Original plan/code/review and earlier experiments remain attributed to Codex",
+    "Implementation remains AI-assisted. Student confirmed reading the four-file production diff and completing oral-preparation questions on2026-11-03; team approval and new test results are not inferred."
+  ],
+  "raw_archive": "raw-evidence.zip",
+  "manifest": "manifest.json",
+  "student_local_branch": "codex/student-recheck-20261102-083514",
+  "student_local_branch_scope": "local checkout only; not pushed",
+  "source_commit_url": "https://github.com/4PMs-3Workers/Production-Readiness-Lab/commit/15526cbac4b48ae8c6f2430e8cd50931fb78872b",
+  "published_submission_branch": "codex/bt3-23001952-vt071",
+  "published_submission_branch_url": "https://github.com/4PMs-3Workers/Production-Readiness-Lab/tree/codex/bt3-23001952-vt071",
+  "replication_design": {
+    "environment": "same Windows host and same local MySQL installation/endpoint as the earlier Codex run",
+    "within_each_load_run": "80 clients share one real authenticated session",
+    "between_fixture_runs": "fresh login and fixture-owned UUID schema; not one persistent cookie across all runs",
+    "interpretation": "same-environment repeat; not independent-environment validation or a causal before/after fix comparison"
+  },
+  "student_diff_review_status": "completed; student confirmed in chat on2026-11-03",
+  "student_diff_review_guide": "../../student-diff-review-guide.md",
+  "student_oral_preparation_status": "questions answered; student confirmed in chat on2026-11-03",
+  "student_review_confirmation": {
+    "confirmation_date_local": "2026-11-03",
+    "timezone": "Asia/Bangkok",
+    "source": "direct student confirmation and seven personal review statements supplied in this conversation",
+    "scope": "four-file production diff aa8c5b0..4695035 under src/; same production source as15526cb; oral-preparation questions completed",
+    "attribution": "student-confirmed activity; not a separately observed oral examination or new test execution",
+    "statement_summary": "Student confirmed reading the four-file production diff and finishing the oral-preparation questions.",
+    "personal_notes_date_local": "2026-11-03",
+    "personal_notes_path": "../../student-diff-review-notes.md",
+    "review_decision": "Agrees with the implementation approach; requests further performance verification and remediation before accepting merge.",
+    "personal_notes_attribution": "Seven student-authored statements; Codex formatted them and retained their wording."
+  },
+  "student_diff_review_notes": "../../student-diff-review-notes.md"
+}

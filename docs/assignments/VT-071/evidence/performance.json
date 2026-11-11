@@ -1,0 +1,2589 @@
+{
+  "timestamp_utc": "2026-11-01T09:26:56.960358+00:00",
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.12.14 (main, Aug 25 2026, 14:01:42) [MSC v.1944 64 bit (AMD64)]",
+  "versions": {
+    "fastapi": "0.143.0",
+    "SQLAlchemy": "2.0.44",
+    "asyncmy": "0.2.16",
+    "pytest": "9.0.3"
+  },
+  "mysql": "8.4.13",
+  "transport": "httpx ASGITransport; real TCP MySQL; no gateway/TLS",
+  "concurrency": 80,
+  "rounds": [
+    {
+      "round": 1,
+      "samples": [
+        {
+          "latency_seconds": 1.7284404000092763,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7244403000077,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.720175599999493,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.719467299990356,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.717512799994438,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.717157799997949,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7101270999992266,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7082131000061054,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7060894000023836,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7033193000097526,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7002206999895861,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.698467599999276,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6916161999979522,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.685760600012145,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6831230999960098,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6814833999960683,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6777593000006163,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6751115999941248,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.673169500005315,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6711797999887494,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6694306999997934,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6676819000131218,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6658323000010569,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6639764999999898,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6615187999996124,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.659115100002964,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6493723000021419,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6457097999955295,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6405911000038031,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6378430999902776,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6320816999941599,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6285137999948347,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.624447300011525,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6222468000050867,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6202385000069626,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6143789000052493,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6113058000046294,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.609266800005571,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6055671999929473,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6034192000079202,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6006338000006508,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5972305000032065,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5951039999927161,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5934983999904944,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5927086000010604,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.590105199997197,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5869910000037635,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5858415999973658,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5831916000024648,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5818225999973947,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5777955999947153,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5759295000025304,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5748462999908952,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5727716000110377,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5678503999952227,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5662240000092424,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.564579899990349,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.563399600010598,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5604531999997562,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.559497599999304,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5564632000023266,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5554503000021214,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5526694000000134,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5498169000056805,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.546193599991966,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5439714999956777,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5421327000076417,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5400057999941055,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5384559000085574,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5370382999972207,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.535162100000889,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5335049999994226,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5275239999900805,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.526117500005057,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5245364000002155,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5221024000056786,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5198052000050666,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5140136999980314,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5114069000119343,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.73659570000018,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        }
+      ],
+      "wall_seconds": 1.7705683999956818,
+      "p50_seconds": 1.6034192000079202,
+      "p95_seconds": 1.719467299990356,
+      "p95_success_seconds": null,
+      "status_counts": {
+        "503": 80
+      },
+      "max_seconds": 1.73659570000018,
+      "errors": 80
+    },
+    {
+      "round": 2,
+      "samples": [
+        {
+          "latency_seconds": 1.9401687000063248,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.9376935999898706,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.933109899997362,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.9294348000112223,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.9299943999940297,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.9287351999955717,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.9276775000034831,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.925018000009004,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.9245537999959197,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.9220502999960445,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.9217558999953326,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.9189942000084557,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.9162589999905322,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.9154157000011764,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8890282000065781,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.885747000007541,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.883751299988944,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.880541100006667,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8776863999955822,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.877691900008358,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8749078000109876,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.873993999994127,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8722865000017919,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8705135000054725,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8689215000049444,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8657385999977123,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8622465999942506,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8577794000011636,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.856426600003033,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8551320999977179,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8534868999995524,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8517307999863988,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8500809999968624,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8483400999975856,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8462862000014866,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8431318000075407,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8346349999919767,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8325959999929182,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8302587999933166,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8282069000124466,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8262608999939403,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8244459999987157,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8218763999902876,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8168638000061037,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.814132300001802,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8123578000086127,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8109114999970188,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8083760000008624,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8060260999918683,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8052715999947395,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8010724999912782,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.799226599992835,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7971362000098452,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.795897200005129,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7942062999936752,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.789787300003809,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.78690479999932,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7836909000034211,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7777654999954393,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7730679999949643,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7711985999922035,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7694728000060422,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7678502000053413,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7651192999910563,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7625179000024218,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.758330200013006,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7537753999931738,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.751662499998929,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.749307999998564,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7448995000013383,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7420289000001503,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7388242999877548,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7373339000041597,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7330154000082985,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7316642999940086,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7287173000077019,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7248962999874493,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7212313000054564,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.713113899997552,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.9467873999965377,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        }
+      ],
+      "wall_seconds": 2.0009247999987565,
+      "p50_seconds": 1.8282069000124466,
+      "p95_seconds": 1.9299943999940297,
+      "p95_success_seconds": null,
+      "status_counts": {
+        "503": 80
+      },
+      "max_seconds": 1.9467873999965377,
+      "errors": 80
+    },
+    {
+      "round": 3,
+      "samples": [
+        {
+          "latency_seconds": 1.8909175000007963,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8807493999920553,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8220156000024872,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8200225999898976,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8135456000018166,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.814117999994778,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8065581999981077,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8069992999953683,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8023691999987932,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8007835000025807,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7992487000010442,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7933734999969602,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7937838999932865,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7914077000023099,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7881481000076747,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7865411000093445,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.788201500006835,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7837063999904785,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7866887999989558,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.782152399988263,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7771347999951104,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.7753652999963379,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.7762111000047298,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.7758692000061274,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.7634527999907732,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.763190300000133,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.7609236999996938,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.7598357999959262,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.758030900004087,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.7564710000006016,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.7534987999970326,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.7528204999980517,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.7516399000014644,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.7496048000029987,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.7478503999882378,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.746986799989827,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.7469189999974333,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.7437983999989228,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.7448207999987062,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.743627900010324,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.742522899992764,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.738871099994867,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.7388858999911463,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.7404467000014847,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.7343496999965282,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.7243101000058232,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.72537800000282,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.725191099991207,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.7204137000080664,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.718298899999354,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.7157314000069164,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.7123774000065168,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.70765389999724,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.7040969000081532,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.7007947999954922,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6992366000049515,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6965173999924446,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6962464999960503,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.694399899992277,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6861616999958642,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.682808900004602,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6822434999921825,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.676946899999166,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6771235000051092,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6718379999947501,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6726139999955194,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6687402999959886,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6699828999990132,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6580182999896351,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6570041000086349,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6525021999987075,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6533117000071798,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.653562300009071,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6446769000031054,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6448978999978863,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6346499000064796,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6360376000084216,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6354252000019187,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6313710999966133,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.8947704000020167,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        }
+      ],
+      "wall_seconds": 2.009144700001343,
+      "p50_seconds": 1.743627900010324,
+      "p95_seconds": 1.8200225999898976,
+      "p95_success_seconds": 1.7753652999963379,
+      "status_counts": {
+        "503": 22,
+        "200": 58
+      },
+      "max_seconds": 1.8947704000020167,
+      "errors": 22
+    },
+    {
+      "round": 4,
+      "samples": [
+        {
+          "latency_seconds": 1.908766699998523,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.90536940000311,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.899880299999495,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8988276999880327,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.89680300001055,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8938261000002967,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8900762999983272,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8889847999962512,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.885161500002141,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8812305000028573,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.878612599990447,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8759888000058709,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.874163900007261,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8720788999926299,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.868656300008297,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.865998799999943,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.8612015999970026,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.857392300007632,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.646413599999505,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6411541999987094,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6388363000005484,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6359163000015542,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6309202999982517,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.628119200002402,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.624870200001169,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.623287900001742,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6224877000058768,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6196344999916619,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6149961999908555,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.618575400003465,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6117431000020588,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6183909999963362,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6136725999967894,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6145756000041729,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.612848999997368,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6119831999967573,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6083439999929396,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.6044572999962838,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.592507299996214,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5907439000002341,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5872403999965172,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5820603000029223,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5782036999880802,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5746290999959456,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5727702000003774,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5681212000054074,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5635819000017364,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5646470000065165,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.563184699989506,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.562688000005437,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5620697999984259,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5604680000105873,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.559658500002115,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5586987999995472,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5575675000000047,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5535395000042627,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.55201390000002,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5522335999994539,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5482942999951774,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.549025400003302,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5411915000004228,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.542164700003923,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.537888099992415,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        },
+        {
+          "latency_seconds": 1.5374115000013262,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.537092600003234,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5357859999930952,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5350503999943612,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5320614999945974,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.531775800001924,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.530746899996302,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5298953000019537,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5282772000064142,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5277674000099069,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5264687999879243,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5186720000056084,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5160341000009794,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5146630999952322,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.512911099998746,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5113485000038054,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.9155315999960294,
+          "status": 503,
+          "error_code": "SERVICE_UNAVAILABLE",
+          "error": "AssertionError",
+          "scope_ok": false
+        }
+      ],
+      "wall_seconds": 1.9921953000011854,
+      "p50_seconds": 1.5907439000002341,
+      "p95_seconds": 1.8988276999880327,
+      "p95_success_seconds": 1.5374115000013262,
+      "status_counts": {
+        "503": 64,
+        "200": 16
+      },
+      "max_seconds": 1.9155315999960294,
+      "errors": 64
+    },
+    {
+      "round": 5,
+      "samples": [
+        {
+          "latency_seconds": 2.0615459000109695,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 2.058923600008711,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 2.0574118999938946,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 2.05282779999834,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 2.052420699998038,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 2.045356400005403,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 2.0435918000002857,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 2.039638300004299,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 2.0354612999944948,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 2.034672399997362,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 2.0290413000038825,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 2.032565199988312,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 2.025646499998402,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 2.02440779999597,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 2.0255709000048228,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 2.024819900005241,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 2.0173578999965684,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 2.014630699995905,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 2.0126808999921195,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 2.009991999992053,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 2.0086002000025474,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 2.0050063999951817,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 2.0037626000121236,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 2.002065299995593,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 2.0008107000030577,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.999223599996185,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.9980842000077246,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.9968714999995427,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.9948794999945676,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.9945000000006985,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.9940805000078399,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.9904852000036044,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.9878478000027826,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.9868780999968294,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.9834354000049643,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.982982899993658,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.981378999989829,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.9796662000007927,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.9786250999895856,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.97106480000366,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.968520800000988,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6431249000015669,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.643280500007677,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6370863000047393,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6328080999956,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6349528999999166,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6302728000009665,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6282649999920977,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.625888100010343,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.624124000009033,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6193132000043988,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6184224000026006,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6174727000034181,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6120883999974467,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6068846999987727,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6060122000053525,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.606787800003076,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.6023103000043193,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.602095599999302,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5983407000021543,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5957439999911003,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5981215000065276,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5899013000016566,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5876180000050226,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5838094000064302,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5794525999954203,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5766022999887355,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5738223000080325,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5732109999953536,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5708874999982072,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5695825000002515,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5687146999989636,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5672708000056446,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5658436999947298,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5642070999892894,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5634186999959638,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5609667999960948,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5584974000084912,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 1.5532126000034623,
+          "status": 200,
+          "scope_ok": true
+        },
+        {
+          "latency_seconds": 2.0668696999928216,
+          "status": 200,
+          "scope_ok": true
+        }
+      ],
+      "wall_seconds": 2.1537378000066383,
+      "p50_seconds": 1.97106480000366,
+      "p95_seconds": 2.05282779999834,
+      "p95_success_seconds": 2.05282779999834,
+      "status_counts": {
+        "200": 80
+      },
+      "max_seconds": 2.0668696999928216,
+      "errors": 0
+    }
+  ],
+  "owned_rows": 100,
+  "foreign_rows": 1,
+  "sessions": "80 independent clients copying one real STUDENT session cookie",
+  "target_p95_seconds": 2.5,
+  "percentile": "nearest-rank ceil(0.95*n)-1",
+  "timeouts": {
+    "request": 3.0,
+    "db_query": 1.0
+  }
+}

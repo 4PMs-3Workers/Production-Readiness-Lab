@@ -1,0 +1,11 @@
+booking restored blob=304611cb18f18de89a677d896b847d140f880dc8
+baseline blob=304611cb18f18de89a677d896b847d140f880dc8
+mutant ancestor exit codes (1=not ancestor):
+{
+  "a500f24b0aea8ac249251dfd30f534ffaa53a867": 1,
+  "e81249977e8b3a4171f5cbefcc7b65d5a926dd72": 1,
+  "72e05f70a281c022983ca075525ea71ed4aaeba9": 1,
+  "5876f656c6fbade7620ff0f3b5b9223c949d6002": 1,
+  "9bdf7edb1d7e3f1ba82ad412df61f8d5ad96f8fa": 1,
+  "604c0e7e6743b0305503348e5f87d408881a4170": 1
+}

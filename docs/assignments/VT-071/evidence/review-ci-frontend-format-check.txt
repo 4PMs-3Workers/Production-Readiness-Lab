@@ -1,0 +1,4 @@
+npm notice run @prl/frontend@0.1.0 format:check
+npm notice run prettier --check --ignore-path ../../.prettierignore . ../../tests/frontend ../../package.json ../../.prettierrc.json ../../eslint.config.mjs ../../tools/scripts/lint-frontend.mjs ../../.github/workflows/frontend.yml
+Checking formatting...
+All matched files use Prettier code style!
