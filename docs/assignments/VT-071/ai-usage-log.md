@@ -32,6 +32,10 @@ established here. Some supplied reviews self-report repository/sandbox checks;
 they remain external-review claims and are not counted as Codex/student test runs.
 This disclosure does not assert that Claude never accessed a repository or ran tests.
 
+ChatGPT (OpenAI, web version): the student used it to help draft prompts for
+BT3. This is a student disclosure. No conversation transcript was provided.
+The student did not specify which prompt(s) were drafted with this tool.
+
 Original prompt sources: [complete user prompt](prompts/original-request.txt),
 [verbatim planning prompt](prompts/plan-prompt.txt), and
 [provenance/checksums](prompts/manifest.json). Tool/timeline attribution is recorded in [ai-usage-manifest.json](ai-usage-manifest.json).
