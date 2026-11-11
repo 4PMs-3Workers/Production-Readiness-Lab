@@ -19,8 +19,8 @@
     {
       "file": "../ai-usage-log.md",
       "pdf_attachment": "AI_Usage_Log_BT3_VT071.md",
-      "bytes": 18360,
-      "sha256": "18396f10ddd50078c3a85d61bb0e85b9c962302e73bd0ee09db4a779915cc148",
+      "bytes": 19142,
+      "sha256": "e5d32c6f55c42ff9bfb9842529ae6b7816cb8fb02ac0b989394b320e35c02a37",
       "provenance": "Current complete AI Usage Log, including dated student execution/review attribution and declared Claude/Anthropic feedback. Canonical UTF-8 LF bytes match the Git blob and PDF attachment.",
       "tool_manifest": "../ai-usage-manifest.json"
     }
@@ -32,6 +32,6 @@
   ],
   "post_test_review_prompt_excerpt": "Review vòng sửa BT3 sau góp ý, chỉ đọc D:\\SE\\tmp\\bt3-vt071; không sửa hoặc chạy test.",
   "post_test_review_prompt_scope": "Previously retained excerpt; not represented as a complete original transcript.",
-  "usage_table_scope": "U1-U32 are condensed descriptions of prompts/inputs, outputs and decisions, not verbatim prompts.",
-  "updated_date_local": "2026-11-09"
+  "usage_table_scope": "U1-U33 are condensed descriptions of prompts/inputs, outputs and decisions, not verbatim prompts.",
+  "updated_date_local": "2026-11-11"
 }

@@ -1,6 +1,6 @@
 # AI Usage Log - actual interactions
 
-Initial work:2026-11-01. Attribution updated:2026-11-09, Asia/Bangkok.
+Initial work:2026-11-01. Attribution updated:2026-11-11, Asia/Bangkok.
 
 ## Execution and review attribution by date
 
@@ -12,8 +12,10 @@ Initial work:2026-11-01. Attribution updated:2026-11-09, Asia/Bangkok.
 - 09/11: Codex reproduced and repaired the release-transition hash mismatch on
   an isolated integration of develop92d9157 with submission6184652; related
   Windows unit checks passed98cases. Full Linux checks are run through PR55 CI.
+- 11/11: Codex reviewed both Backend failures and gave the booking service
+  integration tests a separate deadline budget. See U33 and the CI note.
 - Team approval/merge is not recorded. Student review and self-execution above
-  are distinct from the earlier Codex phase. See U23-U31 and the student ledger.
+  are distinct from the earlier Codex phase. See U23-U33 and the student ledger.
 
 ## AI tools and contribution scope
 
@@ -244,3 +246,13 @@ check pass. Work began on isolated codex/bt3-release-compat-20261109; PR55 is
 updated by fast-forward only, retaining all cited commits and not merging into
 develop. See ci-integration-20261109.md. Linux backend/rollback verdicts come from
 the new CI run, not these Windows unit tests; historical load data is unchanged.
+
+
+U33: The student asked to continue the PR55 verification and PDF update. Codex
+read both failed Backend attempts at85c947c. Two different booking tests received
+503 instead of their expected409. Rollback passed four tests. Added a bounded
+settings fixture for booking service business tests and preserved the existing
+assertions and dedicated lock-timeout test. This change applies only to tests.
+Local regression on isolated MySQL8.4.13: 126 passed in 142.46s (0:02:22) for booking, CSV, OpenAPI and
+release-manifest coverage. See ci-integration-20261109.md for the earlier jobs
+and the validation scope. Codex ran this follow-up.

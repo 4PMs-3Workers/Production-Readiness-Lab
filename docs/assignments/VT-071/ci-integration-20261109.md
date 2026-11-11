@@ -46,3 +46,27 @@ new PR55 CI run after publishing this patch; local unit results do not claim a
 completed Docker rehearsal. No test is removed/skipped and no advisory/release
 gate is disabled. This integration update does not merge PR55 into develop and
 does not rebase or force-push any existing evidence commit.
+
+
+## Backend follow-up (11/11/2026)
+
+Serialized release rollback passed all four rehearsal tests at `85c947c`.
+Backend models failed in two attempts at that same head. The first failed
+`test_staff_account_lock_serializes_different_students_for_one_slot` with
+`503 SERVICE_UNAVAILABLE` in place of `409 BOOKING_CONFLICT`. The second failed
+`test_quota_counts_only_upcoming_and_change_pending_across_all_dates` with
+`503 SERVICE_UNAVAILABLE` in place of `409 BOOKING_QUOTA_EXCEEDED`. Each attempt
+had 2,383 passing tests. The [CI run](https://github.com/4PMs-3Workers/Production-Readiness-Lab/actions/runs/42624132412)
+retains both attempts. The log exposes the returned status and error code, so
+the exact timeout or database failure behind either 503 remains unverified.
+
+The booking service integration module now uses a fixture with test-only
+budgets of 20 s for the request, 10 s for the DB query and 5 s for the lock.
+These match the existing booking stress fixture budgets. The tests still call
+the real booking service with MySQL and retain the conflict, quota and write
+assertions. The dedicated MySQL lock-timeout and retry test keeps its original
+settings. Production configuration and the CSV load harness are untouched.
+
+Codex ran the booking integration module, the CSV/OpenAPI suite and the
+release-manifest unit module on isolated MySQL 8.4.13 on Windows: **126 passed in 142.46s (0:02:22)**.
+The new PR55 CI run determines the Linux verdict.
