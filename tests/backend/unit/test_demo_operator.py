@@ -2,6 +2,8 @@
 
 import importlib.util
 import json
+import os
+import stat
 import subprocess
 import sys
 from datetime import UTC
@@ -128,6 +130,8 @@ def operator(monkeypatch, tmp_path):
                     }
                 )
         if args[:2] == ["docker", "inspect"]:
+            if any("|{{.State.Running}}" in value for value in args):
+                return "sha256:" + "c" * 64 + "|true"
             return "true" if "{{.State.Running}}" in args else "healthy"
         if args[:2] == ["docker", "logs"]:
             from datetime import datetime
@@ -221,7 +225,92 @@ def test_up_never_runs_privileged_jobs_and_writes_provenance(operator):
     data = json.loads((demo.ROOT / "build/deploy" / ("a" * 40) / "manifest.json").read_text())
     assert data["verification"] == {"command": "up", "status": "passed"}
     assert data["images"]["api"] == data["images"]["worker"]
+    assert data["target_origin"] == "http://localhost:8080"
     assert "private-password" not in json.dumps(data)
+    attestation = json.loads(demo.evidence.public_attestation_path(demo.ROOT, "a" * 40).read_text())
+    assert attestation == {"schema_version": 1, "status": "unavailable"}
+
+
+def test_evidence_publishes_runtime_attestation_for_active_stack(operator):
+    demo, _calls = operator
+    assert demo.main(["up", "--overlay", "local"]) == 0
+    assert demo.main(["evidence", "--overlay", "local"]) == 0
+    attestation = json.loads(demo.evidence.public_attestation_path(demo.ROOT, "a" * 40).read_text())
+    assert attestation["status"] == "active"
+    assert attestation["source_sha"] == "a" * 40
+    assert set(attestation["images"]) == {"api", "frontend", "worker", "gateway"}
+
+
+def test_status_preserves_active_runtime_attestation(operator):
+    demo, _calls = operator
+    assert demo.main(["up", "--overlay", "local"]) == 0
+    assert demo.main(["evidence", "--overlay", "local"]) == 0
+    attestation_path = demo.evidence.public_attestation_path(demo.ROOT, "a" * 40)
+    manifest_path = demo.ROOT / "build/deploy" / ("a" * 40) / "manifest.json"
+    before = attestation_path.read_bytes()
+    manifest_before = manifest_path.read_bytes()
+
+    assert demo.main(["status", "--overlay", "local"]) == 0
+
+    assert attestation_path.read_bytes() == before
+    assert manifest_path.read_bytes() == manifest_before
+    assert (manifest_path.parent / "checks/status.json").is_file()
+
+    assert demo.main(["config", "--overlay", "local"]) == 0
+    assert attestation_path.read_bytes() == before
+    assert manifest_path.read_bytes() == manifest_before
+    assert (manifest_path.parent / "checks/config.json").is_file()
+
+
+def test_initial_status_reports_the_manifest_path(operator, capsys):
+    demo, _calls = operator
+
+    assert demo.main(["status", "--overlay", "local"]) == 0
+
+    assert "evidence: build/deploy/" + "a" * 40 + "/manifest.json" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("command", ["status", "config"])
+def test_failed_read_only_check_preserves_active_evidence(operator, monkeypatch, command):
+    demo, _calls = operator
+    assert demo.main(["up", "--overlay", "local"]) == 0
+    assert demo.main(["evidence", "--overlay", "local"]) == 0
+    attestation_path = demo.evidence.public_attestation_path(demo.ROOT, "a" * 40)
+    manifest_path = demo.ROOT / "build/deploy" / ("a" * 40) / "manifest.json"
+    attestation_before = attestation_path.read_bytes()
+    manifest_before = manifest_path.read_bytes()
+    original_execute = demo.Demo.execute
+
+    def fail_check(self, selected_command):
+        if selected_command == command:
+            raise RuntimeError("simulated read-only check failure")
+        return original_execute(self, selected_command)
+
+    monkeypatch.setattr(demo.Demo, "execute", fail_check)
+
+    assert demo.main([command, "--overlay", "local"]) == 1
+    assert attestation_path.read_bytes() == attestation_before
+    assert manifest_path.read_bytes() == manifest_before
+    check_path = manifest_path.parent / "checks" / f"{command}.json"
+    assert json.loads(check_path.read_text())["verification"] == {
+        "command": command,
+        "status": "failed",
+    }
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX umask permissions are not available on Windows")
+def test_operator_attestation_tree_is_traversable_under_restrictive_umask(operator):
+    demo, _calls = operator
+    old_umask = os.umask(0o077)
+    try:
+        assert demo.main(["up", "--overlay", "local"]) == 0
+        assert demo.main(["evidence", "--overlay", "local"]) == 0
+    finally:
+        os.umask(old_umask)
+
+    path = demo.evidence.public_attestation_path(demo.ROOT, "a" * 40)
+    for directory in (path.parent, path.parent.parent, path.parent.parent.parent):
+        assert stat.S_IMODE(directory.stat().st_mode) & 0o755 == 0o755
 
 
 def test_observability_up_starts_and_validates_backup_exporter(operator, monkeypatch):

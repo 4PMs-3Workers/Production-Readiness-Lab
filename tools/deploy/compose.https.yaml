@@ -33,6 +33,7 @@ services:
       - ./nginx/gateway-entrypoint.sh:/usr/local/sbin/prl-gateway-entrypoint:ro
       - ./nginx:/etc/nginx/prl:ro
       - ./nginx/https.conf:/etc/nginx/server.conf:ro
+      - ${PRL_DEPLOY_EVIDENCE_DIR:-../../build-public/deploy}:/etc/nginx/deploy-evidence:ro
       - type: bind
         source: ${PRL_TLS_CERT_FILE:?Set external TLS certificate file path}
         target: /etc/nginx/tls/server.crt

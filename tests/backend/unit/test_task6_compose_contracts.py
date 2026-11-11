@@ -13,6 +13,7 @@ import yaml
 from tests.containers import (
     test_compose_acceptance as compose_acceptance,
 )
+from tests.containers import test_gateway as gateway_test_support
 from tests.containers import (
     test_telemetry_stack as telemetry_stack,
 )
@@ -22,6 +23,38 @@ from tests.containers.test_telemetry_stack import make_certificate
 ROOT = Path(__file__).resolve().parents[3]
 DEPLOY = ROOT / "tools/deploy"
 INFRA = ROOT / "tools/infra"
+
+
+def test_gateway_serves_only_the_deployed_runtime_attestation():
+    for overlay_name in ("compose.local.yaml", "compose.https.yaml"):
+        overlay = yaml.safe_load((DEPLOY / overlay_name).read_text())
+        volumes = overlay["services"]["gateway"]["volumes"]
+        assert (
+            "${PRL_DEPLOY_EVIDENCE_DIR:-../../build-public/deploy}:/etc/nginx/deploy-evidence:ro"
+            in volumes
+        )
+    routes = (DEPLOY / "nginx/routes.conf").read_text()
+    nginx = (DEPLOY / "nginx/nginx.conf").read_text()
+    assert "location = /health/artifacts" in routes
+    assert "alias /etc/nginx/deploy-evidence/$prl_release/attestation.json;" in routes
+    assert "add_header X-Request-ID $request_id always;" in routes
+    assert '"GET:/health/artifacts" "gateway.healthcheck";' in nginx
+    assert '"GET:/health/artifacts" "/health/artifacts";' in nginx
+
+
+@pytest.mark.parametrize("overlay_name", ["compose.local.yaml", "compose.https.yaml"])
+def test_gateway_mounts_do_not_require_writes_inside_read_only_bind_mounts(overlay_name):
+    overlay = yaml.safe_load((DEPLOY / overlay_name).read_text())
+    mounts = []
+    for volume in overlay["services"]["gateway"]["volumes"]:
+        if isinstance(volume, str):
+            _source, target, *options = volume.rsplit(":", 2)
+            mounts.append((target, "ro" in options))
+        else:
+            mounts.append((volume["target"], volume.get("read_only", False)))
+    for parent, read_only in mounts:
+        if read_only:
+            assert not any(target.startswith(parent + "/") for target, _ in mounts)
 
 
 def test_observability_overlay_publishes_only_existing_gateway_tls_listener():
@@ -39,7 +72,40 @@ def test_observability_overlay_publishes_only_existing_gateway_tls_listener():
     assert services["local_alert_receiver"]["networks"] == ["telemetry"]
     assert "ports" not in services["local_alert_receiver"]
     assert document["networks"]["telemetry"]["internal"] is True
-    assert document["networks"]["ops_grafana"]["internal"] is True
+
+
+def test_gateway_failure_diagnostics_create_their_ignored_directory(tmp_path, monkeypatch):
+    monkeypatch.setattr(gateway_test_support, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        gateway_test_support.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, "", ""),
+    )
+
+    gateway_test_support.preserve_gateway_failure(["docker", "compose"], "owned-project", {})
+
+    assert (
+        tmp_path
+        / ".superpowers/sdd/2026-10-23-observability-foundation"
+        / "task-5-gateway-fixture-owned-project.txt"
+    ).is_file()
+
+
+def test_gateway_teardown_removes_owned_resources_when_diagnostics_fail(monkeypatch):
+    commands = []
+
+    def failed_diagnostics(*args):
+        raise TimeoutError("diagnostics timed out")
+
+    monkeypatch.setattr(gateway_test_support, "preserve_gateway_failure", failed_diagnostics)
+    monkeypatch.setattr(gateway_test_support, "run", lambda *args, **kwargs: commands.append(args))
+
+    with pytest.raises(TimeoutError, match="diagnostics timed out"):
+        gateway_test_support.teardown_gateway_fixture(["docker", "compose"], "owned", {}, True)
+
+    assert commands == [
+        ("docker", "compose", "down", "--remove-orphans", "--volumes", "--timeout", "5")
+    ]
 
 
 def test_ops_gateway_and_grafana_security_and_file_credentials_are_explicit():
@@ -397,6 +463,7 @@ def test_compose_acceptance_writes_requested_tls_origin_into_runtime_env(
     runtime_env = Path(stack.env["PRL_RUNTIME_ENV_FILE"]).read_text(encoding="utf-8")
 
     assert "APPLICATION_ORIGIN=https://app.example.invalid:23456\n" in runtime_env
+    assert Path(stack.env["PRL_DEPLOY_EVIDENCE_DIR"]) == tmp_path / "deploy"
 
 
 def test_tls_certificates_for_app_and_ops_hosts_keep_distinct_files(tmp_path: Path):

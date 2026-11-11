@@ -8,6 +8,7 @@ selected stack's lifecycle state. Callers hold lifecycle_lock across updates.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -15,6 +16,7 @@ import tempfile
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 SCHEMA_REVISION = "20261019_1200_proposal_replay"
 COMMANDS = {"config", "build", "migrate", "seed", "up", "stop", "down", "status", "evidence"}
@@ -47,7 +49,10 @@ V2_FIELDS = V1_FIELDS | {
     "configuration_sha256",
     "observability_verification",
     "deployment_state",
+    "target_origin",
 }
+V2_LEGACY_FIELDS = V2_FIELDS - {"target_origin"}
+TARGET_ATTESTATION_SERVICES = {"api", "frontend", "worker", "gateway"}
 
 
 def timestamp():
@@ -92,7 +97,9 @@ def validate(value):
         if type(version) is int and version == 1
         else (V2_FIELDS if type(version) is int and version == 2 else None)
     )
-    if required is None or set(value) != required:
+    if required is None or (
+        set(value) != required and not (version == 2 and set(value) == V2_LEGACY_FIELDS)
+    ):
         raise ValueError("Invalid manifest fields")
     if not isinstance(value["source_sha"], str) or not re.fullmatch(
         r"[0-9a-f]{40}", value["source_sha"]
@@ -119,6 +126,24 @@ def validate(value):
             raise ValueError("Invalid configuration identity")
         if value["deployment_state"] not in {"active", "stopped", "down", "unknown"}:
             raise ValueError("Invalid deployment state")
+        target_origin = value.get("target_origin")
+        if target_origin is not None:
+            try:
+                parsed_origin = urlsplit(target_origin)
+                _ = parsed_origin.port
+            except (TypeError, ValueError):
+                raise ValueError("Invalid target origin") from None
+            if (
+                not isinstance(target_origin, str)
+                or parsed_origin.scheme not in {"http", "https"}
+                or not parsed_origin.hostname
+                or parsed_origin.username is not None
+                or parsed_origin.password is not None
+                or parsed_origin.path not in {"", "/"}
+                or parsed_origin.query
+                or parsed_origin.fragment
+            ):
+                raise ValueError("Invalid target origin")
         telemetry = value["observability_verification"]
         if not value["observability"] and telemetry is not None:
             raise ValueError("Disabled observability has telemetry evidence")
@@ -161,6 +186,7 @@ def create_v2(
     *,
     observability_verification=None,
     deployment_state="unknown",
+    target_origin=None,
     previous=None,
 ):
     now = timestamp()
@@ -182,7 +208,143 @@ def create_v2(
             "configuration_sha256": configuration_sha256,
             "observability_verification": observability_verification,
             "deployment_state": deployment_state,
+            "target_origin": target_origin,
         }
+    )
+
+
+def create_target_attestation(manifest):
+    """Create the public runtime identity served by the candidate gateway."""
+    value = validate(manifest)
+    images = value["images"]
+    if (
+        value["manifest_version"] != 2
+        or value["verification"] != {"command": "evidence", "status": "passed"}
+        or value["deployment_state"] != "active"
+        or not isinstance(value.get("target_origin"), str)
+        or not TARGET_ATTESTATION_SERVICES <= images.keys()
+    ):
+        return {"schema_version": 1, "status": "unavailable"}
+    payload = {
+        "schema_version": 1,
+        "status": "active",
+        "source_sha": value["source_sha"],
+        "target_origin": value["target_origin"],
+        "updated_at": value["updated_at"],
+        "configuration_sha256": value["configuration_sha256"],
+        "images": {
+            name: {"id": images[name]["id"], "digests": sorted(images[name]["digests"])}
+            for name in sorted(TARGET_ATTESTATION_SERVICES)
+        },
+    }
+    fingerprint = hashlib.sha256(_canonical_json(payload)).hexdigest()
+    return validate_target_attestation({**payload, "attestation_sha256": fingerprint})
+
+
+def validate_target_attestation(value):
+    fields = {
+        "schema_version",
+        "status",
+        "source_sha",
+        "target_origin",
+        "updated_at",
+        "configuration_sha256",
+        "images",
+        "attestation_sha256",
+    }
+    if not isinstance(value, dict) or set(value) != fields:
+        raise ValueError("Invalid target attestation fields")
+    if (
+        type(value["schema_version"]) is not int
+        or value["schema_version"] != 1
+        or value["status"] != "active"
+        or not isinstance(value["source_sha"], str)
+        or not re.fullmatch(r"[0-9a-f]{40}", value["source_sha"])
+        or not isinstance(value["configuration_sha256"], str)
+        or not re.fullmatch(r"[0-9a-f]{64}", value["configuration_sha256"])
+        or not isinstance(value["updated_at"], str)
+        or not re.fullmatch(
+            r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z", value["updated_at"]
+        )
+    ):
+        raise ValueError("Invalid target attestation identity")
+    origin = value["target_origin"]
+    parsed_origin = urlsplit(origin) if isinstance(origin, str) else None
+    if (
+        parsed_origin is None
+        or parsed_origin.scheme not in {"http", "https"}
+        or not parsed_origin.hostname
+        or parsed_origin.username is not None
+        or parsed_origin.password is not None
+        or parsed_origin.path not in {"", "/"}
+        or parsed_origin.query
+        or parsed_origin.fragment
+    ):
+        raise ValueError("Invalid target attestation origin")
+    images = value["images"]
+    _validate_image_inventory(images, 1)
+    if set(images) != TARGET_ATTESTATION_SERVICES:
+        raise ValueError("Invalid target attestation services")
+    fingerprint = value["attestation_sha256"]
+    if not isinstance(fingerprint, str) or not re.fullmatch(r"[0-9a-f]{64}", fingerprint):
+        raise ValueError("Invalid target attestation fingerprint")
+    payload = {key: item for key, item in value.items() if key != "attestation_sha256"}
+    if hashlib.sha256(_canonical_json(payload)).hexdigest() != fingerprint:
+        raise ValueError("Target attestation fingerprint mismatch")
+    return value
+
+
+def write_target_attestation(path, manifest, *, public_root=None):
+    """Atomically publish non-secret runtime evidence for the read-only gateway mount."""
+    _write_public_attestation(path, create_target_attestation(manifest), public_root=public_root)
+
+
+def public_attestation_path(root, source_sha):
+    """Return the dedicated host tree mounted read-only by the gateway."""
+    return Path(root) / "build-public" / "deploy" / source_sha / "attestation.json"
+
+
+def write_unavailable_target_attestation(path):
+    """Invalidate a previously published identity before a deployment transition."""
+    _write_public_attestation(path, {"schema_version": 1, "status": "unavailable"})
+
+
+def _write_public_attestation(path, value, *, public_root=None):
+    path = Path(path)
+    parents = (path.parent, *path.parent.parents)
+    if public_root is None:
+        public_root = next(
+            (directory for directory in parents if directory.name == "build-public"), None
+        )
+    if public_root is not None:
+        public_root = Path(public_root)
+        relative_parent = path.parent.resolve().relative_to(public_root.resolve())
+        public_root.mkdir(parents=True, exist_ok=True, mode=0o755)
+        os.chmod(public_root, 0o755)
+        directory = public_root
+        for part in relative_parent.parts:
+            directory = directory / part
+            directory.mkdir(exist_ok=True, mode=0o755)
+            os.chmod(directory, 0o755)
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
+    descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=".attestation-")
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            json.dump(value, output, indent=2, sort_keys=True)
+            output.write("\n")
+            output.flush()
+            os.fsync(output.fileno())
+        os.chmod(temporary, 0o644)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def _canonical_json(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode(
+        "ascii"
     )
 
 

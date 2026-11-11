@@ -48,6 +48,10 @@ ENV_FILES = (
 )
 CONFIG_COMMON = (
     "tools/deploy/compose.yaml",
+    "tools/deploy/nginx/nginx.conf",
+    "tools/deploy/nginx/routes.conf",
+    "tools/deploy/nginx/route-map.conf",
+    "tools/deploy/nginx/gateway-entrypoint.sh",
     "Dockerfile.backend",
     "Dockerfile.frontend",
     "tools/deploy/mysql/10-identities.sh",
@@ -331,6 +335,7 @@ class Demo:
         self.overlay = overlay
         self.source_sha = source_sha
         self.observability = observability
+        (ROOT / "build/deploy").mkdir(parents=True, exist_ok=True)
         self.locked_images = _image_lock()
         self.base = [
             "docker",
@@ -609,6 +614,26 @@ class Demo:
             }
         return images
 
+    def verify_running_image_inventory(self, images):
+        """Require the healthy application containers to use the recorded image IDs."""
+        for service in ("api", "frontend", "worker", "gateway"):
+            container_ids = self.compose("ps", "-q", service).splitlines()
+            if len(container_ids) != 1 or not re.fullmatch(r"[0-9a-f]{12,64}", container_ids[0]):
+                raise ProvenanceMismatch()
+            inspected = run(
+                [
+                    "docker",
+                    "inspect",
+                    "--format",
+                    "{{.Image}}|{{.State.Running}}",
+                    container_ids[0],
+                ]
+            )
+            image_id, separator, running = inspected.partition("|")
+            recorded = images.get(service, {}).get("id")
+            if separator != "|" or running != "true" or image_id != recorded:
+                raise ProvenanceMismatch()
+
     def _telemetry_evidence(self):
         code = (
             "from app.observability.alert_receiver import telemetry_status; "
@@ -809,6 +834,8 @@ def main(argv=None):
                 raise OperationFailed()
             require_clean_source(sha)
             path = ROOT / "build/deploy" / sha / "manifest.json"
+            read_only = command in {"status", "config"}
+            attestation_path = evidence.public_attestation_path(ROOT, sha)
             try:
                 previous = evidence.validate(json.loads(path.read_text(encoding="utf-8")))
             except FileNotFoundError:
@@ -817,6 +844,11 @@ def main(argv=None):
                 raise OperationFailed() from None
             if previous is not None and previous["source_sha"] != sha:
                 raise OperationFailed()
+            result_path = (
+                path.parent / "checks" / f"{command}.json"
+                if read_only and previous is not None
+                else path
+            )
             cleanup = command in {"status", "stop", "down"}
             if cleanup and previous is not None:
                 selected_overlay, selected_observability = _previous_mode(previous)
@@ -843,6 +875,8 @@ def main(argv=None):
                 )
             ):
                 raise ConfigurationIdentityMismatch()
+            if command in {"up", "evidence", "stop", "down"}:
+                evidence.write_unavailable_target_attestation(attestation_path)
             try:
                 demo.execute(command)
                 if command == "config":
@@ -854,6 +888,8 @@ def main(argv=None):
                         configured_only=command == "build",
                         omit_missing=command == "status",
                     )
+                if command == "evidence":
+                    demo.verify_running_image_inventory(images)
                 require_clean_source(sha)
             except ConfigurationIdentityMismatch:
                 raise
@@ -883,21 +919,26 @@ def main(argv=None):
                         if previous is not None and previous["manifest_version"] == 2
                         else None
                     )
-                evidence.write(
-                    path,
-                    evidence.create_v2(
-                        sha,
-                        failed_overlay,
-                        failed_observability,
-                        failed_hash,
-                        command,
-                        "failed",
-                        failed_images,
-                        observability_verification=failed_telemetry,
-                        deployment_state=failed_state,
-                        previous=previous,
+                failed_manifest = evidence.create_v2(
+                    sha,
+                    failed_overlay,
+                    failed_observability,
+                    failed_hash,
+                    command,
+                    "failed",
+                    failed_images,
+                    observability_verification=failed_telemetry,
+                    deployment_state=failed_state,
+                    target_origin=(
+                        previous.get("target_origin", demo.origin)
+                        if cleanup and previous is not None
+                        else demo.origin
                     ),
+                    previous=previous,
                 )
+                evidence.write(result_path, failed_manifest)
+                if not read_only:
+                    evidence.write_target_attestation(attestation_path, failed_manifest)
                 raise
             if cleanup and previous is not None:
                 record_overlay, record_observability = _previous_mode(previous)
@@ -925,21 +966,27 @@ def main(argv=None):
             state = _record_state(command, previous)
             if command == "down":
                 state = "down"
-            evidence.write(
-                path,
-                evidence.create_v2(
-                    sha,
-                    record_overlay,
-                    record_observability,
-                    record_hash,
-                    command,
-                    "passed",
-                    images,
-                    observability_verification=telemetry_check,
-                    deployment_state=state,
-                    previous=previous,
-                ),
+            target_origin = (
+                previous.get("target_origin", demo.origin)
+                if cleanup and previous is not None
+                else demo.origin
             )
+            manifest = evidence.create_v2(
+                sha,
+                record_overlay,
+                record_observability,
+                record_hash,
+                command,
+                "passed",
+                images,
+                observability_verification=telemetry_check,
+                deployment_state=state,
+                target_origin=target_origin,
+                previous=previous,
+            )
+            evidence.write(result_path, manifest)
+            if not read_only:
+                evidence.write_target_attestation(attestation_path, manifest)
         telemetry_label = (
             f"; telemetry={demo.observability_result['status']}"
             if demo.observability_result is not None
@@ -947,7 +994,7 @@ def main(argv=None):
         )
         print(
             f"Deployment {command} passed; business verification=passed{telemetry_label}; "
-            f"evidence: build/deploy/{sha}/manifest.json"
+            f"evidence: {result_path.relative_to(ROOT).as_posix()}"
         )
         return 0
     except ConfigurationIdentityMismatch:

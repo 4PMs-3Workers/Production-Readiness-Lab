@@ -94,6 +94,29 @@ def test_reviewed_predecessor_requires_opt_in_and_exact_configuration(tmp_path):
     current = configuration("local", False)
     previous = previous_configuration(current)
     assert previous is not None
+    previous_hashes = {item.path: item.sha256 for item in previous.files}
+    assert previous_hashes["tools/deploy/compose.local.yaml"] == (
+        "c6017399bdf443a3ac5e27d6e64cc6bec3e7fc1f038baf9e71332a9c99d2bf44"
+    )
+    assert previous_hashes["tools/deploy/nginx/nginx.conf"] == (
+        "35220da5abdb389321cb47f8688286fc0d4e6a70ea54442db4d087998178248b"
+    )
+    assert previous_hashes["tools/deploy/nginx/routes.conf"] == (
+        "5e9f6e34f6911366c0c785f1ab62249e4bb58f9bcaed112c74f8637e1532e925"
+    )
+    https_previous = previous_configuration(configuration("https", False))
+    assert https_previous is not None
+    https_hashes = {item.path: item.sha256 for item in https_previous.files}
+    assert "tools/deploy/compose.local.yaml" not in https_hashes
+    assert https_hashes["tools/deploy/nginx/nginx.conf"] == (
+        "35220da5abdb389321cb47f8688286fc0d4e6a70ea54442db4d087998178248b"
+    )
+    assert https_hashes["tools/deploy/nginx/routes.conf"] == (
+        "5e9f6e34f6911366c0c785f1ab62249e4bb58f9bcaed112c74f8637e1532e925"
+    )
+    assert https_hashes["tools/deploy/compose.https.yaml"] == (
+        "319fdc5b8334164a1577bde4b63cbf2d730dc76dd99e54fc7cb735b2a703af4b"
+    )
     with pytest.raises(ReleaseError, match="incompatible-configuration"):
         require_configuration(previous)
     require_configuration(previous, allow_previous=True)
@@ -102,8 +125,8 @@ def test_reviewed_predecessor_requires_opt_in_and_exact_configuration(tmp_path):
         path = tmp_path / item.path
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes((ROOT / item.path).read_bytes())
-    # Changes outside the two reviewed files cannot be excused by the transition.
-    with (tmp_path / "tools/deploy/nginx/routes.conf").open("ab") as output:
+    # Changes outside the explicitly reviewed files cannot use the transition.
+    with (tmp_path / "tools/deploy/nginx/error-input.conf").open("ab") as output:
         output.write(b"\n# unreviewed\n")
     with pytest.raises(ReleaseError, match="incompatible-configuration"):
         require_configuration(previous, tmp_path, allow_previous=True)
