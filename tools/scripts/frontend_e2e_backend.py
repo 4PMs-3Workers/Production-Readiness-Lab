@@ -13,6 +13,7 @@ import os
 import re
 from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
@@ -108,7 +109,7 @@ def migrate(connection):
 async def prepare():
     RUNTIME.mkdir(parents=True, exist_ok=True)
     SETTINGS_SNAPSHOT.unlink(missing_ok=True)
-    fixture = {
+    fixture: dict[str, Any] = {
         "schema": "prl_frontend_e2e_" + uuid4().hex,
         **{
             name: str(uuid4())
@@ -187,6 +188,8 @@ async def prepare():
                     now.astimezone(ZoneInfo("Asia/Ho_Chi_Minh")).date() + timedelta(days=1)
                 )
                 fixture["mysqlVersion"] = version
+                await db.flush()
+                fixture["catalog_baseline"] = await catalog_snapshot(db, fixture)
             FIXTURE.write_text(json.dumps(fixture), encoding="utf-8")
         finally:
             await engine.dispose()
@@ -228,9 +231,19 @@ class ProbeCommittedResponse:
     async def __call__(self, scope: Scope, receive: Receive, send: Send):
         if (
             scope["type"] != "http"
-            or scope["method"] not in {"POST", "PATCH"}
+            or scope["method"] not in {"POST", "PATCH", "PUT"}
             or not (
                 (
+                    scope["method"] == "PUT"
+                    and (
+                        scope["path"] == "/api/v1/admin/booking-configuration"
+                        or re.fullmatch(
+                            r"/api/v1/admin/purposes/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}",
+                            scope["path"],
+                        )
+                    )
+                )
+                or (
                     scope["method"] == "PATCH"
                     and re.fullmatch(r"/api/v1/admin/accounts/[a-f0-9-]{36}", scope["path"])
                 )
@@ -242,6 +255,7 @@ class ProbeCommittedResponse:
                             "/api/v1/appointments",
                             "/api/v1/staff/me/unavailability",
                             "/api/v1/admin/accounts",
+                            "/api/v1/admin/purposes",
                         }
                         or re.fullmatch(
                             r"/api/v1/admin/accounts/[a-f0-9-]{36}/password", scope["path"]
@@ -336,6 +350,7 @@ async def operate(args):
                     Session,
                 ):
                     await db.execute(delete(model))
+                await restore_catalog_baseline(db, fixture)
                 baseline_ids = [UUID(fixture[name]) for name, _, _ in BASE_ACCOUNTS]
                 await db.execute(
                     delete(StaffPurpose).where(StaffPurpose.staff_id.not_in(baseline_ids))
@@ -360,24 +375,78 @@ async def operate(args):
                             updated_at=datetime.now(UTC),
                         )
                     )
-                await db.execute(
-                    update(Purpose)
-                    .where(Purpose.id == UUID(fixture["purpose"]))
-                    .values(duration_minutes=30, is_active=True)
-                )
-                await db.execute(
-                    update(StaffPurpose)
-                    .where(StaffPurpose.staff_id == UUID(fixture["staff"]))
-                    .values(is_accepting=True)
-                )
-                await db.execute(
-                    update(StaffPurpose)
-                    .where(StaffPurpose.staff_id == UUID(fixture["otherstaff"]))
-                    .values(is_accepting=False)
-                )
                 LOSS.unlink(missing_ok=True)
                 HOLD.unlink(missing_ok=True)
                 HELD.unlink(missing_ok=True)
+            elif args.action == "inspect-admin-catalog":
+                snapshot = await catalog_snapshot(db, fixture)
+                events = (
+                    await db.scalars(
+                        select(AuditEvent)
+                        .where(
+                            AuditEvent.action.in_(
+                                [
+                                    "PURPOSE_CREATED",
+                                    "PURPOSE_UPDATED",
+                                    "BOOKING_CONFIGURATION_UPDATED",
+                                ]
+                            )
+                        )
+                        .order_by(AuditEvent.created_at, AuditEvent.id)
+                    )
+                ).all()
+                for event in events:
+                    metadata = event.event_metadata
+                    assert set(metadata) <= {
+                        "is_active",
+                        "changed_fields",
+                        "windows_added",
+                        "windows_removed",
+                    }
+                    for key, value in metadata.items():
+                        if key == "changed_fields":
+                            assert isinstance(value, list) and set(value) <= {
+                                "name",
+                                "duration_minutes",
+                                "requires_free_text",
+                                "is_active",
+                                "timezone",
+                                "start_step_minutes",
+                                "booking_horizon_days",
+                                "windows",
+                            }
+                        elif key == "is_active":
+                            assert isinstance(value, bool)
+                        else:
+                            assert isinstance(value, int) and not isinstance(value, bool)
+                print(
+                    json.dumps(
+                        {
+                            "baseline_matches": snapshot == fixture["catalog_baseline"],
+                            "purpose_count": await db.scalar(
+                                select(func.count()).select_from(Purpose)
+                            ),
+                            "staff_links": await db.scalar(
+                                select(func.count()).select_from(StaffPurpose)
+                            ),
+                            "audit_actions": [event.action for event in events],
+                            "metadata_safe": True,
+                        }
+                    )
+                )
+            elif args.action == "inspect-admin-appointment":
+                appointment = await db.get(Appointment, UUID(args.id))
+                if appointment is None or appointment.student_id != UUID(fixture["student"]):
+                    raise RuntimeError("Appointment must belong to the owned fixture student")
+                print(
+                    json.dumps(
+                        {
+                            "starts_at": appointment.starts_at.isoformat(),
+                            "ends_at": appointment.ends_at.isoformat(),
+                            "duration_minutes": appointment.duration_minutes,
+                        }
+                    )
+                )
             elif args.action == "seed-admin":
                 baseline = await db.get(User, UUID(fixture["student"]))
                 assert baseline is not None
@@ -856,6 +925,104 @@ async def operate(args):
         SETTINGS_SNAPSHOT.unlink(missing_ok=True)
 
 
+async def catalog_snapshot(db, fixture):
+    """Capture only the owned fixture's catalog, policy, hours and staff links."""
+    purpose = await db.get(Purpose, UUID(fixture["purpose"]))
+    setting = await db.get(ServiceSetting, 1)
+    if purpose is None or setting is None:
+        raise RuntimeError("The owned catalog baseline requires its purpose and singleton")
+    windows = (
+        await db.scalars(select(ServiceHour).order_by(ServiceHour.weekday, ServiceHour.opens_at))
+    ).all()
+    links = (
+        await db.scalars(
+            select(StaffPurpose).order_by(StaffPurpose.staff_id, StaffPurpose.purpose_id)
+        )
+    ).all()
+    return {
+        "purpose": {
+            "code": purpose.code,
+            "name": purpose.name,
+            "duration_minutes": purpose.duration_minutes,
+            "requires_free_text": purpose.requires_free_text,
+            "is_active": purpose.is_active,
+            "created_at": purpose.created_at.isoformat(),
+            "updated_at": purpose.updated_at.isoformat(),
+        },
+        "policy": {
+            "timezone": setting.timezone,
+            "start_step_minutes": setting.start_step_minutes,
+            "booking_horizon_days": setting.booking_horizon_days,
+            "updated_at": setting.updated_at.isoformat(),
+        },
+        "windows": [
+            {
+                "id": str(w.id),
+                "weekday": w.weekday,
+                "opens_at": w.opens_at.isoformat(),
+                "closes_at": w.closes_at.isoformat(),
+                "created_at": w.created_at.isoformat(),
+                "updated_at": w.updated_at.isoformat(),
+            }
+            for w in windows
+        ],
+        "links": [
+            {
+                "staff_id": str(link.staff_id),
+                "purpose_id": str(link.purpose_id),
+                "is_accepting": link.is_accepting,
+                "created_at": link.created_at.isoformat(),
+                "updated_at": link.updated_at.isoformat(),
+            }
+            for link in links
+        ],
+    }
+
+
+async def restore_catalog_baseline(db, fixture):
+    """Called only after appointment dependents are cleared in the owned schema."""
+    baseline = fixture["catalog_baseline"]
+    await db.execute(delete(StaffPurpose))
+    await db.execute(delete(Purpose).where(Purpose.id != UUID(fixture["purpose"])))
+    values = dict(baseline["purpose"])
+    for field in ("created_at", "updated_at"):
+        values[field] = datetime.fromisoformat(values[field])
+    await db.execute(update(Purpose).where(Purpose.id == UUID(fixture["purpose"])).values(**values))
+    await db.execute(delete(ServiceHour))
+    await db.execute(delete(ServiceSetting))
+    db.add(
+        ServiceSetting(
+            id=1,
+            **{
+                **baseline["policy"],
+                "updated_at": datetime.fromisoformat(baseline["policy"]["updated_at"]),
+            },
+        )
+    )
+    for window in baseline["windows"]:
+        db.add(
+            ServiceHour(
+                id=UUID(window["id"]),
+                weekday=window["weekday"],
+                opens_at=time.fromisoformat(window["opens_at"]),
+                closes_at=time.fromisoformat(window["closes_at"]),
+                created_at=datetime.fromisoformat(window["created_at"]),
+                updated_at=datetime.fromisoformat(window["updated_at"]),
+            )
+        )
+    for link in baseline["links"]:
+        db.add(
+            StaffPurpose(
+                staff_id=UUID(link["staff_id"]),
+                purpose_id=UUID(link["purpose_id"]),
+                is_accepting=link["is_accepting"],
+                created_at=datetime.fromisoformat(link["created_at"]),
+                updated_at=datetime.fromisoformat(link["updated_at"]),
+            )
+        )
+    await db.flush()
+
+
 async def restore_service_settings(db):
     """Restore the singleton values captured before an outage scenario."""
     if not SETTINGS_SNAPSHOT.exists():
@@ -890,6 +1057,8 @@ def main():
             "reset",
             "seed-admin",
             "inspect-admin",
+            "inspect-admin-catalog",
+            "inspect-admin-appointment",
             "admin-last-staff",
             "expire",
             "inspect",

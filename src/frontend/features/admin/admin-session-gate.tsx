@@ -4,11 +4,15 @@ import { useEffect, type ReactNode } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useApi } from '@/features/api/api-provider';
 import { errorMessage } from '@/services/api/errors';
+import { adminSections } from './admin-routes';
 
 export function safeAdminReturnPath(value: string | null): string {
   if (!value || value.includes('\\') || Array.from(value).some((c) => c.charCodeAt(0) <= 32))
     return '/admin/accounts';
-  return value === '/admin' || value === '/admin/accounts' ? value : '/admin/accounts';
+  return value === '/admin' ||
+    Object.values(adminSections).some((section) => section.path === value)
+    ? value
+    : '/admin/accounts';
 }
 
 export function AdminSessionGate({ children }: { children: ReactNode }) {
