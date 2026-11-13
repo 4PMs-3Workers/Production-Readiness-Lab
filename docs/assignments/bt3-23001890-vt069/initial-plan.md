@@ -79,6 +79,13 @@
 - **Why the plan changed:** A correct migration alone would leave readiness, background processing, seed and release attestation rejecting the new schema or claiming the former head.
 - **Replacement decision:** Advance those source-of-truth gates and their relevant tests/docs with the migration. Keep older revision references in historical evidence unchanged.
 
+### 4. Preserve the reviewed release predecessor when updating the runtime grant
+
+- **Initial AI assessment:** Advancing the exact current schema pin and runtime grant looked sufficient for the rollout artifacts touched by the migration.
+- **Repository evidence:** After the grant added `max_active_appointments`, `tests/backend/unit/test_release_manifest.py::test_reviewed_predecessor_requires_opt_in_and_exact_configuration` failed because `previous_configuration()` compared the live grants hash to a fixed reviewed “after” hash. All other reviewed transition files still matched; the current grants SHA was `bdede7d278ee16b114ed2da85ac9e350cfdacec1aa0b4f125237b2765229f3a3`.
+- **Why the plan changed:** Without updating the exact transition identity, release tooling could not construct the previously accepted predecessor configuration, breaking its explicit compatibility review path.
+- **Replacement decision:** Update only the reviewed current grants hash while retaining the original predecessor hash. The predecessor, exact-file tamper rejection, and rollout schema tests then passed (75 tests across release manifest, rollout schema and preflight modules).
+
 ## Traceability and commit plan
 
 Will be completed after implementation and real evidence exist. Initial plan commit grouping is provisional; final mapping uses actual commit SHAs and test evidence without self-reference.
