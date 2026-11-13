@@ -90,6 +90,15 @@ def test_roundtrip_atomic_write_and_separate_pr_head(tmp_path):
     require_configuration(manifest.configuration)
 
 
+def test_reviewed_predecessor_schema_requires_rollback_opt_in():
+    data = spec_data()
+    data["accepted_schema_revisions"] = ["20261019_1200_proposal_replay"]
+    predecessor = parse(canonical(data), Spec)
+    with pytest.raises(ReleaseError, match="incompatible-schema"):
+        require_compatible(predecessor)
+    require_compatible(predecessor, allow_previous=True)
+
+
 def test_reviewed_predecessor_requires_opt_in_and_exact_configuration(tmp_path):
     current = configuration("local", False)
     previous = previous_configuration(current)

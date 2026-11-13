@@ -3,7 +3,7 @@
 from typing import Literal
 
 from pydantic import Field
-from tools.deploy.release_manifest import SCHEMA, Strict
+from tools.deploy.release_manifest import REVIEWED_PREDECESSOR_SCHEMAS, SCHEMA, Strict
 from tools.deploy.rollout_state import RolloutError
 
 from app.models import Base
@@ -12,6 +12,8 @@ from app.models import Base
 # Revision stamps alone cannot prove that a partially applied DDL is usable.
 EXPECTED = {name: sorted(table.columns.keys()) for name, table in Base.metadata.tables.items()}
 EXPECTED["alembic_version"] = ["version_num"]
+PREDECESSOR_EXPECTED = {name: list(columns) for name, columns in EXPECTED.items()}
+PREDECESSOR_EXPECTED["service_settings"].remove("max_active_appointments")
 
 
 class SchemaSnapshot(Strict):
@@ -24,16 +26,27 @@ class SchemaSnapshot(Strict):
 def require_schema(
     snapshot: SchemaSnapshot, accepted: list[str], *, allow_empty: bool = False
 ) -> Literal["bootstrap", "current"]:
-    if accepted != [SCHEMA]:
+    # The release consumer validates these pins against the selected source tree;
+    # rollback is the only path allowed to select the reviewed predecessor pin.
+    if len(accepted) != 1 or accepted[0] not in {SCHEMA, *REVIEWED_PREDECESSOR_SCHEMAS}:
         raise RolloutError("schema-incompatible")
     if not snapshot.tables and not snapshot.revisions:
         if allow_empty and snapshot.unsupported_objects == 0:
             return "bootstrap"
         raise RolloutError("schema-partial")
-    if len(snapshot.revisions) != 1 or snapshot.revisions[0] != SCHEMA:
+    if len(snapshot.revisions) != 1:
         raise RolloutError("schema-incompatible")
+    delivered_revision = snapshot.revisions[0]
+    predecessor_rollback = (
+        accepted[0] in REVIEWED_PREDECESSOR_SCHEMAS and delivered_revision == SCHEMA
+    )
+    if delivered_revision != accepted[0] and not predecessor_rollback:
+        raise RolloutError("schema-incompatible")
+    observed = {name: sorted(columns) for name, columns in snapshot.tables.items()}
+    expected = EXPECTED if delivered_revision == SCHEMA else PREDECESSOR_EXPECTED
+    catalog_incompatible = observed != expected
     if (
-        {name: sorted(columns) for name, columns in snapshot.tables.items()} != EXPECTED
+        catalog_incompatible
         or snapshot.unsupported_objects != 0
         or snapshot.nontransactional_tables != 0
     ):

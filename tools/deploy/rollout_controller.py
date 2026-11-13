@@ -214,16 +214,27 @@ class RolloutController:
         self.store.save(self.state)
         return self.state
 
-    def _preflight(self, prepared: Prepared, *, allow_empty: bool) -> None:
+    def _preflight(
+        self,
+        prepared: Prepared,
+        *,
+        allow_empty: bool,
+        schema_revisions: list[str] | None = None,
+    ) -> None:
         self.consumer.verify(prepared)
         self.runtime.select(prepared.manifest)
         self.runtime.validate_plan()
         self.runtime.vendor_images()
         require_schema(
             self.runtime.schema(),
-            prepared.manifest.accepted_schema_revisions,
+            schema_revisions or prepared.manifest.accepted_schema_revisions,
             allow_empty=allow_empty,
         )
+
+    def _migration_input_schema_revisions(self, state: HostState, prepared: Prepared) -> list[str]:
+        if state.stable is not None and prepared.manifest.previous_stable == state.stable.reference:
+            return self.store.manifest(state.stable).accepted_schema_revisions
+        return prepared.manifest.accepted_schema_revisions
 
     def deploy(self, reference: str, *, resume: bool = False) -> HostState:
         with operation_lock(self.store):
@@ -253,7 +264,11 @@ class RolloutController:
                     assert state.stable is not None
                     if prepared.manifest.previous_stable != state.stable.reference:
                         raise RolloutError("invalid-manifest")
-                    self._preflight(prepared, allow_empty=False)
+                    self._preflight(
+                        prepared,
+                        allow_empty=False,
+                        schema_revisions=self._migration_input_schema_revisions(state, prepared),
+                    )
             except RolloutError as error:
                 return self._refuse(state, "deploy", error.reason)
             self._begin(state, prepared.selected, rebind=rebind)
@@ -268,7 +283,11 @@ class RolloutController:
                 ):
                     raise RolloutError("invalid-manifest")
                 if not rebind:
-                    self._preflight(prepared, allow_empty=state.stable is None)
+                    self._preflight(
+                        prepared,
+                        allow_empty=state.stable is None,
+                        schema_revisions=self._migration_input_schema_revisions(state, prepared),
+                    )
                 self._transition("migration")
                 before = self.runtime.prepare_database()
                 require_schema(

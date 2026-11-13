@@ -1,5 +1,30 @@
 import pytest
 from tests.backend.unit.rollout_fixtures import controller, reference, release
+from tools.deploy.release_manifest import Manifest, canonical, parse
+from tools.deploy.rollout_preflight import Prepared
+from tools.deploy.rollout_state import HostState, selection
+
+
+def test_upgrade_preflight_uses_the_previous_stable_schema_before_migration(tmp_path):
+    host = controller(tmp_path)
+    previous_data = release().model_dump(mode="json")
+    previous_data["accepted_schema_revisions"] = ["20261019_1200_proposal_replay"]
+    previous = parse(canonical(previous_data), Manifest)
+    previous_ref = reference()
+    host.registry.releases[previous_ref] = previous
+    stable = host.store.remember(previous_ref, previous)
+    state = HostState(
+        project=host.runtime.project,
+        configuration_sha256="c" * 64,
+        stable=stable,
+    )
+
+    candidate = release(124, previous_ref)
+    prepared = Prepared(selection(reference(2), candidate), candidate)
+
+    assert host.control._migration_input_schema_revisions(state, prepared) == [
+        "20261019_1200_proposal_replay"
+    ]
 
 
 def test_stable_promotion_occurs_only_after_all_live_verification(tmp_path):
