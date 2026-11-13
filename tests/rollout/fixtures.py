@@ -23,7 +23,6 @@ from tools.deploy.release_images import Registry, archive_image, command
 from tools.deploy.release_manifest import (
     CHECKS,
     ROOT,
-    SCHEMA,
     Image,
     Manifest,
     Spec,
@@ -52,6 +51,15 @@ async def fail_after_booking(request,call_next):
 # Real /health/ready, login, booking and replay; no raw access/body logging.
 uvicorn.run(app,host='0.0.0.0',port=8000,proxy_headers=False,access_log=False,log_level='warning')
 """
+
+
+def schema_revision(root: Path) -> str:
+    """Read the schema pin belonging to the source tree represented by a fixture."""
+    source = (root / "tools/deploy/release_manifest.py").read_text(encoding="utf-8")
+    match = re.search(r'^SCHEMA = "([A-Za-z0-9_]{1,64})"$', source, re.MULTILINE)
+    if match is None:
+        raise ValueError("Source tree has no exact release schema pin")
+    return match.group(1)
 
 
 class Artifacts:
@@ -203,7 +211,7 @@ class Artifacts:
                 frontend="frontend",
             ),
             vendor_images=vendor_inventory(False, root),
-            accepted_schema_revisions=[SCHEMA],
+            accepted_schema_revisions=[schema_revision(root)],
             configuration=configuration("local", False, root).model_dump(),
             previous_stable=previous,
             bootstrap=previous is None,

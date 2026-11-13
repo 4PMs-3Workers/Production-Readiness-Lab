@@ -86,6 +86,13 @@
 - **Why the plan changed:** Without updating the exact transition identity, release tooling could not construct the previously accepted predecessor configuration, breaking its explicit compatibility review path.
 - **Replacement decision:** Update only the reviewed current grants hash while retaining the original predecessor hash. The predecessor, exact-file tamper rejection, and rollout schema tests then passed (75 tests across release manifest, rollout schema and preflight modules).
 
+### 5. Generate rollback fixture manifests from the selected source tree's schema pin
+
+- **Initial AI assessment:** Updating the current exact schema pin and reviewed transition was expected to cover rollout consumers and historical release fixtures.
+- **Repository/CI evidence:** PR #66's serialized rollback job failed `tests/rollout/test_configuration_transition.py::test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host` at fixture startup with `Fixture schema failed` (1 failed, 3 passed). The fixture builds a `BASE` commit as the predecessor but `Artifacts.manifest(root=base)` populated `accepted_schema_revisions` from the current module-level `SCHEMA`. A regression test with a synthetic predecessor source returned the current `20261113_1200_booking_quota` instead of the predecessor's `20261019_1200_proposal_replay`.
+- **Why the plan changed:** The predecessor image validates the database against its own source contract; using the head revision made the old host reject its own schema before the upgrade rehearsal began.
+- **Replacement decision:** Read the exact schema pin from the source tree passed to the fixture manifest builder. The new targeted regression was RED on the old behavior; `test_rollout_fixtures.py` and release/schema/preflight checks are now green (78 passed). The full backend suite and the remote rollback workflow must be rerun after this fix before recording CI as resolved.
+
 ## Traceability and commit plan
 
 Will be completed after implementation and real evidence exist. Initial plan commit grouping is provisional; final mapping uses actual commit SHAs and test evidence without self-reference.
