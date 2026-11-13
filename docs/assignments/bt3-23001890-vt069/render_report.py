@@ -105,7 +105,7 @@ def make_styles() -> dict[str, ParagraphStyle]:
         "title": ParagraphStyle("TitleVN", parent=base["Title"], fontName="Arial-Bold", fontSize=19, leading=23, textColor=colors.HexColor("#16324F"), alignment=TA_LEFT, spaceAfter=8),
         "h1": ParagraphStyle("H1VN", parent=base["Heading1"], fontName="Arial-Bold", fontSize=14, leading=17, textColor=colors.HexColor("#16324F"), spaceBefore=8, spaceAfter=5, keepWithNext=True),
         "h2": ParagraphStyle("H2VN", parent=base["Heading2"], fontName="Arial-Bold", fontSize=11, leading=14, textColor=colors.HexColor("#146C74"), spaceBefore=6, spaceAfter=3, keepWithNext=True),
-        "body": ParagraphStyle("BodyVN", parent=base["BodyText"], fontName="Arial", fontSize=8.3, leading=11, alignment=TA_LEFT, spaceAfter=4, splitLongWords=1),
+        "body": ParagraphStyle("BodyVN", parent=base["BodyText"], fontName="Arial", fontSize=8.1, leading=10.5, alignment=TA_LEFT, spaceAfter=4, splitLongWords=1),
         "quote": ParagraphStyle("QuoteVN", parent=base["BodyText"], fontName="Arial-Bold", fontSize=9.2, leading=13, textColor=colors.HexColor("#146C74"), leftIndent=8, rightIndent=8, borderColor=colors.HexColor("#146C74"), borderWidth=1, borderPadding=6, spaceBefore=4, spaceAfter=7),
         "table": ParagraphStyle("TableVN", parent=base["BodyText"], fontName="Arial", fontSize=7.1, leading=9, splitLongWords=1),
         "bullet": ParagraphStyle("BulletVN", parent=base["BodyText"], fontName="Arial", fontSize=8.3, leading=11, leftIndent=10, firstLineIndent=-7, spaceAfter=2),
