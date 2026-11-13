@@ -3,8 +3,8 @@
 ## Full backend suite
 
 - Command: `$env:PYTHONUTF8='1'; $env:PYTHONPATH='src/backend'; .\.venv\Scripts\python.exe -m pytest tests/backend -q`
-- Working directory: `D:\Production-Readiness-Lab-bt3-23001890-vt069`; source includes `bb34804`, `fb24a3b`, `6b1de05` and `9ffb482`; Python 3.11.4, pytest 9.0.3, Windows 11.
-- Actual on source after the source-root-aware manifest/render fix: **1,794 passed, 646 skipped, 1 warning**, exit 0, 248.78 s. Warning: Starlette `TestClient`/httpx deprecation. Skips are mostly MySQL integration gates; they are not passes.
+- Working directory: `D:\Production-Readiness-Lab-bt3-23001890-vt069`; source `654137c636bc82bc27c384443c94b5ba52330585` includes the predecessor rollback schema refusal; Python 3.11.4, pytest 9.0.3, Windows 11.
+- Actual final local run: **1,800 passed, 646 skipped, 1 warning**, exit 0, 246.67 s. Warning: Starlette `TestClient`/httpx deprecation. Skips are mostly MySQL integration gates; they are not passes.
 - Baseline at `12a74f7308550ccc294a783edde79db267a526d1`: **1,774 passed, 638 skipped, 1 failed**, exit 1, 236.33 s. Existing failure was a loopback `httpx.ConnectTimeout` before the error endpoint responded; timing/socket cause is inference only. The post-change full suite did not reproduce that failure. The new release predecessor failure found in the first post-implementation run was fixed and has its own RED/GREEN evidence.
 
 ## MySQL integration availability
@@ -17,7 +17,7 @@
 - Ruff: `ruff check src/backend tests/backend tests/rollout tools/scripts tools/deploy` — pass, “All checks passed!”.
 - Black: `black --check src/backend tests/backend tests/rollout tools/scripts tools/deploy` — pass, 408 files unchanged.
 - Pyright: `pyright` — pass, 0 errors, 0 warnings, 0 information; tool notes a newer version exists.
-- `test_rollout_fixtures.py test_release_manifest.py test_rollout_schema.py test_rollout_preflight.py -q` — 78 passed, 4.58 s, exit 0.
+- `test_rollout_schema.py test_rollout_controller.py test_rollout_fixtures.py test_release_manifest.py test_rollout_preflight.py -q` — 90 passed, 6.08 s, exit 0.
 - `test_booking_quota_contract.py test_booking_service_retries.py test_availability_rules.py -q` — repeated five times with alternating module order, each 81 passed (1.11–1.18 s), exit 0. No order/shared-state/time-sensitive failure observed in these five runs. Does not exercise concurrent MySQL or eliminate residual flakiness risk.
 - Mutation failure-path on correct source — 1 passed, 1.01 s, exit 0.
 
@@ -28,7 +28,8 @@ See [`coverage-load-green.md`](coverage-load-green.md) for exact commands and co
 ## Execution and external status
 
 - `alembic heads`: `20261113_1200_booking_quota (head)`.
+- Focused after rollback correction: schema unit suite **16 passed**; rollout unit selection **172 passed**. Ruff pass; Black reports 3 touched files unchanged; Pyright 0 errors/warnings/information. Linux configuration-transition rehearsal was attempted locally with `RUN_ROLLOUT_REHEARSAL=1`, but failed at prerequisite check because this host is Windows and Linux/Docker/Skopeo/ORAS are unavailable. This is an environment limitation, not a test pass.
 - Feature branch pushed to `origin`: `feature/bt3-23001890-vt069`.
-- Draft PR #66: https://github.com/4PMs-3Workers/Production-Readiness-Lab/pull/66, base `develop`, head `feature/bt3-23001890-vt069`; open, draft, unmerged at creation. CI status is checked separately after the report commit is pushed.
-- CI head `222a8ae` first found the predecessor fixture revision mismatch. Head `2a48631` then exposed the remaining global `SCHEMA` check in `require_compatible()` as `incompatible-schema`. Both findings and the extended test are in `ci-rollout-fixture.md`. Commit `9ffb482` fixes the source-root-aware manifest/render path; 78 focused tests and the full backend suite pass locally. A new remote CI run is pending after the next push.
+- Draft PR #66: https://github.com/4PMs-3Workers/Production-Readiness-Lab/pull/66, base `develop`, head `feature/bt3-23001890-vt069`; open, draft, unmerged. Current code head is `8e5d686bb7366239e5d57cfb5dcc726c58aa5178`.
+- CI findings and corrections, including the predecessor rollback refusal, are documented in `ci-rollout-fixture.md`. Run `43460328672` on `8e5d686` passed the serialized Linux rollback rehearsal (4 passed in 368.61 s). Dependency security, MySQL recovery, immutable release, and encrypted off-host recovery also passed on this head. Backend models, containerized demo, and frontend were still running when this note was prepared.
 - No merge/deploy/classroom submission was performed.

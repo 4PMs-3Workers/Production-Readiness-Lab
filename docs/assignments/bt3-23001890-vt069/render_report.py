@@ -7,7 +7,7 @@ from pathlib import Path
 
 from pypdf import PdfReader
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
@@ -21,7 +21,6 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
-
 
 ROOT = Path(__file__).resolve().parents[3]
 SOURCE = Path(__file__).with_name("report.md")
@@ -54,7 +53,12 @@ def inline_markup(value: str) -> str:
     value = pattern.sub(replace, value)
     value = value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     value = re.sub(r"\x00(\d+)\x00", lambda m: tokens[int(m.group(1))], value)
-    return value.replace("\u2011", "-").replace("\u2013", "-").replace("\u2014", "-").replace("\u2192", "-&gt;")
+    return (
+        value.replace("\u2011", "-")
+        .replace("\u2013", "-")
+        .replace("\u2014", "-")
+        .replace("\u2192", "-&gt;")
+    )
 
 
 def register_fonts() -> None:
@@ -71,7 +75,9 @@ def markdown_table(lines: list[str], styles: dict[str, ParagraphStyle], width: f
     if len(rows) < 2:
         raise ValueError("Malformed Markdown table")
     data = [[Paragraph(inline_markup(cell), styles["table"]) for cell in rows[0]]]
-    data.extend([[Paragraph(inline_markup(cell), styles["table"]) for cell in row] for row in rows[2:]])
+    data.extend(
+        [[Paragraph(inline_markup(cell), styles["table"]) for cell in row] for row in rows[2:]]
+    )
     count = len(data[0])
     if count == 6:
         fractions = [0.045, 0.105, 0.14, 0.16, 0.50, 0.05]
@@ -102,13 +108,81 @@ def markdown_table(lines: list[str], styles: dict[str, ParagraphStyle], width: f
 def make_styles() -> dict[str, ParagraphStyle]:
     base = getSampleStyleSheet()
     return {
-        "title": ParagraphStyle("TitleVN", parent=base["Title"], fontName="Arial-Bold", fontSize=19, leading=23, textColor=colors.HexColor("#16324F"), alignment=TA_LEFT, spaceAfter=8),
-        "h1": ParagraphStyle("H1VN", parent=base["Heading1"], fontName="Arial-Bold", fontSize=14, leading=17, textColor=colors.HexColor("#16324F"), spaceBefore=8, spaceAfter=5, keepWithNext=True),
-        "h2": ParagraphStyle("H2VN", parent=base["Heading2"], fontName="Arial-Bold", fontSize=11, leading=14, textColor=colors.HexColor("#146C74"), spaceBefore=6, spaceAfter=3, keepWithNext=True),
-        "body": ParagraphStyle("BodyVN", parent=base["BodyText"], fontName="Arial", fontSize=8.1, leading=10.5, alignment=TA_LEFT, spaceAfter=4, splitLongWords=1),
-        "quote": ParagraphStyle("QuoteVN", parent=base["BodyText"], fontName="Arial-Bold", fontSize=9.2, leading=13, textColor=colors.HexColor("#146C74"), leftIndent=8, rightIndent=8, borderColor=colors.HexColor("#146C74"), borderWidth=1, borderPadding=6, spaceBefore=4, spaceAfter=7),
-        "table": ParagraphStyle("TableVN", parent=base["BodyText"], fontName="Arial", fontSize=7.1, leading=9, splitLongWords=1),
-        "bullet": ParagraphStyle("BulletVN", parent=base["BodyText"], fontName="Arial", fontSize=8.3, leading=11, leftIndent=10, firstLineIndent=-7, spaceAfter=2),
+        "title": ParagraphStyle(
+            "TitleVN",
+            parent=base["Title"],
+            fontName="Arial-Bold",
+            fontSize=19,
+            leading=23,
+            textColor=colors.HexColor("#16324F"),
+            alignment=TA_LEFT,
+            spaceAfter=8,
+        ),
+        "h1": ParagraphStyle(
+            "H1VN",
+            parent=base["Heading1"],
+            fontName="Arial-Bold",
+            fontSize=14,
+            leading=17,
+            textColor=colors.HexColor("#16324F"),
+            spaceBefore=8,
+            spaceAfter=5,
+            keepWithNext=True,
+        ),
+        "h2": ParagraphStyle(
+            "H2VN",
+            parent=base["Heading2"],
+            fontName="Arial-Bold",
+            fontSize=11,
+            leading=14,
+            textColor=colors.HexColor("#146C74"),
+            spaceBefore=6,
+            spaceAfter=3,
+            keepWithNext=True,
+        ),
+        "body": ParagraphStyle(
+            "BodyVN",
+            parent=base["BodyText"],
+            fontName="Arial",
+            fontSize=8.1,
+            leading=10.5,
+            alignment=TA_LEFT,
+            spaceAfter=4,
+            splitLongWords=1,
+        ),
+        "quote": ParagraphStyle(
+            "QuoteVN",
+            parent=base["BodyText"],
+            fontName="Arial-Bold",
+            fontSize=9.2,
+            leading=13,
+            textColor=colors.HexColor("#146C74"),
+            leftIndent=8,
+            rightIndent=8,
+            borderColor=colors.HexColor("#146C74"),
+            borderWidth=1,
+            borderPadding=6,
+            spaceBefore=10,
+            spaceAfter=7,
+        ),
+        "table": ParagraphStyle(
+            "TableVN",
+            parent=base["BodyText"],
+            fontName="Arial",
+            fontSize=7.1,
+            leading=9,
+            splitLongWords=1,
+        ),
+        "bullet": ParagraphStyle(
+            "BulletVN",
+            parent=base["BodyText"],
+            fontName="Arial",
+            fontSize=8.3,
+            leading=11,
+            leftIndent=10,
+            firstLineIndent=-7,
+            spaceAfter=2,
+        ),
     }
 
 
@@ -120,7 +194,11 @@ def build_story(text: str, styles: dict[str, ParagraphStyle], width: float) -> l
 
     def flush() -> None:
         if paragraph:
-            story.append(Paragraph(inline_markup(" ".join(item.strip() for item in paragraph)), styles["body"]))
+            story.append(
+                Paragraph(
+                    inline_markup(" ".join(item.strip() for item in paragraph)), styles["body"]
+                )
+            )
             paragraph.clear()
 
     while index < len(lines):
@@ -183,9 +261,15 @@ def main() -> None:
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     page_width, _ = landscape(A4)
     doc = SimpleDocTemplate(
-        str(OUTPUT), pagesize=landscape(A4), rightMargin=15 * mm, leftMargin=15 * mm,
-        topMargin=14 * mm, bottomMargin=13 * mm, title="BT3 23001890 VT-069",
-        author="Ngô Quang Hưng", subject="Production Readiness Lab - VT-069",
+        str(OUTPUT),
+        pagesize=landscape(A4),
+        rightMargin=15 * mm,
+        leftMargin=15 * mm,
+        topMargin=14 * mm,
+        bottomMargin=13 * mm,
+        title="BT3 23001890 VT-069",
+        author="Ngô Quang Hưng",
+        subject="Production Readiness Lab - VT-069",
     )
     story = build_story(SOURCE.read_text(encoding="utf-8"), make_styles(), page_width - 30 * mm)
     doc.build(story, onFirstPage=draw_page, onLaterPages=draw_page)
@@ -193,7 +277,11 @@ def main() -> None:
     if len(reader.pages) == 0:
         raise RuntimeError("No PDF pages were generated")
     appendix_page = next(
-        (i + 1 for i, page in enumerate(reader.pages) if "Phụ lục A" in (page.extract_text() or "")),
+        (
+            i + 1
+            for i, page in enumerate(reader.pages)
+            if "Phụ lục A" in (page.extract_text() or "")
+        ),
         None,
     )
     main_pages = (appendix_page - 1) if appendix_page else len(reader.pages)
