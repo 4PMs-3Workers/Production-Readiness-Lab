@@ -6,7 +6,7 @@
 **APP-03 – Production Readiness Lab** · Repository: [Production-Readiness-Lab](https://github.com/4PMs-3Workers/Production-Readiness-Lab)  
 Baseline: `12a74f7308550ccc294a783edde79db267a526d1` (`origin/develop`)  
 Branch: [feature/bt3-23001890-vt069](https://github.com/4PMs-3Workers/Production-Readiness-Lab/tree/feature/bt3-23001890-vt069)  
-Draft PR: **sẽ được cập nhật bằng URL thật sau khi mở Draft PR**
+Draft PR: [#66 - Individual Assignment 3: configurable booking quota (VT-069)](https://github.com/4PMs-3Workers/Production-Readiness-Lab/pull/66)
 
 > “Tôi chịu trách nhiệm về toàn bộ code, test và nội dung bài làm; tôi đã khai báo việc sử dụng AI.”
 
@@ -80,7 +80,7 @@ Harness `tools/scripts/vt069_booking_quota_load.py`: 5 warm-up, 60 task barrier-
 | NFR release predecessor | `test_reviewed_predecessor_requires_opt_in_and_exact_configuration` | `tools/deploy/release_manifest.py` | `fb24a3b` | 75 release/rollout tests pass |
 | NFR concurrency/performance | `vt069_booking_quota_load.py` | `domain/booking.py` | `bb34804` | 60 concurrency synthetic harness |
 
-Commits: `39cd620` (spec/baseline plan), `bb34804` (implementation/tests), `fb24a3b` (release predecessor fix). README/evidence/report/PDF sẽ có commit tiếp theo; PR URL sẽ thay placeholder khi GitHub tạo PR.
+Commits: `39cd620` (spec/baseline plan), `bb34804` (implementation/tests), `fb24a3b` (release predecessor fix), `2409a37` (README/evidence/report/PDF), followed by this final PR-link/PDF commit. Draft PR #66 targets `develop`; it is not merged.
 
 **Reflection draft (sinh viên cần tự chỉnh; 250–350 từ; 250 từ theo số token phân cách bằng khoảng trắng, tính nội dung ba đoạn bên dưới).** Confidence tăng rõ nhất từ failure-path test ở ranh giới đọc cấu hình: lỗi repository phải giữ thành lỗi dịch vụ, không thành policy mặc định. Mutation cấp quota mặc định bị phát hiện tại assertion `ServiceUnavailable`; test phân biệt dependency failure với thành công, thay vì chỉ kiểm tra status hoặc schema trên đường bình thường. Test-first cũng ghi nhận RED vì schema chưa có field mới. Harness đo tải đồng bộ đủ 60 task và cả 60 outcome đúng trong ASGI tổng hợp.
 

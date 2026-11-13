@@ -28,4 +28,6 @@ See [`coverage-load-green.md`](coverage-load-green.md) for exact commands and co
 ## Execution and external status
 
 - `alembic heads`: `20261113_1200_booking_quota (head)`.
-- GitHub push, Draft PR and CI are not yet represented by this log; update after the external operations and record actual URLs/results. No merge/deploy/classroom submission was performed.
+- Feature branch pushed to `origin`: `feature/bt3-23001890-vt069`.
+- Draft PR #66: https://github.com/4PMs-3Workers/Production-Readiness-Lab/pull/66, base `develop`, head `feature/bt3-23001890-vt069`; open, draft, unmerged at creation. CI status is checked separately after the report commit is pushed.
+- No merge/deploy/classroom submission was performed.
