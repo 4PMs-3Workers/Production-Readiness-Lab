@@ -101,7 +101,7 @@ def running_images(runtime: ReleaseRuntime) -> dict[str, tuple[str, str]]:
     return images
 
 
-def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(tmp_path):
+def test_reviewed_upgrade_preserves_host_and_refuses_incompatible_rollback(tmp_path):
     assert os.environ.get("RUN_ROLLOUT_REHEARSAL") == "1", "Required rollout rehearsal cannot skip"
     source = prerequisites()
     archive = tmp_path / "base.tar"
@@ -287,14 +287,19 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
             ).json()
             assert fixed["windows"] == policy["windows"]
 
+        running = running_images(upgraded.runtime)
         restored = host(ROOT, source, stack.port)
         result = restored.rollback()
-        assert result.operation is not None and result.operation.phase == "rolled_back", result
-        assert result.stable == before.stable
-        assert result.configuration_sha256 == after.configuration_sha256
-        assert restored.runtime.manifest == old
-        restored.runtime.require_database(db_identity)
-        assert restored.runtime.appointment_status(committed["id"]) == "UPCOMING"
+        assert result.operation is not None
+        assert [event.phase for event in result.operation.events] == [
+            "rollback_preflight",
+            "failed",
+        ]
+        assert result.operation.events[-1].reason == "schema-incompatible"
+        assert result.stable == after.stable and result.previous_stable == before.stable
+        assert running_images(upgraded.runtime) == running
+        upgraded.runtime.require_database(db_identity)
+        assert upgraded.runtime.appointment_status(committed["id"]) == "UPCOMING"
     finally:
         try:
             if stack is not None:

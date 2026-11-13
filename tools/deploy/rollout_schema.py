@@ -26,8 +26,8 @@ class SchemaSnapshot(Strict):
 def require_schema(
     snapshot: SchemaSnapshot, accepted: list[str], *, allow_empty: bool = False
 ) -> Literal["bootstrap", "current"]:
-    # The release consumer validates these pins against the selected source tree;
-    # rollback is the only path allowed to select the reviewed predecessor pin.
+    # The selected release must declare the schema revision actually delivered.
+    # An older release pin cannot prove it can run on a forward-migrated database.
     if len(accepted) != 1 or accepted[0] not in {SCHEMA, *REVIEWED_PREDECESSOR_SCHEMAS}:
         raise RolloutError("schema-incompatible")
     if not snapshot.tables and not snapshot.revisions:
@@ -37,10 +37,7 @@ def require_schema(
     if len(snapshot.revisions) != 1:
         raise RolloutError("schema-incompatible")
     delivered_revision = snapshot.revisions[0]
-    predecessor_rollback = (
-        accepted[0] in REVIEWED_PREDECESSOR_SCHEMAS and delivered_revision == SCHEMA
-    )
-    if delivered_revision != accepted[0] and not predecessor_rollback:
+    if delivered_revision != accepted[0]:
         raise RolloutError("schema-incompatible")
     observed = {name: sorted(columns) for name, columns in snapshot.tables.items()}
     expected = EXPECTED if delivered_revision == SCHEMA else PREDECESSOR_EXPECTED

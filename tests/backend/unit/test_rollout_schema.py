@@ -69,10 +69,9 @@ def test_predecessor_schema_still_rejects_partial_catalogs():
         require_schema(SchemaSnapshot(**data), ["20261019_1200_proposal_replay"])
 
 
-def test_predecessor_release_can_run_on_the_forward_migrated_current_schema():
-    assert (
-        require_schema(SchemaSnapshot(**current()), ["20261019_1200_proposal_replay"]) == "current"
-    )
+def test_predecessor_release_is_refused_on_the_forward_migrated_current_schema():
+    with pytest.raises(RolloutError, match="schema-incompatible"):
+        require_schema(SchemaSnapshot(**current()), ["20261019_1200_proposal_replay"])
 
 
 def test_catalog_contains_only_schema_metadata_and_rejects_malformed_response():
