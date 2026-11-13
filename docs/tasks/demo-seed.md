@@ -6,7 +6,7 @@ Prepared on 19 October 2026 from `develop` at `f5fed91`.
 Migration PR [#9](https://github.com/4PMs-3Workers/Production-Readiness-Lab/pull/9)
 and authentication PR [#12](https://github.com/4PMs-3Workers/Production-Readiness-Lab/pull/12)
 were merged into `develop`; their backend CI checks passed before implementation began.
-The loader requires the exact reviewed Alembic head `20261019_1200_proposal_replay`,
+The loader requires the exact reviewed Alembic head `20261113_1200_booking_quota`,
 which includes the initial migration and subsequent audit/profile/proposal migrations.
 Changing this allowlist requires schema compatibility review.
 
@@ -224,7 +224,7 @@ tokens or credential-bearing connection URLs when investigating a failure.
 - Configuration failure: check variable names, placeholder replacement, database spelling,
   driver and explicit environment. System schemas and missing database names are rejected.
 - Schema failure: ask the migration operator to verify `alembic current` reports
-  `20261019_1200_proposal_replay`; missing/old/unknown states fail closed.
+  `20261113_1200_booking_quota`; missing/old/unknown states fail closed.
 - Conflict: inspect the reported table/field with an authorized database operator.
   The command does not overwrite existing configuration, adopt users, or repair roles.
 - Generic database failure: check connectivity and DML/metadata permissions using a

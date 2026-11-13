@@ -6,10 +6,10 @@ from typing import cast
 from uuid import uuid4
 
 import pytest
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.errors import AppError
+from app.api.errors import AppError, ServiceUnavailable
 from app.domain.auth import AuthContext
 from app.domain.availability import ServiceWindow
 from app.models import Appointment, AuditEvent, Notification, Purpose, ServiceSetting, User
@@ -271,7 +271,10 @@ async def test_booking_service_stages_one_appointment_audit_and_two_notification
         is_active=True,
     )
     setting = ServiceSetting(
-        timezone="Asia/Ho_Chi_Minh", start_step_minutes=15, booking_horizon_days=7
+        timezone="Asia/Ho_Chi_Minh",
+        start_step_minutes=15,
+        booking_horizon_days=7,
+        max_active_appointments=3,
     )
     purpose = Purpose(
         id=payload.purpose_id,
@@ -359,6 +362,91 @@ async def test_booking_service_stages_one_appointment_audit_and_two_notification
     assert fake_db.rollbacks == 0
 
 
+async def test_config_read_exception_is_not_swallowed_into_default_policy(
+    monkeypatch, auth_settings
+):
+    payload = _request()
+    context = _context()
+    now = datetime(2026, 10, 15, 1, 0, tzinfo=UTC)
+    fake_db = TransactionSession()
+    student = User(
+        id=context.user_id,
+        email="student@example.invalid",
+        name="Student",
+        role="STUDENT",
+        password_hash="unused",
+        is_active=True,
+    )
+    staff = User(
+        id=payload.staff_id,
+        email="staff@example.invalid",
+        name="Staff",
+        role="STAFF",
+        password_hash="unused",
+        is_active=True,
+    )
+    purpose = Purpose(
+        id=payload.purpose_id,
+        code="TEST",
+        name="Test purpose",
+        duration_minutes=30,
+        requires_free_text=False,
+        is_active=True,
+    )
+
+    async def no_row(*_args, **_kwargs):
+        return None
+
+    async def fail_config_read(_db):
+        raise SQLAlchemyError("synthetic service_settings read failure")
+
+    async def lock_user(_db, user_id):
+        return {context.user_id: student, payload.staff_id: staff}[user_id]
+
+    async def no_busy_time(*_args, **_kwargs):
+        return ()
+
+    async def no_count(*_args, **_kwargs):
+        return 0
+
+    async def read_windows(_db, _weekday):
+        return (ServiceWindow(opens_at=time(8), closes_at=time(10)),)
+
+    async def stage_bundle(db, *, appointment, audit_event, notifications):
+        db.added.extend((appointment, audit_event, *notifications))
+
+    monkeypatch.setattr(booking, "_read_committed_key", no_row)
+    monkeypatch.setattr(booking.appointments, "find_creation_request", no_row)
+    monkeypatch.setattr(booking.appointments, "lock_service_settings", fail_config_read)
+    monkeypatch.setattr(booking.appointments, "count_blocking_for_student", no_count)
+    monkeypatch.setattr(booking.appointments, "add_creation_bundle", stage_bundle)
+    monkeypatch.setattr(booking.users, "lock_by_id", lock_user)
+    monkeypatch.setattr(booking.users, "utc_now", lambda _db: _async_value(now))
+    monkeypatch.setattr(booking.catalog, "find_active_purpose", lambda *_a: _async_value(purpose))
+    monkeypatch.setattr(
+        booking.catalog, "find_accepting_staff", lambda *_a: _async_value(payload.staff_id)
+    )
+    monkeypatch.setattr(booking.availability, "read_windows", read_windows)
+    monkeypatch.setattr(booking.availability, "read_unavailability", no_busy_time)
+    monkeypatch.setattr(booking.availability, "read_staff_appointments", no_busy_time)
+    monkeypatch.setattr(booking.availability, "read_student_appointments", no_busy_time)
+
+    with pytest.raises(ServiceUnavailable):
+        await booking.create_appointment(
+            _as_async_session(fake_db),
+            payload,
+            context=context,
+            idempotency_key="config-read-failure",
+            request_id="config-read-failure-request",
+            settings=auth_settings,
+            deadline=asyncio.get_running_loop().time() + 2,
+        )
+
+    assert fake_db.added == []
+    assert fake_db.commits == 0
+    assert fake_db.rollbacks >= 1
+
+
 async def test_uncertain_commit_invalidates_connection_and_is_never_retried(
     monkeypatch, auth_settings
 ):
@@ -367,7 +455,10 @@ async def test_uncertain_commit_invalidates_connection_and_is_never_retried(
     lost_connection = OperationalError("COMMIT", {}, Exception(2013, "lost connection"))
     fake_db = TransactionSession(commit_error=lost_connection)
     setting = ServiceSetting(
-        timezone="Asia/Ho_Chi_Minh", start_step_minutes=15, booking_horizon_days=7
+        timezone="Asia/Ho_Chi_Minh",
+        start_step_minutes=15,
+        booking_horizon_days=7,
+        max_active_appointments=3,
     )
     purpose = Purpose(
         id=payload.purpose_id,

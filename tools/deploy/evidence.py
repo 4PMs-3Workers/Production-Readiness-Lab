@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
-SCHEMA_REVISION = "20261019_1200_proposal_replay"
+SCHEMA_REVISION = "20261113_1200_booking_quota"
 COMMANDS = {"config", "build", "migrate", "seed", "up", "stop", "down", "status", "evidence"}
 SERVICES = {"mysql", "api", "worker", "frontend", "gateway"}
 OPERATIONAL_SERVICES = {"migrate", "schema", "seed"}

@@ -13,7 +13,7 @@ from typing import Annotated, Literal, Self, TypeAlias, TypeVar
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 ROOT = Path(__file__).resolve().parents[2]
-SCHEMA = "20261019_1200_proposal_replay"
+SCHEMA = "20261113_1200_booking_quota"
 MAX_JSON = 1024 * 1024
 SHA: TypeAlias = Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]
 Hex: TypeAlias = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]

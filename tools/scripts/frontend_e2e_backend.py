@@ -91,7 +91,7 @@ def settings_for(fixture):
             "APPLICATION_ORIGIN": "http://127.0.0.1:3101",
             "COOKIE_SECRET": "frontend-e2e-only-cookie-secret",
             "CSRF_SECRET": "frontend-e2e-only-csrf-secret",
-            "ACCEPTED_SCHEMA_REVISIONS": "20261019_1200_proposal_replay",
+            "ACCEPTED_SCHEMA_REVISIONS": "20261113_1200_booking_quota",
             "COOKIE_SECURE": False,
             "ENVIRONMENT": "test",
             "LOGIN_IP_ATTEMPTS": 200,
@@ -413,6 +413,7 @@ async def operate(args):
                                 "timezone",
                                 "start_step_minutes",
                                 "booking_horizon_days",
+                                "max_active_appointments",
                                 "windows",
                             }
                         elif key == "is_active":
@@ -553,6 +554,7 @@ async def operate(args):
                                 "timezone": setting.timezone,
                                 "start_step_minutes": setting.start_step_minutes,
                                 "booking_horizon_days": setting.booking_horizon_days,
+                                "max_active_appointments": setting.max_active_appointments,
                                 "updated_at": setting.updated_at.isoformat(),
                             }
                         ),
@@ -953,6 +955,7 @@ async def catalog_snapshot(db, fixture):
             "timezone": setting.timezone,
             "start_step_minutes": setting.start_step_minutes,
             "booking_horizon_days": setting.booking_horizon_days,
+            "max_active_appointments": setting.max_active_appointments,
             "updated_at": setting.updated_at.isoformat(),
         },
         "windows": [
@@ -1036,6 +1039,7 @@ async def restore_service_settings(db):
             timezone=snapshot["timezone"],
             start_step_minutes=snapshot["start_step_minutes"],
             booking_horizon_days=snapshot["booking_horizon_days"],
+            max_active_appointments=snapshot["max_active_appointments"],
             updated_at=updated_at,
         )
         db.add(setting)
@@ -1043,6 +1047,7 @@ async def restore_service_settings(db):
         setting.timezone = snapshot["timezone"]
         setting.start_step_minutes = snapshot["start_step_minutes"]
         setting.booking_horizon_days = snapshot["booking_horizon_days"]
+        setting.max_active_appointments = snapshot["max_active_appointments"]
         setting.updated_at = updated_at
     await db.flush()
     return True

@@ -84,7 +84,7 @@ Các mã nghiệp vụ của thao tác tạo:
 | HTTP | Mã | Ý nghĩa |
 | --- | --- | --- |
 | 409 | `BOOKING_CONFLICT` | Slot đã được đặt, bị nhân viên đánh dấu unavailable, nằm ngoài lịch phục vụ hoặc xung đột với lịch đang chiếm chỗ của sinh viên/nhân viên. |
-| 409 | `BOOKING_QUOTA_EXCEEDED` | Sinh viên đã có ba appointment ở trạng thái `UPCOMING` hoặc `CHANGE_PENDING`. |
+| 409 | `BOOKING_QUOTA_EXCEEDED` | Số appointment `UPCOMING`/`CHANGE_PENDING` của sinh viên đã đạt `service_settings.max_active_appointments` (mặc định 3). |
 | 409 | `IDEMPOTENCY_CONFLICT` | Key đã dùng cho nội dung canonical khác. |
 | 404 | `NOT_FOUND` | Nhu cầu/nhân viên không còn đủ điều kiện; với GET, lịch không tồn tại hoặc không thuộc sinh viên hiện tại. |
 | 422 | `VALIDATION_ERROR` | Body, key, timezone hoặc mô tả bắt buộc không hợp lệ. |

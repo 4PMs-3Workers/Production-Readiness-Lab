@@ -134,10 +134,16 @@ async def test_all_models_round_trip_with_server_defaults(graph):
     assert appointment.status == "CHANGE_PENDING"
     assert appointment.other_reason is None
     settings = await session.get(ServiceSetting, 1)
-    assert (settings.timezone, settings.start_step_minutes, settings.booking_horizon_days) == (
+    assert (
+        settings.timezone,
+        settings.start_step_minutes,
+        settings.booking_horizon_days,
+        settings.max_active_appointments,
+    ) == (
         "Asia/Ho_Chi_Minh",
         15,
         7,
+        3,
     )
     assert (await session.get(ServiceHour, rows["service_hours"].id)).opens_at == time(8)
     assert (await session.get(User, rows["users"].id)).email == "student@example.com"
@@ -191,6 +197,7 @@ async def test_connection_invariants_survive_new_connections(mysql_engine):
         ("service_settings", "id = 2"),
         ("service_settings", "start_step_minutes = 0"),
         ("service_settings", "booking_horizon_days = 0"),
+        ("service_settings", "max_active_appointments = 0"),
         ("service_hours", "weekday = 8"),
         ("service_hours", "opens_at = '-01:00:00'"),
         ("service_hours", "closes_at = '24:00:00'"),

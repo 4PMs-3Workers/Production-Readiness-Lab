@@ -65,7 +65,7 @@ mật khẩu và nội dung tư vấn không được đưa vào response/log.
   chưa xử lý.
 - Busy gồm unavailability của staff được chọn, lịch đang chiếm chỗ của staff đó và lịch đang
   chiếm chỗ của sinh viên trong session, bất kể purpose/staff của lịch hiện hữu. Không áp quota
-  ba lịch trong GET availability.
+  hạn mức `max_active_appointments` trong GET availability.
 - Catalog và availability dùng một snapshot đọc `REPEATABLE READ` cho mỗi request để các
   truy vấn cùng thấy một phiên bản dữ liệu khi admin cập nhật đồng thời.
 - Availability chạy một transaction đọc với deadline, tối đa 7 SELECT nghiệp vụ (settings,

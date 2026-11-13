@@ -111,3 +111,20 @@ git diff --exit-code -- docs/api/openapi.yaml tools/deploy/nginx/route-map.conf
 
 The committed [OpenAPI contract](../api/openapi.yaml) describes the operations and their
 sanitized responses. The verification uses fixture data in disposable environments.
+
+## VT-069: configurable active-booking quota
+
+`max_active_appointments` is a JSON integer from 1 through 32,767. It counts each student's
+`UPCOMING` and `CHANGE_PENDING` appointments across all dates; the initial and migration
+default is 3. Preserve the other fields from the current GET response when replacing the
+versioned resource. A committed PUT is read by subsequent booking transactions under the
+existing singleton policy lock. Reducing the limit does not cancel existing appointments;
+new bookings return `409 BOOKING_QUOTA_EXCEEDED` until the count is below the limit.
+
+The `20261113_1200_booking_quota` migration adds the non-null column and check constraint.
+The runtime grant includes only the new policy column alongside the existing policy fields.
+Missing or unreadable configuration returns `503 SERVICE_UNAVAILABLE`; booking must not use
+the migration default to hide a runtime read failure. The provider-consumer contract test is
+`tests/backend/integration/test_booking_quota_configuration.py`; it asserts response semantics
+and appointment/audit/notification state. It requires isolated MySQL 8.4 and must not be
+counted as passed when skipped.
