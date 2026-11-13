@@ -3,6 +3,7 @@ import re
 import shutil
 
 from tests.rollout.fixtures import BAD_API, Artifacts
+from tools.deploy.release import render
 from tools.deploy.release_manifest import ROOT, Image, configuration
 
 
@@ -66,6 +67,8 @@ def test_manifest_uses_schema_revision_from_selected_source_tree(tmp_path):
     manifest = artifacts.manifest(1, images[0], images[1], None, root=legacy_root)
 
     assert manifest.accepted_schema_revisions == ["20261019_1200_proposal_replay"]
+    rendered = render(manifest, root=legacy_root)
+    assert b"ACCEPTED_SCHEMA_REVISIONS: 20261019_1200_proposal_replay" in rendered
 
 
 def test_known_bad_api_uses_real_booking_but_breaks_detail_and_cancellation():

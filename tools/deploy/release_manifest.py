@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
@@ -40,6 +41,31 @@ class ReleaseError(Exception):
     def __init__(self, code: str):
         super().__init__(code)
         self.code = code
+
+
+def schema_revision(root: Path = ROOT) -> str:
+    """Return the exact schema pin declared by the selected source tree."""
+    if root.resolve() == ROOT.resolve():
+        return SCHEMA
+    try:
+        module = ast.parse((root / "tools/deploy/release_manifest.py").read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        raise ReleaseError("incompatible-schema") from None
+    for node in module.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "SCHEMA" for target in node.targets
+        ):
+            if isinstance(node.value, ast.Constant) and type(node.value.value) is str:
+                return node.value.value
+        if (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "SCHEMA"
+            and isinstance(node.value, ast.Constant)
+            and type(node.value.value) is str
+        ):
+            return node.value.value
+    raise ReleaseError("incompatible-schema")
 
 
 class Strict(BaseModel):
@@ -366,7 +392,7 @@ def vendor_inventory(observability: bool, root: Path = ROOT) -> dict[str, str]:
 
 def require_compatible(spec: Spec, root: Path = ROOT, *, allow_previous: bool = False) -> None:
     require_configuration(spec.configuration, root, allow_previous=allow_previous)
-    if spec.accepted_schema_revisions != [SCHEMA]:
+    if spec.accepted_schema_revisions != [schema_revision(root)]:
         raise ReleaseError("incompatible-schema")
     if spec.vendor_images != vendor_inventory(spec.configuration.observability, root):
         raise ReleaseError("vendor-inventory-mismatch")
