@@ -272,7 +272,7 @@ def test_reviewed_upgrade_preserves_host_and_refuses_incompatible_rollback(tmp_p
                 "rollback_preflight",
                 "failed",
             ]
-            assert refused.operation.events[-1].reason == "rollback-incompatible"
+            assert refused.operation.events[-1].reason == "schema-incompatible"
             assert refused.stable == after.stable and refused.previous_stable == before.stable
             assert running_images(upgraded.runtime) == running
             upgraded.runtime.require_database(db_identity)
