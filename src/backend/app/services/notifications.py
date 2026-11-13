@@ -1,6 +1,9 @@
 """Notification inbox orchestration and persistent read-state behavior."""
 
 import asyncio
+import logging
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -17,6 +20,7 @@ from app.core.transactions import (
     rollback,
 )
 from app.domain.auth import AuthContext
+from app.models import Notification
 from app.repositories import notifications as notification_repository
 from app.schemas.common import PageResponse
 from app.schemas.notifications import (
@@ -25,10 +29,13 @@ from app.schemas.notifications import (
     NotificationReadResponse,
 )
 
+_NO_SHOW_EVENT = "APPOINTMENT_NO_SHOW"
+_LOGGER = logging.getLogger(__name__)
 _EVENT_SUMMARIES = {
     "APPOINTMENT_CREATED": "Lịch hẹn đã được tạo",
     "APPOINTMENT_CANCELLED": "Lịch hẹn đã bị hủy",
     "APPOINTMENT_OUTCOME_RECORDED": "Kết quả lịch hẹn đã được cập nhật",
+    _NO_SHOW_EVENT: "Lịch hẹn được ghi nhận vắng mặt",
     "CHANGE_PROPOSAL_CREATED": "Có đề xuất thay đổi lịch hẹn",
     "CHANGE_PROPOSAL_REPLACED": "Đề xuất thay đổi lịch hẹn đã được cập nhật",
     "CHANGE_PROPOSAL_ACCEPTED": "Đề xuất thay đổi lịch hẹn đã được chấp nhận",
@@ -36,6 +43,24 @@ _EVENT_SUMMARIES = {
     "CHANGE_PROPOSAL_EXPIRED": "Đề xuất thay đổi lịch hẹn đã hết hạn",
 }
 _GENERIC_SUMMARY = "Bạn có một thông báo mới"
+
+
+async def deliver_no_show_notice(
+    sessions: Callable[[], AbstractAsyncContextManager[AsyncSession]],
+    appointment_id: UUID,
+    student_id: UUID,
+) -> None:
+    """Best effort in a separate transaction; no retry for uncertain writes."""
+    try:
+        async with asyncio.timeout(0.25):
+            async with sessions() as db, db.begin():
+                db.add(Notification(
+                    recipient_id=student_id,
+                    appointment_id=appointment_id,
+                    event_type=_NO_SHOW_EVENT,
+                ))
+    except (SQLAlchemyError, TimeoutError):
+        _LOGGER.warning("no_show_notice_failed")
 
 
 def _not_found() -> AppError:

@@ -149,8 +149,12 @@ async def test_outcome_contract(auth_settings, status):
     assert [(x.recipient_id, x.appointment_id, x.event_type) for x in h.deliveries] == expected
 
 
-async def test_TC03_delivery_failure_after_commit(auth_settings, caplog):
-    h = Harness(auth_settings, delivery_error=SQLAlchemyError("do-not-log-test-payload"))
+@pytest.mark.parametrize("error", [
+    pytest.param(SQLAlchemyError("do-not-log-test-payload"), id="TC03"),
+    pytest.param(TimeoutError("do-not-log-test-payload"), id="TC13"),
+])
+async def test_delivery_failure_after_commit(auth_settings, caplog, error):
+    h = Harness(auth_settings, delivery_error=error)
     with h.bind():
         async with h.client() as client:
             response = await client.post(PATH, json={"status": "NO_SHOW"})

@@ -4,7 +4,7 @@ import asyncio
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.appointments import STUDENT_WRITE_OPENAPI, appointment_responses
@@ -26,7 +26,7 @@ from app.schemas.staff_appointments import (
     StaffAppointmentOutcomeRequest,
     StaffAppointmentOutcomeResponse,
 )
-from app.services import cancellation, staff_appointments
+from app.services import cancellation, notifications, staff_appointments
 
 router = APIRouter(tags=["staff appointments"])
 
@@ -127,6 +127,7 @@ async def cancel_staff_appointment(
 async def record_staff_appointment_outcome(
     appointment_id: UUID,
     request: Request,
+    background_tasks: BackgroundTasks,
     payload: StaffAppointmentOutcomeRequest,
     context: Annotated[AuthContext, Depends(require_staff)],
     _csrf_context: Annotated[AuthContext, Depends(require_csrf)],
@@ -138,6 +139,15 @@ async def record_staff_appointment_outcome(
     deadline = getattr(request.state, "request_deadline", None)
     if deadline is None:
         deadline = asyncio.get_running_loop().time() + settings.request_timeout_seconds
+
+    def queue_notice(appointment_id: UUID, student_id: UUID) -> None:
+        background_tasks.add_task(
+            notifications.deliver_no_show_notice,
+            request.app.state.session_factory,
+            appointment_id,
+            student_id,
+        )
+
     return await staff_appointments.record_staff_appointment_outcome(
         db,
         appointment_id=appointment_id,
@@ -146,4 +156,5 @@ async def record_staff_appointment_outcome(
         request_id=getattr(request.state, "request_id", "unknown"),
         settings=settings,
         deadline=deadline,
+        on_no_show=queue_notice,
     )
