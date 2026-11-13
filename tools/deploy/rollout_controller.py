@@ -292,7 +292,7 @@ class RolloutController:
                 before = self.runtime.prepare_database()
                 require_schema(
                     self.runtime.schema(),
-                    prepared.manifest.accepted_schema_revisions,
+                    self._migration_input_schema_revisions(state, prepared),
                     allow_empty=state.stable is None,
                 )
                 self.runtime.migrate()

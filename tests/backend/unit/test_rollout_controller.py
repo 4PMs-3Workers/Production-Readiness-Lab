@@ -1,7 +1,9 @@
 import pytest
+import tools.deploy.rollout_controller as rollout_controller
 from tests.backend.unit.rollout_fixtures import controller, reference, release
 from tools.deploy.release_manifest import Manifest, canonical, parse
 from tools.deploy.rollout_preflight import Prepared
+from tools.deploy.rollout_schema import EXPECTED, PREDECESSOR_EXPECTED, SchemaSnapshot
 from tools.deploy.rollout_state import HostState, selection
 
 
@@ -24,6 +26,58 @@ def test_upgrade_preflight_uses_the_previous_stable_schema_before_migration(tmp_
 
     assert host.control._migration_input_schema_revisions(state, prepared) == [
         "20261019_1200_proposal_replay"
+    ]
+
+
+def test_upgrade_checks_predecessor_schema_until_migration_completes(tmp_path, monkeypatch):
+    host = controller(tmp_path)
+    previous_data = release().model_dump(mode="json")
+    previous_data["accepted_schema_revisions"] = ["20261019_1200_proposal_replay"]
+    previous = parse(canonical(previous_data), Manifest)
+    previous_ref = reference()
+    host.registry.releases[previous_ref] = previous
+    stable = host.store.remember(previous_ref, previous)
+    host.runtime.previous_stable = stable
+    host.runtime.snapshot = SchemaSnapshot(
+        tables=PREDECESSOR_EXPECTED,
+        revisions=["20261019_1200_proposal_replay"],
+        unsupported_objects=0,
+        nontransactional_tables=0,
+    )
+    host.store.save(
+        HostState(
+            project=host.runtime.project,
+            configuration_sha256=host.control.configuration_sha256,
+            stable=stable,
+        )
+    )
+    candidate_ref = reference(2)
+    host.registry.releases[candidate_ref] = release(124, previous_ref)
+    original_require_schema = rollout_controller.require_schema
+    accepted_revisions = []
+
+    def record_schema(snapshot, accepted, *, allow_empty=False):
+        accepted_revisions.append(accepted)
+        return original_require_schema(snapshot, accepted, allow_empty=allow_empty)
+
+    def migrate():
+        host.runtime.calls.append("migrate")
+        host.runtime.snapshot = SchemaSnapshot(
+            tables=EXPECTED,
+            revisions=["20261113_1200_booking_quota"],
+            unsupported_objects=0,
+            nontransactional_tables=0,
+        )
+
+    monkeypatch.setattr(rollout_controller, "require_schema", record_schema)
+    monkeypatch.setattr(host.runtime, "migrate", migrate)
+
+    result = host.deploy(candidate_ref)
+
+    assert result.operation is not None and result.operation.phase == "succeeded"
+    assert accepted_revisions[:2] == [
+        ["20261019_1200_proposal_replay"],
+        ["20261019_1200_proposal_replay"],
     ]
 
 
