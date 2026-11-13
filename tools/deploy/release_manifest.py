@@ -249,7 +249,7 @@ GRANTS_PATH = "tools/deploy/mysql/grants.sql"
 ADMIN_POLICY_TRANSITION = {
     GRANTS_PATH: (
         "6350525d0dace2a66459f486606e2f45a1d84e48cc673e0ab1a38f8e3c49a926",
-        "8a7277032db2552dc45e9031dd0947d1b0aa363b0d1ebd445366225af3af038a",
+        "bdede7d278ee16b114ed2da85ac9e350cfdacec1aa0b4f125237b2765229f3a3",
     ),
     "tools/deploy/nginx/route-map.conf": (
         "1c5c8eaa269404fff5f30bd8eecd5733768891b5226684bb5f867748b29ce5fd",
