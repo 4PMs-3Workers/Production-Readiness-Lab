@@ -70,10 +70,10 @@ Black and Ruff passed on the backend workflow's primary check paths, Pyright
 reported zero errors, and 103 targeted tests passed, including both VT-070
 tests against MySQL 8.4.11.
 
-The Dependency security workflow reported an advisory against the existing
-baseline pin `opentelemetry-api==1.45.1`. This PR does not change dependency pins,
-security exceptions or CI workflows. Track the shared dependency remediation
-separately; local validation is not a release or merge decision.
+The Dependency security workflow blocked the baseline pin
+`opentelemetry-api==1.45.1` under [GHSA-mf5v-w3w3-f6cg](https://github.com/advisories/GHSA-mf5v-w3w3-f6cg).
+A separate security follow-up upgrades the OpenTelemetry package family to
+`1.45.2` / `0.66b2`, keeping the lock and package metadata consistent.
 
 ## 150-task comparison over HTTP and MySQL
 
