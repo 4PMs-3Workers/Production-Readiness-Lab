@@ -273,14 +273,14 @@ không hỏi database; `/health/ready` kiểm tra `SELECT 1` và phiên bản tr
 Chạy migration theo `docs/tasks/database-migrations.md` trước khi mong readiness trả 200.
 <!-- current-schema-revision:start -->
 
-Release hiện tại chấp nhận schema revision `20261019_1200_proposal_replay` theo `.env.example`.
+Release hiện tại chấp nhận schema revision `20261114_1200_soft_delete` theo `.env.example`.
 `/health/ready` chỉ trả 200 khi database có đúng một revision và revision đó nằm trong
 `ACCEPTED_SCHEMA_REVISIONS`. Chỉ liệt kê nhiều revision khi đã xác nhận release tương thích với tất cả.
 <!-- current-schema-revision:end -->
 
-**Lịch sử:** schema ban đầu là `a1b2c3d4e5f6`. Các revision `20261016_1200_audit_reqid128`
-và `20261017_2350_student_profile` là các mốc trước migration `20261019_1200_proposal_replay`;
-không dùng các revision cũ này cho release hiện tại.
+**Lịch sử:** schema ban đầu là `a1b2c3d4e5f6`. Các revision `20261016_1200_audit_reqid128`,
+`20261017_2350_student_profile` và `20261019_1200_proposal_replay` là các mốc lịch sử
+trước migration hiện tại `20261114_1200_soft_delete`; không dùng các revision cũ này cho release hiện tại.
 
 Ba API đọc catalog/availability mới là `GET /api/v1/purposes`,
 `GET /api/v1/staff?purpose_id=...` và
