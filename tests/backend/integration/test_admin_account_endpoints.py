@@ -1195,3 +1195,45 @@ async def test_non_admin_cannot_soft_delete_or_restore_accounts(account_env):
     async with factory() as db:
         target = await db.get(User, target_id)
         assert target is not None and target.deleted_at is None
+
+@pytest.mark.mysql
+async def test_soft_delete_rejects_stale_version_without_mutating_account(account_env):
+    client, factory, admin_id, _ = account_env
+    await sign_in(client)
+    await promote_to_admin(factory, admin_id)
+    target_id = uuid4()
+    async with factory.begin() as db:
+        db.add(
+            User(
+                id=target_id,
+                email="stale-lifecycle@example.invalid",
+                name="Stale Lifecycle",
+                role="STUDENT",
+                password_hash="unused-test-hash",
+                is_active=True,
+            )
+        )
+
+    stale = await client.delete(
+        f"{ADMIN_ACCOUNTS}/{target_id}",
+        json={"expected_updated_at": "2000-01-01T00:00:00Z"},
+        headers=write_headers(client),
+    )
+
+    assert stale.status_code == 409
+    assert stale.json()["error"]["code"] == "ACCOUNT_VERSION_CONFLICT"
+    async with factory() as db:
+        user = await db.get(User, target_id)
+        assert user is not None
+        assert user.deleted_at is None
+        assert user.is_active is True
+        events = list(
+            await db.scalars(
+                select(AuditEvent).where(
+                    AuditEvent.entity_id == str(target_id),
+                    AuditEvent.action == "ACCOUNT_SOFT_DELETED",
+                )
+            )
+        )
+        assert events == []
+
