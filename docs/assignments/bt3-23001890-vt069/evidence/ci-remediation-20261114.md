@@ -96,7 +96,11 @@ fixture policy_settings cho toàn bộ correctness cases. Không thay conftest a
 mặc định toàn repo, không đổi service deadlines, không thay observer barrier hoặc retries.
 Các tests chủ đích deadline vẫn override 0.02/0.25 s như trước; chúng vẫn yêu cầu 503,
 rollback toàn bộ và nhả locks. Regression delay 1.05 s vẫn ở test SQL-order.
-Black/Ruff pass, các cases collect thành công; DB execution phụ thuộc CI mới.
+Sau đổi tên fixture, Black/Ruff ban đầu báo hai signature quá dài; formatter sửa chúng,
+rồi cả Black/Ruff pass. 71 integration cases collect thành công và 30 unit tests liên quan
+pass; DB execution phụ thuộc CI mới. Commit f09e452 bị push trước khi formatter hoàn tất;
+commit kế tiếp sửa định dạng, không thay runtime/test behavior. Không gọi lượt kiểm tra
+định dạng thất bại là pass.
 Đây là sửa nguồn fixture của nhóm tests sau evidence cho thấy lỗi di chuyển giữa cases,
 không phải nới từng timeout production khi một assertion thất bại.
 Kết quả cuối cùng phải lấy theo head mới nhất trong PR, không suy từ các run cũ.

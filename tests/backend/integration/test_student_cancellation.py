@@ -166,7 +166,9 @@ async def test_cancellation_commits_bundle_and_resolves_proposal(
 
 
 @pytest.mark.parametrize("status", ["COMPLETED", "NO_SHOW"])
-async def test_terminal_outcomes_conflict_without_side_effects(booking_env, policy_settings, status):
+async def test_terminal_outcomes_conflict_without_side_effects(
+    booking_env, policy_settings, status
+):
     env, _, start = booking_env
     appointment_id = await seed(env, start, status)
     with pytest.raises(AppError) as error:

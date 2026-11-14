@@ -113,7 +113,9 @@ async def counts(env):
         )
 
 
-async def test_replace_and_old_replay_never_supersede_a_newer_proposal(booking_env, policy_settings):
+async def test_replace_and_old_replay_never_supersede_a_newer_proposal(
+    booking_env, policy_settings
+):
     env, date, start = booking_env
     identifier = await seed(env, start)
     body = payload(start + timedelta(minutes=30))
