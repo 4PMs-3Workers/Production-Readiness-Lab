@@ -8,7 +8,7 @@ from pathlib import Path
 from pypdf import PdfReader
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
-from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
@@ -74,18 +74,26 @@ def markdown_table(lines: list[str], styles: dict[str, ParagraphStyle], width: f
     rows = [[cell.strip() for cell in line.strip().strip("|").split("|")] for line in lines]
     if len(rows) < 2:
         raise ValueError("Malformed Markdown table")
+    if len(rows[0]) == 5 and rows[0][0].strip().lower() == "ac/risk":
+        return traceability_table(rows, styles, width)
     data = [[Paragraph(inline_markup(cell), styles["table"]) for cell in rows[0]]]
     data.extend(
         [[Paragraph(inline_markup(cell), styles["table"]) for cell in row] for row in rows[2:]]
     )
     count = len(data[0])
     if count == 6:
-        fractions = [0.045, 0.105, 0.14, 0.16, 0.50, 0.05]
+        fractions = [0.07, 0.13, 0.19, 0.19, 0.33, 0.08]
     elif count == 5:
-        fractions = [0.17, 0.31, 0.23, 0.10, 0.19]
+        fractions = [0.17, 0.25, 0.21, 0.12, 0.24]
     else:
         fractions = [1 / count] * count
-    table = Table(data, colWidths=[width * part for part in fractions], repeatRows=1, hAlign="LEFT")
+    table = Table(
+        data,
+        colWidths=[width * part for part in fractions],
+        repeatRows=1,
+        splitByRow=1,
+        hAlign="LEFT",
+    )
     table.setStyle(
         TableStyle(
             [
@@ -99,6 +107,54 @@ def markdown_table(lines: list[str], styles: dict[str, ParagraphStyle], width: f
                 ("RIGHTPADDING", (0, 0), (-1, -1), 4),
                 ("TOPPADDING", (0, 0), (-1, -1), 4),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]
+        )
+    )
+    return table
+
+
+def traceability_table(
+    rows: list[list[str]], styles: dict[str, ParagraphStyle], width: float
+) -> Table:
+    data = [
+        [
+            Paragraph("AC/risk", styles["table_header"]),
+            Paragraph("Traceability", styles["table_header"]),
+        ]
+    ]
+    for row in rows[2:]:
+        details = "<br/>".join(
+            f"<b>{label}:</b> {inline_markup(value)}"
+            for label, value in zip(
+                ("Test", "Implementation", "Commit", "Evidence/result"), row[1:], strict=True
+            )
+        )
+        data.append(
+            [
+                Paragraph(inline_markup(row[0]), styles["trace"]),
+                Paragraph(details, styles["trace"]),
+            ]
+        )
+    table = Table(
+        data,
+        colWidths=[width * 0.28, width * 0.72],
+        repeatRows=1,
+        splitByRow=1,
+        hAlign="LEFT",
+    )
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#16324F")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Arial-Bold"),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#B9C7D4")),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F0F5F8")]),
+                ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
             ]
         )
     )
@@ -144,8 +200,8 @@ def make_styles() -> dict[str, ParagraphStyle]:
             "BodyVN",
             parent=base["BodyText"],
             fontName="Arial",
-            fontSize=8.1,
-            leading=10.5,
+            fontSize=9.4,
+            leading=12.2,
             alignment=TA_LEFT,
             spaceAfter=4,
             splitLongWords=1,
@@ -154,8 +210,8 @@ def make_styles() -> dict[str, ParagraphStyle]:
             "QuoteVN",
             parent=base["BodyText"],
             fontName="Arial-Bold",
-            fontSize=9.2,
-            leading=13,
+            fontSize=10,
+            leading=14,
             textColor=colors.HexColor("#146C74"),
             leftIndent=8,
             rightIndent=8,
@@ -169,16 +225,32 @@ def make_styles() -> dict[str, ParagraphStyle]:
             "TableVN",
             parent=base["BodyText"],
             fontName="Arial",
-            fontSize=7.1,
-            leading=9,
+            fontSize=8,
+            leading=10,
+            splitLongWords=1,
+        ),
+        "table_header": ParagraphStyle(
+            "TableHeaderVN",
+            parent=base["BodyText"],
+            fontName="Arial-Bold",
+            fontSize=8.4,
+            leading=10.5,
+            textColor=colors.white,
+        ),
+        "trace": ParagraphStyle(
+            "TraceVN",
+            parent=base["BodyText"],
+            fontName="Arial",
+            fontSize=8.5,
+            leading=11,
             splitLongWords=1,
         ),
         "bullet": ParagraphStyle(
             "BulletVN",
             parent=base["BodyText"],
             fontName="Arial",
-            fontSize=8.3,
-            leading=11,
+            fontSize=9.2,
+            leading=12,
             leftIndent=10,
             firstLineIndent=-7,
             spaceAfter=2,
@@ -208,6 +280,11 @@ def build_story(text: str, styles: dict[str, ParagraphStyle], width: float) -> l
             story.append(PageBreak())
             index += 1
             continue
+        if line.startswith("## Phụ lục C - Execution log excerpts") or line.startswith(
+            "## Phụ lục C — Execution log excerpts"
+        ):
+            flush()
+            story.append(PageBreak())
         if not line.strip():
             flush()
             index += 1
@@ -245,7 +322,7 @@ def build_story(text: str, styles: dict[str, ParagraphStyle], width: float) -> l
 
 def draw_page(canvas, document) -> None:
     canvas.saveState()
-    page_width, page_height = landscape(A4)
+    page_width, page_height = A4
     canvas.setStrokeColor(colors.HexColor("#D4DEE6"))
     canvas.setLineWidth(0.5)
     canvas.line(15 * mm, page_height - 10 * mm, page_width - 15 * mm, page_height - 10 * mm)
@@ -259,19 +336,19 @@ def draw_page(canvas, document) -> None:
 def main() -> None:
     register_fonts()
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    page_width, _ = landscape(A4)
+    page_width, _ = A4
     doc = SimpleDocTemplate(
         str(OUTPUT),
-        pagesize=landscape(A4),
-        rightMargin=15 * mm,
-        leftMargin=15 * mm,
-        topMargin=14 * mm,
-        bottomMargin=13 * mm,
+        pagesize=A4,
+        rightMargin=16 * mm,
+        leftMargin=16 * mm,
+        topMargin=17 * mm,
+        bottomMargin=16 * mm,
         title="BT3 23001890 VT-069",
         author="Ngô Quang Hưng",
         subject="Production Readiness Lab - VT-069",
     )
-    story = build_story(SOURCE.read_text(encoding="utf-8"), make_styles(), page_width - 30 * mm)
+    story = build_story(SOURCE.read_text(encoding="utf-8"), make_styles(), page_width - 32 * mm)
     doc.build(story, onFirstPage=draw_page, onLaterPages=draw_page)
     reader = PdfReader(str(OUTPUT))
     if len(reader.pages) == 0:
