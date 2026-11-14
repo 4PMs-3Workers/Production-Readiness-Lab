@@ -84,6 +84,21 @@ quota khác nhau; bổ sung negative tests cho undefined/0/32768/string/bool/nul
 - Local: controlled probe pass sau khi bổ sung cấu hình schema pin bắt buộc (lần đầu probe lỗi setup, không tính RED); Black/Ruff 3 file pass; 60 integration cases collect thành công (chưa execute MySQL local); 30 unit tests cancellation/quota/retry pass. CI mới sẽ quyết định hiệu lực patch trên DB thật; không dùng kết quả c35d8d3 để kết luận head tiếp theo.
 
 Hai nhóm code được commit riêng; source và lệnh kiểm chứng được ghi trước push.
+
+### Review fixture theo nhóm sau lượt 37f1e14
+
+Push backend trên 37f1e14 pass 2513 tests/0 skipped, trong khi PR run 43608025409
+fail 1 test khác: `test_location_only_preserves_stored_duration_and_excludes_own_slot`
+(2512 passed, 1320.59 s). Trace lại đi qua cùng query budget 1 s của helper proposal;
+production source và test outcome không đổi. Điều này bác bỏ phạm vi sửa chỉ ba cases.
+Ba module student cancellation, proposal lifecycle và proposal safety nay dùng chung
+fixture policy_settings cho toàn bộ correctness cases. Không thay conftest auth_settings
+mặc định toàn repo, không đổi service deadlines, không thay observer barrier hoặc retries.
+Các tests chủ đích deadline vẫn override 0.02/0.25 s như trước; chúng vẫn yêu cầu 503,
+rollback toàn bộ và nhả locks. Regression delay 1.05 s vẫn ở test SQL-order.
+Black/Ruff pass, các cases collect thành công; DB execution phụ thuộc CI mới.
+Đây là sửa nguồn fixture của nhóm tests sau evidence cho thấy lỗi di chuyển giữa cases,
+không phải nới từng timeout production khi một assertion thất bại.
 Kết quả cuối cùng phải lấy theo head mới nhất trong PR, không suy từ các run cũ.
 Các liên kết run/check và trạng thái cuối được cập nhật trong mô tả PR và báo cáo trả về;
 tài liệu này giữ lại provenance của investigation và local verification trước lần chạy đó.

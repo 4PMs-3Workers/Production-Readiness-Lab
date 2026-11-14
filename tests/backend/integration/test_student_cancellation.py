@@ -166,11 +166,11 @@ async def test_cancellation_commits_bundle_and_resolves_proposal(
 
 
 @pytest.mark.parametrize("status", ["COMPLETED", "NO_SHOW"])
-async def test_terminal_outcomes_conflict_without_side_effects(booking_env, auth_settings, status):
+async def test_terminal_outcomes_conflict_without_side_effects(booking_env, policy_settings, status):
     env, _, start = booking_env
     appointment_id = await seed(env, start, status)
     with pytest.raises(AppError) as error:
-        await cancel(env, appointment_id, auth_settings)
+        await cancel(env, appointment_id, policy_settings)
     assert (error.value.status_code, error.value.code) == (409, "APPOINTMENT_STATE_CONFLICT")
     async with env.factory() as db:
         assert (await db.get(Appointment, appointment_id)).status == status
@@ -227,13 +227,13 @@ async def test_cutoff_is_strict_local_midnight(
 
 
 async def test_owned_cancelled_replay_preserves_original_without_writes_or_policy(
-    booking_env, auth_settings
+    booking_env, policy_settings
 ):
     env, _, start = booking_env
     appointment_id = await seed(env, start - timedelta(days=5), "CANCELLED")
     async with env.factory.begin() as db:
         (await db.get(ServiceSetting, 1)).timezone = "Invalid/Zone"
-    result = await cancel(env, appointment_id, auth_settings, reason="replacement")
+    result = await cancel(env, appointment_id, policy_settings, reason="replacement")
     async with env.factory() as db:
         row = await db.get(Appointment, appointment_id)
         assert result.cancelled_at == start - timedelta(days=6)
@@ -244,16 +244,16 @@ async def test_owned_cancelled_replay_preserves_original_without_writes_or_polic
 
 
 @pytest.mark.parametrize("foreign", [False, True])
-async def test_missing_and_foreign_share_404(booking_env, auth_settings, foreign):
+async def test_missing_and_foreign_share_404(booking_env, policy_settings, foreign):
     env, _, start = booking_env
     appointment_id = await seed(env, start) if foreign else uuid4()
     with pytest.raises(AppError) as error:
-        await cancel(env, appointment_id, auth_settings, student_id=env.other_student_id)
+        await cancel(env, appointment_id, policy_settings, student_id=env.other_student_id)
     assert (error.value.status_code, error.value.code) == (404, "NOT_FOUND")
 
 
 @pytest.mark.parametrize("change", [{"is_active": False}, {"role": "STAFF"}])
-async def test_locked_actor_is_revalidated(booking_env, auth_settings, change):
+async def test_locked_actor_is_revalidated(booking_env, policy_settings, change):
     env, _, start = booking_env
     appointment_id = await seed(env, start)
     async with env.factory.begin() as db:
@@ -261,31 +261,31 @@ async def test_locked_actor_is_revalidated(booking_env, auth_settings, change):
         for key, value in change.items():
             setattr(actor, key, value)
     with pytest.raises(AppError) as error:
-        await cancel(env, appointment_id, auth_settings)
+        await cancel(env, appointment_id, policy_settings)
     assert error.value.status_code == 404
 
 
-async def test_invalid_settings_fail_closed_for_new_cancellation(booking_env, auth_settings):
+async def test_invalid_settings_fail_closed_for_new_cancellation(booking_env, policy_settings):
     env, _, start = booking_env
     appointment_id = await seed(env, start)
     async with env.factory.begin() as db:
         (await db.get(ServiceSetting, 1)).timezone = "Invalid/Zone"
     with pytest.raises(AppError) as error:
-        await cancel(env, appointment_id, auth_settings)
+        await cancel(env, appointment_id, policy_settings)
     assert (error.value.status_code, error.value.code) == (503, "SERVICE_UNAVAILABLE")
 
 
-async def test_booking_receipt_survives_cancellation(booking_env, auth_settings):
+async def test_booking_receipt_survives_cancellation(booking_env, policy_settings):
     env, _, start = booking_env
     payload = _payload(env, start)
-    receipt, _ = await _create(env, payload, auth_settings, key="immutable-receipt")
-    await cancel(env, receipt.id, auth_settings)
-    replay, replayed = await _create(env, payload, auth_settings, key="immutable-receipt")
+    receipt, _ = await _create(env, payload, policy_settings, key="immutable-receipt")
+    await cancel(env, receipt.id, policy_settings)
+    replay, replayed = await _create(env, payload, policy_settings, key="immutable-receipt")
     assert replayed and replay == receipt
 
 
 async def test_precommit_failure_rolls_back_entire_cancellation(
-    booking_env, auth_settings, monkeypatch
+    booking_env, policy_settings, monkeypatch
 ):
     env, _, start = booking_env
     appointment_id = await seed(env, start)
@@ -298,7 +298,7 @@ async def test_precommit_failure_rolls_back_entire_cancellation(
 
         monkeypatch.setattr(db, "flush", fail_flush)
         with pytest.raises(AppError) as error:
-            await cancel(env, appointment_id, auth_settings, db=db, reason="private reason")
+            await cancel(env, appointment_id, policy_settings, db=db, reason="private reason")
         assert error.value.code == "SERVICE_UNAVAILABLE"
         assert "private reason" not in error.value.message
         assert not db.in_transaction()
@@ -309,7 +309,7 @@ async def test_precommit_failure_rolls_back_entire_cancellation(
 
 
 async def test_lost_commit_ack_returns_503_without_retry_and_replay_recovers(
-    booking_env, auth_settings, monkeypatch
+    booking_env, policy_settings, monkeypatch
 ):
     env, _, start = booking_env
     appointment_id = await seed(env, start)
@@ -333,11 +333,11 @@ async def test_lost_commit_ack_returns_503_without_retry_and_replay_recovers(
             patch.setattr(AsyncSessionTransaction, "commit", lost_ack)
             patch.setattr(db, "invalidate", invalidate)
             with pytest.raises(AppError) as error:
-                await cancel(env, appointment_id, auth_settings, db=db, reason="original")
+                await cancel(env, appointment_id, policy_settings, db=db, reason="original")
         assert error.value.code == "SERVICE_UNAVAILABLE"
         assert commits == [True]
         assert invalidations == [True]
-    result = await cancel(env, appointment_id, auth_settings, reason="replacement")
+    result = await cancel(env, appointment_id, policy_settings, reason="replacement")
     assert result.status == "CANCELLED"
     async with env.factory() as db:
         assert (await db.get(Appointment, appointment_id)).cancel_reason == "original"
@@ -349,7 +349,7 @@ async def test_lost_commit_ack_returns_503_without_retry_and_replay_recovers(
     "budget", ["db_lock_timeout_seconds", "db_query_timeout_seconds", "request_timeout_seconds"]
 )
 async def test_cancellation_budgets_abort_without_writes(
-    booking_env, auth_settings, monkeypatch, budget
+    booking_env, policy_settings, monkeypatch, budget
 ):
     from app.repositories import appointments
     from app.services import cancellation
@@ -361,7 +361,7 @@ async def test_cancellation_budgets_abort_without_writes(
         await asyncio.Event().wait()
 
     monkeypatch.setattr(appointments, "lock_service_settings", blocked)
-    settings = auth_settings.model_copy(update={budget: 0.02})
+    settings = policy_settings.model_copy(update={budget: 0.02})
     async with env.factory() as db:
         with pytest.raises(AppError) as error:
             await cancellation.cancel_appointment(
