@@ -74,3 +74,37 @@ The Dependency security workflow reported an advisory against the existing
 baseline pin `opentelemetry-api==1.45.1`. This PR does not change dependency pins,
 security exceptions or CI workflows. Track the shared dependency remediation
 separately; local validation is not a release or merge decision.
+
+## 150-task comparison over HTTP and MySQL
+
+Run `python -m tools.scripts.vt070_mysql_http_load` with `src/backend` and
+the repository root on `PYTHONPATH`. Set `DATABASE_URL` to a freshly migrated
+MySQL 8.4 database named `vt070_lab` on loopback. The script refuses other
+database names, non-loopback URLs and populated user tables. It inserts only
+synthetic records; use a separate disposable DB for each run. To start, run
+`python -m alembic upgrade head` from the application checkout.
+
+For the baseline, run the same script by absolute path from a separate checkout
+at `12a74f7` with **only that checkout's** `src/backend` on the app import path.
+The patch run used `e26fecc` plus the measurement script. Auth and CSRF identities
+are overridden in a loopback-only HTTP app, while API, middleware, SQL and
+connection pool are real. Default pool: 5 connections, 5 overflow, checkout
+timeout 0.5 s. Outside measurement, warm up with 150 normal requests. Measure
+2 waves of 150 per class (300 distinct appointments). Include failed requests
+in nearest-rank client p95; verify writes after background tasks drain.
+
+| Checkout | Bytes | Expected status count | 503 | Transport error | p95 (s) | Outcomes / audit / generic / extra |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Baseline | 20 | 156 × 200 | 143 | 1 | 5.507513 | 156 / 156 / 312 / 0 |
+| VT-070 | 20 | 123 × 200 | 175 | 2 | 5.570108 | 124 / 124 / 248 / 122 |
+| Baseline | 32,768 | 139 × 200 | 160 | 1 | 4.503034 | 143 / 143 / 286 / 0 |
+| VT-070 | 32,768 | 151 × 200 | 149 | 0 | 3.843860 | 151 / 151 / 302 / 150 |
+| Baseline | 32,769 | 300 × 413 | 0 | 0 | 1.297748 | 0 / 0 / 0 / 0 |
+| VT-070 | 32,769 | 300 × 413 | 0 | 0 | 1.469317 | 0 / 0 / 0 / 0 |
+
+Both checkouts fail the valid-request acceptance gate in this loopback lab.
+A p95 under 4 s does not compensate for 503 errors. The baseline shows the
+failure pre-exists the patch, but one run per checkout cannot quantify the
+patch's incremental impact or establish the cause of each 503. Counts are
+aggregates; a missing 200 is not proof of a rolled-back outcome. The oversized
+class passes on both. Metrics apply to local HTTP plus MySQL, not production.
