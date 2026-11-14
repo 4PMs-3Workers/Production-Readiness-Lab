@@ -6,13 +6,13 @@ from uuid import UUID
 import pytest
 from sqlalchemy import event, select
 from sqlalchemy.exc import SQLAlchemyError
+from tests.backend.integration.test_staff_appointment_management import _seed, _staff_context
 
 from app.api.notifications import require_notification_user
 from app.dependencies.auth import require_csrf
 from app.dependencies.staff import require_staff
 from app.domain.auth import AuthContext
 from app.models import Appointment, AuditEvent, Notification
-from tests.backend.integration.test_staff_appointment_management import _seed, _staff_context
 
 pytestmark = pytest.mark.mysql
 
@@ -22,13 +22,19 @@ async def test_vt070_real_transactions_and_inbox(availability_env, monkeypatch, 
     env = availability_env
     appointment_id = UUID(int=70014)
     await _seed(
-        env, appointment_id=appointment_id, staff_id=env.staff_id,
+        env,
+        appointment_id=appointment_id,
+        staff_id=env.staff_id,
         starts_at=datetime(2026, 10, 19, 8, tzinfo=UTC),
     )
     staff = _staff_context(env.staff_id)
     student = AuthContext(
-        UUID(int=70015), env.student_id, "student@example.invalid",
-        "Test Student", "STUDENT", datetime(2030, 1, 1, tzinfo=UTC),
+        UUID(int=70015),
+        env.student_id,
+        "student@example.invalid",
+        "Test Student",
+        "STUDENT",
+        datetime(2030, 1, 1, tzinfo=UTC),
     )
     monkeypatch.setitem(env.app.dependency_overrides, require_staff, lambda: staff)
     monkeypatch.setitem(env.app.dependency_overrides, require_csrf, lambda: staff)
@@ -37,7 +43,9 @@ async def test_vt070_real_transactions_and_inbox(availability_env, monkeypatch, 
     engine = env.factory.kw["bind"].sync_engine
 
     def reject_new_notice(conn, cursor, statement, parameters, context, executemany):
-        if statement.lstrip().upper().startswith("INSERT") and "APPOINTMENT_NO_SHOW" in str(parameters):
+        if statement.lstrip().upper().startswith("INSERT") and "APPOINTMENT_NO_SHOW" in str(
+            parameters
+        ):
             rejected.append(True)
             raise SQLAlchemyError("synthetic notice write failure")
 
@@ -55,16 +63,19 @@ async def test_vt070_real_transactions_and_inbox(availability_env, monkeypatch, 
     assert len(rejected) == int(fail_delivery)
     async with env.factory() as db:
         assert (await db.get(Appointment, appointment_id)).status == "NO_SHOW"
-        notices = list(await db.scalars(
-            select(Notification).where(Notification.appointment_id == appointment_id)
-        ))
-        audit = list(await db.scalars(
-            select(AuditEvent).where(AuditEvent.entity_id == str(appointment_id))
-        ))
+        notices = list(
+            await db.scalars(
+                select(Notification).where(Notification.appointment_id == appointment_id)
+            )
+        )
+        audit = list(
+            await db.scalars(select(AuditEvent).where(AuditEvent.entity_id == str(appointment_id)))
+        )
     assert len(audit) == 1 and audit[0].action == "APPOINTMENT_OUTCOME_RECORDED"
     assert len(notices) == (2 if fail_delivery else 3)
     assert {n.recipient_id for n in notices if n.event_type == "APPOINTMENT_OUTCOME_RECORDED"} == {
-        env.student_id, env.staff_id,
+        env.student_id,
+        env.staff_id,
     }
     response = await env.client.get("/api/v1/notifications")
     assert response.status_code == 200

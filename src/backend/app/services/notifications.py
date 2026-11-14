@@ -54,11 +54,13 @@ async def deliver_no_show_notice(
     try:
         async with asyncio.timeout(0.25):
             async with sessions() as db, db.begin():
-                db.add(Notification(
-                    recipient_id=student_id,
-                    appointment_id=appointment_id,
-                    event_type=_NO_SHOW_EVENT,
-                ))
+                db.add(
+                    Notification(
+                        recipient_id=student_id,
+                        appointment_id=appointment_id,
+                        event_type=_NO_SHOW_EVENT,
+                    )
+                )
     except (SQLAlchemyError, TimeoutError):
         _LOGGER.warning("no_show_notice_failed")
 

@@ -6,8 +6,9 @@ from collections import Counter
 from math import ceil
 from time import perf_counter
 
-from app.core.config import Settings
 from tests.backend.test_vt070 import BODY, PATH, Harness, payload
+
+from app.core.config import Settings
 
 N = 150
 WAVES = 3
@@ -76,9 +77,14 @@ async def main():
                 timings = sorted(seconds for _, seconds in samples)
                 p95 = timings[ceil(0.95 * len(timings)) - 1]
                 expected_writes = N * WAVES if expected == 200 else 0
-                writes = tuple(a - b for a, b in zip(
-                    (h.primary_commits, h.delivery_attempts, len(h.deliveries)), before, strict=True
-                ))
+                writes = tuple(
+                    a - b
+                    for a, b in zip(
+                        (h.primary_commits, h.delivery_attempts, len(h.deliveries)),
+                        before,
+                        strict=True,
+                    )
+                )
                 passed = (
                     statuses == {str(expected): N * WAVES}
                     and all(peak == N for peak in peaks)
@@ -86,13 +92,21 @@ async def main():
                     and p95 <= 4.0
                 )
                 failed |= not passed
-                print(json.dumps({
-                    "scenario": name, "bytes": len(body), "samples": len(timings),
-                    "peak_by_wave": peaks, "statuses": statuses,
-                    "p95_s": round(p95, 6), "max_s": round(timings[-1], 6),
-                    "primary_commits_delivery_attempts_inserted": writes,
-                    "harness_gate_pass": passed,
-                }))
+                print(
+                    json.dumps(
+                        {
+                            "scenario": name,
+                            "bytes": len(body),
+                            "samples": len(timings),
+                            "peak_by_wave": peaks,
+                            "statuses": statuses,
+                            "p95_s": round(p95, 6),
+                            "max_s": round(timings[-1], 6),
+                            "primary_commits_delivery_attempts_inserted": writes,
+                            "harness_gate_pass": passed,
+                        }
+                    )
+                )
     return int(failed)
 
 

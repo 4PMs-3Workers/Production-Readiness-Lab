@@ -9,20 +9,22 @@ from uuid import UUID
 import httpx
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.factory import create_app
+from app.api import API_V1_PREFIX
 from app.dependencies.auth import require_csrf
 from app.dependencies.database import get_db_session
 from app.dependencies.staff import require_staff
 from app.domain.auth import AuthContext
+from app.factory import create_app
 from app.models import AuditEvent, Notification
-from app.services import staff_appointments as service
 from app.services import notifications
+from app.services import staff_appointments as service
 
 STAFF, STUDENT, APPT = (UUID(int=n) for n in (11, 12, 13))
 NOW = datetime(2026, 10, 19, 10, 0, tzinfo=UTC)
 EVENT = "APPOINTMENT_NO_SHOW"
-PATH = f"/api/v1/staff/me/appointments/{APPT}/outcome"
+PATH = f"{API_V1_PREFIX}/staff/me/appointments/{APPT}/outcome"
 BODY = b'{"status":"NO_SHOW"}'
 
 
@@ -42,7 +44,7 @@ class Harness:
         self.failures = delivery_error
         self.delivery_attempts = 0
         self.primary_commits = 0
-        self.primary_failure = None
+        self.primary_failure: SQLAlchemyError | None = None
         self.foreign = False
         self.now = NOW
         self.context = AuthContext(UUID(int=14), STAFF, "staff@example.test", "Staff", "STAFF", NOW)
@@ -54,8 +56,13 @@ class Harness:
     @staticmethod
     def new_row():
         return SimpleNamespace(
-            id=APPT, staff_id=STAFF, student_id=STUDENT, status="UPCOMING",
-            outcome_at=None, outcome_by=None, ends_at=NOW - timedelta(hours=1),
+            id=APPT,
+            staff_id=STAFF,
+            student_id=STUDENT,
+            status="UPCOMING",
+            outcome_at=None,
+            outcome_by=None,
+            ends_at=NOW - timedelta(hours=1),
         )
 
     async def primary_db(self):
@@ -78,9 +85,13 @@ class Harness:
             active = False
 
         yield SimpleNamespace(
-            row=row, begin=AsyncMock(return_value=SimpleNamespace(commit=commit)),
-            add_all=staged.extend, flush=AsyncMock(),
-            rollback=rollback, in_transaction=lambda: active, invalidate=AsyncMock(),
+            row=row,
+            begin=AsyncMock(return_value=SimpleNamespace(commit=commit)),
+            add_all=staged.extend,
+            flush=AsyncMock(),
+            rollback=rollback,
+            in_transaction=lambda: active,
+            invalidate=AsyncMock(),
         )
 
     @asynccontextmanager
@@ -110,17 +121,24 @@ class Harness:
     def bind(self):
         with pytest.MonkeyPatch.context() as p:
             p.setattr(service.appointments, "lock_service_settings", AsyncMock(return_value=True))
-            p.setattr(service.appointments, "find_staff_appointment_accounts",
-                      AsyncMock(return_value=None if self.foreign else self.row))
+            p.setattr(
+                service.appointments,
+                "find_staff_appointment_accounts",
+                AsyncMock(return_value=None if self.foreign else self.row),
+            )
             p.setattr(service.appointments, "lock_appointment", lambda db, _: lookup(db.row))
-            p.setattr(service.users, "lock_by_id",
-                      AsyncMock(return_value=SimpleNamespace(role="STAFF", is_active=True)))
+            p.setattr(
+                service.users,
+                "lock_by_id",
+                AsyncMock(return_value=SimpleNamespace(role="STAFF", is_active=True)),
+            )
             p.setattr(service.users, "utc_now", AsyncMock(return_value=self.now))
             yield
 
     def client(self):
-        return httpx.AsyncClient(transport=httpx.ASGITransport(app=self.asgi),
-                                 base_url="http://test")
+        return httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=self.asgi), base_url="http://test"
+        )
 
 
 async def lookup(row):
@@ -143,16 +161,20 @@ async def test_outcome_contract(auth_settings, status):
     assert len([x for x in h.primary if isinstance(x, AuditEvent)]) == 1
     generic = [x for x in h.primary if isinstance(x, Notification)]
     assert [(x.recipient_id, x.event_type) for x in generic] == [
-        (STUDENT, "APPOINTMENT_OUTCOME_RECORDED"), (STAFF, "APPOINTMENT_OUTCOME_RECORDED"),
+        (STUDENT, "APPOINTMENT_OUTCOME_RECORDED"),
+        (STAFF, "APPOINTMENT_OUTCOME_RECORDED"),
     ]
     expected = [(STUDENT, APPT, EVENT)] if status == "NO_SHOW" else []
     assert [(x.recipient_id, x.appointment_id, x.event_type) for x in h.deliveries] == expected
 
 
-@pytest.mark.parametrize("error", [
-    pytest.param(SQLAlchemyError("do-not-log-test-payload"), id="TC03"),
-    pytest.param(TimeoutError("do-not-log-test-payload"), id="TC13"),
-])
+@pytest.mark.parametrize(
+    "error",
+    [
+        pytest.param(SQLAlchemyError("do-not-log-test-payload"), id="TC03"),
+        pytest.param(TimeoutError("do-not-log-test-payload"), id="TC13"),
+    ],
+)
 async def test_delivery_failure_after_commit(auth_settings, caplog, error):
     h = Harness(auth_settings, delivery_error=error)
     with h.bind():
@@ -179,16 +201,20 @@ async def test_TC04_same_intent_replay_no_duplicate(auth_settings):
     assert h.primary_commits == h.delivery_attempts == len(h.deliveries) == 1
 
 
-@pytest.mark.parametrize(("input_body", "expected"), [
-    pytest.param(b'{"status":"LATE"}', 422, id="TC05"),
-    pytest.param(payload(32769), 413, id="TC06"),
-])
+@pytest.mark.parametrize(
+    ("input_body", "expected"),
+    [
+        pytest.param(b'{"status":"LATE"}', 422, id="TC05"),
+        pytest.param(payload(32769), 413, id="TC06"),
+    ],
+)
 async def test_invalid_request_no_writes(auth_settings, input_body, expected):
     h = Harness(auth_settings)
     with h.bind():
         async with h.client() as client:
-            response = await client.post(PATH, content=input_body,
-                                         headers={"Content-Type": "application/json"})
+            response = await client.post(
+                PATH, content=input_body, headers={"Content-Type": "application/json"}
+            )
     assert response.status_code == expected, response.text
     assert h.primary_commits == h.delivery_attempts == 0
     assert h.row.status == "UPCOMING"
@@ -198,18 +224,22 @@ async def test_TC07_large_valid_body(auth_settings):
     h = Harness(auth_settings)
     with h.bind():
         async with h.client() as client:
-            response = await client.post(PATH, content=payload(32768),
-                                         headers={"Content-Type": "application/json"})
+            response = await client.post(
+                PATH, content=payload(32768), headers={"Content-Type": "application/json"}
+            )
     assert response.status_code == 200
     assert response.json()["status"] == "NO_SHOW"
     assert h.delivery_attempts == len(h.deliveries) == 1
 
 
-@pytest.mark.parametrize(("scenario", "status"), [
-    pytest.param("foreign", 404, id="TC08"),
-    pytest.param("not_ended", 409, id="TC09"),
-    pytest.param("main_failure", 503, id="TC10"),
-])
+@pytest.mark.parametrize(
+    ("scenario", "status"),
+    [
+        pytest.param("foreign", 404, id="TC08"),
+        pytest.param("not_ended", 409, id="TC09"),
+        pytest.param("main_failure", 503, id="TC10"),
+    ],
+)
 async def test_no_delivery_if_main_transition_rejected(auth_settings, scenario, status):
     h = Harness(auth_settings)
     if scenario == "foreign":
@@ -234,8 +264,9 @@ async def test_inbox_projects_new_event(auth_settings, monkeypatch, owns):
     async def fake_read(*args):
         yield
 
-    notice = Notification(id=UUID(int=15), recipient_id=STUDENT, appointment_id=APPT,
-                          event_type=EVENT, created_at=NOW)
+    notice = Notification(
+        id=UUID(int=15), recipient_id=STUDENT, appointment_id=APPT, event_type=EVENT, created_at=NOW
+    )
 
     class Row:
         appointment_student_id = STUDENT if owns else STAFF
@@ -247,12 +278,22 @@ async def test_inbox_projects_new_event(auth_settings, monkeypatch, owns):
             return notice
 
     monkeypatch.setattr(notifications, "read_transaction", fake_read)
-    monkeypatch.setattr(notifications.notification_repository, "read_notification_page",
-                        AsyncMock(return_value=([Row()], 1)))
-    actor = AuthContext(UUID(int=16), STUDENT, "student@example.test", "Student", "STUDENT", NOW)
-    inbox = await notifications.list_notifications(
-        None, context=actor, query=NotificationListQuery(), settings=auth_settings,
+    monkeypatch.setattr(
+        notifications.notification_repository,
+        "read_notification_page",
+        AsyncMock(return_value=([Row()], 1)),
     )
+    actor = AuthContext(UUID(int=16), STUDENT, "student@example.test", "Student", "STUDENT", NOW)
+    # The read boundary is stubbed; an unbound session supplies the service contract.
+    async with AsyncSession() as db:
+        inbox = await notifications.list_notifications(
+            db,
+            context=actor,
+            query=NotificationListQuery(),
+            settings=auth_settings,
+        )
     item = inbox.items[0]
     assert item.appointment_id == (APPT if owns else None)
-    assert item.summary == ("Lịch hẹn được ghi nhận vắng mặt" if owns else "Bạn có một thông báo mới")
+    assert item.summary == (
+        "Lịch hẹn được ghi nhận vắng mặt" if owns else "Bạn có một thông báo mới"
+    )

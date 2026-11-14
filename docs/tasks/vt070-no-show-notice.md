@@ -60,3 +60,17 @@ oracles, before/after outcomes and limitations were checked against code and log
 | Mutation | 5 failed, 8 passed; TC01 got COMPLETED instead of NO_SHOW |
 | MySQL 8.4.11 | 32 passed, including TC14/15 (real writes and inbox, fault injection) |
 | 150-task ASGI harness | p95 normal 0.513632 s; 32768 B 0.566338 s; 32769 B rejection 0.155645 s |
+
+## Draft PR #68 CI follow-up
+
+The initial Backend models job stopped at Black before running tests. The
+follow-up fixes formatting, import order and two test-double typing issues
+without changing notification behavior or test assertions. Local verification:
+Black and Ruff passed on the backend workflow's primary check paths, Pyright
+reported zero errors, and 103 targeted tests passed, including both VT-070
+tests against MySQL 8.4.11.
+
+The Dependency security workflow reported an advisory against the existing
+baseline pin `opentelemetry-api==1.45.1`. This PR does not change dependency pins,
+security exceptions or CI workflows. Track the shared dependency remediation
+separately; local validation is not a release or merge decision.
