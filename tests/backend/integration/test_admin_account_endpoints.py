@@ -1196,12 +1196,15 @@ async def test_soft_delete_restore_preserves_state_and_never_revives_old_session
         )
         assert restore_audit is not None
         assert await db.get(Appointment, appointment_id) is not None
-        assert await db.scalar(
-            select(Notification).where(
-                Notification.recipient_id == target_id,
-                Notification.appointment_id == appointment_id,
+        assert (
+            await db.scalar(
+                select(Notification).where(
+                    Notification.recipient_id == target_id,
+                    Notification.appointment_id == appointment_id,
+                )
             )
-        ) is not None
+            is not None
+        )
 
 
 @pytest.mark.mysql
@@ -1317,6 +1320,7 @@ async def test_soft_delete_rejects_stale_version_without_mutating_account(accoun
             )
         )
         assert events == []
+
 
 @pytest.mark.mysql
 async def test_soft_delete_rejects_last_active_admin(account_env):
@@ -1444,4 +1448,3 @@ async def test_soft_delete_rejects_staff_with_occupying_appointment(account_env)
         appointment = await db.get(Appointment, appointment_id)
         assert staff is not None and staff.deleted_at is None
         assert appointment is not None and appointment.status == "UPCOMING"
-

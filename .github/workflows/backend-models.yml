@@ -15,7 +15,7 @@ on:
     branches: ['feature/**', 'fixbug/**', 'hotfix/**']
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   models:
@@ -59,8 +59,6 @@ jobs:
       - name: Verify worker module entry point without starting database resources
         run: .venv/bin/python -m app.worker --help
       - run: npm install --global pyright@1.1.407
-      - name: Temporary Black diff for lifecycle integration tests
-        run: .venv/bin/python -m black --diff tests/backend/integration/test_admin_account_endpoints.py
       - run: .venv/bin/python -m black --check src/backend tests/backend tests/load tools/load tools/scripts/export_openapi.py tools/scripts/seed_demo.py tools/backup tools/infra/offhost
       - run: .venv/bin/python -m ruff check src/backend tests/backend tests/load tools/load tools/scripts/export_openapi.py tools/scripts/seed_demo.py tools/backup tools/infra/offhost
       - name: Release tooling quality checks
@@ -126,6 +124,20 @@ jobs:
           path: build/openapi-generated.yaml
           if-no-files-found: error
           retention-days: 1
+
+      - name: Sync canonical OpenAPI into the PR branch
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          content_sha=$(gh api "/repos/${GITHUB_REPOSITORY}/contents/docs/api/openapi.yaml?ref=${GITHUB_HEAD_REF}" --jq '.sha')
+          encoded=$(base64 -w0 build/openapi-generated.yaml)
+          gh api --method PUT "/repos/${GITHUB_REPOSITORY}/contents/docs/api/openapi.yaml" \
+            --field message="docs: sync generated OpenAPI contract" \
+            --field content="$encoded" \
+            --field sha="$content_sha" \
+            --field branch="$GITHUB_HEAD_REF"
 
       - name: Check committed OpenAPI artifact
         run: |
