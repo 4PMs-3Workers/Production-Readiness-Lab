@@ -202,7 +202,7 @@ async def _next_updated_at(db: AsyncSession, user: User) -> datetime:
 
 def mark_account_deleted(user: User, deleted_at: datetime) -> None:
     """Move an account into the deleted state while remembering its prior activity."""
-    if user.deleted_at is not None:
+    if user.deleted_at is None:
         raise account_error("ACCOUNT_ALREADY_DELETED", "Account is already deleted")
     if user.is_active_before_delete is not None:
         raise ServiceUnavailable()
