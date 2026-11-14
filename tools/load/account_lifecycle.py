@@ -133,7 +133,8 @@ async def run(target_url: str, origin: str, targets: list[dict[str, str]]) -> di
                 }
                 start = time.perf_counter()
                 try:
-                    deleted = await client.delete(
+                    deleted = await client.request(
+                        "DELETE",
                         f"/api/v1/admin/accounts/{account_id}",
                         json={"expected_updated_at": target["expected_updated_at"]},
                         headers=headers,
