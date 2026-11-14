@@ -264,8 +264,8 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
                     "2027-03-14T13:00:00Z" <= start <= "2027-03-14T15:30:00Z" for start in starts
                 )
                 old_slots = fixed_availability(upgraded.runtime, stack, old_backend, payload, token)
-                assert old_slots["status"] == 503
-                assert old_slots["body"]["error"]["code"] == "SERVICE_UNAVAILABLE"
+                assert old_slots["status"] == 200
+                assert [slot["starts_at"] for slot in old_slots["body"]["slots"]] == starts
 
             running = running_images(upgraded.runtime)
             refused = host(ROOT, source, stack.port).rollback()
