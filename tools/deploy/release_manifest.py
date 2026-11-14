@@ -246,14 +246,20 @@ GRANTS_PATH = "tools/deploy/mysql/grants.sql"
 # routes or grants. Issue #53 adds a read-only public attestation mount and health
 # endpoint without changing the existing host's deployment state. These exact file
 # identities let the reviewed upgrade preserve and later restore that predecessor.
+# The account lifecycle release advances the accepted schema and gateway route map;
+# pin those exact versions so a reviewed transition can preserve the predecessor.
 ADMIN_POLICY_TRANSITION = {
+    "tools/deploy/compose.yaml": (
+        "1f9c939fb1496429e6870000e1e2c4ccb2a5773a402984d70b1bfd27ca15833e",
+        "b47009b194b4be07186032126f4da0b78246b9f91905852602a61061d85869b9",
+    ),
     GRANTS_PATH: (
         "6350525d0dace2a66459f486606e2f45a1d84e48cc673e0ab1a38f8e3c49a926",
         "8a7277032db2552dc45e9031dd0947d1b0aa363b0d1ebd445366225af3af038a",
     ),
     "tools/deploy/nginx/route-map.conf": (
-        "1c5c8eaa269404fff5f30bd8eecd5733768891b5226684bb5f867748b29ce5fd",
         "47b24ed0346691dbc949d958fe351f29af893727bbecdde172793358a83fd90c",
+        "04f782e69aeccbde6704168c08eba879b6230464b6c11f6287bc6a4e7937b29e",
     ),
     "tools/deploy/compose.local.yaml": (
         "c6017399bdf443a3ac5e27d6e64cc6bec3e7fc1f038baf9e71332a9c99d2bf44",

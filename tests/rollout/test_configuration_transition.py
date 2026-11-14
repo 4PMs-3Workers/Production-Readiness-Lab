@@ -21,7 +21,7 @@ from tools.deploy.rollout_store import StateStore
 
 # This transition rehearsal keeps the delivered schema fixed while changing
 # configuration, so its predecessor must already contain the current schema.
-BASE = "7b7d21e47b2a4a63b5f2981d6fff42f5b4c36aae"
+BASE = "59b248ac727f07c625e415cfa433c0e7d625f877"
 
 FIXED_AVAILABILITY = """
 import asyncio

@@ -95,6 +95,12 @@ def test_reviewed_predecessor_requires_opt_in_and_exact_configuration(tmp_path):
     previous = previous_configuration(current)
     assert previous is not None
     previous_hashes = {item.path: item.sha256 for item in previous.files}
+    assert previous_hashes["tools/deploy/compose.yaml"] == (
+        "1f9c939fb1496429e6870000e1e2c4ccb2a5773a402984d70b1bfd27ca15833e"
+    )
+    assert previous_hashes["tools/deploy/nginx/route-map.conf"] == (
+        "47b24ed0346691dbc949d958fe351f29af893727bbecdde172793358a83fd90c"
+    )
     assert previous_hashes["tools/deploy/compose.local.yaml"] == (
         "c6017399bdf443a3ac5e27d6e64cc6bec3e7fc1f038baf9e71332a9c99d2bf44"
     )
