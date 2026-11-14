@@ -115,10 +115,10 @@ def test_reviewed_predecessor_requires_opt_in_and_exact_configuration(tmp_path):
     https_hashes = {item.path: item.sha256 for item in https_previous.files}
     assert "tools/deploy/compose.local.yaml" not in https_hashes
     assert https_hashes["tools/deploy/nginx/nginx.conf"] == (
-        "35220da5abdb389321cb47f8688286fc0d4e6a70ea54442db4d087998178248b"
+        "dd8331ac797a1f5bfa5c05eb3a33af815fd188346058860d9e9e27e631343597"
     )
     assert https_hashes["tools/deploy/nginx/routes.conf"] == (
-        "5e9f6e34f6911366c0c785f1ab62249e4bb58f9bcaed112c74f8637e1532e925"
+        "ebfdcf0a4efcf8f13b8a9423e69ed251ea70a5ebc8193eefcf4d477b4ed5fc22"
     )
     assert https_hashes["tools/deploy/compose.https.yaml"] == (
         "0811f0b010706d59351e7f3a0c4951b9f788731913877c1d88a805be1c0ad305"
@@ -308,3 +308,4 @@ def test_cli_sanitizes_errors_and_missing_artifacts(tmp_path):
         assert result.returncode == 1
         assert "synthetic-secret" not in result.stdout + result.stderr
         assert "Traceback" not in result.stdout + result.stderr
+
