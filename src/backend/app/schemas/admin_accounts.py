@@ -39,6 +39,7 @@ class AccountQuery(PaginationParams):
 
     role: Role | None = None
     is_active: bool | None = None
+    include_deleted: bool = False
     search: str | None = Field(default=None, min_length=1, max_length=100)
     page: int = Field(default=1, ge=1, le=1_000_000)
 
@@ -51,6 +52,14 @@ class AccountQuery(PaginationParams):
         if not normalized:
             raise ValueError("Search must not be blank")
         return normalized
+
+
+class AccountLifecycleRequest(BaseModel):
+    """Optimistic concurrency precondition for soft-delete and restore."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_updated_at: AwareDatetime
 
 
 class AccountCreateRequest(BaseModel):
@@ -173,3 +182,4 @@ class AccountItem(BaseModel):
     gender: Gender | None
     created_at: datetime
     updated_at: datetime
+    deleted_at: datetime | None

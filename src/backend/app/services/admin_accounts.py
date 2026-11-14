@@ -26,6 +26,7 @@ from app.repositories import appointments, users
 from app.schemas.admin_accounts import (
     AccountCreateRequest,
     AccountItem,
+    AccountLifecycleRequest,
     AccountQuery,
     AccountUpdateRequest,
     PasswordResetRequest,
@@ -199,6 +200,114 @@ async def _next_updated_at(db: AsyncSession, user: User) -> datetime:
     return max(now, user.updated_at + timedelta(microseconds=1))
 
 
+def mark_account_deleted(user: User, deleted_at: datetime) -> None:
+    """Move an account into the deleted state while remembering its prior activity."""
+    if user.deleted_at is not None:
+        raise account_error("ACCOUNT_ALREADY_DELETED", "Account is already deleted")
+    if user.is_active_before_delete is not None:
+        raise ServiceUnavailable()
+    user.is_active_before_delete = bool(user.is_active)
+    user.is_active = False
+    user.deleted_at = deleted_at
+
+
+def restore_account_state(user: User) -> None:
+    """Restore the pre-delete active flag without restoring any old session."""
+    if user.deleted_at is None or user.is_active_before_delete is None:
+        raise account_error("ACCOUNT_NOT_DELETED", "Account is not deleted")
+    user.is_active = user.is_active_before_delete
+    user.deleted_at = None
+    user.is_active_before_delete = None
+
+
+async def soft_delete_account(
+    db: AsyncSession,
+    account_id: UUID,
+    request: AccountLifecycleRequest,
+    *,
+    context: AuthContext,
+    settings: Settings,
+    request_id: str,
+) -> AccountItem:
+    async def operation() -> tuple[AccountItem, bool]:
+        _, user = await _lock_actor_and_target(db, context, account_id, settings)
+        if user.deleted_at is not None:
+            raise account_error("ACCOUNT_SOFT_DELETED", "Restore the account before editing it")
+        if user.updated_at != request.expected_updated_at.astimezone(UTC):
+            raise account_error(
+                "ACCOUNT_VERSION_CONFLICT", "Account changed; reload before retrying"
+            )
+        if user.deleted_at is not None:
+            raise account_error("ACCOUNT_ALREADY_DELETED", "Account is already deleted")
+        if user.role == "STAFF" and await users.has_occupying_staff_appointments(db, user.id):
+            raise account_error(
+                "STAFF_HAS_OCCUPYING_APPOINTMENTS",
+                "Staff with occupying appointments cannot be deleted",
+            )
+        if user.is_active and user.role in {"ADMIN", "STAFF"}:
+            if await users.count_active_role(db, user.role) <= 1:
+                code = "LAST_ACTIVE_ADMIN" if user.role == "ADMIN" else "LAST_ACTIVE_STAFF"
+                raise account_error(code, "At least one active account of this role must remain")
+
+        was_active = bool(user.is_active)
+        mark_account_deleted(user, await users.utc_now(db))
+        user.updated_at = await _next_updated_at(db, user)
+        await auth.revoke_user_sessions(db, user.id)
+        db.add(
+            AuditEvent(
+                actor_id=context.user_id,
+                action="ACCOUNT_SOFT_DELETED",
+                entity_type="USER",
+                entity_id=str(user.id),
+                request_id=request_id,
+                event_metadata={
+                    "previous_is_active": was_active,
+                    "sessions_revoked": True,
+                    "linked_records_preserved": True,
+                },
+            )
+        )
+        return AccountItem.model_validate(user), True
+
+    return await _run_mutation(db, operation, settings=settings)
+
+
+async def restore_account(
+    db: AsyncSession,
+    account_id: UUID,
+    request: AccountLifecycleRequest,
+    *,
+    context: AuthContext,
+    settings: Settings,
+    request_id: str,
+) -> AccountItem:
+    async def operation() -> tuple[AccountItem, bool]:
+        _, user = await _lock_actor_and_target(db, context, account_id, settings)
+        if user.updated_at != request.expected_updated_at.astimezone(UTC):
+            raise account_error(
+                "ACCOUNT_VERSION_CONFLICT", "Account changed; reload before retrying"
+            )
+        restore_account_state(user)
+        user.updated_at = await _next_updated_at(db, user)
+        db.add(
+            AuditEvent(
+                actor_id=context.user_id,
+                action="ACCOUNT_RESTORED",
+                entity_type="USER",
+                entity_id=str(user.id),
+                request_id=request_id,
+                event_metadata={
+                    "restored_is_active": bool(user.is_active),
+                    "old_sessions_remain_revoked": True,
+                    "linked_records_preserved": True,
+                },
+            )
+        )
+        return AccountItem.model_validate(user), True
+
+    return await _run_mutation(db, operation, settings=settings)
+
+
 async def update_account(
     db: AsyncSession,
     account_id: UUID,
@@ -313,6 +422,8 @@ async def reset_password(
 
             async def operation() -> tuple[AccountItem, bool]:
                 _, user = await _lock_actor_and_target(db, context, account_id, settings)
+                if user.deleted_at is not None:
+                    raise account_error("ACCOUNT_SOFT_DELETED", "Restore the account before resetting its password")
                 if user.updated_at != request.expected_updated_at.astimezone(UTC):
                     raise account_error(
                         "ACCOUNT_VERSION_CONFLICT", "Account changed; reload before retrying"

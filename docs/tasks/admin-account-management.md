@@ -13,6 +13,8 @@ limit to all account routes.
 | `GET /api/v1/admin/accounts` | List accounts with `page`, `page_size` (1–100), optional exact `role`, optional `is_active`, and optional name/email `search`. |
 | `POST /api/v1/admin/accounts` | Create an account. Requires same-origin and CSRF. Email is trimmed/lowercased; password is write-only. |
 | `PATCH /api/v1/admin/accounts/{account_id}` | Update profile, role, or active state. Requires same-origin and CSRF plus the current `expected_updated_at`. |
+| `DELETE /api/v1/admin/accounts/{account_id}` | Soft-delete an account; preserves linked history, revokes sessions, and stores the prior active state. Requires same-origin, CSRF, and `expected_updated_at`. |
+| `POST /api/v1/admin/accounts/{account_id}/restore` | Restore the prior active/inactive state. Previously revoked sessions stay revoked. Requires same-origin, CSRF, and `expected_updated_at`.
 | `POST /api/v1/admin/accounts/{account_id}/password` | Explicitly reset an internal password. Requires same-origin and CSRF plus the current `expected_updated_at`. |
 
 Account responses contain identity, role, active state, student profile fields,
@@ -21,7 +23,9 @@ content are never returned.
 
 ## Account policy
 
-- Accounts are retained; APIs do not delete them.
+- Accounts are retained; the DELETE route performs a soft delete and never removes the user row or its foreign-key-linked history. `deleted_at` and `is_active_before_delete` represent a separate lifecycle from ordinary `is_active` deactivation. Normal account lists hide deleted accounts; ADMIN may use `include_deleted=true` to inspect and restore them.
+- Soft deletion records the previous `is_active` value, sets `is_active=false`, advances `updated_at`, and revokes all sessions in the same transaction as the audit event. Restore returns the saved active flag and clears both deletion fields. It does not un-revoke sessions; a restored active account must sign in again.
+- Repeated deletion returns `ACCOUNT_ALREADY_DELETED`; restoring a live account returns `ACCOUNT_NOT_DELETED`; a deleted account cannot be edited or have its password reset until restored.
 - At least one active `ADMIN` and one active `STAFF` account must remain. Removing
   the final active account of either role returns `LAST_ACTIVE_ADMIN` or
   `LAST_ACTIVE_STAFF`.

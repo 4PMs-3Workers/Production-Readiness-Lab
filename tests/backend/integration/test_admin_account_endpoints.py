@@ -1049,3 +1049,151 @@ async def test_admin_mutations_work_with_deployed_runtime_grants(account_env, my
         ]
     )
     assert admin_sessions and all(session.revoked_at is not None for session in admin_sessions)
+
+
+
+@pytest.mark.mysql
+async def test_soft_delete_restore_preserves_state_and_never_revives_old_sessions(account_env):
+    client, factory, admin_id, _ = account_env
+    await sign_in(client)
+    await promote_to_admin(factory, admin_id)
+    target_id = uuid4()
+    token_hash = hashlib.sha256(f"lifecycle-{target_id}".encode()).digest()
+    async with factory.begin() as db:
+        db.add(
+            User(
+                id=target_id,
+                email="lifecycle-target@example.invalid",
+                name="Lifecycle Target",
+                role="STUDENT",
+                password_hash="unused-test-hash",
+                is_active=True,
+            )
+        )
+        db.add(
+            Session(
+                user_id=target_id,
+                token_hash=token_hash,
+                expires_at=datetime.now(UTC) + timedelta(days=1),
+            )
+        )
+
+    deleted = await client.delete(
+        f"{ADMIN_ACCOUNTS}/{target_id}",
+        json={"expected_updated_at": await active_account(factory, target_id)},
+        headers=write_headers(client),
+    )
+
+    assert deleted.status_code == 200
+    deleted_item = deleted.json()
+    assert deleted_item["is_active"] is False
+    assert deleted_item["deleted_at"] is not None
+    assert deleted_item["id"] == str(target_id)
+
+    async with factory() as db:
+        session = await db.scalar(select(Session).where(Session.user_id == target_id))
+        assert session is not None and session.revoked_at is not None
+        delete_audit = await db.scalar(
+            select(AuditEvent).where(
+                AuditEvent.entity_id == str(target_id),
+                AuditEvent.action == "ACCOUNT_SOFT_DELETED",
+            )
+        )
+        assert delete_audit is not None
+        assert delete_audit.event_metadata["linked_records_preserved"] is True
+
+    hidden = await client.get(f"{ADMIN_ACCOUNTS}?search=lifecycle-target")
+    assert hidden.status_code == 200
+    assert hidden.json()["total"] == 0
+
+    visible = await client.get(
+        f"{ADMIN_ACCOUNTS}?search=lifecycle-target&include_deleted=true"
+    )
+    assert visible.status_code == 200
+    assert visible.json()["total"] == 1
+    assert visible.json()["items"][0]["deleted_at"] is not None
+
+    restored = await client.post(
+        f"{ADMIN_ACCOUNTS}/{target_id}/restore",
+        json={"expected_updated_at": deleted_item["updated_at"]},
+        headers=write_headers(client),
+    )
+
+    assert restored.status_code == 200
+    restored_item = restored.json()
+    assert restored_item["is_active"] is True
+    assert restored_item["deleted_at"] is None
+    async with factory() as db:
+        session = await db.scalar(select(Session).where(Session.user_id == target_id))
+        assert session is not None and session.revoked_at is not None
+        restore_audit = await db.scalar(
+            select(AuditEvent).where(
+                AuditEvent.entity_id == str(target_id),
+                AuditEvent.action == "ACCOUNT_RESTORED",
+            )
+        )
+        assert restore_audit is not None
+
+
+@pytest.mark.mysql
+async def test_restore_keeps_previously_inactive_account_inactive(account_env):
+    client, factory, admin_id, _ = account_env
+    await sign_in(client)
+    await promote_to_admin(factory, admin_id)
+    target_id = uuid4()
+    async with factory.begin() as db:
+        db.add(
+            User(
+                id=target_id,
+                email="inactive-lifecycle@example.invalid",
+                name="Inactive Lifecycle",
+                role="STUDENT",
+                password_hash="unused-test-hash",
+                is_active=False,
+            )
+        )
+
+    deleted = await client.delete(
+        f"{ADMIN_ACCOUNTS}/{target_id}",
+        json={"expected_updated_at": await active_account(factory, target_id)},
+        headers=write_headers(client),
+    )
+    assert deleted.status_code == 200
+    assert deleted.json()["is_active"] is False
+
+    restored = await client.post(
+        f"{ADMIN_ACCOUNTS}/{target_id}/restore",
+        json={"expected_updated_at": deleted.json()["updated_at"]},
+        headers=write_headers(client),
+    )
+    assert restored.status_code == 200
+    assert restored.json()["is_active"] is False
+    assert restored.json()["deleted_at"] is None
+
+
+@pytest.mark.mysql
+async def test_non_admin_cannot_soft_delete_or_restore_accounts(account_env):
+    client, factory, user_id, _ = account_env
+    await sign_in(client)
+    target_id = uuid4()
+    async with factory.begin() as db:
+        db.add(
+            User(
+                id=target_id,
+                email="protected-target@example.invalid",
+                name="Protected Target",
+                role="STUDENT",
+                password_hash="unused-test-hash",
+            )
+        )
+
+    expected = await active_account(factory, target_id)
+    denied = await client.delete(
+        f"{ADMIN_ACCOUNTS}/{target_id}",
+        json={"expected_updated_at": expected},
+        headers=write_headers(client),
+    )
+    assert denied.status_code == 403
+    async with factory() as db:
+        target = await db.get(User, target_id)
+        assert target is not None and target.deleted_at is None

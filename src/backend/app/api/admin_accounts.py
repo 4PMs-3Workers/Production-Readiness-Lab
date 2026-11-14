@@ -14,6 +14,7 @@ from app.domain.auth import AuthContext
 from app.schemas.admin_accounts import (
     AccountCreateRequest,
     AccountItem,
+    AccountLifecycleRequest,
     AccountQuery,
     AccountUpdateRequest,
     PasswordResetRequest,
@@ -179,4 +180,63 @@ async def reset_password(
         settings=request.app.state.settings,
         request_id=get_request_id(request),
         passwords=request.app.state.passwords,
+    )
+
+
+
+@router.delete(
+    "/{account_id}",
+    response_model=AccountItem,
+    responses=account_responses(200, 401, 403, 404, 409, 413, 415, 422, 500, 503),
+    summary="Soft-delete an account",
+    description=(
+        "Soft-delete an account without removing its appointment, notification, or audit history. "
+        + ACCOUNT_WRITE_DESCRIPTION
+    ),
+    openapi_extra=ACCOUNT_WRITE_OPENAPI,
+)
+async def delete_account(
+    account_id: UUID,
+    payload: AccountLifecycleRequest,
+    request: Request,
+    context: Annotated[AuthContext, Depends(require_roles("ADMIN"))],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
+) -> AccountItem:
+    check_csrf(request, context)
+    return await account_service.soft_delete_account(
+        db,
+        account_id,
+        payload,
+        context=context,
+        settings=request.app.state.settings,
+        request_id=get_request_id(request),
+    )
+
+
+@router.post(
+    "/{account_id}/restore",
+    response_model=AccountItem,
+    responses=account_responses(200, 401, 403, 404, 409, 413, 415, 422, 500, 503),
+    summary="Restore a soft-deleted account",
+    description=(
+        "Restore the activity state held before deletion. Previously issued sessions remain revoked. "
+        + ACCOUNT_WRITE_DESCRIPTION
+    ),
+    openapi_extra=ACCOUNT_WRITE_OPENAPI,
+)
+async def restore_account(
+    account_id: UUID,
+    payload: AccountLifecycleRequest,
+    request: Request,
+    context: Annotated[AuthContext, Depends(require_roles("ADMIN"))],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
+) -> AccountItem:
+    check_csrf(request, context)
+    return await account_service.restore_account(
+        db,
+        account_id,
+        payload,
+        context=context,
+        settings=request.app.state.settings,
+        request_id=get_request_id(request),
     )
