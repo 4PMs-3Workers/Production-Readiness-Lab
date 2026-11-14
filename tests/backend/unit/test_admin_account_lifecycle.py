@@ -7,7 +7,7 @@ from sqlalchemy.dialects import mysql
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
-from app.core.errors import AppError
+from app.api.errors import AppError
 from app.models import User
 from app.repositories import users
 from app.schemas.admin_accounts import AccountLifecycleRequest, AccountQuery
