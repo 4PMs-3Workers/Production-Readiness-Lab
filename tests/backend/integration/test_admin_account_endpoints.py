@@ -1050,7 +1050,9 @@ async def test_admin_mutations_work_with_deployed_runtime_grants(account_env, my
         ]
     )
     assert admin_sessions and all(session.revoked_at is not None for session in admin_sessions)
-\n\n@pytest.mark.mysql
+
+
+@pytest.mark.mysql
 async def test_soft_delete_restore_preserves_state_and_never_revives_old_sessions(account_env):
     client, factory, admin_id, _ = account_env
     await sign_in(client)
