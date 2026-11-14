@@ -142,6 +142,7 @@ components:
       type: object
     AccountLifecycleRequest:
       additionalProperties: false
+      description: Optimistic concurrency precondition for soft-delete and restore.
       properties:
         expected_updated_at:
           format: date-time
@@ -2164,9 +2165,9 @@ paths:
   /api/v1/admin/accounts/{account_id}:
     delete:
       description: Soft-delete an account without removing its appointment, notification,
-        or audit history. This mutation requires the signed CSRF token in
-        `X-CSRF-Token`. Origin or Referer must match the configured application
-        origin. Origin takes precedence when both are supplied.
+        or audit history. This mutation requires the signed CSRF token in `X-CSRF-Token`.
+        Origin or Referer must match the configured application origin. Origin takes
+        precedence when both are supplied.
       operationId: delete_account_api_v1_admin_accounts__account_id__delete
       parameters:
       - in: path
@@ -2572,212 +2573,6 @@ paths:
       summary: Update Account
       tags:
       - admin accounts
-  /api/v1/admin/accounts/{account_id}/restore:
-    post:
-      description: Restore the prior active/inactive state. Previously issued sessions stay
-        revoked. This mutation requires the signed CSRF token in `X-CSRF-Token`.
-        Origin or Referer must match the configured application origin. Origin
-        takes precedence when both are supplied.
-      operationId: restore_account_api_v1_admin_accounts__account_id__restore_post
-      parameters:
-      - in: path
-        name: account_id
-        required: true
-        schema:
-          format: uuid
-          title: Account Id
-          type: string
-      - description: Signed token matching the prl_csrf cookie.
-        in: header
-        name: X-CSRF-Token
-        required: true
-        schema:
-          type: string
-      - description: Preferred same-origin header. If present, it takes precedence
-          over Referer and must match the configured application origin.
-        in: header
-        name: Origin
-        required: false
-        schema:
-          format: uri
-          type: string
-      - description: Accepted only when Origin is absent; its origin must match the
-          configured application origin.
-        in: header
-        name: Referer
-        required: false
-        schema:
-          format: uri
-          type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AccountLifecycleRequest'
-        required: true
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AccountItem'
-          description: Successful Response
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-            X-Request-ID:
-              schema:
-                type: string
-        '401':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-          description: Sanitized account-management error
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-            X-Error-Class:
-              schema:
-                type: string
-            X-Request-ID:
-              schema:
-                type: string
-        '403':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-          description: Sanitized account-management error
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-            X-Error-Class:
-              schema:
-                type: string
-            X-Request-ID:
-              schema:
-                type: string
-        '404':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-          description: Sanitized account-management error
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-            X-Error-Class:
-              schema:
-                type: string
-            X-Request-ID:
-              schema:
-                type: string
-        '409':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-          description: Sanitized account-management error
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-            X-Error-Class:
-              schema:
-                type: string
-            X-Request-ID:
-              schema:
-                type: string
-        '413':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-          description: Sanitized account-management error
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-            X-Error-Class:
-              schema:
-                type: string
-            X-Request-ID:
-              schema:
-                type: string
-        '415':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-          description: Sanitized account-management error
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-            X-Error-Class:
-              schema:
-                type: string
-            X-Request-ID:
-              schema:
-                type: string
-        '422':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-          description: Sanitized account-management error
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-            X-Error-Class:
-              schema:
-                type: string
-            X-Request-ID:
-              schema:
-                type: string
-        '500':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-          description: Sanitized account-management error
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-            X-Error-Class:
-              schema:
-                type: string
-            X-Request-ID:
-              schema:
-                type: string
-        '503':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-          description: Sanitized account-management error
-          headers:
-            Cache-Control:
-              schema:
-                type: string
-            X-Error-Class:
-              schema:
-                type: string
-            X-Request-ID:
-              schema:
-                type: string
-      security:
-      - prl_session: []
-      summary: Restore a soft-deleted account
-      tags:
-      - admin accounts
   /api/v1/admin/accounts/{account_id}/password:
     post:
       description: Set a new internal password and revoke every existing session atomically.
@@ -2982,6 +2777,212 @@ paths:
       security:
       - prl_session: []
       summary: Reset Password
+      tags:
+      - admin accounts
+  /api/v1/admin/accounts/{account_id}/restore:
+    post:
+      description: Restore the activity state held before deletion. Previously issued
+        sessions remain revoked. This mutation requires the signed CSRF token in `X-CSRF-Token`.
+        Origin or Referer must match the configured application origin. Origin takes
+        precedence when both are supplied.
+      operationId: restore_account_api_v1_admin_accounts__account_id__restore_post
+      parameters:
+      - in: path
+        name: account_id
+        required: true
+        schema:
+          format: uuid
+          title: Account Id
+          type: string
+      - description: Signed token matching the prl_csrf cookie.
+        in: header
+        name: X-CSRF-Token
+        required: true
+        schema:
+          type: string
+      - description: Preferred same-origin header. If present, it takes precedence
+          over Referer and must match the configured application origin.
+        in: header
+        name: Origin
+        required: false
+        schema:
+          format: uri
+          type: string
+      - description: Accepted only when Origin is absent; its origin must match the
+          configured application origin.
+        in: header
+        name: Referer
+        required: false
+        schema:
+          format: uri
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountLifecycleRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountItem'
+          description: Successful Response
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '413':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '415':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Sanitized account-management error
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Error-Class:
+              schema:
+                type: string
+            X-Request-ID:
+              schema:
+                type: string
+      security:
+      - prl_session: []
+      summary: Restore a soft-deleted account
       tags:
       - admin accounts
   /api/v1/admin/booking-configuration:
