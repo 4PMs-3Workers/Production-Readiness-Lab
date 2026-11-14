@@ -1049,3 +1049,31 @@ async def test_admin_mutations_work_with_deployed_runtime_grants(account_env, my
         ]
     )
     assert admin_sessions and all(session.revoked_at is not None for session in admin_sessions)
+
+@pytest.mark.mysql
+async def test_tdd_red_soft_delete_route_exists_before_implementation(account_env):
+    """This contract test must fail on the baseline before the feature exists."""
+    client, factory, user_id, _ = account_env
+    await sign_in(client)
+    await promote_to_admin(factory, user_id)
+    target_id = uuid4()
+    async with factory.begin() as db:
+        db.add(
+            User(
+                id=target_id,
+                email="tdd-red-target@example.invalid",
+                name="TDD Red Target",
+                role="STUDENT",
+                password_hash="unused-test-hash",
+            )
+        )
+
+    response = await client.request(
+        "DELETE",
+        f"{ADMIN_ACCOUNTS}/{target_id}",
+        json={"expected_updated_at": await active_account(factory, target_id)},
+        headers=write_headers(client),
+    )
+
+    assert response.status_code == 200, "soft-delete route is not implemented on baseline"
+
