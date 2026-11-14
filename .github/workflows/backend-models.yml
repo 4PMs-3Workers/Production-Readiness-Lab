@@ -132,7 +132,7 @@ jobs:
         run: |
           set -euo pipefail
           content_sha=$(gh api "/repos/${GITHUB_REPOSITORY}/contents/docs/api/openapi.yaml?ref=${GITHUB_HEAD_REF}" --jq '.sha')
-          .venv/bin/python - <<'PY'
+          .venv/bin/python - <<PY
           import base64
           import json
           from pathlib import Path
