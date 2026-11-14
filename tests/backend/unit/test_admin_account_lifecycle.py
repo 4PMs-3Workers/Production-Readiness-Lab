@@ -148,7 +148,6 @@ async def test_account_page_can_include_deleted_accounts_explicitly():
     )
 
     sql = "\\n".join(
-        str(statement.compile(dialect=mysql.dialect())).lower()
-        for statement in capture.statements
+        str(statement.compile(dialect=mysql.dialect())).lower() for statement in capture.statements
     )
     assert "deleted_at is null" not in sql
