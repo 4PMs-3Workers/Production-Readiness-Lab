@@ -12,7 +12,7 @@ GRANT SELECT, INSERT ON prl.purposes TO 'prl_runtime'@'%';
 GRANT UPDATE (name, duration_minutes, requires_free_text, is_active, updated_at) ON prl.purposes TO 'prl_runtime'@'%';
 GRANT SELECT ON prl.service_settings TO 'prl_runtime'@'%';
 GRANT UPDATE (id) ON prl.service_settings TO 'prl_runtime'@'%';
-GRANT UPDATE (timezone, start_step_minutes, booking_horizon_days, updated_at) ON prl.service_settings TO 'prl_runtime'@'%';
+GRANT UPDATE (timezone, start_step_minutes, booking_horizon_days, max_active_appointments, updated_at) ON prl.service_settings TO 'prl_runtime'@'%';
 GRANT SELECT, INSERT, DELETE ON prl.service_hours TO 'prl_runtime'@'%';
 GRANT SELECT, INSERT, UPDATE ON prl.staff_purposes TO 'prl_runtime'@'%';
 GRANT SELECT, INSERT, DELETE ON prl.staff_unavailability TO 'prl_runtime'@'%';

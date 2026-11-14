@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
@@ -13,7 +14,8 @@ from typing import Annotated, Literal, Self, TypeAlias, TypeVar
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 ROOT = Path(__file__).resolve().parents[2]
-SCHEMA = "20261019_1200_proposal_replay"
+SCHEMA = "20261113_1200_booking_quota"
+REVIEWED_PREDECESSOR_SCHEMAS = {"20261019_1200_proposal_replay"}
 MAX_JSON = 1024 * 1024
 SHA: TypeAlias = Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]
 Hex: TypeAlias = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
@@ -40,6 +42,31 @@ class ReleaseError(Exception):
     def __init__(self, code: str):
         super().__init__(code)
         self.code = code
+
+
+def schema_revision(root: Path = ROOT) -> str:
+    """Return the exact schema pin declared by the selected source tree."""
+    if root.resolve() == ROOT.resolve():
+        return SCHEMA
+    try:
+        module = ast.parse((root / "tools/deploy/release_manifest.py").read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        raise ReleaseError("incompatible-schema") from None
+    for node in module.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "SCHEMA" for target in node.targets
+        ):
+            if isinstance(node.value, ast.Constant) and type(node.value.value) is str:
+                return node.value.value
+        if (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "SCHEMA"
+            and isinstance(node.value, ast.Constant)
+            and type(node.value.value) is str
+        ):
+            return node.value.value
+    raise ReleaseError("incompatible-schema")
 
 
 class Strict(BaseModel):
@@ -249,7 +276,7 @@ GRANTS_PATH = "tools/deploy/mysql/grants.sql"
 ADMIN_POLICY_TRANSITION = {
     GRANTS_PATH: (
         "6350525d0dace2a66459f486606e2f45a1d84e48cc673e0ab1a38f8e3c49a926",
-        "8a7277032db2552dc45e9031dd0947d1b0aa363b0d1ebd445366225af3af038a",
+        "bdede7d278ee16b114ed2da85ac9e350cfdacec1aa0b4f125237b2765229f3a3",
     ),
     "tools/deploy/nginx/route-map.conf": (
         "1c5c8eaa269404fff5f30bd8eecd5733768891b5226684bb5f867748b29ce5fd",
@@ -258,6 +285,10 @@ ADMIN_POLICY_TRANSITION = {
     "tools/deploy/compose.local.yaml": (
         "c6017399bdf443a3ac5e27d6e64cc6bec3e7fc1f038baf9e71332a9c99d2bf44",
         "5766741d8e44c72fc5487cd689ca658a6780e9f8cf804481df4f3a9a89bbb758",
+    ),
+    "tools/deploy/compose.yaml": (
+        "1f9c939fb1496429e6870000e1e2c4ccb2a5773a402984d70b1bfd27ca15833e",
+        "af71a4d21ef4bcfdb127ae327143728fa59e5f4610caaa5e234ca1d537179d28",
     ),
     "tools/deploy/compose.https.yaml": (
         "319fdc5b8334164a1577bde4b63cbf2d730dc76dd99e54fc7cb735b2a703af4b",
@@ -366,7 +397,14 @@ def vendor_inventory(observability: bool, root: Path = ROOT) -> dict[str, str]:
 
 def require_compatible(spec: Spec, root: Path = ROOT, *, allow_previous: bool = False) -> None:
     require_configuration(spec.configuration, root, allow_previous=allow_previous)
-    if spec.accepted_schema_revisions != [SCHEMA]:
+    accepted_schema = schema_revision(root)
+    compatible_schemas = {accepted_schema}
+    if allow_previous:
+        compatible_schemas |= REVIEWED_PREDECESSOR_SCHEMAS
+    if (
+        len(spec.accepted_schema_revisions) != 1
+        or spec.accepted_schema_revisions[0] not in compatible_schemas
+    ):
         raise ReleaseError("incompatible-schema")
     if spec.vendor_images != vendor_inventory(spec.configuration.observability, root):
         raise ReleaseError("vendor-inventory-mismatch")

@@ -23,6 +23,7 @@ from tools.deploy.release_manifest import (
     parse,
     read,
     require_compatible,
+    schema_revision,
     vendor_inventory,
     write,
 )
@@ -76,6 +77,7 @@ def render(
     spec: Spec, *, backup: bool = False, root: Path = ROOT, allow_previous: bool = False
 ) -> bytes:
     require_compatible(spec, root, allow_previous=allow_previous)
+    schema = schema_revision(root)
     names = {name: spec.images[key].reference for name, key in spec.services.items()}
     if spec.configuration.observability:
         # The merged backup-monitoring foundation reuses the shared backend.
@@ -92,7 +94,7 @@ def render(
         if name in spec.services or name == "backup_metrics_exporter":
             lines += ["    build: !reset null"]
         if name in {"api", "worker", "schema"}:
-            lines += ["    environment:", f"      ACCEPTED_SCHEMA_REVISIONS: {SCHEMA}"]
+            lines += ["    environment:", f"      ACCEPTED_SCHEMA_REVISIONS: {schema}"]
             lines += [f"      SERVICE_RELEASE: {spec.provenance.source_sha}"]
     return ("\n".join(lines) + "\n").encode()
 

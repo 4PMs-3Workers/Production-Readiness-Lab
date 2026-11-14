@@ -24,7 +24,7 @@ x-runtime: &runtime
     - path: ${PRL_RUNTIME_ENV_FILE:?Set external runtime env-file path}
       format: raw
   environment:
-    ACCEPTED_SCHEMA_REVISIONS: 20261019_1200_proposal_replay
+    ACCEPTED_SCHEMA_REVISIONS: 20261113_1200_booking_quota
   networks: [data]
 
 services:

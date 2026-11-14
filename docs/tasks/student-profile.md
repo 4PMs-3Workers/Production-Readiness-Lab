@@ -21,7 +21,7 @@ Migration `20261017_2350_student_profile` nối tiếp `20261016_1200_audit_reqi
 thêm bốn cột nullable vào users và ràng buộc giá trị giới tính. Upgrade không thay
 thông tin tài khoản cũ; downgrade từ chối nếu đã có dữ liệu hồ sơ để tránh mất dữ liệu.
 Chạy Alembic upgrade head trước khi khởi động và đặt
-`ACCEPTED_SCHEMA_REVISIONS=20261019_1200_proposal_replay` theo `.env.example` hiện tại
+`ACCEPTED_SCHEMA_REVISIONS=20261113_1200_booking_quota` theo `.env.example` hiện tại
 (revision mới của đề nghị đổi lịch nối tiếp migration hồ sơ).
 
 Harness E2E nạp hồ sơ hư cấu với mã TEST-STUDENT/TEST-OTHER, khoa/ngành kiểm thử,

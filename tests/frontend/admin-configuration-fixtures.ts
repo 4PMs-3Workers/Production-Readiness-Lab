@@ -14,6 +14,7 @@ export const configurationFixture: AdminBookingConfiguration = {
   timezone: 'Asia/Ho_Chi_Minh',
   start_step_minutes: 15,
   booking_horizon_days: 7,
+  max_active_appointments: 3,
   windows: [
     { weekday: 1, opens_at: '08:00:15', closes_at: '11:30:15' },
     { weekday: 1, opens_at: '11:30:15', closes_at: '12:00:00' },

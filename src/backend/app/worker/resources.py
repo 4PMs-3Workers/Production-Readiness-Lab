@@ -15,7 +15,7 @@ from app.core.transactions import mysql_error_code, read_transaction
 from app.observability.database import attach_database
 from app.observability.runtime import TelemetryRuntime
 
-SUPPORTED_SCHEMA_REVISIONS = frozenset({"20261019_1200_proposal_replay"})
+SUPPORTED_SCHEMA_REVISIONS = frozenset({"20261113_1200_booking_quota"})
 CleanupDeadline = Callable[[], float | None]
 
 

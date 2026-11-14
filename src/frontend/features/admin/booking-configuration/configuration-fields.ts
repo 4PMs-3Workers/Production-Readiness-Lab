@@ -14,6 +14,7 @@ export interface ConfigurationDraft {
   timezone: string;
   start_step_minutes: string;
   booking_horizon_days: string;
+  max_active_appointments: number;
   windows: WindowDraft[];
 }
 let sequence = 0;
@@ -23,6 +24,7 @@ export function configurationDraft(value: AdminBookingConfiguration): Configurat
     timezone: value.timezone,
     start_step_minutes: String(value.start_step_minutes),
     booking_horizon_days: String(value.booking_horizon_days),
+    max_active_appointments: value.max_active_appointments,
     windows: value.windows.map((w) => ({ ...w, key: windowKey() })),
   };
 }
@@ -33,6 +35,7 @@ export function draftPolicy(draft: ConfigurationDraft): BookingPolicy {
     timezone: draft.timezone,
     start_step_minutes: Number(draft.start_step_minutes),
     booking_horizon_days: Number(draft.booking_horizon_days),
+    max_active_appointments: draft.max_active_appointments,
     windows: draft.windows.map((w) => ({
       weekday: w.weekday,
       opens_at: normalizeWallTime(w.opens_at),

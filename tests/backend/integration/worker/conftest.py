@@ -64,6 +64,6 @@ async def worker_env(mysql_engine, auth_settings):
         await db.flush()
         db.add(StaffPurpose(staff_id=staff_id, purpose_id=purpose_id))
     settings = auth_settings.model_copy(
-        update={"accepted_schema_revisions_raw": "20261019_1200_proposal_replay"}
+        update={"accepted_schema_revisions_raw": "20261113_1200_booking_quota"}
     )
     return WorkerEnv(mysql_engine, factory, settings, student_id, staff_id, purpose_id, now, start)

@@ -191,6 +191,7 @@ test('a windows-only update changes the common revision, while matching stale no
     timezone: before.timezone,
     start_step_minutes: before.start_step_minutes,
     booking_horizon_days: before.booking_horizon_days,
+    max_active_appointments: before.max_active_appointments,
     windows: before.windows,
     expected_updated_at: '2020-01-01T00:00:00.000001Z',
   };
@@ -270,6 +271,7 @@ test('unknown recovery stays locked after a failed read and reviews a subsequent
       timezone: current.timezone,
       start_step_minutes: current.start_step_minutes,
       booking_horizon_days: 9,
+      max_active_appointments: current.max_active_appointments,
       windows: current.windows,
       expected_updated_at: current.updated_at,
     });

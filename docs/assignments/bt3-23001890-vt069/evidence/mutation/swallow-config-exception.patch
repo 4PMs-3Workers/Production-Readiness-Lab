@@ -1,0 +1,30 @@
+diff --git a/src/backend/app/services/booking.py b/src/backend/app/services/booking.py
+index cf6dea4..f10ab6c 100644
+--- a/src/backend/app/services/booking.py
++++ b/src/backend/app/services/booking.py
+@@ -35,7 +35,7 @@ from app.domain.availability import (
+     BookingDateError,
+ )
+ from app.domain.booking import booking_quota_reached, booking_request_hash, require_description
+-from app.models import Appointment, AuditEvent, Notification, User
++from app.models import Appointment, AuditEvent, Notification, ServiceSetting, User
+ from app.observability.tracing import SpanFactory, safe_span, set_business_outcome
+ from app.repositories import appointments, availability, catalog, users
+ from app.schemas.appointments import AppointmentCreateRequest, AppointmentCreateResponse
+@@ -144,7 +144,15 @@ async def _run_attempt_with_commit_safety(
+     transaction = await db.begin()
+     try:
+         async with asyncio.timeout(settings.db_lock_timeout_seconds):
+-            setting = await appointments.lock_service_settings(db)
++            try:
++                setting = await appointments.lock_service_settings(db)
++            except SQLAlchemyError:
++                setting = ServiceSetting(
++                    timezone="Asia/Ho_Chi_Minh",
++                    start_step_minutes=15,
++                    booking_horizon_days=7,
++                    max_active_appointments=3,
++                )
+         if setting is None:
+             raise ServiceUnavailable()
+         account_ids = sorted({context.user_id, payload.staff_id}, key=lambda value: value.bytes)

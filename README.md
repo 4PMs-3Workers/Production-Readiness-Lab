@@ -33,7 +33,7 @@ Quyền vận hành hạ tầng được quản lý riêng với vai trò quản
 
 ### Quy tắc cốt lõi
 
-- Mỗi sinh viên có tối đa **ba lịch đang chiếm chỗ**.
+- Mỗi sinh viên có tối đa `service_settings.max_active_appointments` lịch đang chiếm chỗ (mặc định **3**); admin thay đổi trong cấu hình đặt lịch.
 - Hai trạng thái `UPCOMING` và `CHANGE_PENDING` giữ chỗ. Khoảng thời gian dùng dạng `[starts_at, ends_at)`, cho phép hai lịch tiếp giáp.
 - Không cho phép lịch đang chiếm chỗ giao nhau của cùng nhân viên hoặc cùng sinh viên.
 - Khi chờ phản hồi đổi lịch, giờ gốc vẫn được giữ; giờ mới được kiểm tra lại khi sinh viên chấp thuận.
@@ -151,6 +151,7 @@ và retention. Deployment/stable promotion/rollback thuộc issue #45.
 | [Task database models](docs/tasks/database-models.md)                           | Phạm vi triển khai, kiểm thử và bàn giao bộ models.                                |
 | [Catalog và availability](docs/tasks/catalog-availability.md)                   | Hợp đồng ba API đọc, cách gọi bằng session và bằng chứng/giới hạn nghiệm thu.      |
 | [Đặt lịch appointment](docs/tasks/appointment-booking.md)                       | API tạo lịch, xem chi tiết, idempotency và khôi phục khi mất phản hồi.             |
+| [Cấu hình đặt lịch cấp trường](docs/tasks/admin-booking-configuration.md)         | Admin cập nhật policy versioned, gồm hạn mức lịch đang chiếm chỗ.                  |
 | [Khả năng tiếp nhận của nhân viên](docs/tasks/staff-availability-management.md) | API nhu cầu tiếp nhận/khoảng không nhận, CSRF, khóa với booking và phục hồi retry. |
 | [Đề nghị đổi lịch](docs/tasks/appointment-change-proposals.md)                  | API staff/student, replay/precondition, migration và shared expiry transition.     |
 | [Giao diện đề xuất đổi lịch](docs/tasks/change-proposal-ui.md) | Issue #32: lịch sử/context, tạo/thay, quyết định, phục hồi reload và E2E thật. |
@@ -273,7 +274,7 @@ không hỏi database; `/health/ready` kiểm tra `SELECT 1` và phiên bản tr
 Chạy migration theo `docs/tasks/database-migrations.md` trước khi mong readiness trả 200.
 <!-- current-schema-revision:start -->
 
-Release hiện tại chấp nhận schema revision `20261019_1200_proposal_replay` theo `.env.example`.
+Release hiện tại chấp nhận schema revision `20261113_1200_booking_quota` theo `.env.example`.
 `/health/ready` chỉ trả 200 khi database có đúng một revision và revision đó nằm trong
 `ACCEPTED_SCHEMA_REVISIONS`. Chỉ liệt kê nhiều revision khi đã xác nhận release tương thích với tất cả.
 <!-- current-schema-revision:end -->

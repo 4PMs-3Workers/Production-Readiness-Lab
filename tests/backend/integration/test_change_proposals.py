@@ -113,20 +113,22 @@ async def counts(env):
         )
 
 
-async def test_replace_and_old_replay_never_supersede_a_newer_proposal(booking_env, auth_settings):
+async def test_replace_and_old_replay_never_supersede_a_newer_proposal(
+    booking_env, policy_settings
+):
     env, date, start = booking_env
     identifier = await seed(env, start)
     body = payload(start + timedelta(minutes=30))
-    first, replayed = await create(env, identifier, body, auth_settings)
+    first, replayed = await create(env, identifier, body, policy_settings)
     assert not replayed and first.created_version == 1
     second, _ = await create(
         env,
         identifier,
         payload(start + timedelta(hours=1), version=1, pending_id=first.id),
-        auth_settings,
+        policy_settings,
         key="replacement",
     )
-    replay, replayed = await create(env, identifier, body, auth_settings)
+    replay, replayed = await create(env, identifier, body, policy_settings)
     assert replayed and replay == first
     assert await counts(env) == (2, 2, 4)
     async with env.factory() as db:
@@ -142,49 +144,49 @@ async def test_replace_and_old_replay_never_supersede_a_newer_proposal(booking_e
         assert p1.expires_at == datetime.combine(
             date, time.min, ZoneInfo("Asia/Ho_Chi_Minh")
         ).astimezone(UTC)
-    listing = await history(env, identifier, auth_settings)
+    listing = await history(env, identifier, policy_settings)
     assert (
         listing.context.pending_proposal_id == second.id and listing.context.proposal_version == 2
     )
     assert [item.id for item in listing.items] == [second.id, first.id]
-    empty = await history(env, identifier, auth_settings, page=20, page_size=1)
+    empty = await history(env, identifier, policy_settings, page=20, page_size=1)
     assert not empty.items and empty.total == 2 and empty.context == listing.context
 
 
 async def test_both_preconditions_and_hash_are_enforced_after_acceptance(
-    booking_env, auth_settings
+    booking_env, policy_settings
 ):
     env, _, start = booking_env
     identifier = await seed(env, start)
     body = payload(start + timedelta(minutes=30))
-    first, _ = await create(env, identifier, body, auth_settings)
-    accepted = await decide(env, identifier, first.id, auth_settings)
+    first, _ = await create(env, identifier, body, policy_settings)
+    accepted = await decide(env, identifier, first.id, policy_settings)
     for stale in (payload(start, version=0), payload(start, version=1, pending_id=first.id)):
         with pytest.raises(AppError, match="conflicts") as error:
-            await create(env, identifier, stale, auth_settings, key=uuid4().hex)
+            await create(env, identifier, stale, policy_settings, key=uuid4().hex)
         assert error.value.code == "PROPOSAL_PRECONDITION_FAILED"
     with pytest.raises(AppError) as error:
-        await create(env, identifier, payload(start), auth_settings)
+        await create(env, identifier, payload(start), policy_settings)
     assert error.value.code == "IDEMPOTENCY_CONFLICT"
-    await cancel(env, identifier, auth_settings)
-    replay, replayed = await create(env, identifier, body, auth_settings)
+    await cancel(env, identifier, policy_settings)
+    replay, replayed = await create(env, identifier, body, policy_settings)
     assert replayed and replay == first
-    assert await decide(env, identifier, first.id, auth_settings) == accepted
+    assert await decide(env, identifier, first.id, policy_settings) == accepted
     with pytest.raises(AppError) as error:
-        await decide(env, identifier, first.id, auth_settings, decision="DECLINED")
+        await decide(env, identifier, first.id, policy_settings, decision="DECLINED")
     assert error.value.code == "PROPOSAL_STATE_CONFLICT"
     assert await counts(env) == (1, 3, 6)
 
 
 async def test_location_only_preserves_stored_duration_and_excludes_own_slot(
-    booking_env, auth_settings
+    booking_env, policy_settings
 ):
     env, _, start = booking_env
     identifier = await seed(env, start)
     async with env.factory.begin() as db:
         (await db.get(Purpose, env.purpose_id)).duration_minutes = 60
-    first, _ = await create(env, identifier, payload(start), auth_settings)
-    await decide(env, identifier, first.id, auth_settings)
+    first, _ = await create(env, identifier, payload(start), policy_settings)
+    await decide(env, identifier, first.id, policy_settings)
     async with env.factory() as db:
         row = await db.get(Appointment, identifier)
         assert (
@@ -204,7 +206,7 @@ async def test_location_only_preserves_stored_duration_and_excludes_own_slot(
 
 @pytest.mark.parametrize("kind", ["staff", "student", "purpose", "acceptance", "no-change"])
 async def test_creation_rejects_ineligible_or_unchanged_proposals_without_side_effects(
-    booking_env, auth_settings, kind
+    booking_env, policy_settings, kind
 ):
     env, _, start = booking_env
     identifier = await seed(env, start)
@@ -222,7 +224,7 @@ async def test_creation_rejects_ineligible_or_unchanged_proposals_without_side_e
             env,
             identifier,
             payload(start, location=None if kind == "no-change" else "B"),
-            auth_settings,
+            policy_settings,
         )
     assert error.value.code == ("PROPOSAL_NO_CHANGE" if kind == "no-change" else "NOT_FOUND")
     assert await counts(env) == (0, 0, 0)
@@ -230,12 +232,12 @@ async def test_creation_rejects_ineligible_or_unchanged_proposals_without_side_e
 
 @pytest.mark.parametrize("conflicting", ["staff", "student"])
 async def test_acceptance_revalidates_unreserved_slot_and_preserves_original(
-    booking_env, auth_settings, conflicting
+    booking_env, policy_settings, conflicting
 ):
     env, _, start = booking_env
     identifier = await seed(env, start)
     proposed = start + timedelta(minutes=30)
-    first, _ = await create(env, identifier, payload(proposed), auth_settings)
+    first, _ = await create(env, identifier, payload(proposed), policy_settings)
     await _seed_appointment(
         env,
         student_id=env.other_student_id if conflicting == "staff" else env.student_id,
@@ -244,7 +246,7 @@ async def test_acceptance_revalidates_unreserved_slot_and_preserves_original(
         starts_at=proposed,
     )
     with pytest.raises(AppError) as error:
-        await decide(env, identifier, first.id, auth_settings)
+        await decide(env, identifier, first.id, policy_settings)
     assert error.value.code == (
         "STAFF_UNAVAILABLE" if conflicting == "staff" else "STUDENT_UNAVAILABLE"
     )
@@ -256,22 +258,22 @@ async def test_acceptance_revalidates_unreserved_slot_and_preserves_original(
 
 
 async def test_decline_with_inactive_staff_and_catalog_replays_after_deadline(
-    booking_env, auth_settings, monkeypatch
+    booking_env, policy_settings, monkeypatch
 ):
     env, _, start = booking_env
     identifier = await seed(env, start)
-    first, _ = await create(env, identifier, payload(start), auth_settings)
+    first, _ = await create(env, identifier, payload(start), policy_settings)
     async with env.factory.begin() as db:
         (await db.get(User, env.staff_id)).is_active = False
         (await db.get(Purpose, env.purpose_id)).is_active = False
         (await db.get(StaffPurpose, (env.staff_id, env.purpose_id))).is_accepting = False
-    result = await decide(env, identifier, first.id, auth_settings, decision="DECLINED")
+    result = await decide(env, identifier, first.id, policy_settings, decision="DECLINED")
 
     async def late(db):
         return first.expires_at.root + timedelta(days=2)
 
     monkeypatch.setattr(service.users, "utc_now", late)
-    assert await decide(env, identifier, first.id, auth_settings, decision="DECLINED") == result
+    assert await decide(env, identifier, first.id, policy_settings, decision="DECLINED") == result
     async with env.factory() as db:
         row = await db.get(Appointment, identifier)
         assert row.status == "CANCELLED" and row.cancelled_by == env.student_id

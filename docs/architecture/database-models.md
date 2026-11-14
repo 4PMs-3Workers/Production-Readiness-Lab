@@ -144,7 +144,7 @@ Các điều kiện về quyền, người thao tác và dữ liệu giữa nhi�
 ### 5.1. Quy tắc nghiệp vụ cần bảo vệ
 
 - Tài khoản có một vai trò `STUDENT`, `STAFF` hoặc `ADMIN`; sinh viên tự đặt lịch cho mình.
-- `UPCOMING` và `CHANGE_PENDING` chiếm chỗ; mỗi sinh viên có tối đa ba lịch thuộc hai trạng thái này.
+- `UPCOMING` và `CHANGE_PENDING` chiếm chỗ; mỗi sinh viên có tối đa `max_active_appointments` lịch thuộc hai trạng thái này (mặc định 3).
 - Khoảng thời gian dùng dạng `[starts_at, ends_at)`: hai lịch tiếp giáp được phép, giao khoảng của cùng sinh viên hoặc nhân viên bị từ chối.
 - Khi chờ đổi lịch, giờ gốc vẫn giữ chỗ. Chấp thuận phải kiểm tra lại giờ mới; từ chối hoặc hết hạn phản hồi hủy lịch.
 - `Idempotency-Key` được lưu thành `creation_request_key`, unique theo sinh viên. Cùng key/hash trả kết quả tạo ban đầu; khác hash trả xung đột.
@@ -285,7 +285,7 @@ Bộ tests kiểm tra việc ghi/đọc lại dữ liệu của tất cả bản
 Workflow `.github/workflows/backend-models.yml` chạy trên pull request vào `develop`/`main` và push branch `feature/**`, `fixbug/**`, `hotfix/**`. Job chạy toàn bộ tests trên Linux với MySQL 8.4, kèm Black, Ruff và Pyright. Workflow tạo `.venv`
 để Pyright dùng đúng dependencies, và cài Pyright 1.1.407 bằng Node.js 22.
 
-Tests models xác minh tầng lưu trữ và ràng buộc từng hàng. Quyền API, giao dịch đặt lịch, hạn mức ba lịch, xử lý đổi lịch và tính đúng đắn dưới tải đồng thời cần bộ kiểm thử service/API riêng; kết quả models không thay thế các tiêu chí đó.
+Tests models xác minh tầng lưu trữ và ràng buộc từng hàng. Quyền API, giao dịch đặt lịch, hạn mức cấu hình, xử lý đổi lịch và tính đúng đắn dưới tải đồng thời cần bộ kiểm thử service/API riêng; kết quả models không thay thế các tiêu chí đó.
 
 ## 8. Kết quả kiểm chứng đã ghi nhận
 

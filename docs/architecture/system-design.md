@@ -328,7 +328,7 @@ Mô hình dữ liệu gồm 11 bảng. Quyền ghi qua service và các constrai
 
 - Sinh viên tự đặt cho mình; `student_id` lấy từ phiên. Nhân viên được chọn phải còn hoạt động và đang nhận nhu cầu.
 - Thời lượng lấy từ nhu cầu và lưu tại lúc đặt. Khoảng gặp là `[starts_at, ends_at)`; lịch tiếp giáp được phép.
-- `UPCOMING` và `CHANGE_PENDING` chiếm chỗ, tính vào hạn mức ba lịch; trạng thái kết thúc giải phóng chỗ/hạn mức.
+- `UPCOMING` và `CHANGE_PENDING` chiếm chỗ, tính vào `service_settings.max_active_appointments` (mặc định 3); trạng thái kết thúc giải phóng chỗ/hạn mức.
 - Availability là kết quả đọc. Mỗi thao tác ghi khóa hàng sinh viên/nhân viên đã tồn tại, rồi kiểm tra giao khoảng và hạn mức trong cùng transaction. Mọi luồng API/worker/công cụ ghi dữ liệu phải tuân theo quy trình này.
 - Lịch, đề nghị, audit và thông báo liên quan commit trong cùng transaction. Telemetry nằm ngoài transaction nghiệp vụ.
 
@@ -367,7 +367,7 @@ Các thao tác ghi dùng transaction `READ COMMITTED` và lấy khóa theo cùng
 3. Khóa lịch, sau đó đề nghị hoặc liên kết nhu cầu liên quan.
 4. Đọc lại vai trò, trạng thái, thời gian, hạn mức và khả dụng trước khi ghi.
 
-Khóa hàng tài khoản bảo vệ cả trường hợp nhân viên hoặc sinh viên chưa có lịch nào. Giới hạn ba lịch được đếm sau khi có khóa sinh viên. Database dùng generated column và UNIQUE để bảo đảm tối đa một đề nghị chờ trên mỗi lịch.
+Khóa hàng tài khoản bảo vệ cả trường hợp nhân viên hoặc sinh viên chưa có lịch nào. Hạn mức cấu hình được đếm sau khi có khóa sinh viên. Database dùng generated column và UNIQUE để bảo đảm tối đa một đề nghị chờ trên mỗi lịch.
 
 Khi sinh viên hoặc nhân viên nhận lịch hủy, service lấy khóa theo thứ tự: service_settings FOR
 SHARE, các user student/staff theo UUID byte tăng dần, appointment, rồi proposal PENDING nếu
@@ -698,7 +698,7 @@ Khi công cụ diễn tập được triển khai, mỗi lần chạy cần ghi 
 | Truy cập trái quyền | API từ chối tài khoản sai vai trò và lịch/thông báo ngoài phạm vi. |
 | CSRF và phiên | Request ghi thiếu/sai token hoặc origin bị từ chối; phiên thu hồi/hết hạn bị từ chối. |
 | 50 request cạnh tranh | 50 sinh viên chọn cùng nhân viên và khoảng giờ: một lịch thành công, các request còn lại báo xung đột. |
-| Bốn request cùng sinh viên | Tối đa ba lịch chiếm chỗ, kể cả khi các giờ khác nhau. |
+| Bốn request cùng sinh viên | Không vượt `max_active_appointments` (mặc định 3), kể cả khi các giờ khác nhau. |
 | Retry/mất response | Cùng key trỏ tới cùng lịch; hash khác báo xung đột; giữ nguyên số audit/thông báo. |
 | Duyệt/từ chối/hết hạn cạnh tranh | Một kết quả cuối; lịch và đề nghị nhất quán, giờ/hạn mức đúng trạng thái. |
 | Restart worker | Xử lý được đề nghị quá hạn còn chờ; các cập nhật đã hoàn tất giữ nguyên. |

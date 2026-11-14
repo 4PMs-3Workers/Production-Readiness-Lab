@@ -23,7 +23,6 @@ from tools.deploy.release_images import Registry, archive_image, command
 from tools.deploy.release_manifest import (
     CHECKS,
     ROOT,
-    SCHEMA,
     Image,
     Manifest,
     Spec,
@@ -31,6 +30,7 @@ from tools.deploy.release_manifest import (
     configuration,
     parse,
     proof,
+    schema_revision,
     vendor_inventory,
 )
 
@@ -203,7 +203,7 @@ class Artifacts:
                 frontend="frontend",
             ),
             vendor_images=vendor_inventory(False, root),
-            accepted_schema_revisions=[SCHEMA],
+            accepted_schema_revisions=[schema_revision(root)],
             configuration=configuration("local", False, root).model_dump(),
             previous_stable=previous,
             bootstrap=previous is None,
