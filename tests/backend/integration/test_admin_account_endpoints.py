@@ -1077,7 +1077,8 @@ async def test_soft_delete_restore_preserves_state_and_never_revives_old_session
             )
         )
 
-    deleted = await client.delete(
+    deleted = await client.request(
+        "DELETE",
         f"{ADMIN_ACCOUNTS}/{target_id}",
         json={"expected_updated_at": await active_account(factory, target_id)},
         headers=write_headers(client),
@@ -1150,7 +1151,8 @@ async def test_restore_keeps_previously_inactive_account_inactive(account_env):
             )
         )
 
-    deleted = await client.delete(
+    deleted = await client.request(
+        "DELETE",
         f"{ADMIN_ACCOUNTS}/{target_id}",
         json={"expected_updated_at": await active_account(factory, target_id)},
         headers=write_headers(client),
@@ -1185,7 +1187,8 @@ async def test_non_admin_cannot_soft_delete_or_restore_accounts(account_env):
         )
 
     expected = await active_account(factory, target_id)
-    denied = await client.delete(
+    denied = await client.request(
+        "DELETE",
         f"{ADMIN_ACCOUNTS}/{target_id}",
         json={"expected_updated_at": expected},
         headers=write_headers(client),
@@ -1214,7 +1217,8 @@ async def test_soft_delete_rejects_stale_version_without_mutating_account(accoun
             )
         )
 
-    stale = await client.delete(
+    stale = await client.request(
+        "DELETE",
         f"{ADMIN_ACCOUNTS}/{target_id}",
         json={"expected_updated_at": "2000-01-01T00:00:00Z"},
         headers=write_headers(client),
