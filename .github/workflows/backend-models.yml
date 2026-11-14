@@ -15,7 +15,7 @@ on:
     branches: ['feature/**', 'fixbug/**', 'hotfix/**']
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   models:
@@ -125,36 +125,8 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Sync canonical OpenAPI into the PR branch
-        if: always() && github.event_name == 'pull_request'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          content_sha=$(gh api "/repos/${GITHUB_REPOSITORY}/contents/docs/api/openapi.yaml?ref=${GITHUB_HEAD_REF}" --jq '.sha')
-          .venv/bin/python - <<PY
-          import base64
-          import json
-          from pathlib import Path
-
-          content = base64.b64encode(Path("build/openapi-generated.yaml").read_bytes()).decode("ascii")
-          request = {
-              "message": "docs: sync generated OpenAPI contract",
-              "content": content,
-              "sha": "${content_sha}",
-              "branch": "${GITHUB_HEAD_REF}",
-          }
-          Path("build/openapi-update.json").write_text(json.dumps(request), encoding="utf-8")
-          PY
-          gh api --method PUT "/repos/${GITHUB_REPOSITORY}/contents/docs/api/openapi.yaml" --input build/openapi-update.json
-          gh api "/repos/${GITHUB_REPOSITORY}/contents/docs/api/openapi.yaml?ref=${GITHUB_HEAD_REF}" --jq '.content' | base64 --decode > build/openapi-committed.yaml
-          cmp build/openapi-generated.yaml build/openapi-committed.yaml
-          cp build/openapi-committed.yaml docs/api/openapi.yaml
-
       - name: Check committed OpenAPI artifact
-        run: |
-          .venv/bin/python tools/scripts/export_openapi.py --output build/openapi-regenerated.yaml
-          cmp build/openapi-committed.yaml build/openapi-regenerated.yaml
+        run: cmp docs/api/openapi.yaml build/openapi-generated.yaml
 
       - name: Notification query-plan and concurrent-read evidence
         run: .venv/bin/python -m pytest tests/backend/integration/test_notifications.py::test_recipient_query_plans_and_concurrent_read_with_large_history -q -s --require-mysql
