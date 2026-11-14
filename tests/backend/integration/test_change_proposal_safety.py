@@ -25,8 +25,10 @@ pytestmark = pytest.mark.mysql
 @pytest.mark.parametrize("same_key", [True, False])
 @pytest.mark.parametrize("replacing", [True, False])
 async def test_competing_creations_serialize_replay_or_precondition(
-    booking_env, auth_settings, monkeypatch, same_key, replacing
+    booking_env, policy_settings, monkeypatch, same_key, replacing
 ):
+    # Real-lock observation is a correctness barrier, not a production latency check.
+    auth_settings = policy_settings
     env, _, start = booking_env
     identifier = await seed(env, start)
     body = payload(start)
@@ -349,8 +351,9 @@ async def test_timeout_after_flush_rolls_back_and_releases_all_locks(
 
 @pytest.mark.parametrize("state", ["due", "not-due", "inconsistent", "terminal"])
 async def test_shared_expiry_is_transaction_owned_and_safe_for_inactive_participants(
-    booking_env, auth_settings, monkeypatch, state
+    booking_env, policy_settings, monkeypatch, state
 ):
+    auth_settings = policy_settings
     env, _, start = booking_env
     identifier = await seed(env, start)
     first, _ = await create(env, identifier, payload(start), auth_settings)

@@ -73,6 +73,16 @@ quota khác nhau; bổ sung negative tests cho undefined/0/32768/string/bool/nul
 
 ## Theo dõi head mới
 
+### Finding bổ sung trên c35d8d3: budget production lẫn vào test correctness
+
+- Frontend PR run 43606347940 đã pass: **158 E2E attempts, 0 globalErrors**; security cũng pass cả PR/push.
+- Backend PR run 43606347923: 1 failed, 2511 passed, 790.22 s tại `test_lock_sql_orders_settings_sorted_users_appointment_proposal_then_clock`, trả ServiceUnavailable. Push run 43606343645: 2 failed, 2510 passed, 887.47 s tại competing proposal creation replay và terminal shared expiry. Các test/service này kế thừa nguyên từ base, không phải patch quota/frontend.
+- Fixture `auth_settings` dùng query budget 1 s và lock budget 0.5 s. `ordered_race` chờ observer đọc `performance_schema.data_lock_waits` tối đa 3 s trước khi nhả holder; đây là correctness barrier thật, nhưng budget production có thể hết trước khi barrier hoàn tất. Test thứ tự SQL cũng thực hiện toàn bộ transaction dưới query budget 1 s dù không có assertion latency.
+- Service suppress context trong output bằng `raise ServiceUnavailable() from None`; log CI không chứng minh được chính xác underlying exception thuộc timeout hay driver. Hypothesis là latency làm budget hết; controlled local probe dùng đúng cancellation service với attempt trì hoãn 1.05 s tái hiện `ServiceUnavailable.__context__ == TimeoutError` ở budget production và hoàn tất với fixture policy có sẵn. Probe là synthetic, không được gọi là tái hiện MySQL CI.
+- Sửa ở test scope: chuyển fixture `policy_settings` có sẵn (query 10 s, lock 5 s, request 20 s) lên integration conftest và chỉ dùng thêm cho ba correctness tests này. Không đổi production settings, workflow timeout hay assertion thứ tự SQL/replay/state/side effects. Test SQL-order thêm case delay 1.05 s trước settings lock và vẫn yêu cầu đúng năm locks, đúng sorted users, clock sau locks, chỉ một lần attempt. Đây là tách đúng contract correctness khỏi latency budget, không dùng retry/sleep để làm run pass.
+- Các test timeout có kiểm soát vẫn giữ nguyên budget 0.02 s (cancellation) và 0.25 s (proposal), cùng assertions abort/no writes/release locks. Các test khác không tự động nhận fixture mới.
+- Local: controlled probe pass sau khi bổ sung cấu hình schema pin bắt buộc (lần đầu probe lỗi setup, không tính RED); Black/Ruff 3 file pass; 60 integration cases collect thành công (chưa execute MySQL local); 30 unit tests cancellation/quota/retry pass. CI mới sẽ quyết định hiệu lực patch trên DB thật; không dùng kết quả c35d8d3 để kết luận head tiếp theo.
+
 Hai nhóm code được commit riêng; source và lệnh kiểm chứng được ghi trước push.
 Kết quả cuối cùng phải lấy theo head mới nhất trong PR, không suy từ các run cũ.
 Các liên kết run/check và trạng thái cuối được cập nhật trong mô tả PR và báo cáo trả về;

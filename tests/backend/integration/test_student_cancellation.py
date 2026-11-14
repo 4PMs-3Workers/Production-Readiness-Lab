@@ -15,19 +15,6 @@ from app.models import Appointment, AuditEvent, ChangeProposal, Notification, Se
 from app.schemas import appointments as schemas
 
 
-@pytest.fixture
-def policy_settings(auth_settings):
-    # Policy/atomicity tests need bounded allowances independent of runner latency.
-    # Dedicated timeout tests retain their own short settings below.
-    return auth_settings.model_copy(
-        update={
-            "db_query_timeout_seconds": 10.0,
-            "db_lock_timeout_seconds": 5.0,
-            "request_timeout_seconds": 20.0,
-        }
-    )
-
-
 def delay_policy_lock(monkeypatch, setup_delay):
     from app.repositories import appointments
 
@@ -393,8 +380,9 @@ async def test_cancellation_budgets_abort_without_writes(
         assert await db.scalar(select(func.count()).select_from(Notification)) == 0
 
 
+@pytest.mark.parametrize("setup_delay", [0.0, 1.05])
 async def test_lock_sql_orders_settings_sorted_users_appointment_proposal_then_clock(
-    booking_env, auth_settings
+    booking_env, policy_settings, monkeypatch, setup_delay
 ):
     env, _, start = booking_env
     appointment_id = await seed(env, start, "CHANGE_PENDING")
@@ -409,6 +397,9 @@ async def test_lock_sql_orders_settings_sorted_users_appointment_proposal_then_c
             )
         )
     statements = []
+    # This checks ordering, independently of the one-second production query budget.
+    # The separate budget-abort test above keeps testing the deadline contract.
+    delays = delay_policy_lock(monkeypatch, setup_delay)
     engine = env.factory.kw["bind"].sync_engine
 
     def capture(connection, cursor, statement, parameters, context, many):
@@ -417,7 +408,12 @@ async def test_lock_sql_orders_settings_sorted_users_appointment_proposal_then_c
 
     event.listen(engine, "before_cursor_execute", capture)
     try:
-        await cancel(env, appointment_id, auth_settings)
+        await cancel(
+            env,
+            appointment_id,
+            policy_settings,
+            request_budget=policy_settings.request_timeout_seconds,
+        )
     finally:
         event.remove(engine, "before_cursor_execute", capture)
     locks = [
@@ -436,3 +432,4 @@ async def test_lock_sql_orders_settings_sorted_users_appointment_proposal_then_c
     clock_indexes = [i for i, (sql, _) in enumerate(statements) if "UTC_TIMESTAMP(6)" in sql]
     assert len(clock_indexes) == 1
     assert statements.index(locks[-1]) < clock_indexes[0]
+    assert delays == [setup_delay]
