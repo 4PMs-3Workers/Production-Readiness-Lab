@@ -1049,10 +1049,7 @@ async def test_admin_mutations_work_with_deployed_runtime_grants(account_env, my
         ]
     )
     assert admin_sessions and all(session.revoked_at is not None for session in admin_sessions)
-
-
-
-@pytest.mark.mysql
+\n\n@pytest.mark.mysql
 async def test_soft_delete_restore_preserves_state_and_never_revives_old_sessions(account_env):
     client, factory, admin_id, _ = account_env
     await sign_in(client)
@@ -1106,9 +1103,7 @@ async def test_soft_delete_restore_preserves_state_and_never_revives_old_session
     assert hidden.status_code == 200
     assert hidden.json()["total"] == 0
 
-    visible = await client.get(
-        f"{ADMIN_ACCOUNTS}?search=lifecycle-target&include_deleted=true"
-    )
+    visible = await client.get(f"{ADMIN_ACCOUNTS}?search=lifecycle-target&include_deleted=true")
     assert visible.status_code == 200
     assert visible.json()["total"] == 1
     assert visible.json()["items"][0]["deleted_at"] is not None

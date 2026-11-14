@@ -183,7 +183,6 @@ async def reset_password(
     )
 
 
-
 @router.delete(
     "/{account_id}",
     response_model=AccountItem,

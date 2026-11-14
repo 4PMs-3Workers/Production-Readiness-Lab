@@ -13,7 +13,6 @@ from app.repositories import users
 from app.schemas.admin_accounts import AccountLifecycleRequest, AccountQuery
 from app.services import admin_accounts
 
-
 DELETED_AT = datetime(2026, 11, 14, 12, 0, 0, tzinfo=UTC)
 
 
@@ -25,9 +24,7 @@ def test_lifecycle_request_requires_timezone_aware_version():
     assert request.expected_updated_at == DELETED_AT
 
     with pytest.raises(ValueError):
-        AccountLifecycleRequest.model_validate(
-            {"expected_updated_at": "2026-11-14T12:00:00"}
-        )
+        AccountLifecycleRequest.model_validate({"expected_updated_at": "2026-11-14T12:00:00"})
 
 
 def test_soft_delete_remembers_the_previous_active_state():
@@ -136,8 +133,7 @@ async def test_account_page_excludes_soft_deleted_accounts_by_default():
     )
 
     sql = "\\n".join(
-        str(statement.compile(dialect=mysql.dialect())).lower()
-        for statement in capture.statements
+        str(statement.compile(dialect=mysql.dialect())).lower() for statement in capture.statements
     )
     assert "deleted_at is null" in sql
 
@@ -148,9 +144,7 @@ async def test_account_page_can_include_deleted_accounts_explicitly():
 
     await users.read_account_page(
         cast(AsyncSession, capture),
-        AccountQuery.model_validate(
-            {"page": 1, "page_size": 20, "include_deleted": True}
-        ),
+        AccountQuery.model_validate({"page": 1, "page_size": 20, "include_deleted": True}),
     )
 
     sql = "\\n".join(

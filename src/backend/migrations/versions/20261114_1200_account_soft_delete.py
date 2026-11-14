@@ -22,12 +22,16 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    used = op.get_bind().execute(
-        sa.text(
-            "SELECT COUNT(*) FROM users "
-            "WHERE deleted_at IS NOT NULL OR is_active_before_delete IS NOT NULL"
+    used = (
+        op.get_bind()
+        .execute(
+            sa.text(
+                "SELECT COUNT(*) FROM users "
+                "WHERE deleted_at IS NOT NULL OR is_active_before_delete IS NOT NULL"
+            )
         )
-    ).scalar_one()
+        .scalar_one()
+    )
     if used:
         raise RuntimeError("Cannot downgrade account soft delete: lifecycle state would be lost")
     op.drop_index("ix_users_deleted_at_role", table_name="users")
