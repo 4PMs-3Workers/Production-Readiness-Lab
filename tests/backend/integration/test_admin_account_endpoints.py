@@ -1195,6 +1195,7 @@ async def test_non_admin_cannot_soft_delete_or_restore_accounts(account_env):
         target = await db.get(User, target_id)
         assert target is not None and target.deleted_at is None
 
+
 @pytest.mark.mysql
 async def test_soft_delete_rejects_stale_version_without_mutating_account(account_env):
     client, factory, admin_id, _ = account_env
