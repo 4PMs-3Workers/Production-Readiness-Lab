@@ -231,8 +231,6 @@ async def soft_delete_account(
 ) -> AccountItem:
     async def operation() -> tuple[AccountItem, bool]:
         _, user = await _lock_actor_and_target(db, context, account_id, settings)
-        if user.deleted_at is not None:
-            raise account_error("ACCOUNT_SOFT_DELETED", "Restore the account before editing it")
         if user.updated_at != request.expected_updated_at.astimezone(UTC):
             raise account_error(
                 "ACCOUNT_VERSION_CONFLICT", "Account changed; reload before retrying"
@@ -319,6 +317,8 @@ async def update_account(
 ) -> AccountItem:
     async def operation() -> tuple[AccountItem, bool]:
         _, user = await _lock_actor_and_target(db, context, account_id, settings)
+        if user.deleted_at is not None:
+            raise account_error("ACCOUNT_SOFT_DELETED", "Restore the account before editing it")
         if user.updated_at != request.expected_updated_at.astimezone(UTC):
             raise account_error(
                 "ACCOUNT_VERSION_CONFLICT", "Account changed; reload before retrying"
@@ -423,7 +423,10 @@ async def reset_password(
             async def operation() -> tuple[AccountItem, bool]:
                 _, user = await _lock_actor_and_target(db, context, account_id, settings)
                 if user.deleted_at is not None:
-                    raise account_error("ACCOUNT_SOFT_DELETED", "Restore the account before resetting its password")
+                    raise account_error(
+                        "ACCOUNT_SOFT_DELETED",
+                        "Restore the account before resetting its password",
+                    )
                 if user.updated_at != request.expected_updated_at.astimezone(UTC):
                     raise account_error(
                         "ACCOUNT_VERSION_CONFLICT", "Account changed; reload before retrying"
