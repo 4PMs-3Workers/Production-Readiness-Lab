@@ -174,6 +174,15 @@ và retention. Deployment/stable promotion/rollback thuộc issue #45.
 
 ## Phát triển và kiểm thử
 
+Để chạy unit test cho vòng đời xóa mềm/khôi phục và kiểm thử fixture của harness tải:
+
+```sh
+python -m pytest tests/backend/unit/test_admin_account_lifecycle.py tests/load/test_account_lifecycle.py -q
+```
+
+Test API đầy đủ cần MySQL 8.4 riêng; xem [hướng dẫn quản trị tài khoản](docs/tasks/admin-account-management.md)
+để cấu hình `MYSQL_TEST_URL` và chạy kiểm thử tải 120 tài khoản dùng một lần.
+
 ### Chạy demo đầy đủ bằng Docker Compose
 
 Stack Compose chạy MySQL, API, frontend, worker và Nginx với cổng HTTP local tại

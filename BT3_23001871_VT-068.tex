@@ -1,0 +1,134 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T5]{fontenc}
+\usepackage[vietnamese]{babel}
+\usepackage[a4paper,margin=1.55cm,headheight=14pt,footskip=22pt]{geometry}
+\usepackage{lmodern,microtype,booktabs,longtable,array,xcolor,hyperref,fancyhdr,enumitem}
+\definecolor{navy}{HTML}{17365D}
+\definecolor{teal}{HTML}{087E8B}
+\hypersetup{colorlinks=true,urlcolor=teal,linkcolor=navy}
+\setlist{nosep,leftmargin=*}
+\setlength{\parskip}{3pt}
+\setlength{\parindent}{0pt}
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small BT cá nhân 3 | APP-03 | VT-068}
+\rhead{\small Phạm Duy Hải | 23001871}
+\cfoot{\thepage}
+\title{\vspace{-1.5em}\color{navy}\bfseries BÁO CÁO BÀI TẬP CÁ NHÂN 3\\
+\large Production Readiness Lab -- Xóa mềm và khôi phục tài khoản}
+\author{Phạm Duy Hải \quad|\quad 23001871\\SE2026-T18 -- Nhóm trưởng}
+\date{14 tháng 11, 2026}
+\begin{document}
+\maketitle
+\vspace{-1em}
+\begin{tabular}{@{}ll}
+\textbf{Mã biến thể:} VT-068 & \textbf{Mã đề tài:} APP-03\\
+\textbf{Repository:} \url{https://github.com/4PMs-3Workers/Production-Readiness-Lab} &
+\textbf{Baseline:} \texttt{12a74f7308550ccc294a783edde79db267a526d1}\\
+\textbf{Nhánh PR:} \url{https://github.com/4PMs-3Workers/Production-Readiness-Lab/tree/feature/soft-delete-account-restore} &
+\textbf{PR:} \url{https://github.com/4PMs-3Workers/Production-Readiness-Lab/pull/67}
+\end{tabular}
+
+\textbf{Cam kết:} “Tôi chịu trách nhiệm về toàn bộ code, test và nội dung bài làm; tôi đã khai báo việc sử dụng AI.”
+
+\section*{1. Đặc tả và tiêu chí chấp nhận}
+\textbf{Problem statement.} Quản trị viên cần xóa mềm và khôi phục tài khoản để loại tài khoản khỏi hoạt động mà vẫn giữ lịch sử liên kết nhất quán; việc khôi phục phải phục hồi trạng thái hoạt động trước đó, trong khi quyền quản trị và dữ liệu người dùng khác luôn được bảo vệ.
+
+\textbf{Acceptance criteria.}
+\begin{enumerate}
+\item AC1: ADMIN xóa thành công thì user vẫn tồn tại; \texttt{deleted\_at} được đặt, \texttt{is\_active=false}, trạng thái hoạt động cũ được ghi nhớ, session bị thu hồi và audit event cùng commit.
+\item AC2: Tài khoản xóa mềm bị ẩn khỏi danh sách mặc định; ADMIN có thể xem bằng \texttt{include\_deleted=true}; STUDENT/STAFF không thể đọc hay ghi API quản trị tài khoản.
+\item AC3: Khôi phục chỉ áp dụng cho tài khoản đã xóa, khôi phục cờ active trước đó, xóa marker xóa; session cũ vẫn bị thu hồi.
+\item AC4: Lịch, notification và FK history còn nguyên sau xóa/khôi phục; tài khoản đang chiếm lịch và ADMIN/STAFF cuối cùng được bảo vệ theo business rule.
+\item AC5: Ghi nhận chỉ thành công với \texttt{expected\_updated\_at} hiện tại và cùng-origin + CSRF; stale write trả 409, không tạo audit hay đổi trạng thái.
+\end{enumerate}
+\textbf{Non-functional constraints:} (NFC1) tối thiểu 120 tác vụ đồng thời, p95 mỗi thao tác xóa và khôi phục $\leq 3.5$ giây; (NFC2) kiểm tra ownership/role tại server, mọi thao tác và thu hồi session nhất quán trong transaction; (NFC3) không đưa password, hash, token hoặc nội dung tư vấn vào response/audit.
+
+\textbf{Invariant/contract ưu tiên:} xóa mềm không xóa user/hồ sơ quan hệ; cặp \texttt{deleted\_at} và \texttt{is\_active\_before\_delete} chỉ cùng null hoặc cùng non-null; deleted account inactive. Restore chỉ xóa marker và phục hồi cờ đã lưu; revoked session không bao giờ tự sống lại. Invariant này bảo vệ liên kết lịch sử và ngăn privilege/data exposure.
+
+\section*{2. AI-assisted plan và review}
+\textbf{Prompt kế hoạch:} “Đọc repository APP-03 và đặc tả VT-068. Trước khi sinh code, đưa ra implementation plan, assumptions, invariant, rủi ro phân quyền, file dự kiến thay đổi, test theo các trạng thái và cách kiểm chứng 120 tác vụ/p95. Không giả định xóa vật lý hay bỏ qua DB.”
+
+\textbf{Plan đã review theo repo:} thêm hai cột trạng thái + check/index và migration; service transaction có optimistic version, audit và revoke session; ADMIN-only DELETE/restore route qua origin/CSRF; mặc định ẩn deleted; unit cho transition, MySQL API tests cho quyền/rollback/liên kết, harness tải riêng; kiểm tra OpenAPI, worker/release compatibility, schema và query plan.
+
+\textbf{Assumptions bị bác bỏ bằng evidence.} (1) Plan sơ bộ có thể dùng cascade delete để thu dọn liên quan. Bác bỏ: AC4 yêu cầu giữ lịch sử; model có FK từ Appointment/Notification và integration test chứng minh cả hai vẫn tồn tại sau lifecycle. (2) Có thể khôi phục bằng cách set active=true và tái dùng session. Bác bỏ: model tách \texttt{is\_active} khỏi lifecycle; service lưu cờ cũ, và integration test xác nhận session vẫn revoked. (3) Chỉ cần một admin session cho load test. Bác bỏ: yêu cầu 120 actors độc lập; harness từ chối session trùng và yêu cầu 120 account IDs.
+
+\textbf{Các file dự kiến/đã đổi trên PR:} \texttt{models/user.py}, \texttt{repositories/users.py}, \texttt{services/admin\_accounts.py}, \texttt{api/admin\_accounts.py}, schema + migration; unit/API tests; workflow/schema fixture, OpenAPI, docs và \texttt{tools/load/account\_lifecycle.py}. Plan được ghi cho vòng tiếp tục này trước phần báo cáo; implementation đã tồn tại trên nhánh PR nên review dựa trên commit/diff thực, không nhận là code mới sinh trong lượt này.
+
+\section*{3. Chiến lược test theo risk}
+\textbf{Unit:} state transition, version schema, filter query, percentile và validate inventory. \textbf{Integration/API trên MySQL 8.4:} role/CSRF, stale write, transaction/audit/session/FK, constraint, race và migration. \textbf{E2E:} kiểm tra portal admin thao tác xóa/khôi phục, hiển thị/ẩn và trạng thái lỗi trên desktop/mobile khi API E2E chạy. \textbf{Không cần:} kiểm thử email/password recovery hay UI toàn bộ app; scope này không đổi chúng. Không xem SQLite/mock DB là bằng chứng cho locking/constraint InnoDB.
+
+\textbf{State transition model:} Active(true/false) $\xrightarrow{delete, ADMIN, version mới}$ Deleted(inactive, priorActive lưu) $\xrightarrow{restore, ADMIN, version mới}$ Active(priorActive). Delete lần hai, restore từ Active, actor sai quyền, CSRF thiếu, version cũ, delete ADMIN/STAFF cuối hoặc staff còn lịch là transition bị từ chối. Chọn dữ liệu đại diện cả hai trạng thái active trước xóa, role ADMIN/STAFF/STUDENT, session tồn tại, lịch/notification FK, version đúng/cũ và actor role khác; bao phủ transition hợp lệ và guard, thay vì lấy mẫu ngẫu nhiên.
+
+\small
+\begin{longtable}{p{.07\linewidth}p{.17\linewidth}p{.12\linewidth}p{.39\linewidth}p{.16\linewidth}}
+\toprule ID / Risk & Level & Priority & Input / precondition & Expected\\\midrule
+\endhead
+T01 AC1 transition & Unit & P1 & Active=true, version hợp lệ; gọi mark delete & Deleted, inactive, prior=true\\
+T02 AC3 transition & Unit & P1 & Deleted, prior=false; restore & Active=false, marker clear\\
+T03 AC1 guard & Unit & P1 & Đã deleted; delete lần nữa (negative) & ACCOUNT\_ALREADY\_DELETED\\
+T04 AC3 guard & Unit & P1 & Account live; restore (negative) & ACCOUNT\_NOT\_DELETED\\
+T05 AC2 privacy & Unit/query & P1 & Query mặc định / include\_deleted=true & Filter deleted / không lọc khi opt-in\\
+T06 R quyền lộ dữ liệu & API/MySQL & P0 & STUDENT gọi delete và restore & 403; target không đổi\\
+T07 AC5 stale write & API/MySQL & P1 & ADMIN, stale expected\_updated\_at & 409; không audit/mutate (negative)\\
+T08 AC1+AC4 failure path & API/MySQL & P1 & Commit/DB fail giữa mutation & rollback trạng thái, session, audit; 503\\
+T09 AC4 consistency & API/MySQL & P0 & Target có session, appointment, notification; delete rồi restore & User/FK giữ; session revoked; audit đôi\\
+T10 guard & API/MySQL & P1 & Xóa STAFF còn UPCOMING hoặc ADMIN/STAFF cuối & 409 business code; dữ liệu giữ\\
+T11 NFC load & Harness & P1 & 120 ID/session phân biệt, paired delete/restore & ghi p95 riêng, failures=0, mỗi p95 $\leq3500$ms\\
+T12 tamper & Unit/harness & P1 & ID/session trùng, origin remote HTTP hoặc sai origin & preflight reject, không gửi request\\
+\bottomrule
+\end{longtable}
+\normalsize
+
+\section*{4. Test-first, patch và bằng chứng}
+\textbf{Branch/PR:} \texttt{feature/soft-delete-account-restore}, PR \#67 Draft, base \texttt{develop}. Baseline \texttt{12a74f7308550ccc294a783edde79db267a526d1}. Commit test-only đầu tiên \texttt{4d94be031603f4ba05d6d12fd1716014c3d6bb72}; test được viết khi service chưa có \texttt{mark\_account\_deleted}. Backend models run [43578158304](https://github.com/4PMs-3Workers/Production-Readiness-Lab/actions/runs/43578158304) cho RED đúng contract thiếu method; run còn có một lỗi worker không liên quan nên không coi là pass suite.
+
+\textbf{Patch review:} PR thêm guard/state helper/service, transaction, repo filter, route, migration constraint/index và test; patch giữ user record, audit + revoke atomically, version check, lock policy. Đã rà soát diff, contract và các test; không phát hiện hard-delete hoặc tự hồi sinh session. CI Backend models run [43583785022](https://github.com/4PMs-3Workers/Production-Readiness-Lab/actions/runs/43583785022) báo Black, Ruff, Pyright và hai migration check pass tại head \texttt{d11dbd04}; đó không phải full-suite evidence cuối.
+
+\textbf{Lần chạy local (14-11-2026):} lệnh \texttt{.venv\\Scripts\\python.exe -m pytest tests/backend/unit/test\_admin\_account\_lifecycle.py tests/load/test\_account\_lifecycle.py -q}; kết quả \textbf{12 passed in 1.18s} trong môi trường được duyệt. Chạy sandbox đầu tiên dừng ở test async truy vấn SQL do event loop; chạy lại đã hoàn tất. MySQL integration chưa chạy tại local vì không có test DB được cấu hình. OpenAPI comparison/query plan/full backend suite phải kiểm tra lại ở head hiện tại.
+
+\section*{5. Who tests the tests? Mutation, coverage, flakiness}
+\textbf{Mutation true/false:} branch tạm \texttt{feature/mutation-soft-delete-boolean}, commit \texttt{a7be787dde277c10870c056d8198ceda7340d47d}, đảo guard trạng thái deleted trong business rule. Backend models run [43577431896](https://github.com/4PMs-3Workers/Production-Readiness-Lab/actions/runs/43577431896) cho thấy valid-delete và repeated-delete tests kill mutant. Run có lỗi khác do schema worker/CI cũ, chỉ dùng làm mutation evidence. Mutation nằm nhánh riêng, không trong PR nộp.
+
+\textbf{Coverage:} không có pytest-cov plugin trong môi trường và PR chưa ghi số mới; không tuyên bố phần trăm line/branch. Risk coverage: AC1 T01/T09, AC2 T05, AC3 T02/T04/T09, AC4 T09/T10, AC5 T07/T08/T12; P0 phân quyền và giữ lịch sử nằm ở T06/T09. Unit harness chạy 12/12; integration cần MySQL. Tỷ lệ pass không đo được thiếu sót logic/DB race.
+
+\textbf{Flaky review (2+ nguy cơ).} (a) Thời gian: timestamp optimistic version có precision/clock boundary; test dùng giá trị UTC cụ thể trong unit, nhưng MySQL cần kiểm tra microsecond DB round-trip, tránh sleep. (b) Shared state/order: API integration dùng schema/fixture DB; test tạo dữ liệu UUID riêng và fixture phải dọn; chạy song song có thể cạnh tranh schema/migration. (c) Concurrency: race/lock test phụ thuộc MySQL scheduling; assertions phải kiểm tra invariant, không thứ tự thread. (d) Network: chưa đo staging; harness dùng HTTP timeout hữu hạn 15s, 5s connect; latency môi trường thay đổi. Hiện tại chưa có lần lặp CI mới đủ để kết luận flake rate.
+
+\section*{6. Performance và traceability}
+Runner \texttt{tools/load/account\_lifecycle.py} dùng 120 disposable account IDs + 120 distinct ADMIN cookies/CSRF; asyncio gather, connection pool 120, ghép delete rồi restore trên mỗi target, nearest-rank p95 riêng và đếm lỗi. Opt-in bắt buộc, chỉ HTTPS remote hoặc loopback HTTP, fixture bí mật ngoài Git; mỗi thao tác mutation nên giới hạn 120 target dành riêng. Harness test T11/T12 chạy trong 12 pass. Không có staging URL/fixture: tải thật chưa chạy, p95 3.5s chưa chứng minh và mục tiêu không được đánh dấu đạt.
+
+\small
+\begin{tabular}{p{.24\linewidth}p{.29\linewidth}p{.22\linewidth}p{.17\linewidth}}
+\toprule AC/Risk & Test(s) / file & Commit/PR & Kết quả\\\midrule
+AC1, AC3 transition & T01--04; \texttt{tests/backend/unit/test\_admin\_account\_lifecycle.py} & 4d94be0; PR #67 & unit pass; RED baseline\\
+AC2, privacy & T05--06; unit + \texttt{tests/backend/integration/test\_admin\_account\_endpoints.py} & PR #67 & unit pass; MySQL chưa local\\
+AC4, consistency & T08--10; integration endpoint & PR #67 & tests có; cần MySQL run mới\\
+AC5, stale version & T07; integration endpoint & PR #67 & tests có; cần MySQL run mới\\
+NFC1, abuse preflight & T11--12; \texttt{tests/load/test\_account\_lifecycle.py} + runner & PR #67 & 4 harness tests pass; load chưa đo\\
+Mutation guard & valid/repeat delete unit/API tests & a7be787 experiment & mutant bị kill (run #43577431896)\\
+\bottomrule
+\end{tabular}
+\normalsize
+
+\section*{7. AI log, review cảnh giác và reflection}
+\textbf{AI Usage Log.} Công cụ: Codex GPT-6, coding assistant; không tuyên bố agent đã tự chạy hoặc được peer review. Prompt chính: yêu cầu đọc VT-068, nêu plan + assumptions trước code; rồi yêu cầu kiểm tra branch/PR, hoàn thiện evidence và báo cáo. Output dùng: khung plan, phân nhóm test, review checklist và cấu trúc traceability. Evidence thật lấy từ repo/PR/run GitHub và lệnh pytest; AI không được dùng làm bằng chứng. Bác bỏ assumptions cascade-delete, phục hồi active=true/session cũ và một actor load bằng model FK/lifecycle và harness. Patch test-only 4d94be0 đi trước implementation; commit/PR nêu trên là evidence lịch sử, không phải code mới của lượt này.
+
+\textbf{Hai điểm AI code/test trông hợp lý nhưng cần nghi ngờ.} (1) Assertion “restore trả active=true” bỏ sót account vốn inactive; T02 kiểm tra prior=false. (2) Test role trả 403 nhưng không kiểm tra side effect có thể bỏ lọt mutation trước auth; integration T06 đọc lại target và cần xác nhận session/audit cũng không đổi.
+
+\textbf{Reflection (khoảng 275 từ).} Niềm tin của tôi tăng lên khi xem vòng đời như một máy trạng thái thay vì chỉ kiểm tra hai endpoint riêng lẻ. Test-only commit 4d94be0 được đặt trước implementation trên baseline develop; CI run 43578158304 báo lỗi đúng vì service chưa có hàm chuyển trạng thái. Sau đó test unit chứng minh hai trạng thái trước đó được khôi phục khác nhau, còn test integration mô tả việc giữ appointment, notification, audit và session revocation. Mutation run 43577431896 đảo guard deleted-state và các test xóa hợp lệ/xóa lặp phát hiện được lỗi; đây là bằng chứng suite có thể bác bỏ một implementation sai, dù run đó không đại diện cho toàn suite xanh. Trong lượt tiếp tục này, 12 unit và load-harness test đã pass khi chạy trong môi trường cho phép asyncio; lần chạy sandbox ban đầu treo tại async SQL compilation, nên tôi không tính nó là pass.\n
+Điều vẫn chưa được chứng minh là full backend suite tại PR head hiện tại, MySQL integration sau các commit sửa worker/OpenAPI, số line/branch coverage, query plan trên dữ liệu thực và latency dưới 120 actors. Không có staging cùng 120 tài khoản/session dùng riêng, vì vậy p95 3.5 giây chưa đo được. Mutation CI có lỗi không liên quan, còn workflow check gần nhất chỉ xác nhận lint/type/migration. Test tiếp theo có giá trị cao nhất là chạy workflow backend đầy đủ trên head mới nhất với MySQL 8.4 cô lập, xác minh OpenAPI và query plan, rồi chạy harness 120 phiên trên staging disposable và lưu JSON p95. Cuối cùng cần peer review PR Draft, tập trung thứ tự lock, rollback khi commit outcome unknown và quyền đọc deleted account. Tôi chưa xem draft là sẵn sàng merge; PR vẫn mở cho nhóm review.}
+
+\appendix
+\section*{Phụ lục A. Lệnh tái lập}
+\begin{verbatim}
+python -m pip install -r requirements-dev.txt
+python -m pip install -e src/backend
+python -m pytest tests/backend/unit/test_admin_account_lifecycle.py tests/load/test_account_lifecycle.py -q
+python -m pytest tests/backend tests/load --require-mysql -q
+\end{verbatim}
+Full integration yêu cầu MySQL 8.4 riêng, biến \texttt{MYSQL\_TEST\_URL}; không trỏ vào database dùng chung. Harness tải thật chỉ chạy với fixture account/session disposable riêng và \texttt{PRL\_ACCOUNT\_LOAD\_OPT\_IN} được bật.
+
+\section*{Phụ lục B. Evidence và trạng thái PR}
+RED run: \url{https://github.com/4PMs-3Workers/Production-Readiness-Lab/actions/runs/43578158304}. Mutation: \url{https://github.com/4PMs-3Workers/Production-Readiness-Lab/actions/runs/43577431896}. Backend models lint/type/migration: \url{https://github.com/4PMs-3Workers/Production-Readiness-Lab/actions/runs/43583785022}. PR #67: Draft, open, chưa merge tại lúc lập báo cáo. Các evidence CI là runs lịch sử gắn revision nêu trong PR body; check connector hiện không trả check run tại head 9216375. Trạng thái mới nhất phải xác minh lại trước khi nhóm merge.
+\end{document}
