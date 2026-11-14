@@ -82,6 +82,7 @@ describe('ADMIN booking configuration workspace', () => {
       timezone: configurationFixture.timezone,
       start_step_minutes: 20,
       booking_horizon_days: 7,
+      max_active_appointments: 3,
       windows: configurationFixture.windows,
       expected_updated_at: configurationFixture.updated_at,
     });
