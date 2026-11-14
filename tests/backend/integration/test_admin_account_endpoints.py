@@ -1235,4 +1235,3 @@ async def test_soft_delete_rejects_stale_version_without_mutating_account(accoun
             )
         )
         assert events == []
-
