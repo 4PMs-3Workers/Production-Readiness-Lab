@@ -240,6 +240,8 @@ def configuration(overlay: str, observability: bool, root: Path = ROOT) -> Confi
     return parse(canonical(data), Configuration)
 
 
+GRANTS_PATH = "tools/deploy/mysql/grants.sql"
+
 # The account lifecycle release advances the accepted schema in the shared Compose
 # file and publishes new gateway routes. These exact identities pin the immediate
 # predecessor configuration for a reviewed upgrade and rollback.
