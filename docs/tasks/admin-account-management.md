@@ -155,3 +155,29 @@ HTML and `test-results/` are excluded. Local HTML diagnostics remain local.
 The API deployment prerequisites from #49 still apply, including the existing
 column-level `UPDATE(id)` grant on `service_settings` for the locking read. The
 portal does not add migrations or broaden runtime grants.
+
+
+## Lifecycle load check
+
+The shared booking-load lab intentionally caps its session inventory at 20; it
+cannot establish the APP-03 target of 120 concurrent users. The separate
+`tools.load.account_lifecycle` runner exercises 120 paired DELETE/restore tasks
+against 120 distinct disposable accounts and 120 distinct ADMIN sessions. It
+records per-operation p95 and fails when either exceeds 3.5 seconds. The private
+target inventory contains account IDs, optimistic version values, session
+cookies and CSRF material; store it outside Git and never attach it to a report.
+
+Example (use only an isolated staging environment and disposable accounts):
+
+```bash
+export PRL_ACCOUNT_LOAD_OPT_IN=I_UNDERSTAND_THIS_MUTATES_120_DEDICATED_TEST_ACCOUNTS
+python -m tools.load.account_lifecycle \
+  --target-url https://staging.example.invalid \
+  --origin https://staging.example.invalid \
+  --targets /secure/path/account-lifecycle-targets.json \
+  --report artifacts/account-lifecycle-load.json
+```
+
+This harness was added to make the target reproducible. No staging URL or
+120-account/120-admin-session fixture was provided to this run, so the p95 SLA
+was not measured and must not be marked as passed.
