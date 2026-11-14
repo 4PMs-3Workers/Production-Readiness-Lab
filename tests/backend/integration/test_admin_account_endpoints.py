@@ -1075,5 +1075,6 @@ async def test_tdd_red_soft_delete_route_exists_before_implementation(account_en
         headers=write_headers(client),
     )
 
+
     assert response.status_code == 200, "soft-delete route is not implemented on baseline"
 
