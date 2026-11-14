@@ -19,7 +19,9 @@ from tools.deploy.rollout_smoke_journal import SmokeJournal
 from tools.deploy.rollout_state import RolloutError
 from tools.deploy.rollout_store import StateStore
 
-BASE = "724169a33b852a6cc6b255aff7cb92fffed89908"
+# This transition rehearsal keeps the delivered schema fixed while changing
+# configuration, so its predecessor must already contain the current schema.
+BASE = "7b7d21e47b2a4a63b5f2981d6fff42f5b4c36aae"
 
 FIXED_AVAILABILITY = """
 import asyncio
