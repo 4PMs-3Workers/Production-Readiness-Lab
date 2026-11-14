@@ -308,4 +308,3 @@ def test_cli_sanitizes_errors_and_missing_artifacts(tmp_path):
         assert result.returncode == 1
         assert "synthetic-secret" not in result.stdout + result.stderr
         assert "Traceback" not in result.stdout + result.stderr
-
