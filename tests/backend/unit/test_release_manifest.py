@@ -102,13 +102,13 @@ def test_reviewed_predecessor_requires_opt_in_and_exact_configuration(tmp_path):
         "47b24ed0346691dbc949d958fe351f29af893727bbecdde172793358a83fd90c"
     )
     assert previous_hashes["tools/deploy/compose.local.yaml"] == (
-        "c6017399bdf443a3ac5e27d6e64cc6bec3e7fc1f038baf9e71332a9c99d2bf44"
+        "5766741d8e44c72fc5487cd689ca658a6780e9f8cf804481df4f3a9a89bbb758"
     )
     assert previous_hashes["tools/deploy/nginx/nginx.conf"] == (
-        "35220da5abdb389321cb47f8688286fc0d4e6a70ea54442db4d087998178248b"
+        "dd8331ac797a1f5bfa5c05eb3a33af815fd188346058860d9e9e27e631343597"
     )
     assert previous_hashes["tools/deploy/nginx/routes.conf"] == (
-        "5e9f6e34f6911366c0c785f1ab62249e4bb58f9bcaed112c74f8637e1532e925"
+        "ebfdcf0a4efcf8f13b8a9423e69ed251ea70a5ebc8193eefcf4d477b4ed5fc22"
     )
     https_previous = previous_configuration(configuration("https", False))
     assert https_previous is not None
@@ -121,7 +121,7 @@ def test_reviewed_predecessor_requires_opt_in_and_exact_configuration(tmp_path):
         "5e9f6e34f6911366c0c785f1ab62249e4bb58f9bcaed112c74f8637e1532e925"
     )
     assert https_hashes["tools/deploy/compose.https.yaml"] == (
-        "319fdc5b8334164a1577bde4b63cbf2d730dc76dd99e54fc7cb735b2a703af4b"
+        "0811f0b010706d59351e7f3a0c4951b9f788731913877c1d88a805be1c0ad305"
     )
     with pytest.raises(ReleaseError, match="incompatible-configuration"):
         require_configuration(previous)
@@ -136,8 +136,8 @@ def test_reviewed_predecessor_requires_opt_in_and_exact_configuration(tmp_path):
         output.write(b"\n# unreviewed\n")
     with pytest.raises(ReleaseError, match="incompatible-configuration"):
         require_configuration(previous, tmp_path, allow_previous=True)
-    # A third version of either reviewed file cannot use this transition either.
-    with (tmp_path / "tools/deploy/mysql/grants.sql").open("ab") as output:
+    # A third version of a reviewed file cannot use this transition either.
+    with (tmp_path / "tools/deploy/nginx/route-map.conf").open("ab") as output:
         output.write(b"\n-- unreviewed\n")
     assert previous_configuration(configuration("local", False, tmp_path)) is None
 
