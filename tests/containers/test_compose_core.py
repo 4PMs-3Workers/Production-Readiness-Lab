@@ -255,7 +255,8 @@ def test_mysql_migration_grants_schema_gate_and_persistence(stack):
         ).returncode
         == 0
     )
-    assert compose("run", "--rm", "-T", "schema").returncode == 0
+    # The pre-soft-delete schema lacks columns used by this release and must be rejected.
+    assert compose("run", "--rm", "-T", "schema").returncode != 0
 
     assert compose("down", "--timeout", "40").returncode == 0
     assert compose("up", "-d", "--wait", "mysql", timeout=120).returncode == 0
