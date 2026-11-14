@@ -59,6 +59,8 @@ jobs:
       - name: Verify worker module entry point without starting database resources
         run: .venv/bin/python -m app.worker --help
       - run: npm install --global pyright@1.1.407
+      - name: Temporary Black diff for lifecycle integration tests
+        run: .venv/bin/python -m black --diff tests/backend/integration/test_admin_account_endpoints.py
       - run: .venv/bin/python -m black --check src/backend tests/backend tests/load tools/load tools/scripts/export_openapi.py tools/scripts/seed_demo.py tools/backup tools/infra/offhost
       - run: .venv/bin/python -m ruff check src/backend tests/backend tests/load tools/load tools/scripts/export_openapi.py tools/scripts/seed_demo.py tools/backup tools/infra/offhost
       - name: Release tooling quality checks
