@@ -167,6 +167,7 @@ và retention. Deployment/stable promotion/rollback thuộc issue #45.
 | [Bàn giao và nghiệm thu frontend](docs/tasks/frontend-handoff.md)               | Mốc 7: acceptance criteria, cách review, ảnh và phụ thuộc tích hợp API.            |
 | [Tích hợp frontend API thật](docs/tasks/frontend-api-integration.md)            | Issue #20: session, đặt/hủy lịch, phục hồi reload và E2E MySQL thật.               |
 | [Hồ sơ sinh viên](docs/tasks/student-profile.md)                                | Trang hồ sơ riêng, API cá nhân và migration thông tin sinh viên.                   |
+| [Quản trị tài khoản](docs/tasks/admin-account-management.md) | API ADMIN, vô hiệu hóa và xóa mềm/khôi phục, session, audit, kiểm thử và benchmark lifecycle. |
 | [Mô tả thay đổi và review issue #20](docs/tasks/issue-20-change-description.md) | Phạm vi từng file, kiểm thử, bằng chứng và hướng dẫn triển khai trước commit.      |
 | [Coding convention](docs/other/CONVENTION.md)                                   | Quy ước tổ chức và viết mã frontend/backend.                                       |
 | [Git Flow](docs/other/GITFLOW.md)                                               | Vai trò các branch, Pull Request và quy trình release/hotfix.                      |

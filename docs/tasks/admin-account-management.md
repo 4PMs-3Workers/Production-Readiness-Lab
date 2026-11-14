@@ -1,8 +1,9 @@
 # Account Administration API
 
 The account API is for authenticated `ADMIN` users only. It manages internal
-accounts and does not expose consultation content, account deletion, SSO, or
-email-based password recovery. Every response is private and must not be cached.
+accounts, including an explicit soft-delete/restore lifecycle, and does not expose
+consultation content, SSO, or email-based password recovery. Every response is
+private and must not be cached.
 The shared private API middleware applies its request deadline and body-size
 limit to all account routes.
 
@@ -10,16 +11,16 @@ limit to all account routes.
 
 | Method and path | Purpose |
 |---|---|
-| `GET /api/v1/admin/accounts` | List accounts with `page`, `page_size` (1–100), optional exact `role`, optional `is_active`, and optional name/email `search`. |
+| `GET /api/v1/admin/accounts` | List accounts with `page`, `page_size` (1–100), optional exact `role`, optional `is_active`, `include_deleted=true` (ADMIN only), and optional name/email `search`. |
 | `POST /api/v1/admin/accounts` | Create an account. Requires same-origin and CSRF. Email is trimmed/lowercased; password is write-only. |
 | `PATCH /api/v1/admin/accounts/{account_id}` | Update profile, role, or active state. Requires same-origin and CSRF plus the current `expected_updated_at`. |
 | `DELETE /api/v1/admin/accounts/{account_id}` | Soft-delete an account; preserves linked history, revokes sessions, and stores the prior active state. Requires same-origin, CSRF, and `expected_updated_at`. |
-| `POST /api/v1/admin/accounts/{account_id}/restore` | Restore the prior active/inactive state. Previously revoked sessions stay revoked. Requires same-origin, CSRF, and `expected_updated_at`.
+| `POST /api/v1/admin/accounts/{account_id}/restore` | Restore the prior active/inactive state. Previously revoked sessions stay revoked. Requires same-origin, CSRF, and `expected_updated_at`. |
 | `POST /api/v1/admin/accounts/{account_id}/password` | Explicitly reset an internal password. Requires same-origin and CSRF plus the current `expected_updated_at`. |
 
 Account responses contain identity, role, active state, student profile fields,
-and timestamps. Passwords, password hashes, session tokens, and consultation
-content are never returned.
+`deleted_at`, and timestamps. Passwords, password hashes, session tokens, and
+consultation content are never returned.
 
 ## Account policy
 
@@ -155,6 +156,32 @@ HTML and `test-results/` are excluded. Local HTML diagnostics remain local.
 The API deployment prerequisites from #49 still apply, including the existing
 column-level `UPDATE(id)` grant on `service_settings` for the locking read. The
 portal does not add migrations or broaden runtime grants.
+
+
+
+## Backend verification
+
+Run from the repository root after installing the development dependencies.
+The unit/load-harness tests do not require a staging account inventory:
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m pip install -e src/backend
+python -m pytest tests/backend/unit/test_admin_account_lifecycle.py tests/load/test_account_lifecycle.py -q
+```
+
+The full MySQL suite requires a dedicated MySQL 8.4 test server and a test
+account allowed to create and drop isolated schemas. Set `MYSQL_TEST_URL` to
+that test-only connection string, then run:
+
+```bash
+python -m pytest tests/backend tests/load --require-mysql -q
+```
+
+GitHub Actions workflow `Backend models` also applies Alembic migrations from
+an empty schema, confirms there is one current head, checks the second upgrade
+is a no-op, runs required tests without skips, and compares the committed
+OpenAPI YAML with a fresh export.
 
 
 ## Lifecycle load check
