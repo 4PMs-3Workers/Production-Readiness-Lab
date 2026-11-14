@@ -1,5 +1,4 @@
 import pytest
-
 from tools.load.account_lifecycle import (
     LifecycleLoadError,
     percentile,

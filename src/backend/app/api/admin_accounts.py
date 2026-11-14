@@ -218,7 +218,8 @@ async def delete_account(
     responses=account_responses(200, 401, 403, 404, 409, 413, 415, 422, 500, 503),
     summary="Restore a soft-deleted account",
     description=(
-        "Restore the activity state held before deletion. Previously issued sessions remain revoked. "
+        "Restore the activity state held before deletion. "
+        "Previously issued sessions remain revoked. "
         + ACCOUNT_WRITE_DESCRIPTION
     ),
     openapi_extra=ACCOUNT_WRITE_OPENAPI,
