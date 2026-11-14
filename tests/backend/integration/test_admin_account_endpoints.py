@@ -13,7 +13,16 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.core.database import create_database_engine
-from app.models import Appointment, AuditEvent, ServiceSetting, Session, StaffPurpose, User
+from app.models import (
+    Appointment,
+    AuditEvent,
+    Notification,
+    Purpose,
+    ServiceSetting,
+    Session,
+    StaffPurpose,
+    User,
+)
 
 ORIGIN = {"Origin": "http://localhost:3000"}
 ADMIN_ACCOUNTS = "/api/v1/admin/accounts"
@@ -1056,17 +1065,63 @@ async def test_soft_delete_restore_preserves_state_and_never_revives_old_session
     client, factory, admin_id, _ = account_env
     await sign_in(client)
     await promote_to_admin(factory, admin_id)
-    target_id = uuid4()
+    target_id, staff_id, purpose_id, appointment_id = (
+        uuid4(),
+        uuid4(),
+        uuid4(),
+        uuid4(),
+    )
     token_hash = hashlib.sha256(f"lifecycle-{target_id}".encode()).digest()
+    starts_at = datetime.now(UTC) + timedelta(days=2)
     async with factory.begin() as db:
+        db.add_all(
+            [
+                User(
+                    id=target_id,
+                    email="lifecycle-target@example.invalid",
+                    name="Lifecycle Target",
+                    role="STUDENT",
+                    password_hash="unused-test-hash",
+                    is_active=True,
+                ),
+                User(
+                    id=staff_id,
+                    email="lifecycle-staff@example.invalid",
+                    name="Lifecycle Staff",
+                    role="STAFF",
+                    password_hash="unused-test-hash",
+                ),
+                Purpose(
+                    id=purpose_id,
+                    code="LIFECYCLE_PRESERVE",
+                    name="Lifecycle preservation purpose",
+                    duration_minutes=30,
+                ),
+            ]
+        )
+        await db.flush()
+        db.add(StaffPurpose(staff_id=staff_id, purpose_id=purpose_id))
+        await db.flush()
         db.add(
-            User(
-                id=target_id,
-                email="lifecycle-target@example.invalid",
-                name="Lifecycle Target",
-                role="STUDENT",
-                password_hash="unused-test-hash",
-                is_active=True,
+            Appointment(
+                id=appointment_id,
+                student_id=target_id,
+                staff_id=staff_id,
+                purpose_id=purpose_id,
+                duration_minutes=30,
+                starts_at=starts_at,
+                ends_at=starts_at + timedelta(minutes=30),
+                status="UPCOMING",
+                creation_request_key=f"lifecycle-{appointment_id}",
+                creation_request_hash=b"l" * 32,
+            )
+        )
+        await db.flush()
+        db.add(
+            Notification(
+                recipient_id=target_id,
+                appointment_id=appointment_id,
+                event_type="APPOINTMENT_CREATED",
             )
         )
         db.add(
@@ -1101,6 +1156,15 @@ async def test_soft_delete_restore_preserves_state_and_never_revives_old_session
         )
         assert delete_audit is not None
         assert delete_audit.event_metadata["linked_records_preserved"] is True
+        appointment = await db.get(Appointment, appointment_id)
+        notification = await db.scalar(
+            select(Notification).where(
+                Notification.recipient_id == target_id,
+                Notification.appointment_id == appointment_id,
+            )
+        )
+        assert appointment is not None
+        assert notification is not None
 
     hidden = await client.get(f"{ADMIN_ACCOUNTS}?search=lifecycle-target")
     assert hidden.status_code == 200
@@ -1131,6 +1195,13 @@ async def test_soft_delete_restore_preserves_state_and_never_revives_old_session
             )
         )
         assert restore_audit is not None
+        assert await db.get(Appointment, appointment_id) is not None
+        assert await db.scalar(
+            select(Notification).where(
+                Notification.recipient_id == target_id,
+                Notification.appointment_id == appointment_id,
+            )
+        ) is not None
 
 
 @pytest.mark.mysql
@@ -1194,6 +1265,12 @@ async def test_non_admin_cannot_soft_delete_or_restore_accounts(account_env):
         headers=write_headers(client),
     )
     assert denied.status_code == 403
+    restore_denied = await client.post(
+        f"{ADMIN_ACCOUNTS}/{target_id}/restore",
+        json={"expected_updated_at": expected},
+        headers=write_headers(client),
+    )
+    assert restore_denied.status_code == 403
     async with factory() as db:
         target = await db.get(User, target_id)
         assert target is not None and target.deleted_at is None
@@ -1240,3 +1317,131 @@ async def test_soft_delete_rejects_stale_version_without_mutating_account(accoun
             )
         )
         assert events == []
+
+@pytest.mark.mysql
+async def test_soft_delete_rejects_last_active_admin(account_env):
+    client, factory, admin_id, _ = account_env
+    await sign_in(client)
+    await promote_to_admin(factory, admin_id)
+
+    denied = await client.request(
+        "DELETE",
+        f"{ADMIN_ACCOUNTS}/{admin_id}",
+        json={"expected_updated_at": await active_account(factory, admin_id)},
+        headers=write_headers(client),
+    )
+
+    assert denied.status_code == 409
+    assert denied.json()["error"]["code"] == "LAST_ACTIVE_ADMIN"
+    async with factory() as db:
+        admin = await db.get(User, admin_id)
+        assert admin is not None
+        assert admin.deleted_at is None
+        assert admin.is_active is True
+
+
+@pytest.mark.mysql
+async def test_soft_delete_rejects_last_active_staff(account_env):
+    client, factory, admin_id, _ = account_env
+    await sign_in(client)
+    await promote_to_admin(factory, admin_id)
+    staff_id = uuid4()
+    async with factory.begin() as db:
+        db.add(
+            User(
+                id=staff_id,
+                email="last-staff@example.invalid",
+                name="Last Staff",
+                role="STAFF",
+                password_hash="unused-test-hash",
+                is_active=True,
+            )
+        )
+
+    denied = await client.request(
+        "DELETE",
+        f"{ADMIN_ACCOUNTS}/{staff_id}",
+        json={"expected_updated_at": await active_account(factory, staff_id)},
+        headers=write_headers(client),
+    )
+
+    assert denied.status_code == 409
+    assert denied.json()["error"]["code"] == "LAST_ACTIVE_STAFF"
+    async with factory() as db:
+        staff = await db.get(User, staff_id)
+        assert staff is not None
+        assert staff.deleted_at is None
+        assert staff.is_active is True
+
+
+@pytest.mark.mysql
+async def test_soft_delete_rejects_staff_with_occupying_appointment(account_env):
+    client, factory, admin_id, _ = account_env
+    await sign_in(client)
+    await promote_to_admin(factory, admin_id)
+    staff_id, student_id, purpose_id, appointment_id = (
+        uuid4(),
+        uuid4(),
+        uuid4(),
+        uuid4(),
+    )
+    starts_at = datetime.now(UTC) + timedelta(days=2)
+    async with factory.begin() as db:
+        db.add_all(
+            [
+                User(
+                    id=staff_id,
+                    email="busy-staff@example.invalid",
+                    name="Busy Staff",
+                    role="STAFF",
+                    password_hash="unused-test-hash",
+                    is_active=True,
+                ),
+                User(
+                    id=student_id,
+                    email="busy-student@example.invalid",
+                    name="Busy Student",
+                    role="STUDENT",
+                    password_hash="unused-test-hash",
+                ),
+                Purpose(
+                    id=purpose_id,
+                    code="BUSY_STAFF_GUARD",
+                    name="Busy staff guard",
+                    duration_minutes=30,
+                ),
+            ]
+        )
+        await db.flush()
+        db.add(StaffPurpose(staff_id=staff_id, purpose_id=purpose_id))
+        await db.flush()
+        db.add(
+            Appointment(
+                id=appointment_id,
+                student_id=student_id,
+                staff_id=staff_id,
+                purpose_id=purpose_id,
+                duration_minutes=30,
+                starts_at=starts_at,
+                ends_at=starts_at + timedelta(minutes=30),
+                status="UPCOMING",
+                creation_request_key=f"busy-staff-{appointment_id}",
+                creation_request_hash=b"b" * 32,
+            )
+        )
+
+    denied = await client.request(
+        "DELETE",
+        f"{ADMIN_ACCOUNTS}/{staff_id}",
+        json={"expected_updated_at": await active_account(factory, staff_id)},
+        headers=write_headers(client),
+    )
+
+    assert denied.status_code == 409
+    assert denied.json()["error"]["code"] == "STAFF_HAS_OCCUPYING_APPOINTMENTS"
+    async with factory() as db:
+        staff = await db.get(User, staff_id)
+        appointment = await db.get(Appointment, appointment_id)
+        assert staff is not None and staff.deleted_at is None
+        assert appointment is not None and appointment.status == "UPCOMING"
+
