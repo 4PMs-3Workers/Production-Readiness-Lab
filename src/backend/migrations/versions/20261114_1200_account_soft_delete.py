@@ -3,7 +3,7 @@
 import sqlalchemy as sa
 from alembic import op
 
-revision = "20261114_1200_account_soft_delete"
+revision = "20261114_1200_soft_delete"
 down_revision = "20261019_1200_proposal_replay"
 branch_labels = None
 depends_on = None
