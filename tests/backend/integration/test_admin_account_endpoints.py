@@ -1050,6 +1050,7 @@ async def test_admin_mutations_work_with_deployed_runtime_grants(account_env, my
     )
     assert admin_sessions and all(session.revoked_at is not None for session in admin_sessions)
 
+
 @pytest.mark.mysql
 async def test_tdd_red_soft_delete_route_exists_before_implementation(account_env):
     """This contract test must fail on the baseline before the feature exists."""
