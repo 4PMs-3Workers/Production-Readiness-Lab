@@ -212,8 +212,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="120-task account soft-delete/restore load check")
     parser.add_argument("--target-url", required=True)
     parser.add_argument("--origin", required=True)
-    parser.add_argument("--targets", type=Path, required=True, help="Private JSON fixture; never commit it")
-    parser.add_argument("--report", type=Path, default=Path("artifacts/account-lifecycle-load.json"))
+    parser.add_argument(
+        "--targets", type=Path, required=True, help="Private JSON fixture; never commit it"
+    )
+    parser.add_argument(
+        "--report", type=Path, default=Path("artifacts/account-lifecycle-load.json")
+    )
     args = parser.parse_args()
     if os.environ.get("PRL_ACCOUNT_LOAD_OPT_IN") != _OPT_IN:
         raise LifecycleLoadError("Explicit disposable-account load-test opt-in is required")
