@@ -79,6 +79,7 @@ def test_openapi_export_is_deterministic_without_database(tmp_path):
         "/api/v1/auth/logout",
         "/api/v1/admin/accounts",
         "/api/v1/admin/accounts/{account_id}",
+        "/api/v1/admin/accounts/{account_id}/restore",
         "/api/v1/admin/accounts/{account_id}/password",
         "/api/v1/admin/purposes",
         "/api/v1/admin/purposes/{purpose_id}",
