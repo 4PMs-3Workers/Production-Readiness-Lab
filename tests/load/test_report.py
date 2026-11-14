@@ -79,7 +79,7 @@ def _write_deployment_manifest(tmp_path, *, missing_image_id=False):
         "manifest_version": 2,
         "source_sha": source_sha,
         "overlay": "local",
-        "schema_revisions": ["20261019_1200_proposal_replay"],
+        "schema_revisions": ["20261114_1200_soft_delete"],
         "verification": {"command": "evidence", "status": "passed"},
         "created_at": "2026-11-08T00:00:00Z",
         "updated_at": "2026-11-08T00:00:00Z",

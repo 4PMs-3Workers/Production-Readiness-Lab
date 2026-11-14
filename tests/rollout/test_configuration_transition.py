@@ -19,7 +19,9 @@ from tools.deploy.rollout_smoke_journal import SmokeJournal
 from tools.deploy.rollout_state import RolloutError
 from tools.deploy.rollout_store import StateStore
 
-BASE = "724169a33b852a6cc6b255aff7cb92fffed89908"
+# This transition rehearsal keeps the delivered schema fixed while changing
+# configuration, so its predecessor must already contain the current schema.
+BASE = "59b248ac727f07c625e415cfa433c0e7d625f877"
 
 FIXED_AVAILABILITY = """
 import asyncio
@@ -262,8 +264,8 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
                     "2027-03-14T13:00:00Z" <= start <= "2027-03-14T15:30:00Z" for start in starts
                 )
                 old_slots = fixed_availability(upgraded.runtime, stack, old_backend, payload, token)
-                assert old_slots["status"] == 503
-                assert old_slots["body"]["error"]["code"] == "SERVICE_UNAVAILABLE"
+                assert old_slots["status"] == 200
+                assert [slot["starts_at"] for slot in old_slots["body"]["slots"]] == starts
 
             running = running_images(upgraded.runtime)
             refused = host(ROOT, source, stack.port).rollback()

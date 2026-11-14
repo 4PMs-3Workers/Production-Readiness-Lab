@@ -32,7 +32,7 @@ def v2_manifest(**updates):
         "overlay": "https",
         "observability": True,
         "configuration_sha256": "b" * 64,
-        "schema_revisions": ["20261019_1200_proposal_replay"],
+        "schema_revisions": ["20261114_1200_soft_delete"],
         "images": {
             "collector": {"id": "sha256:" + "c" * 64, "digests": []},
             "local_alert_receiver": {"id": "sha256:" + "d" * 64, "digests": []},

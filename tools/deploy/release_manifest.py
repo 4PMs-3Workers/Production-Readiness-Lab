@@ -13,7 +13,7 @@ from typing import Annotated, Literal, Self, TypeAlias, TypeVar
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 ROOT = Path(__file__).resolve().parents[2]
-SCHEMA = "20261019_1200_proposal_replay"
+SCHEMA = "20261114_1200_soft_delete"
 MAX_JSON = 1024 * 1024
 SHA: TypeAlias = Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]
 Hex: TypeAlias = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
@@ -242,34 +242,17 @@ def configuration(overlay: str, observability: bool, root: Path = ROOT) -> Confi
 
 GRANTS_PATH = "tools/deploy/mysql/grants.sql"
 
-# Issue #50 adds routes and runtime privileges without removing the base release's
-# routes or grants. Issue #53 adds a read-only public attestation mount and health
-# endpoint without changing the existing host's deployment state. These exact file
-# identities let the reviewed upgrade preserve and later restore that predecessor.
+# The account lifecycle release advances the accepted schema in the shared Compose
+# file and publishes new gateway routes. These exact identities pin the immediate
+# predecessor configuration for a reviewed upgrade and rollback.
 ADMIN_POLICY_TRANSITION = {
-    GRANTS_PATH: (
-        "6350525d0dace2a66459f486606e2f45a1d84e48cc673e0ab1a38f8e3c49a926",
-        "8a7277032db2552dc45e9031dd0947d1b0aa363b0d1ebd445366225af3af038a",
+    "tools/deploy/compose.yaml": (
+        "1f9c939fb1496429e6870000e1e2c4ccb2a5773a402984d70b1bfd27ca15833e",
+        "b47009b194b4be07186032126f4da0b78246b9f91905852602a61061d85869b9",
     ),
     "tools/deploy/nginx/route-map.conf": (
-        "1c5c8eaa269404fff5f30bd8eecd5733768891b5226684bb5f867748b29ce5fd",
         "47b24ed0346691dbc949d958fe351f29af893727bbecdde172793358a83fd90c",
-    ),
-    "tools/deploy/compose.local.yaml": (
-        "c6017399bdf443a3ac5e27d6e64cc6bec3e7fc1f038baf9e71332a9c99d2bf44",
-        "5766741d8e44c72fc5487cd689ca658a6780e9f8cf804481df4f3a9a89bbb758",
-    ),
-    "tools/deploy/compose.https.yaml": (
-        "319fdc5b8334164a1577bde4b63cbf2d730dc76dd99e54fc7cb735b2a703af4b",
-        "0811f0b010706d59351e7f3a0c4951b9f788731913877c1d88a805be1c0ad305",
-    ),
-    "tools/deploy/nginx/nginx.conf": (
-        "35220da5abdb389321cb47f8688286fc0d4e6a70ea54442db4d087998178248b",
-        "dd8331ac797a1f5bfa5c05eb3a33af815fd188346058860d9e9e27e631343597",
-    ),
-    "tools/deploy/nginx/routes.conf": (
-        "5e9f6e34f6911366c0c785f1ab62249e4bb58f9bcaed112c74f8637e1532e925",
-        "ebfdcf0a4efcf8f13b8a9423e69ed251ea70a5ebc8193eefcf4d477b4ed5fc22",
+        "04f782e69aeccbde6704168c08eba879b6230464b6c11f6287bc6a4e7937b29e",
     ),
 }
 

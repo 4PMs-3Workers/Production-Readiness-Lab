@@ -1,8 +1,9 @@
 # Account Administration API
 
 The account API is for authenticated `ADMIN` users only. It manages internal
-accounts and does not expose consultation content, account deletion, SSO, or
-email-based password recovery. Every response is private and must not be cached.
+accounts, including an explicit soft-delete/restore lifecycle, and does not expose
+consultation content, SSO, or email-based password recovery. Every response is
+private and must not be cached.
 The shared private API middleware applies its request deadline and body-size
 limit to all account routes.
 
@@ -10,18 +11,22 @@ limit to all account routes.
 
 | Method and path | Purpose |
 |---|---|
-| `GET /api/v1/admin/accounts` | List accounts with `page`, `page_size` (1–100), optional exact `role`, optional `is_active`, and optional name/email `search`. |
+| `GET /api/v1/admin/accounts` | List accounts with `page`, `page_size` (1–100), optional exact `role`, optional `is_active`, `include_deleted=true` (ADMIN only), and optional name/email `search`. |
 | `POST /api/v1/admin/accounts` | Create an account. Requires same-origin and CSRF. Email is trimmed/lowercased; password is write-only. |
 | `PATCH /api/v1/admin/accounts/{account_id}` | Update profile, role, or active state. Requires same-origin and CSRF plus the current `expected_updated_at`. |
+| `DELETE /api/v1/admin/accounts/{account_id}` | Soft-delete an account; preserves linked history, revokes sessions, and stores the prior active state. Requires same-origin, CSRF, and `expected_updated_at`. |
+| `POST /api/v1/admin/accounts/{account_id}/restore` | Restore the prior active/inactive state. Previously revoked sessions stay revoked. Requires same-origin, CSRF, and `expected_updated_at`. |
 | `POST /api/v1/admin/accounts/{account_id}/password` | Explicitly reset an internal password. Requires same-origin and CSRF plus the current `expected_updated_at`. |
 
 Account responses contain identity, role, active state, student profile fields,
-and timestamps. Passwords, password hashes, session tokens, and consultation
-content are never returned.
+`deleted_at`, and timestamps. Passwords, password hashes, session tokens, and
+consultation content are never returned.
 
 ## Account policy
 
-- Accounts are retained; APIs do not delete them.
+- Accounts are retained; the DELETE route performs a soft delete and never removes the user row or its foreign-key-linked history. `deleted_at` and `is_active_before_delete` represent a separate lifecycle from ordinary `is_active` deactivation. Normal account lists hide deleted accounts; ADMIN may use `include_deleted=true` to inspect and restore them.
+- Soft deletion records the previous `is_active` value, sets `is_active=false`, advances `updated_at`, and revokes all sessions in the same transaction as the audit event. Restore returns the saved active flag and clears both deletion fields. It does not un-revoke sessions; a restored active account must sign in again.
+- Repeated deletion returns `ACCOUNT_ALREADY_DELETED`; restoring a live account returns `ACCOUNT_NOT_DELETED`; a deleted account cannot be edited or have its password reset until restored.
 - At least one active `ADMIN` and one active `STAFF` account must remain. Removing
   the final active account of either role returns `LAST_ACTIVE_ADMIN` or
   `LAST_ACTIVE_STAFF`.
@@ -151,3 +156,55 @@ HTML and `test-results/` are excluded. Local HTML diagnostics remain local.
 The API deployment prerequisites from #49 still apply, including the existing
 column-level `UPDATE(id)` grant on `service_settings` for the locking read. The
 portal does not add migrations or broaden runtime grants.
+
+
+
+## Backend verification
+
+Run from the repository root after installing the development dependencies.
+The unit/load-harness tests do not require a staging account inventory:
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m pip install -e src/backend
+python -m pytest tests/backend/unit/test_admin_account_lifecycle.py tests/load/test_account_lifecycle.py -q
+```
+
+The full MySQL suite requires a dedicated MySQL 8.4 test server and a test
+account allowed to create and drop isolated schemas. Set `MYSQL_TEST_URL` to
+that test-only connection string, then run:
+
+```bash
+python -m pytest tests/backend tests/load --require-mysql -q
+```
+
+GitHub Actions workflow `Backend models` also applies Alembic migrations from
+an empty schema, confirms there is one current head, checks the second upgrade
+is a no-op, runs required tests without skips, and compares the committed
+OpenAPI YAML with a fresh export.
+
+
+## Lifecycle load check
+
+The shared booking-load lab intentionally caps its session inventory at 20; it
+cannot establish the APP-03 target of 120 concurrent users. The separate
+`tools.load.account_lifecycle` runner exercises 120 paired DELETE/restore tasks
+against 120 distinct disposable accounts and 120 distinct ADMIN sessions. It
+records per-operation p95 and fails when either exceeds 3.5 seconds. The private
+target inventory contains account IDs, optimistic version values, session
+cookies and CSRF material; store it outside Git and never attach it to a report.
+
+Example (use only an isolated staging environment and disposable accounts):
+
+```bash
+export PRL_ACCOUNT_LOAD_OPT_IN=I_UNDERSTAND_THIS_MUTATES_120_DEDICATED_TEST_ACCOUNTS
+python -m tools.load.account_lifecycle \
+  --target-url https://staging.example.invalid \
+  --origin https://staging.example.invalid \
+  --targets /secure/path/account-lifecycle-targets.json \
+  --report artifacts/account-lifecycle-load.json
+```
+
+This harness was added to make the target reproducible. No staging URL or
+120-account/120-admin-session fixture was provided to this run, so the p95 SLA
+was not measured and must not be marked as passed.

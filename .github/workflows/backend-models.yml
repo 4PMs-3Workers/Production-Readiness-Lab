@@ -112,10 +112,21 @@ jobs:
               raise SystemExit(f"Required backend tests skipped: {skipped}")
           PY
 
+      - name: Export generated OpenAPI for PR contract review
+        if: always()
+        run: .venv/bin/python tools/scripts/export_openapi.py --output build/openapi-generated.yaml
+
+      - name: Upload generated OpenAPI contract
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: account-lifecycle-openapi-export
+          path: build/openapi-generated.yaml
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Check committed OpenAPI artifact
-        run: |
-          .venv/bin/python tools/scripts/export_openapi.py
-          git diff --exit-code -- docs/api/openapi.yaml
+        run: cmp docs/api/openapi.yaml build/openapi-generated.yaml
 
       - name: Notification query-plan and concurrent-read evidence
         run: .venv/bin/python -m pytest tests/backend/integration/test_notifications.py::test_recipient_query_plans_and_concurrent_read_with_large_history -q -s --require-mysql
