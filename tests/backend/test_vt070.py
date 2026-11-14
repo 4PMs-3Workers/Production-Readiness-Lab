@@ -1,5 +1,6 @@
 """VT-070: exercise the real ASGI app and outcome service with DB test doubles."""
 
+import logging
 from contextlib import asynccontextmanager, contextmanager
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -175,9 +176,12 @@ async def test_outcome_contract(auth_settings, status):
         pytest.param(TimeoutError("do-not-log-test-payload"), id="TC13"),
     ],
 )
-async def test_delivery_failure_after_commit(auth_settings, caplog, error):
+async def test_delivery_failure_after_commit(auth_settings, caplog, monkeypatch, error):
     h = Harness(auth_settings, delivery_error=error)
-    with h.bind():
+    # In-process Alembic migrations can disable loggers created during test collection.
+    logger = logging.getLogger(notifications.__name__)
+    monkeypatch.setattr(logger, "disabled", False)
+    with h.bind(), caplog.at_level(logging.WARNING, logger=logger.name):
         async with h.client() as client:
             response = await client.post(PATH, json={"status": "NO_SHOW"})
     assert response.status_code == 200

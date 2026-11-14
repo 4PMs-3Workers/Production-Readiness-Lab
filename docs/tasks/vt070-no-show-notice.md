@@ -75,6 +75,12 @@ The Dependency security workflow blocked the baseline pin
 A separate security follow-up upgrades the OpenTelemetry package family to
 `1.45.2` / `0.66b2`, keeping the lock and package metadata consistent.
 
+The full backend suite also found an order dependency in TC03/TC13. Running
+the MySQL integration tests first applies Alembic's logging configuration and
+disables the already-created application logger. The fixture now enables that
+logger for these two cases with automatic restoration. The tests still capture
+the real warning and check that the exception payload is omitted.
+
 ## 150-task comparison over HTTP and MySQL
 
 Run `python -m tools.scripts.vt070_mysql_http_load` with `src/backend` and
