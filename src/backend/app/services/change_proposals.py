@@ -376,13 +376,16 @@ async def _create_proposal_impl(
             raise _conflict("PROPOSAL_PRECONDITION_FAILED")
         if row.status not in appointments.BLOCKING_STATUSES:
             raise _conflict("APPOINTMENT_STATE_CONFLICT")
+        start = payload.proposed_starts_at
+        if start == row.starts_at and payload.proposed_location == row.location:
+            now = await users.utc_now(db)
+            if pending is not None and now >= pending.expires_at:
+                raise _conflict("PROPOSAL_EXPIRED")
+            raise _conflict("PROPOSAL_NO_CHANGE")
         await _lock(repository.lock_acceptance(db, row), settings)
         now = await users.utc_now(db)
         if pending is not None and now >= pending.expires_at:
             raise _conflict("PROPOSAL_EXPIRED")
-        start = payload.proposed_starts_at
-        if start == row.starts_at and payload.proposed_location == row.location:
-            raise _conflict("PROPOSAL_NO_CHANGE")
         end = await _validate_interval(db, locked, start, now)
         zone = validate_policy(
             AvailabilityPolicy(
