@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = "20261114_1200_soft_delete"
+PREDECESSOR_SCHEMA = "20261019_1200_proposal_replay"
 MAX_JSON = 1024 * 1024
 SHA: TypeAlias = Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]
 Hex: TypeAlias = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
@@ -350,7 +351,13 @@ def vendor_inventory(observability: bool, root: Path = ROOT) -> dict[str, str]:
 def require_compatible(spec: Spec, root: Path = ROOT, *, allow_previous: bool = False) -> None:
     require_configuration(spec.configuration, root, allow_previous=allow_previous)
     if spec.accepted_schema_revisions != [SCHEMA]:
-        raise ReleaseError("incompatible-schema")
+        current = configuration(spec.configuration.overlay, spec.configuration.observability, root)
+        if (
+            not allow_previous
+            or spec.accepted_schema_revisions != [PREDECESSOR_SCHEMA]
+            or spec.configuration != previous_configuration(current)
+        ):
+            raise ReleaseError("incompatible-schema")
     if spec.vendor_images != vendor_inventory(spec.configuration.observability, root):
         raise ReleaseError("vendor-inventory-mismatch")
 

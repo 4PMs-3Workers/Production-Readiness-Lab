@@ -10,7 +10,14 @@ from typing import Literal
 from uuid import uuid4
 
 from tools.deploy.release_images import Registry
-from tools.deploy.release_manifest import SCHEMA, Configuration, canonical, configuration, parse
+from tools.deploy.release_manifest import (
+    PREDECESSOR_SCHEMA,
+    SCHEMA,
+    Configuration,
+    canonical,
+    configuration,
+    parse,
+)
 from tools.deploy.rollout_lock import operation_lock
 from tools.deploy.rollout_preflight import Prepared, ReleaseConsumer
 from tools.deploy.rollout_readiness import ready
@@ -120,6 +127,7 @@ class RolloutController:
         command: Literal["deploy", "rollback"] = "deploy",
         *,
         rebind: bool = False,
+        migration_source: Selection | None = None,
     ) -> None:
         op = Operation(
             operation_id=uuid4().hex,
@@ -127,6 +135,7 @@ class RolloutController:
             orchestrator_sha=self.source_sha,
             target=selected,
             recovery_pending=command == "rollback" or self._needs_recovery(state),
+            migration_source=migration_source,
             events=[
                 Event(
                     phase="preflight" if command == "deploy" else "rollback_preflight",
@@ -175,9 +184,9 @@ class RolloutController:
         self.state = state
         return state
 
-    def _proof(self, checks: list[str]) -> Verification:
+    def _proof(self, checks: list[str], revision: str) -> Verification:
         return Verification(
-            schema_revision=SCHEMA,
+            schema_revision=revision,
             image_identity_verified=True,
             database_volume_preserved=True,
             worker_progress_verified=True,
@@ -214,14 +223,24 @@ class RolloutController:
         self.store.save(self.state)
         return self.state
 
-    def _preflight(self, prepared: Prepared, *, allow_empty: bool) -> None:
+    def _migration_revisions(self, state: HostState) -> list[str]:
+        if state.stable is not None and self.transition is not None:
+            manifest = self.store.manifest(state.stable)
+            if (
+                manifest.configuration == self.transition.previous_release
+                and manifest.accepted_schema_revisions == [PREDECESSOR_SCHEMA]
+            ):
+                return [SCHEMA, PREDECESSOR_SCHEMA]
+        return [SCHEMA]
+
+    def _preflight(self, prepared: Prepared, revisions: list[str], *, allow_empty: bool) -> None:
         self.consumer.verify(prepared)
         self.runtime.select(prepared.manifest)
         self.runtime.validate_plan()
         self.runtime.vendor_images()
         require_schema(
             self.runtime.schema(),
-            prepared.manifest.accepted_schema_revisions,
+            revisions,
             allow_empty=allow_empty,
         )
 
@@ -242,6 +261,7 @@ class RolloutController:
                 ):
                     return self._refuse(state, "deploy", "interrupted-operation")
             try:
+                revisions = self._migration_revisions(state)
                 prepared = self.consumer.resolve(reference)
                 if (
                     self._needs_recovery(state)
@@ -253,7 +273,7 @@ class RolloutController:
                     assert state.stable is not None
                     if prepared.manifest.previous_stable != state.stable.reference:
                         raise RolloutError("invalid-manifest")
-                    self._preflight(prepared, allow_empty=False)
+                    self._preflight(prepared, revisions, allow_empty=False)
             except RolloutError as error:
                 return self._refuse(state, "deploy", error.reason)
             self._begin(state, prepared.selected, rebind=rebind)
@@ -268,14 +288,11 @@ class RolloutController:
                 ):
                     raise RolloutError("invalid-manifest")
                 if not rebind:
-                    self._preflight(prepared, allow_empty=state.stable is None)
+                    self._preflight(prepared, revisions, allow_empty=state.stable is None)
                 self._transition("migration")
                 before = self.runtime.prepare_database()
-                require_schema(
-                    self.runtime.schema(),
-                    prepared.manifest.accepted_schema_revisions,
-                    allow_empty=state.stable is None,
-                )
+                schema = self.runtime.schema()
+                require_schema(schema, revisions, allow_empty=state.stable is None)
                 self.runtime.migrate()
                 self.runtime.apply_grants()
                 require_schema(self.runtime.schema(), prepared.manifest.accepted_schema_revisions)
@@ -294,7 +311,9 @@ class RolloutController:
                 self.runtime.deadline.remaining()
                 return self._transition(
                     "succeeded",
-                    verification=self._proof(checks),
+                    verification=self._proof(
+                        checks, prepared.manifest.accepted_schema_revisions[0]
+                    ),
                     stable=prepared.selected.model_dump(mode="json"),
                     previous_stable=(
                         state.previous_stable.model_dump(mode="json")
@@ -311,15 +330,18 @@ class RolloutController:
                 if committed is not None:
                     return committed
                 assert self.state is not None and self.state.operation is not None
-                if state.stable is not None and self.state.operation.phase in {
-                    "rollout",
-                    "readiness",
-                    "smoke",
-                }:
-                    return self._automatic_restore(state.stable, error)
+                phase = self.state.operation.phase
+                if state.stable is not None and (
+                    phase in {"rollout", "readiness", "smoke"}
+                    or phase == "migration"
+                    and PREDECESSOR_SCHEMA in revisions
+                ):
+                    return self._automatic_restore(state.stable, prepared.selected, error)
                 return self._failed(error)
 
-    def _automatic_restore(self, target: Selection, error: Exception) -> HostState:
+    def _automatic_restore(
+        self, target: Selection, migration_source: Selection, error: Exception
+    ) -> HostState:
         reason: Reason = error.reason if isinstance(error, RolloutError) else "unexpected-failure"
         # This is the measured decision. The existing operation/lock stays owned,
         # while every registry, Compose and HTTP call now shares this 300s budget.
@@ -332,23 +354,44 @@ class RolloutController:
             },
         )
         try:
-            return self._restore(target)
+            return self._restore(target, migration_source)
         except Exception as rollback_error:
             return self._failed(rollback_error)
 
-    def _restore(self, target: Selection) -> HostState:
+    def _restore(self, target: Selection, migration_source: Selection | None) -> HostState:
         prepared = self.consumer.prepare(target.reference, expected=target)
         self.runtime.select(prepared.manifest)
         self.runtime.validate_plan()
         self.runtime.vendor_images()
-        require_schema(self.runtime.schema(), prepared.manifest.accepted_schema_revisions)
+        revisions = prepared.manifest.accepted_schema_revisions
+        schema = self.runtime.schema()
+        needs_downgrade = revisions == [PREDECESSOR_SCHEMA] and schema.revisions == [SCHEMA]
+        source = None
+        require_schema(schema, [SCHEMA] if needs_downgrade else revisions)
+        if needs_downgrade:
+            if migration_source is None:
+                raise RolloutError("rollback-unavailable")
+            source = self.consumer.prepare(migration_source.reference, expected=migration_source)
+            if source.manifest.accepted_schema_revisions != [SCHEMA]:
+                raise RolloutError("rollback-incompatible")
+            self.runtime.select(source.manifest)
+            self.runtime.validate_plan()
+            self.runtime.select(prepared.manifest)
         before = self.runtime.database_identity()
         current = configuration(self.runtime.overlay, self.runtime.observability, self.runtime.root)
         # prepare() accepts only the exact current configuration or the reviewed predecessor.
         predecessor = prepared.manifest.configuration != current
         with self.runtime.predecessor_policy_guard() if predecessor else nullcontext():
+            if needs_downgrade:
+                # Account writers are drained before checking for retained lifecycle data.
+                self.runtime.require_reversible_soft_delete()
             self._transition("rollback_rollout")
-        # There is deliberately no migration, seed, downgrade, or DB startup here.
+        if source is not None:
+            self.runtime.select(source.manifest)
+            self.runtime.downgrade_soft_delete()
+            self.runtime.require_database(before)
+            self.runtime.select(prepared.manifest)
+            require_schema(self.runtime.schema(), revisions)
         self.runtime.rollout()
         self.runtime.require_database(before)
         self._transition("rollback_readiness")
@@ -364,7 +407,7 @@ class RolloutController:
         previous = self.state.previous_stable if self.state.operation.command == "deploy" else None
         return self._transition(
             "rolled_back",
-            verification=self._proof(checks),
+            verification=self._proof(checks, revisions[0]),
             stable=target.model_dump(mode="json"),
             previous_stable=previous.model_dump(mode="json") if previous else None,
         )
@@ -375,17 +418,29 @@ class RolloutController:
             self.started, self.started_at = time.monotonic(), timestamp()
             state = self._interrupted(self._host())
             target = state.previous_stable
+            source = state.stable
             if self._needs_recovery(state):
                 assert state.operation is not None
-                target = (
-                    state.operation.target
-                    if state.operation.command == "rollback"
-                    else state.stable
-                )
+                if state.operation.command == "rollback":
+                    target = state.operation.target
+                    source = state.operation.migration_source
+                else:
+                    target = state.stable
+                    source = state.operation.target
             if target is None:
                 return self._refuse(state, "rollback", "rollback-unavailable")
-            self._begin(state, target, "rollback")
+            if source == target:
+                source = None
+            self._begin(state, target, "rollback", migration_source=source)
             try:
-                return self._restore(target)
+                return self._restore(target, source)
             except Exception as error:
+                assert self.state is not None and self.state.operation is not None
+                if (
+                    not self._needs_recovery(state)
+                    and self.state.operation.phase == "rollback_preflight"
+                    and isinstance(error, RolloutError)
+                    and error.reason == "rollback-incompatible"
+                ):
+                    return self._refuse(state, "rollback", error.reason)
                 return self._failed(error)

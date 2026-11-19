@@ -10,15 +10,21 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("users", sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True))
-    op.add_column("users", sa.Column("is_active_before_delete", sa.Boolean(), nullable=True))
-    op.create_check_constraint(
-        op.f("ck_users_soft_delete_state"),
-        "users",
-        "(deleted_at IS NULL AND is_active_before_delete IS NULL) OR "
-        "(deleted_at IS NOT NULL AND is_active_before_delete IS NOT NULL AND is_active = 0)",
-    )
-    op.create_index("ix_users_deleted_at_role", "users", ["deleted_at", "role"])
+    # InnoDB commits MySQL DDL implicitly. Keep the table change in one atomic ALTER.
+    op.execute("""
+        ALTER TABLE users
+            ADD COLUMN deleted_at DATETIME(6) NULL,
+            ADD COLUMN is_active_before_delete BOOLEAN NULL,
+            ADD CONSTRAINT ck_users_soft_delete_state CHECK (
+                (deleted_at IS NULL AND is_active_before_delete IS NULL)
+                OR (
+                    deleted_at IS NOT NULL
+                    AND is_active_before_delete IS NOT NULL
+                    AND is_active = 0
+                )
+            ),
+            ADD INDEX ix_users_deleted_at_role (deleted_at, role)
+        """)
 
 
 def downgrade() -> None:
@@ -26,15 +32,18 @@ def downgrade() -> None:
         op.get_bind()
         .execute(
             sa.text(
-                "SELECT COUNT(*) FROM users "
-                "WHERE deleted_at IS NOT NULL OR is_active_before_delete IS NOT NULL"
+                "SELECT EXISTS (SELECT 1 FROM users "
+                "WHERE deleted_at IS NOT NULL OR is_active_before_delete IS NOT NULL)"
             )
         )
         .scalar_one()
     )
     if used:
         raise RuntimeError("Cannot downgrade account soft delete: lifecycle state would be lost")
-    op.drop_index("ix_users_deleted_at_role", table_name="users")
-    op.drop_constraint(op.f("ck_users_soft_delete_state"), "users", type_="check")
-    op.drop_column("users", "is_active_before_delete")
-    op.drop_column("users", "deleted_at")
+    op.execute("""
+        ALTER TABLE users
+            DROP CHECK ck_users_soft_delete_state,
+            DROP INDEX ix_users_deleted_at_role,
+            DROP COLUMN is_active_before_delete,
+            DROP COLUMN deleted_at
+        """)

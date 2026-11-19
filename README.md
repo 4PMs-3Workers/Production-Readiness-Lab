@@ -543,7 +543,8 @@ không được publish.
 
 Deploy/rollback dùng manifest bất biến của [quy trình phát hành](docs/tasks/immutable-releases.md),
 giữ chung một khóa vận hành và chỉ cập nhật stable sau readiness, tiến triển worker
-và smoke nghiệp vụ đầy đủ. Rollback giữ nguyên database volume, không tự hạ schema.
+và smoke nghiệp vụ đầy đủ. Rollback giữ nguyên database volume. Khi quay về bản trước
+migration xóa mềm, hệ thống chỉ hạ schema nếu không còn tài khoản bị xóa mềm.
 [Runbook deploy/rollback](docs/tasks/serialized-release-rollback.md) mô tả cấu hình
 ngoài Git, lệnh vận hành, xử lý gián đoạn và diễn tập Linux tự động có timeline
 phục hồi cùng kiểm chứng dữ liệu đã commit. Bằng chứng lab được tách rõ khỏi số

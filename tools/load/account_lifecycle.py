@@ -12,6 +12,7 @@ import os
 import time
 from pathlib import Path
 from statistics import mean
+from typing import TypedDict
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -26,6 +27,15 @@ class LifecycleLoadError(ValueError):
     """The lifecycle load run failed a preflight or acceptance check."""
 
 
+class TargetAccount(TypedDict):
+    id: str
+    expected_updated_at: str
+    session_cookie: str
+    csrf_cookie: str
+    csrf_token: str
+    is_active: bool
+
+
 def percentile(values: list[float], quantile: float) -> float:
     """Return the nearest-rank percentile in milliseconds."""
     if not values:
@@ -36,7 +46,7 @@ def percentile(values: list[float], quantile: float) -> float:
     return ordered[max(0, math.ceil(quantile * len(ordered)) - 1)]
 
 
-def validate_target_inventory(rows: object) -> list[dict[str, str]]:
+def validate_target_inventory(rows: object) -> list[TargetAccount]:
     """Require 120 distinct targets and 120 distinct actor sessions."""
     if not isinstance(rows, list) or len(rows) < _TARGET_COUNT:
         raise LifecycleLoadError("The fixture must contain at least 120 account targets")
@@ -48,7 +58,7 @@ def validate_target_inventory(rows: object) -> list[dict[str, str]]:
         "csrf_cookie",
         "csrf_token",
     }
-    targets: list[dict[str, str]] = []
+    targets: list[TargetAccount] = []
     account_ids: set[str] = set()
     sessions: set[str] = set()
     for index, row in enumerate(selected):
@@ -59,6 +69,9 @@ def validate_target_inventory(rows: object) -> list[dict[str, str]]:
         session_cookie = str(row["session_cookie"])
         csrf_cookie = str(row["csrf_cookie"])
         csrf_token = str(row["csrf_token"])
+        is_active = row.get("is_active", True)
+        if not isinstance(is_active, bool):
+            raise LifecycleLoadError(f"Target row {index + 1} must use a boolean for is_active")
         if not all((updated_at, session_cookie, csrf_cookie, csrf_token)):
             raise LifecycleLoadError(f"Target row {index + 1} contains a blank value")
         if account_id in account_ids:
@@ -74,6 +87,7 @@ def validate_target_inventory(rows: object) -> list[dict[str, str]]:
                 "session_cookie": session_cookie,
                 "csrf_cookie": csrf_cookie,
                 "csrf_token": csrf_token,
+                "is_active": is_active,
             }
         )
     return targets
@@ -97,12 +111,17 @@ def validate_origin(target_url: str, origin: str) -> str:
         raise LifecycleLoadError("Plain HTTP is allowed only for a loopback target")
     expected = f"{target.scheme}://{target.netloc}"
     supplied = f"{parsed_origin.scheme}://{parsed_origin.netloc}"
-    if supplied != expected or parsed_origin.path not in {"", "/"} or parsed_origin.query:
+    if (
+        supplied != expected
+        or parsed_origin.path not in {"", "/"}
+        or parsed_origin.query
+        or parsed_origin.fragment
+    ):
         raise LifecycleLoadError("Origin must exactly match the target origin")
     return expected
 
 
-async def run(target_url: str, origin: str, targets: list[dict[str, str]]) -> dict[str, object]:
+async def run(target_url: str, origin: str, targets: list[TargetAccount]) -> dict[str, object]:
     """Run 120 paired soft-delete/restore tasks with 120 concurrent admin sessions."""
     base = validate_origin(target_url, origin)
     limits = httpx.Limits(max_connections=_TARGET_COUNT, max_keepalive_connections=_TARGET_COUNT)
@@ -119,12 +138,12 @@ async def run(target_url: str, origin: str, targets: list[dict[str, str]]) -> di
         follow_redirects=False,
     ) as client:
 
-        async def run_one(target: dict[str, str]) -> None:
+        async def run_one(target: TargetAccount) -> None:
             nonlocal failures
             async with semaphore:
                 account_id = target["id"]
                 headers = {
-                    "Origin": origin,
+                    "Origin": base,
                     "X-CSRF-Token": target["csrf_token"],
                 }
                 cookies = {
@@ -176,7 +195,7 @@ async def run(target_url: str, origin: str, targets: list[dict[str, str]]) -> di
                     restored_body = restored.json()
                     if restored_body["deleted_at"] is not None:
                         failures += 1
-                    if restored_body["is_active"] is not True:
+                    if restored_body["is_active"] is not target["is_active"]:
                         failures += 1
                 except (KeyError, ValueError, TypeError):
                     failures += 1

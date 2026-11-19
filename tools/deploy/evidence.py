@@ -19,6 +19,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 SCHEMA_REVISION = "20261114_1200_soft_delete"
+HISTORICAL_SCHEMA_REVISION = "20261019_1200_proposal_replay"
 COMMANDS = {"config", "build", "migrate", "seed", "up", "stop", "down", "status", "evidence"}
 SERVICES = {"mysql", "api", "worker", "frontend", "gateway"}
 OPERATIONAL_SERVICES = {"migrate", "schema", "seed"}
@@ -107,7 +108,7 @@ def validate(value):
         raise ValueError("Invalid source revision")
     if value["overlay"] not in ("local", "https"):
         raise ValueError("Invalid overlay")
-    if value["schema_revisions"] != [SCHEMA_REVISION]:
+    if value["schema_revisions"] not in ([HISTORICAL_SCHEMA_REVISION], [SCHEMA_REVISION]):
         raise ValueError("Invalid schema revisions")
     for key in ("created_at", "updated_at"):
         if not isinstance(value[key], str) or not re.fullmatch(

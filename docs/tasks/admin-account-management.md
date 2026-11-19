@@ -166,7 +166,7 @@ The unit/load-harness tests do not require a staging account inventory:
 
 ```bash
 python -m pip install -r requirements-dev.txt
-python -m pip install -e src/backend
+python -m pip install -e .
 python -m pytest tests/backend/unit/test_admin_account_lifecycle.py tests/load/test_account_lifecycle.py -q
 ```
 
@@ -190,9 +190,25 @@ The shared booking-load lab intentionally caps its session inventory at 20; it
 cannot establish the APP-03 target of 120 concurrent users. The separate
 `tools.load.account_lifecycle` runner exercises 120 paired DELETE/restore tasks
 against 120 distinct disposable accounts and 120 distinct ADMIN sessions. It
-records per-operation p95 and fails when either exceeds 3.5 seconds. The private
-target inventory contains account IDs, optimistic version values, session
-cookies and CSRF material; store it outside Git and never attach it to a report.
+records per-operation p95 and fails when either exceeds 3.5 seconds. Store the
+private target inventory outside Git and keep it out of reports. Supply a JSON
+array with at least 120 entries. The runner uses the first 120. Each target needs
+its current `updated_at` and a distinct ADMIN session with matching CSRF
+credentials. Use the account's original `is_active` value so the runner can
+verify restoration. When omitted, `is_active` defaults to `true`.
+
+```json
+[
+  {
+    "id": "00000000-0000-0000-0000-000000000001",
+    "expected_updated_at": "2026-11-14T12:00:00Z",
+    "is_active": false,
+    "session_cookie": "<prl_session value>",
+    "csrf_cookie": "<prl_csrf value>",
+    "csrf_token": "<X-CSRF-Token value>"
+  }
+]
+```
 
 Example (use only an isolated staging environment and disposable accounts):
 

@@ -1061,7 +1061,11 @@ async def test_admin_mutations_work_with_deployed_runtime_grants(account_env, my
 
 
 @pytest.mark.mysql
-async def test_soft_delete_restore_preserves_state_and_never_revives_old_sessions(account_env):
+async def test_soft_delete_restore_preserves_state_and_never_revives_old_sessions(
+    account_env, monkeypatch
+):
+    from app.services import admin_accounts as account_service
+
     client, factory, admin_id, _ = account_env
     await sign_in(client)
     await promote_to_admin(factory, admin_id)
@@ -1132,20 +1136,30 @@ async def test_soft_delete_restore_preserves_state_and_never_revives_old_session
             )
         )
 
-    deleted = await client.request(
-        "DELETE",
-        f"{ADMIN_ACCOUNTS}/{target_id}",
-        json={"expected_updated_at": await active_account(factory, target_id)},
-        headers=write_headers(client),
-    )
+    deletion_time = (datetime.now(UTC) - timedelta(seconds=1)).replace(microsecond=123_456)
+    mark_account_deleted = account_service.mark_account_deleted
+
+    def mark_deleted_at_known_time(user: User, _now: datetime) -> None:
+        mark_account_deleted(user, deletion_time)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(account_service, "mark_account_deleted", mark_deleted_at_known_time)
+        deleted = await client.request(
+            "DELETE",
+            f"{ADMIN_ACCOUNTS}/{target_id}",
+            json={"expected_updated_at": await active_account(factory, target_id)},
+            headers=write_headers(client),
+        )
 
     assert deleted.status_code == 200
     deleted_item = deleted.json()
     assert deleted_item["is_active"] is False
-    assert deleted_item["deleted_at"] is not None
+    assert datetime.fromisoformat(deleted_item["deleted_at"]) == deletion_time
     assert deleted_item["id"] == str(target_id)
 
     async with factory() as db:
+        account = await db.get(User, target_id)
+        assert account is not None and account.deleted_at == deletion_time
         session = await db.scalar(select(Session).where(Session.user_id == target_id))
         assert session is not None and session.revoked_at is not None
         delete_audit = await db.scalar(
@@ -1173,7 +1187,7 @@ async def test_soft_delete_restore_preserves_state_and_never_revives_old_session
     visible = await client.get(f"{ADMIN_ACCOUNTS}?search=lifecycle-target&include_deleted=true")
     assert visible.status_code == 200
     assert visible.json()["total"] == 1
-    assert visible.json()["items"][0]["deleted_at"] is not None
+    assert visible.json()["items"][0]["deleted_at"] == deleted_item["deleted_at"]
 
     restored = await client.post(
         f"{ADMIN_ACCOUNTS}/{target_id}/restore",
@@ -1205,6 +1219,71 @@ async def test_soft_delete_restore_preserves_state_and_never_revives_old_session
             )
             is not None
         )
+
+
+@pytest.mark.mysql
+async def test_soft_delete_precommit_failure_rolls_back_account_sessions_and_audit(
+    account_env, monkeypatch
+):
+    from app.services import admin_accounts as account_service
+
+    client, factory, admin_id, _ = account_env
+    await sign_in(client)
+    await promote_to_admin(factory, admin_id)
+    target_id = uuid4()
+    async with factory.begin() as db:
+        db.add(
+            User(
+                id=target_id,
+                email="rollback-delete@example.invalid",
+                name="Rollback Delete",
+                role="STUDENT",
+                password_hash="unused-test-hash",
+            )
+        )
+        await db.flush()
+        db.add(
+            Session(
+                user_id=target_id,
+                token_hash=hashlib.sha256(target_id.bytes).digest(),
+                expires_at=datetime.now(UTC) + timedelta(days=1),
+            )
+        )
+    version = await active_account(factory, target_id)
+    commit_attempted = False
+
+    async def fail_before_commit(_db, _transaction):
+        nonlocal commit_attempted
+        commit_attempted = True
+        raise SQLAlchemyError("forced pre-commit failure")
+
+    monkeypatch.setattr(account_service, "commit_safely", fail_before_commit)
+    response = await client.request(
+        "DELETE",
+        f"{ADMIN_ACCOUNTS}/{target_id}",
+        json={"expected_updated_at": version},
+        headers=write_headers(client),
+    )
+
+    assert commit_attempted
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "SERVICE_UNAVAILABLE"
+    async with factory() as db:
+        account = await db.get(User, target_id)
+        assert account is not None
+        assert account.is_active is True
+        assert account.deleted_at is None
+        assert account.is_active_before_delete is None
+        assert account.updated_at == datetime.fromisoformat(version)
+        session = await db.scalar(select(Session).where(Session.user_id == target_id))
+        assert session is not None and session.revoked_at is None
+        audit = await db.scalar(
+            select(AuditEvent).where(
+                AuditEvent.entity_id == str(target_id),
+                AuditEvent.action == "ACCOUNT_SOFT_DELETED",
+            )
+        )
+        assert audit is None
 
 
 @pytest.mark.mysql
