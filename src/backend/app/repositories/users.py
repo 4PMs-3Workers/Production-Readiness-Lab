@@ -54,6 +54,8 @@ async def read_account_page(db: AsyncSession, query: AccountQuery) -> tuple[list
         filters.append(User.role == query.role)
     if query.is_active is not None:
         filters.append(User.is_active.is_(query.is_active))
+    if not query.include_deleted:
+        filters.append(User.deleted_at.is_(None))
     if query.search is not None:
         search = query.search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         pattern = f"%{search}%"

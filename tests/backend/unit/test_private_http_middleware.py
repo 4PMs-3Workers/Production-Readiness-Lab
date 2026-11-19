@@ -47,7 +47,9 @@ def test_admin_account_routes_use_private_headers_body_limits_and_request_deadli
         ("GET", "/api/v1/admin/accounts"),
         ("POST", "/api/v1/admin/accounts"),
         ("PATCH", "/api/v1/admin/accounts/00000000-0000-0000-0000-000000000001"),
+        ("DELETE", "/api/v1/admin/accounts/00000000-0000-0000-0000-000000000001"),
         ("POST", "/api/v1/admin/accounts/00000000-0000-0000-0000-000000000001/password"),
+        ("POST", "/api/v1/admin/accounts/00000000-0000-0000-0000-000000000001/restore"),
     ):
         scope: Scope = {"type": "http", "method": method, "path": path, "root_path": ""}
         assert uses_private_api_middleware(scope)
@@ -113,10 +115,10 @@ async def test_appointment_middleware_uses_the_configured_stress_deadline(auth_s
     assert started_at + 20.0 <= captured["deadline"] <= captured["observed_at"] + 20.0
 
 
-def body_scope(path):
+def body_scope(path, method="POST"):
     return {
         "type": "http",
-        "method": "POST",
+        "method": method,
         "path": path,
         "root_path": "",
         "headers": [
@@ -127,10 +129,10 @@ def body_scope(path):
     }
 
 
-async def test_oversized_admin_patch_is_rejected_before_routing(auth_settings):
+@pytest.mark.parametrize("method", ["PATCH", "DELETE"])
+async def test_oversized_admin_request_is_rejected_before_routing(auth_settings, method):
     settings = auth_settings.model_copy(update={"api_max_body_bytes": 3})
-    scope = body_scope("/api/v1/admin/accounts/00000000-0000-0000-0000-000000000001")
-    scope["method"] = "PATCH"
+    scope = body_scope("/api/v1/admin/accounts/00000000-0000-0000-0000-000000000001", method)
     routed = False
     sent = []
 
@@ -247,15 +249,16 @@ async def test_buffered_body_replays_once_then_preserves_disconnect(auth_setting
 
 
 @pytest.mark.parametrize(
-    "path",
+    ("method", "path"),
     [
-        "/api/v1/appointments",
-        "/api/v1/notifications/00000000-0000-0000-0000-000000000001/read",
-        "/api/v1/auth/logout",
-        "/api/v1/auth/login",
+        ("POST", "/api/v1/appointments"),
+        ("POST", "/api/v1/notifications/00000000-0000-0000-0000-000000000001/read"),
+        ("POST", "/api/v1/auth/logout"),
+        ("POST", "/api/v1/auth/login"),
+        ("DELETE", "/api/v1/admin/accounts/00000000-0000-0000-0000-000000000001"),
     ],
 )
-async def test_body_read_is_inside_existing_request_deadline(auth_settings, path):
+async def test_body_read_is_inside_existing_request_deadline(auth_settings, method, path):
     settings = auth_settings.model_copy(update={"request_timeout_seconds": 0.01})
     sent = []
     routed = False
@@ -277,7 +280,7 @@ async def test_body_read_is_inside_existing_request_deadline(auth_settings, path
         routed = True
         await Response(status_code=204)(scope, receive, send)
 
-    await body_middleware(app, path, settings)(body_scope(path), receive, send)
+    await body_middleware(app, path, settings)(body_scope(path, method), receive, send)
 
     assert not routed
     assert cancelled

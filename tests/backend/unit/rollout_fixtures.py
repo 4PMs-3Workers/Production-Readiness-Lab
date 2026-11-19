@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from tests.backend.unit.test_release_manifest import manifest_data
 from tools.deploy.release_images import Registry
 from tools.deploy.release_manifest import (
+    SCHEMA,
+    Configuration,
     Manifest,
     Spec,
     canonical,
@@ -21,12 +23,23 @@ from tools.deploy.rollout_state import SMOKE_CHECKS, RolloutError, Selection
 from tools.deploy.rollout_store import StateStore
 
 
-def release(number=123, previous=None, *, backend=None, observability=False):
+def release(
+    number=123,
+    previous=None,
+    *,
+    backend=None,
+    observability=False,
+    deployed_configuration: Configuration | None = None,
+    schema_revision: str = SCHEMA,
+):
     data = manifest_data()
     data.update(
         release_id=f"release-{number}-1", previous_stable=previous, bootstrap=previous is None
     )
     data["provenance"]["run_id"] = number
+    data["accepted_schema_revisions"] = [schema_revision]
+    if deployed_configuration is not None:
+        data["configuration"] = deployed_configuration.model_dump()
     if backend is not None:
         data["images"]["backend"] = backend.model_dump()
     if observability:
@@ -84,7 +97,7 @@ class MemoryRuntime(ReleaseRuntime):
         self.database = DatabaseIdentity("a" * 64, "isolated_mysql_data")
         self.snapshot = SchemaSnapshot(
             tables=copy.deepcopy(EXPECTED),
-            revisions=["20261019_1200_proposal_replay"],
+            revisions=["20261114_1200_soft_delete"],
             unsupported_objects=0,
             nontransactional_tables=0,
         )

@@ -25,21 +25,21 @@ pytestmark = pytest.mark.mysql
 @pytest.mark.parametrize("same_key", [True, False])
 @pytest.mark.parametrize("replacing", [True, False])
 async def test_competing_creations_serialize_replay_or_precondition(
-    booking_env, auth_settings, monkeypatch, same_key, replacing
+    booking_env, policy_settings, monkeypatch, same_key, replacing
 ):
     env, _, start = booking_env
     identifier = await seed(env, start)
     body = payload(start)
     if replacing:
-        previous, _ = await create(env, identifier, body, auth_settings, key="initial")
+        previous, _ = await create(env, identifier, body, policy_settings, key="initial")
         body = payload(start + timedelta(minutes=30), version=1, pending_id=previous.id)
     first, second = await ordered_race(
         env,
         monkeypatch,
         min(env.student_id, env.staff_id, key=lambda value: value.bytes),
-        lambda db: create(env, identifier, body, auth_settings, key="first", db=db),
+        lambda db: create(env, identifier, body, policy_settings, key="first", db=db),
         lambda db: create(
-            env, identifier, body, auth_settings, key="first" if same_key else "second", db=db
+            env, identifier, body, policy_settings, key="first" if same_key else "second", db=db
         ),
     )
     assert not isinstance(first, AppError)
@@ -53,21 +53,21 @@ async def test_competing_creations_serialize_replay_or_precondition(
 
 @pytest.mark.parametrize("accept_first", [True, False])
 async def test_replacement_and_acceptance_never_apply_to_the_wrong_proposal(
-    booking_env, auth_settings, monkeypatch, accept_first
+    booking_env, policy_settings, monkeypatch, accept_first
 ):
     env, _, start = booking_env
     identifier = await seed(env, start)
-    first, _ = await create(env, identifier, payload(start), auth_settings)
+    first, _ = await create(env, identifier, payload(start), policy_settings)
 
     async def accept(db):
-        return await decide(env, identifier, first.id, auth_settings, db=db)
+        return await decide(env, identifier, first.id, policy_settings, db=db)
 
     async def replace(db):
         return await create(
             env,
             identifier,
             payload(start + timedelta(minutes=30), version=1, pending_id=first.id),
-            auth_settings,
+            policy_settings,
             key="replacement",
             db=db,
         )
@@ -89,21 +89,21 @@ async def test_replacement_and_acceptance_never_apply_to_the_wrong_proposal(
 
 @pytest.mark.parametrize("decision", ["ACCEPTED", "DECLINED"])
 async def test_competing_student_decisions_emit_only_one_resolution(
-    booking_env, auth_settings, monkeypatch, decision
+    booking_env, policy_settings, monkeypatch, decision
 ):
     env, _, start = booking_env
     identifier = await seed(env, start)
-    first, _ = await create(env, identifier, payload(start), auth_settings)
+    first, _ = await create(env, identifier, payload(start), policy_settings)
     winner, loser = await ordered_race(
         env,
         monkeypatch,
         min(env.student_id, env.staff_id, key=lambda value: value.bytes),
-        lambda db: decide(env, identifier, first.id, auth_settings, decision=decision, db=db),
+        lambda db: decide(env, identifier, first.id, policy_settings, decision=decision, db=db),
         lambda db: decide(
             env,
             identifier,
             first.id,
-            auth_settings,
+            policy_settings,
             decision="DECLINED" if decision == "ACCEPTED" else "ACCEPTED",
             db=db,
         ),
@@ -116,20 +116,20 @@ async def test_competing_student_decisions_emit_only_one_resolution(
 
 @pytest.mark.parametrize("booking_first", [True, False])
 async def test_acceptance_and_booking_compete_for_the_unreserved_slot(
-    booking_env, auth_settings, monkeypatch, booking_first
+    booking_env, policy_settings, monkeypatch, booking_first
 ):
     env, _, start = booking_env
     identifier = await seed(env, start)
     proposed = start + timedelta(minutes=30)
-    first, _ = await create(env, identifier, payload(proposed), auth_settings)
+    first, _ = await create(env, identifier, payload(proposed), policy_settings)
 
     async def book(db):
         return await _create(
-            env, _payload(env, proposed), auth_settings, student_id=env.other_student_id, db=db
+            env, _payload(env, proposed), policy_settings, student_id=env.other_student_id, db=db
         )
 
     async def accept(db):
-        return await decide(env, identifier, first.id, auth_settings, db=db)
+        return await decide(env, identifier, first.id, policy_settings, db=db)
 
     winner, loser = await ordered_race(
         env,
@@ -148,21 +148,21 @@ async def test_acceptance_and_booking_compete_for_the_unreserved_slot(
 
 
 async def test_cancellation_closes_pending_before_a_waiting_replacement(
-    booking_env, auth_settings, monkeypatch
+    booking_env, policy_settings, monkeypatch
 ):
     env, _, start = booking_env
     identifier = await seed(env, start)
-    first, _ = await create(env, identifier, payload(start), auth_settings)
+    first, _ = await create(env, identifier, payload(start), policy_settings)
     cancelled, rejected = await ordered_race(
         env,
         monkeypatch,
         min(env.student_id, env.staff_id, key=lambda value: value.bytes),
-        lambda db: cancel(env, identifier, auth_settings, db=db),
+        lambda db: cancel(env, identifier, policy_settings, db=db),
         lambda db: create(
             env,
             identifier,
             payload(start + timedelta(minutes=30), version=1, pending_id=first.id),
-            auth_settings,
+            policy_settings,
             key="replacement",
             db=db,
         ),
@@ -175,11 +175,11 @@ async def test_cancellation_closes_pending_before_a_waiting_replacement(
 
 @pytest.mark.parametrize("operation", ["accept", "decline", "replace"])
 async def test_waiting_operation_reads_database_clock_after_all_locks(
-    booking_env, auth_settings, monkeypatch, operation
+    booking_env, policy_settings, monkeypatch, operation
 ):
     env, _, start = booking_env
     identifier = await seed(env, start)
-    first, _ = await create(env, identifier, payload(start), auth_settings)
+    first, _ = await create(env, identifier, payload(start), policy_settings)
     now = first.expires_at.root - timedelta(microseconds=1)
     clock_calls = []
 
@@ -199,7 +199,7 @@ async def test_waiting_operation_reads_database_clock_after_all_locks(
                 env,
                 identifier,
                 payload(start + timedelta(minutes=30), version=1, pending_id=first.id),
-                auth_settings,
+                policy_settings,
                 key="replacement",
                 db=db,
             )
@@ -207,7 +207,7 @@ async def test_waiting_operation_reads_database_clock_after_all_locks(
             env,
             identifier,
             first.id,
-            auth_settings,
+            policy_settings,
             decision="ACCEPTED" if operation == "accept" else "DECLINED",
             db=db,
         )
@@ -469,11 +469,11 @@ async def test_known_commit_abort_retries_whole_intent_without_duplicate_side_ef
 
 @pytest.mark.parametrize("expiry_first", [True, False])
 async def test_worker_and_student_at_exact_expiry_serialize_one_terminal_bundle(
-    booking_env, auth_settings, monkeypatch, expiry_first
+    booking_env, policy_settings, monkeypatch, expiry_first
 ):
     env, _, start = booking_env
     identifier = await seed(env, start)
-    first, _ = await create(env, identifier, payload(start), auth_settings)
+    first, _ = await create(env, identifier, payload(start), policy_settings)
 
     async def clock(db):
         return first.expires_at.root
@@ -483,11 +483,11 @@ async def test_worker_and_student_at_exact_expiry_serialize_one_terminal_bundle(
     async def expire(db):
         async with db.begin():
             return await service.expire_change_proposal_in_transaction(
-                db, proposal_id=first.id, settings=auth_settings, request_id="expiry-race"
+                db, proposal_id=first.id, settings=policy_settings, request_id="expiry-race"
             )
 
     async def accept(db):
-        return await decide(env, identifier, first.id, auth_settings, db=db)
+        return await decide(env, identifier, first.id, policy_settings, db=db)
 
     first_result, second_result = await ordered_race(
         env,

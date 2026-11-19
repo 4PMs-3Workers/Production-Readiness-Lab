@@ -21,7 +21,7 @@ def worker_environment(env):
             "CSRF_SECRET": "test-only-worker-csrf-secret",
             "COOKIE_SECURE": "false",
             "ENVIRONMENT": "test",
-            "ACCEPTED_SCHEMA_REVISIONS": "20261019_1200_proposal_replay",
+            "ACCEPTED_SCHEMA_REVISIONS": "20261114_1200_soft_delete",
             "WORKER_POLL_INTERVAL_SECONDS": "0.05",
             "WORKER_HEARTBEAT_INTERVAL_SECONDS": "0.05",
             "WORKER_GRACE_SECONDS": "1",

@@ -178,6 +178,7 @@ class Artifacts:
         *,
         root: Path = ROOT,
         source_sha: str | None = None,
+        schema_revision: str = SCHEMA,
     ) -> Manifest:
         # Strict fixture metadata exercises #44's delivered reader and OCI clients.
         # These simulated checks/review fields must never be called real release proof.
@@ -203,7 +204,7 @@ class Artifacts:
                 frontend="frontend",
             ),
             vendor_images=vendor_inventory(False, root),
-            accepted_schema_revisions=[SCHEMA],
+            accepted_schema_revisions=[schema_revision],
             configuration=configuration("local", False, root).model_dump(),
             previous_stable=previous,
             bootstrap=previous is None,
@@ -256,7 +257,7 @@ class RolloutStack(ComposeAcceptance):
         )
         self.base = self.compose_base(root)
         self.manifest = manifest
-        self.select_manifest(manifest, root=root)
+        self.select_manifest(manifest)
 
     def compose_base(self, root: Path) -> list[str]:
         base = ["docker", "compose", "--project-name", self.project]
@@ -279,9 +280,9 @@ class RolloutStack(ComposeAcceptance):
                 if subnet and ipaddress.ip_network(subnet).overlaps(reserved):
                     raise RuntimeError("The rollout fixture subnet is already owned")
 
-    def select_manifest(self, manifest: Manifest, *, root: Path = ROOT) -> None:
+    def select_manifest(self, manifest: Manifest) -> None:
         path = self.scratch / "initial-release.yaml"
-        path.write_bytes(render(manifest, root=root))
+        path.write_bytes(render(manifest, allow_previous=True))
         self.base.extend(["-f", str(path)])
 
     def start(self) -> None:

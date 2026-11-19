@@ -32,7 +32,7 @@ def v2_manifest(**updates):
         "overlay": "https",
         "observability": True,
         "configuration_sha256": "b" * 64,
-        "schema_revisions": ["20261019_1200_proposal_replay"],
+        "schema_revisions": ["20261114_1200_soft_delete"],
         "images": {
             "collector": {"id": "sha256:" + "c" * 64, "digests": []},
             "local_alert_receiver": {"id": "sha256:" + "d" * 64, "digests": []},
@@ -57,6 +57,29 @@ def test_v2_manifest_records_independent_telemetry_result_and_services():
         "status": "degraded",
     }
     assert set(manifest["images"]) == {"collector", "local_alert_receiver"}
+
+
+@pytest.mark.parametrize("has_target_origin", [True, False])
+def test_v2_manifest_accepts_historical_schema_revision(has_target_origin):
+    evidence = module("evidence")
+    historical = v2_manifest(schema_revisions=["20261019_1200_proposal_replay"])
+    if not has_target_origin:
+        del historical["target_origin"]
+
+    assert evidence.validate(historical) == historical
+
+
+@pytest.mark.parametrize(
+    "schema_revisions",
+    [
+        ["unknown_revision"],
+        ["20261019_1200_proposal_replay", "20261114_1200_soft_delete"],
+    ],
+)
+def test_manifest_rejects_unknown_or_multiple_schema_revisions(schema_revisions):
+    evidence = module("evidence")
+    with pytest.raises(ValueError, match="Invalid schema revisions"):
+        evidence.validate(v2_manifest(schema_revisions=schema_revisions))
 
 
 def test_v2_manifest_keeps_disabled_telemetry_explicit_and_strict():
@@ -106,6 +129,7 @@ def test_runtime_attestation_contains_active_application_image_identity(tmp_path
         deployment_state="active",
         target_origin="https://app.example.invalid",
     )
+    assert manifest["schema_revisions"] == ["20261114_1200_soft_delete"]
     path = tmp_path / "attestation.json"
 
     evidence.write_target_attestation(path, manifest)
@@ -143,10 +167,13 @@ def test_runtime_attestation_is_unavailable_for_non_active_manifest():
 
 def test_v1_manifest_remains_readable_with_its_exact_historical_shape():
     evidence = module("evidence")
-    value = evidence.create("a" * 40, "https", "up", "passed", {})
-    assert evidence.validate(value)["manifest_version"] == 1
+    current = evidence.create("a" * 40, "https", "up", "passed", {})
+    assert current["manifest_version"] == 1
+    assert current["schema_revisions"] == ["20261114_1200_soft_delete"]
+    historical = dict(current, schema_revisions=["20261019_1200_proposal_replay"])
+    assert evidence.validate(historical) == historical
     with pytest.raises(ValueError):
-        evidence.validate(dict(value, observability=False))
+        evidence.validate(dict(historical, observability=False))
 
 
 @pytest.fixture

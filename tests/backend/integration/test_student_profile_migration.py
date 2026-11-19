@@ -69,7 +69,10 @@ async def test_profile_downgrade_refuses_to_discard_populated_fields(mysql_engin
                 lambda db: migrate(db, "20261016_1200_audit_reqid128", downgrade=True)
             )
     async with AsyncSession(mysql_engine) as db:
-        loaded = await db.get(User, identifier)
-        assert loaded is not None
+        row = await db.execute(
+            text("SELECT student_code, faculty FROM users WHERE id = :id"),
+            {"id": identifier.bytes},
+        )
+        loaded = row.one()
         assert loaded.student_code == "TEST-PRESERVE"
         assert loaded.faculty == "Khoa kiểm thử"

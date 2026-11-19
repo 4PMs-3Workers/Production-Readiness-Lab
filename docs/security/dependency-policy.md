@@ -8,6 +8,6 @@ The checker deduplicates aliases that identify the same GHSA, PYSEC, or CVE for 
 
 An exception must name one ecosystem, advisory ID, package, exact locked version, and exposure scope (runtime or development). It also needs an accountable owner, evidence describing the actual dependency and mitigation state, and a timezone-aware expiry no more than 30 calendar dates away, measured in the timestamp's timezone. Wildcards, package-wide or severity-wide ignores, duplicate entries, and automatic renewals are rejected. The checker refuses an exception if the audit data reports a fixed release. Exceptions that no longer match a finding are reported as unmatched and do not suppress any advisory.
 
-The sole initial exception is for braces==3.0.3 in the development lint chain under GHSA-vfj7-8cjw-p6xm. It belongs to repository-maintainers and expires at 2026-11-18T23:59:59+07:00. Remove it once the locked dependency can be upgraded or the exception is no longer justified; do not extend its date automatically.
+The exceptions file currently lists no approved exceptions. The November 2026 npm audit reported no findings for the former braces and minimatch exceptions, so both entries were removed after expiry.
 
 The CI job retains the raw npm audit, pip-audit, and decision JSON files for 14 days so that each gate result can be reviewed.

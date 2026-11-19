@@ -194,6 +194,36 @@ class ReleaseRuntime:
             cap=125,
         )
 
+    def require_reversible_soft_delete(self) -> None:
+        if (
+            self.sql(
+                "SELECT EXISTS (SELECT 1 FROM prl.users "
+                "WHERE deleted_at IS NOT NULL OR is_active_before_delete IS NOT NULL);"
+            )
+            != b"0"
+        ):
+            raise RolloutError("rollback-incompatible")
+
+    def downgrade_soft_delete(self) -> None:
+        self.compose("stop", "--timeout", "40", "api", "worker", reason="rollback-failed", cap=90)
+        self.compose(
+            "--profile",
+            "operations",
+            "run",
+            "--pull",
+            "never",
+            "--no-deps",
+            "--rm",
+            "-T",
+            "migrate",
+            "python",
+            "-m",
+            "app.deploy",
+            "rollback-soft-delete",
+            reason="rollback-failed",
+            cap=125,
+        )
+
     def rollout(self) -> None:
         self.compose("stop", "--timeout", "40", "api", "worker", "frontend", cap=140)
         self.compose("run", "--pull", "never", "--no-deps", "--rm", "-T", "schema", cap=15)

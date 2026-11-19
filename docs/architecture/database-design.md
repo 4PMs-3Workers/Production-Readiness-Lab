@@ -151,14 +151,18 @@ Lưu danh tính và vai trò của người sử dụng ứng dụng.
 | `faculty` | `varchar(150)` | NULL | Khoa của sinh viên. |
 | `major` | `varchar(150)` | NULL | Ngành học của sinh viên. |
 | `gender` | `varchar(20)` | NULL | `MALE`, `FEMALE`, `OTHER`, `UNDISCLOSED`; không suy đoán từ tên. |
-| `is_active` | `boolean` | NN, `true` | Cho phép đăng nhập và thao tác. |
+| `is_active` | `boolean` | NN, `true` | Cho phép đăng nhập và thao tác thông thường. |
+| `deleted_at` | `datetime(6)` | NULL | Thời điểm xóa mềm; khác với vô hiệu hóa thông thường. |
+| `is_active_before_delete` | `boolean` | NULL | Lưu trạng thái `is_active` trước khi xóa để khôi phục chính xác. |
 | `created_at`, `updated_at` | `datetime(6)` | NN | Thời điểm tạo/sửa. |
 
-**Ràng buộc:** email/tên không rỗng; `CAST(email AS BINARY) = CAST(LOWER(TRIM(email)) AS BINARY)`; `CHECK` cho tập vai trò.
+**Ràng buộc:** email/tên không rỗng; `CAST(email AS BINARY) = CAST(LOWER(TRIM(email)) AS BINARY)`; `CHECK` cho tập vai trò và trạng thái xóa: hai cột lifecycle cùng NULL khi tài khoản chưa xóa; khi đã xóa thì cả hai có giá trị và `is_active = false`. Index `ix_users_deleted_at_role` hỗ trợ lọc tài khoản theo lifecycle và vai trò.
 
 FK tới `users.id` bảo đảm tài khoản tồn tại. Dịch vụ kiểm tra vai trò sau khi khóa tài khoản: người đặt là sinh viên; người tiếp nhận, khai báo thời gian không nhận, đề nghị đổi lịch và ghi kết quả là nhân viên. Danh tính người thao tác lấy từ phiên đã xác thực.
 
-Vô hiệu hóa tài khoản thu hồi các phiên trong cùng giao dịch và giữ lịch sử lịch hẹn. Tạm từ chối đổi vai trò khi tài khoản đã có tham chiếu nghiệp vụ ở lịch hẹn, nhu cầu tiếp nhận, thời gian không nhận hoặc đề nghị; thao tác đổi vai trò dùng cùng khóa tài khoản với thao tác tạo dữ liệu nghiệp vụ.
+Vô hiệu hóa thông thường (`is_active = false`) khác với xóa mềm. Xóa mềm lưu `is_active` trước xóa, đặt `deleted_at`, khóa đăng nhập và thu hồi session trong cùng giao dịch; không xóa dòng người dùng hay dữ liệu lịch hẹn/thông báo/audit tham chiếu. Danh sách quản trị mặc định ẩn tài khoản đã xóa; ADMIN có thể yêu cầu `include_deleted=true`. Khôi phục trả lại đúng trạng thái active/inactive trước khi xóa, xóa hai trường lifecycle nhưng không mở lại session đã thu hồi. Tài khoản STAFF đang có lịch hẹn chiếm chỗ và tài khoản cuối cùng còn hoạt động của một vai trò được bảo vệ.
+
+Tạm từ chối đổi vai trò khi tài khoản đã có tham chiếu nghiệp vụ ở lịch hẹn, nhu cầu tiếp nhận, thời gian không nhận hoặc đề nghị; thao tác đổi vai trò dùng cùng khóa tài khoản với thao tác tạo dữ liệu nghiệp vụ.
 
 ### 3.2. `sessions` — Phiên đăng nhập
 
