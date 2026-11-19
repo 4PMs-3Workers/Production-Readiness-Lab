@@ -242,6 +242,7 @@ def test_refused_rollback_does_not_block_a_later_compatible_deploy(tmp_path):
 
     refused = host.rollback()
     assert refused.refusal is not None and refused.refusal.reason == "schema-incompatible"
+    assert refused.operation is not None
     assert refused.operation == current.operation
     assert not refused.operation.requires_recovery
 

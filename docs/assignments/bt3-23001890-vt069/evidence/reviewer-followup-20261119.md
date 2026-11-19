@@ -18,10 +18,15 @@ run for this follow-up source state.
 | Student error text and admin recovery comparison hid the configured quota | The booking error uses configuration-based wording. `ConfigurationSummary` now displays the quota; the frontend regression shows distinct submitted/current values when quota is the only difference. |
 | A malformed JSON response could be counted twice in latency | The synthetic harness appends latency once in `finally`. A test injects one malformed response among 60 concurrent requests and asserts exactly 60 samples and one failure. |
 
+The first PR run on this source also exposed a newly published Next.js audit finding. The current npm audit reported two moderate advisories affecting `next` 16.4.1 and listed 16.4.6 as the fix. `next` and `@next/eslint-plugin-next` are now both pinned to 16.4.6. After that upgrade, npm audit reports zero vulnerabilities, so the two expired exceptions for `braces` and `minimatch` were removed instead of renewed. The local fail-closed dependency policy now approves with zero findings.
+
 ## Verification on this workstation
 
 - Backend targeted regression command: `.venv\Scripts\python.exe -m pytest tests/backend/unit/test_release_manifest.py tests/backend/unit/test_rollout_state.py tests/backend/unit/test_rollout_controller.py tests/backend/unit/test_backup_evidence.py tests/load/test_vt069_quota_load.py -q` — **100 passed**, exit 0.
 - Frontend command: `node node_modules/vitest/vitest.mjs run --config src/frontend/vitest.config.ts tests/frontend/components/admin-booking-configuration.test.tsx tests/frontend/unit/api-services.test.ts` — **57 passed**, 2 files, exit 0.
+- After the patched Next.js update, the full frontend suite passed **500 tests across 44 files** with 2 workers on Node 24.22.1; `next typegen`, TypeScript, and frontend lint also passed.
+- Dependency audit on Node 24.22.1/npm 12.2.0: npm audit — **0 vulnerabilities**; Python pip-audit — **0 findings**; `check_dependency_advisories.py` — **approved, 0 findings**, exit 0.
+- Pyright initially found an optional `operation` access in a new controller assertion; an explicit non-null assertion now guards it. Final Pyright result: **0 errors, 0 warnings, 0 informations**.
 - MySQL integration discovery: `.venv\Scripts\python.exe -m pytest tests/backend/integration/test_booking_quota_configuration.py --collect-only -q` — **3 collected**. The MySQL tests were not executed on this Windows host.
 - Ruff check and format check on changed Python files passed; `git diff --check` passed.
 - The Linux/Docker end-to-end configuration transition rehearsal is not claimed as a local result; its updated base commit is exercised by the PR workflow when CI runs.
