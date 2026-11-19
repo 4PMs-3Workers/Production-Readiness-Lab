@@ -172,12 +172,12 @@ def test_reviewed_transition_is_the_exact_pr_base_configuration():
     actual_base_hashes = {item.path: item.sha256 for item in previous.files}
     assert all(actual_base_hashes[path] == digest for path, digest in expected_base_hashes.items())
     for path, digest in expected_base_hashes.items():
-        raw = subprocess.check_output(
-            ["git", "show", f"12a74f7308550ccc294a783edde79db267a526d1:{path}"], cwd=ROOT
+        fixture = ROOT / "tests/backend/unit/fixtures/pr66-base" / path.rsplit("/", 1)[-1]
+        assert hashlib.sha256(fixture.read_bytes()).hexdigest() == digest
+        assert (
+            hashlib.sha256((ROOT / path).read_bytes()).hexdigest()
+            == ADMIN_POLICY_TRANSITION[path][1]
         )
-        assert hashlib.sha256(raw).hexdigest() == digest
-        current_raw = subprocess.check_output(["git", "show", f"HEAD:{path}"], cwd=ROOT)
-        assert hashlib.sha256(current_raw).hexdigest() == ADMIN_POLICY_TRANSITION[path][1]
 
 
 @pytest.mark.parametrize(

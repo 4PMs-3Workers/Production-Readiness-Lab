@@ -16,3 +16,5 @@
 - Preserve historical RED/GREEN/mutation/load logs and PDF snapshots. Add dated supplemental evidence for follow-ups. Credentials and raw private logs remain outside tracked files.
 
 - When changing a rehearsal predecessor, re-derive behavior assertions from that exact source. The actual PR base already supports configuration-aware availability; an older predecessor's 503 response is not its contract. Keep schema-manifest rollback compatibility checks separate from an in-process availability probe.
+
+- GitHub checkout may be shallow. Capture reviewed baseline bytes as small hash-checked fixtures; never assume historical commits exist inside a test runner. Deadline tests should measure the ASGI operation on one event loop while preserving timeout, response and cleanup assertions.
