@@ -7,6 +7,18 @@ from tools.deploy.rollout_schema import EXPECTED, PREDECESSOR_EXPECTED, SchemaSn
 from tools.deploy.rollout_state import HostState, selection
 
 
+def reload_controller(host):
+    host.control = rollout_controller.RolloutController(
+        host.store,
+        host.registry,
+        host.runtime,
+        "b" * 40,
+        "c" * 64,
+        smoke=host.control.smoke,
+        readiness=host.control.readiness,
+    )
+
+
 def test_upgrade_preflight_uses_the_previous_stable_schema_before_migration(tmp_path):
     host = controller(tmp_path)
     previous_data = release().model_dump(mode="json")
@@ -140,6 +152,73 @@ def test_resume_after_migration_uses_and_validates_the_candidate_catalog(tmp_pat
     assert resumed.stable is not None and resumed.stable.reference == candidate_ref
 
 
+def test_resume_preflight_retry_preserves_migration_history(tmp_path, monkeypatch):
+    host = controller(tmp_path)
+    previous_data = release().model_dump(mode="json")
+    previous_data["accepted_schema_revisions"] = ["20261019_1200_proposal_replay"]
+    previous = parse(canonical(previous_data), Manifest)
+    previous_ref = reference()
+    host.registry.releases[previous_ref] = previous
+    stable = host.store.remember(previous_ref, previous)
+    host.runtime.previous_stable = stable
+    host.runtime.snapshot = SchemaSnapshot(
+        tables=PREDECESSOR_EXPECTED,
+        revisions=["20261019_1200_proposal_replay"],
+        unsupported_objects=0,
+        nontransactional_tables=0,
+    )
+    host.store.save(
+        HostState(
+            project=host.runtime.project,
+            configuration_sha256=host.control.configuration_sha256,
+            stable=stable,
+        )
+    )
+    candidate_ref = reference(2)
+    host.registry.releases[candidate_ref] = release(124, previous_ref)
+
+    def migrate_to_candidate():
+        host.runtime.calls.append("migrate")
+        host.runtime.snapshot = SchemaSnapshot(
+            tables=EXPECTED,
+            revisions=["20261113_1200_booking_quota"],
+            unsupported_objects=0,
+            nontransactional_tables=0,
+        )
+
+    monkeypatch.setattr(host.runtime, "migrate", migrate_to_candidate)
+    fail_grants_once = True
+
+    def fail_after_migration():
+        nonlocal fail_grants_once
+        host.runtime.calls.append("grants")
+        if fail_grants_once:
+            fail_grants_once = False
+            from tools.deploy.rollout_state import RolloutError
+
+            raise RolloutError("migration-failed")
+
+    monkeypatch.setattr(host.runtime, "apply_grants", fail_after_migration)
+    interrupted = host.deploy(candidate_ref)
+    assert interrupted.operation is not None and interrupted.operation.requires_recovery
+    assert interrupted.operation.migration_started
+    assert any(event.phase == "migration" for event in interrupted.operation.events)
+
+    host.registry.missing = True
+    preflight_refusal = host.deploy(candidate_ref, resume=True)
+    assert preflight_refusal.operation is not None
+    assert preflight_refusal.operation.phase == "failed"
+    assert preflight_refusal.operation.requires_recovery
+    assert preflight_refusal.operation.migration_started
+    assert preflight_refusal.refusal is None
+
+    host.registry.missing = False
+    reload_controller(host)
+    resumed = host.deploy(candidate_ref, resume=True)
+    assert resumed.operation is not None and resumed.operation.phase == "succeeded"
+    assert resumed.stable is not None and resumed.stable.reference == candidate_ref
+
+
 def test_resume_is_allowed_when_automatic_fallback_was_refused_at_preflight(tmp_path, monkeypatch):
     host = controller(tmp_path)
     previous_data = release().model_dump(mode="json")
@@ -196,6 +275,15 @@ def test_resume_is_allowed_when_automatic_fallback_was_refused_at_preflight(tmp_
     assert "rollback_rollout" not in phases
     assert refused_fallback.operation.requires_recovery
 
+    refused_rollback = host.rollback()
+    assert refused_rollback.refusal is not None
+    assert refused_rollback.refusal.reason == "schema-incompatible"
+    assert refused_rollback.operation == refused_fallback.operation
+    assert refused_rollback.operation is not None
+    assert refused_rollback.operation.requires_recovery
+    assert host.store.load() == refused_rollback
+
+    reload_controller(host)
     resumed = host.deploy(candidate_ref, resume=True)
     assert resumed.operation is not None and resumed.operation.phase == "succeeded"
     assert resumed.stable is not None and resumed.stable.reference == candidate_ref

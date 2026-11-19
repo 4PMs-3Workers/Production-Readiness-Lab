@@ -169,6 +169,7 @@ class Operation(Strict):
     fallback: Selection | None = None
     trigger_reason: Reason | None = None
     recovery_pending: bool = False
+    migration_started: bool = False
     events: list[Event] = Field(min_length=1, max_length=16)
     verification: Verification | None = None
 

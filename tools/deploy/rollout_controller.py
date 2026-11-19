@@ -127,6 +127,12 @@ class RolloutController:
             orchestrator_sha=self.source_sha,
             target=selected,
             recovery_pending=command == "rollback" or self._needs_recovery(state),
+            migration_started=(command == "deploy" and self._needs_recovery(state))
+            and state.operation is not None
+            and (
+                state.operation.migration_started
+                or any(event.phase == "migration" for event in state.operation.events)
+            ),
             events=[
                 Event(
                     phase="preflight" if command == "deploy" else "rollback_preflight",
@@ -158,6 +164,8 @@ class RolloutController:
         assert self.state is not None and self.state.operation is not None
         data = self.state.operation.model_dump(mode="json")
         data.update(operation_changes or {})
+        if phase == "migration":
+            data["migration_started"] = True
         if phase in {"succeeded", "rolled_back"}:
             data["recovery_pending"] = False
         data["events"].append(
@@ -239,7 +247,10 @@ class RolloutController:
             resume
             and operation is not None
             and operation.command == "deploy"
-            and any(event.phase == "migration" for event in operation.events)
+            and (
+                operation.migration_started
+                or any(event.phase == "migration" for event in operation.events)
+            )
         ):
             observed = self.runtime.schema()
             candidate_revisions = prepared.manifest.accepted_schema_revisions
@@ -433,17 +444,11 @@ class RolloutController:
                 )
             if target is None:
                 return self._refuse(state, "rollback", "rollback-unavailable")
-            if self._needs_recovery(state):
-                self._begin(state, target, "rollback")
-                try:
-                    return self._restore(target)
-                except Exception as error:
-                    return self._failed(error)
             try:
                 prepared = self._rollback_preflight(target)
             except RolloutError as error:
-                # Read-only preflight refusal does not create a recovery operation
-                # on an otherwise healthy host.
+                # A read-only refusal must preserve the operation and recovery
+                # target that were already pending on disk.
                 return self._refuse(state, "rollback", error.reason)
             self._begin(state, target, "rollback")
             try:
