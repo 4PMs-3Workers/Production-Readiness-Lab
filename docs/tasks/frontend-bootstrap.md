@@ -261,7 +261,7 @@ CI của `c06b45d` làm bằng chứng cho code mới. Mô tả PR dùng phạm 
 nhúng bộ ảnh mới bằng URL theo commit được review. Không chạy lại MySQL/backend
 tests vì bản gộp không sửa backend; workflow backend hiện có giữ nguyên.
 
-### Cảnh báo dependencies hiện tại
+### Kết quả audit dependencies khi bàn giao
 
 `npm audit --omit=dev` báo **0 vulnerabilities** cho dependencies production.
 Audit toàn bộ cây báo **4 high-severity entries** qua chuỗi công cụ lint:
