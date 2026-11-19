@@ -165,7 +165,10 @@ async def test_admin_policy_change_controls_real_booking_outcome_and_atomic_effe
         assert raised_to_four.json()["max_active_appointments"] == 4
         fourth = await student.post(
             BOOKINGS,
-            json=body,
+            json={
+                **body,
+                "starts_at": (starts_at + timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
+            },
             headers={
                 **write_headers(student),
                 "Idempotency-Key": "quota-accepted-at-four",

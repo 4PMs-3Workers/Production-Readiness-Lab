@@ -433,6 +433,12 @@ class RolloutController:
                 )
             if target is None:
                 return self._refuse(state, "rollback", "rollback-unavailable")
+            if self._needs_recovery(state):
+                self._begin(state, target, "rollback")
+                try:
+                    return self._restore(target)
+                except Exception as error:
+                    return self._failed(error)
             try:
                 prepared = self._rollback_preflight(target)
             except RolloutError as error:

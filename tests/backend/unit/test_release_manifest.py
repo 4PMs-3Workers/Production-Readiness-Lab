@@ -176,6 +176,8 @@ def test_reviewed_transition_is_the_exact_pr_base_configuration():
             ["git", "show", f"12a74f7308550ccc294a783edde79db267a526d1:{path}"], cwd=ROOT
         )
         assert hashlib.sha256(raw).hexdigest() == digest
+        current_raw = subprocess.check_output(["git", "show", f"HEAD:{path}"], cwd=ROOT)
+        assert hashlib.sha256(current_raw).hexdigest() == ADMIN_POLICY_TRANSITION[path][1]
 
 
 @pytest.mark.parametrize(

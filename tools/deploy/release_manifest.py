@@ -273,14 +273,6 @@ GRANTS_PATH = "tools/deploy/mysql/grants.sql"
 # to this release. Keep both sides pinned so a different local tree cannot claim
 # the same predecessor transition.
 ADMIN_POLICY_TRANSITION = {
-    "Dockerfile.backend": (
-        "b4845317377f7bb32900542e20c5a147852cf8704f32cae404eb4d8582a38d3c",
-        "1f01994392af530cd5e0cf4b4cd64b8040bac6ac2a075fe4d33d40c700bdde87",
-    ),
-    "Dockerfile.frontend": (
-        "b0569fa1f5faf1732cb14c7eb91aa231372c0922cd4f11a3173825d72fb8599a",
-        "6c0e9e815ea59c7f7c9f4d3c4588ce05155df08f4b934d2b96f000df6eb8fdff",
-    ),
     GRANTS_PATH: (
         "8a7277032db2552dc45e9031dd0947d1b0aa363b0d1ebd445366225af3af038a",
         "bdede7d278ee16b114ed2da85ac9e350cfdacec1aa0b4f125237b2765229f3a3",
@@ -288,10 +280,6 @@ ADMIN_POLICY_TRANSITION = {
     "tools/deploy/compose.yaml": (
         "1f9c939fb1496429e6870000e1e2c4ccb2a5773a402984d70b1bfd27ca15833e",
         "af71a4d21ef4bcfdb127ae327143728fa59e5f4610caaa5e234ca1d537179d28",
-    ),
-    "tools/infra/images.lock.json": (
-        "63e615673101a54601bba4c5a40fc4b6b00f55b0624d51356a31639214b5c76f",
-        "0656f548a22da0bc6b2cda0de41d0096578f85706c1e964e538ce6f52c9d6f49",
     ),
 }
 

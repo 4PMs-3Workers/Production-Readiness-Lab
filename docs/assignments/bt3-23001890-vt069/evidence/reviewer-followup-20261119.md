@@ -9,7 +9,7 @@ run for this follow-up source state.
 | Review finding | Change and regression |
 |---|---|
 | Successful state proofs rejected a reviewed predecessor schema | `StateStore.load()` now checks the verification pin against the cached manifest selected as stable. The state validator accepts only current/reviewed predecessor pins. `test_state_store_reads_a_successful_predecessor_proof` writes and reloads an unchanged predecessor proof. |
-| Transition started from an older commit instead of PR base `12a74f7308550ccc294a783edde79db267a526d1` | Replaced the stale file hash pairs with exact base-to-head identities for the backend/frontend Dockerfiles, main Compose file, grants, and image lock. The unit regression compares each `previous_configuration()` hash with `git show` from the actual PR base. The Linux configuration rehearsal now archives that same base. |
+| Transition started from an older commit instead of PR base `12a74f7308550ccc294a783edde79db267a526d1` | Replaced the stale hash pairs with exact base-to-head identities for the two files that actually differ: main Compose and grants. The unit regression compares both Git object hashes against the PR base and HEAD. The Linux configuration rehearsal now archives that same base. |
 | Resume failed after migration stamped the candidate schema | Resume of the same immutable target accepts a complete candidate catalog only after observing the candidate revision; a partial catalog still fails closed. Tests cover retry after grant failure and resuming after automatic fallback was refused during read-only preflight. |
 | A refused explicit rollback left a recovery operation on a healthy host | Rollback now resolves the exact target and completes image/plan/vendor/schema checks before recording a rollback operation. A refusal is recorded without setting recovery pending; a subsequent compatible deploy is tested. |
 | Integration coverage omitted quota four and lowering below the current count | The MySQL contract test raises quota to four, creates the fourth appointment, lowers quota to two, verifies existing `UPCOMING` and `CHANGE_PENDING` appointments remain, and confirms a new booking is denied. |
@@ -19,6 +19,8 @@ run for this follow-up source state.
 | A malformed JSON response could be counted twice in latency | The synthetic harness appends latency once in `finally`. A test injects one malformed response among 60 concurrent requests and asserts exactly 60 samples and one failure. |
 
 The first PR run on this source also exposed a newly published Next.js audit finding. The current npm audit reported two moderate advisories affecting `next` 16.4.1 and listed 16.4.6 as the fix. `next` and `@next/eslint-plugin-next` are now both pinned to 16.4.6. After that upgrade, npm audit reports zero vulnerabilities, so the two expired exceptions for `braces` and `minimatch` were removed instead of renewed. The local fail-closed dependency policy now approves with zero findings.
+
+The first rollout workflow run after updating the baseline failed because the transition helper returned `None`. Review of Git object hashes showed the patch had mistaken Windows CRLF working-tree digests for changes in the Dockerfiles and image lock; those blobs are identical at the actual base and HEAD. Those entries were removed. Only `compose.yaml` and `grants.sql` remain in the reviewed transition.
 
 ## Verification on this workstation
 
@@ -34,3 +36,12 @@ The first PR run on this source also exposed a newly published Next.js audit fin
 ## Limits
 
 The MySQL contract test and Linux/Docker rollout rehearsal require CI's Linux service environment. Local unit results establish controller and evidence behavior with deterministic fixtures; they do not establish a production deployment or successful rollback across the schema migration.
+
+
+## CI follow-up after a8eb5f2
+
+Actual job logs identified stale rollback assertions, an uncached successful state fixture, and a fourth booking at the same already occupied slot. The fixture now caches its exact manifest; the fourth booking uses a different available slot. Healthy preflight refusals preserve the successful operation; interrupted recovery still begins a rollback operation and preserves the recovery target. The Linux rehearsal checks refusal and then deploys a subsequent compatible candidate.
+
+Local verification after these fixes: the entire rollout unit family plus release manifest and synthetic load regression passed **238 tests**. Ruff passed; Pyright reported **0 errors, 0 warnings, 0 informations**. For local hash-sensitive checks, the three unchanged tracked configuration files were temporarily represented as LF bytes (matching Git/Linux), then their original Windows CRLF bytes were restored without staging them. The transition now contains only two actual changed Git blobs. PR-specific agent instructions are in root `AGENTS.md`.
+
+The previous backend CI also had one readiness elapsed-time boundary failure (0.700024 s against 0.7 s); no production timeout or test threshold was changed. A fresh run will establish whether this recurs.

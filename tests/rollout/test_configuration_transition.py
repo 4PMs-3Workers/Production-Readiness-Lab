@@ -270,11 +270,10 @@ def test_reviewed_upgrade_preserves_host_and_refuses_incompatible_rollback(tmp_p
             running = running_images(upgraded.runtime)
             refused = host(ROOT, source, stack.port).rollback()
             assert refused.operation is not None
-            assert [event.phase for event in refused.operation.events] == [
-                "rollback_preflight",
-                "failed",
-            ]
-            assert refused.operation.events[-1].reason == "schema-incompatible"
+            assert refused.operation == after.operation
+            assert refused.refusal is not None
+            assert refused.refusal.reason == "schema-incompatible"
+            assert not refused.operation.requires_recovery
             assert refused.stable == after.stable and refused.previous_stable == before.stable
             assert running_images(upgraded.runtime) == running
             upgraded.runtime.require_database(db_identity)
@@ -293,13 +292,18 @@ def test_reviewed_upgrade_preserves_host_and_refuses_incompatible_rollback(tmp_p
         restored = host(ROOT, source, stack.port)
         result = restored.rollback()
         assert result.operation is not None
-        assert [event.phase for event in result.operation.events] == [
-            "rollback_preflight",
-            "failed",
-        ]
-        assert result.operation.events[-1].reason == "schema-incompatible"
+        assert result.operation == after.operation
+        assert result.refusal is not None and result.refusal.reason == "schema-incompatible"
+        assert not result.operation.requires_recovery
         assert result.stable == after.stable and result.previous_stable == before.stable
         assert running_images(upgraded.runtime) == running
+        upgraded.runtime.require_database(db_identity)
+        assert upgraded.runtime.appointment_status(committed["id"]) == "UPCOMING"
+        next_candidate = artifacts.manifest(3, backend, frontend, candidate_ref)
+        next_ref = artifacts.registry.publish(artifacts.repository + "/releases", next_candidate)
+        subsequent = host(ROOT, source, stack.port).deploy(next_ref)
+        assert subsequent.operation is not None and subsequent.operation.phase == "succeeded"
+        assert subsequent.stable is not None and subsequent.stable.reference == next_ref
         upgraded.runtime.require_database(db_identity)
         assert upgraded.runtime.appointment_status(committed["id"]) == "UPCOMING"
     finally:

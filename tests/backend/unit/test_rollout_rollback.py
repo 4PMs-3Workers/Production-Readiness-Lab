@@ -43,8 +43,8 @@ def test_missing_rollback_images_preserve_stable_reference(tmp_path):
     host, before = two_releases(tmp_path)
     host.registry.missing = True
     result = host.rollback()
-    assert result.operation is not None and result.operation.phase == "failed"
-    assert result.operation.events[-1].reason == "missing-images"
+    assert result.operation == before.operation
+    assert result.refusal is not None and result.refusal.reason == "missing-images"
     assert result.stable == before.stable and result.previous_stable == before.previous_stable
     assert "rollout" not in host.runtime.calls
 
@@ -55,7 +55,8 @@ def test_partial_schema_refuses_rollback_before_touching_services(tmp_path):
     data["tables"].pop("audit_events")
     host.runtime.snapshot = type(host.runtime.snapshot)(**data)
     result = host.rollback()
-    assert result.operation is not None and result.operation.events[-1].reason == "schema-partial"
+    assert result.operation == before.operation
+    assert result.refusal is not None and result.refusal.reason == "schema-partial"
     assert result.stable == before.stable
     assert "rollout" not in host.runtime.calls
 
