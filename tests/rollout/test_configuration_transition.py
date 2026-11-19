@@ -19,7 +19,9 @@ from tools.deploy.rollout_smoke_journal import SmokeJournal
 from tools.deploy.rollout_state import RolloutError
 from tools.deploy.rollout_store import StateStore
 
-BASE = "724169a33b852a6cc6b255aff7cb92fffed89908"
+# The release used to rehearse this transition is the actual PR base, not the
+# older release revision that preceded it in the repository history.
+BASE = "12a74f7308550ccc294a783edde79db267a526d1"
 
 FIXED_AVAILABILITY = """
 import asyncio

@@ -23,7 +23,6 @@ from tools.deploy.release_manifest import (
     parse,
     read,
     require_compatible,
-    schema_revision,
     vendor_inventory,
     write,
 )
@@ -77,7 +76,9 @@ def render(
     spec: Spec, *, backup: bool = False, root: Path = ROOT, allow_previous: bool = False
 ) -> bytes:
     require_compatible(spec, root, allow_previous=allow_previous)
-    schema = schema_revision(root)
+    # Render the schema contract of this exact immutable release. A reviewed
+    # predecessor keeps its old pin when rendered from a newer checkout.
+    schema = spec.accepted_schema_revisions[0]
     names = {name: spec.images[key].reference for name, key in spec.services.items()}
     if spec.configuration.observability:
         # The merged backup-monitoring foundation reuses the shared backend.

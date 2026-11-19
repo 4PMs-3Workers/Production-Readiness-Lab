@@ -37,4 +37,6 @@ python tools/scripts/vt069_booking_quota_load.py
 
 Bổ sung CI 14/11/2026: xem [`ci-remediation-20261114.md`](evidence/ci-remediation-20261114.md) cho nguyên nhân frontend bỏ field quota, bản vá OpenTelemetry và kiểm chứng mới. PDF giữ snapshot evidence lịch sử; trạng thái CI mới nhất nằm ở PR #66.
 
+Phản hồi review PR #66 ngày 19/11/2026: xem [`reviewer-followup-20261119.md`](evidence/reviewer-followup-20261119.md) để biết các sửa lỗi rollout, coverage quota bốn lịch, kiểm tra cục bộ và giới hạn còn lại.
+
 See [`evidence/`](evidence/), the final report source [`report.md`](report.md), and generated [`BT3_23001890_VT-069.pdf`](../../../output/pdf/BT3_23001890_VT-069.pdf). Integration results that skip without MySQL are explicitly labeled unverified. Load output is a synthetic module benchmark only.

@@ -8,6 +8,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import Field, model_validator
 from tools.deploy.release_manifest import (
+    REVIEWED_PREDECESSOR_SCHEMAS,
     SCHEMA,
     SHA,
     Digest,
@@ -153,7 +154,9 @@ class Verification(Strict):
 
     @model_validator(mode="after")
     def complete(self) -> Self:
-        if self.schema_revision != SCHEMA or self.smoke_checks != sorted(SMOKE_CHECKS):
+        if self.schema_revision not in {SCHEMA, *REVIEWED_PREDECESSOR_SCHEMAS} or (
+            self.smoke_checks != sorted(SMOKE_CHECKS)
+        ):
             raise ValueError("Incomplete service verification")
         return self
 

@@ -269,38 +269,29 @@ def configuration(overlay: str, observability: bool, root: Path = ROOT) -> Confi
 
 GRANTS_PATH = "tools/deploy/mysql/grants.sql"
 
-# Issue #50 adds routes and runtime privileges without removing the base release's
-# routes or grants. Issue #53 adds a read-only public attestation mount and health
-# endpoint without changing the existing host's deployment state. These exact file
-# identities let the reviewed upgrade preserve and later restore that predecessor.
+# Exact identities for the reviewed transition from the PR's actual base (12a74f7)
+# to this release. Keep both sides pinned so a different local tree cannot claim
+# the same predecessor transition.
 ADMIN_POLICY_TRANSITION = {
+    "Dockerfile.backend": (
+        "b4845317377f7bb32900542e20c5a147852cf8704f32cae404eb4d8582a38d3c",
+        "1f01994392af530cd5e0cf4b4cd64b8040bac6ac2a075fe4d33d40c700bdde87",
+    ),
+    "Dockerfile.frontend": (
+        "b0569fa1f5faf1732cb14c7eb91aa231372c0922cd4f11a3173825d72fb8599a",
+        "6c0e9e815ea59c7f7c9f4d3c4588ce05155df08f4b934d2b96f000df6eb8fdff",
+    ),
     GRANTS_PATH: (
-        "6350525d0dace2a66459f486606e2f45a1d84e48cc673e0ab1a38f8e3c49a926",
+        "8a7277032db2552dc45e9031dd0947d1b0aa363b0d1ebd445366225af3af038a",
         "bdede7d278ee16b114ed2da85ac9e350cfdacec1aa0b4f125237b2765229f3a3",
-    ),
-    "tools/deploy/nginx/route-map.conf": (
-        "1c5c8eaa269404fff5f30bd8eecd5733768891b5226684bb5f867748b29ce5fd",
-        "47b24ed0346691dbc949d958fe351f29af893727bbecdde172793358a83fd90c",
-    ),
-    "tools/deploy/compose.local.yaml": (
-        "c6017399bdf443a3ac5e27d6e64cc6bec3e7fc1f038baf9e71332a9c99d2bf44",
-        "5766741d8e44c72fc5487cd689ca658a6780e9f8cf804481df4f3a9a89bbb758",
     ),
     "tools/deploy/compose.yaml": (
         "1f9c939fb1496429e6870000e1e2c4ccb2a5773a402984d70b1bfd27ca15833e",
         "af71a4d21ef4bcfdb127ae327143728fa59e5f4610caaa5e234ca1d537179d28",
     ),
-    "tools/deploy/compose.https.yaml": (
-        "319fdc5b8334164a1577bde4b63cbf2d730dc76dd99e54fc7cb735b2a703af4b",
-        "0811f0b010706d59351e7f3a0c4951b9f788731913877c1d88a805be1c0ad305",
-    ),
-    "tools/deploy/nginx/nginx.conf": (
-        "35220da5abdb389321cb47f8688286fc0d4e6a70ea54442db4d087998178248b",
-        "dd8331ac797a1f5bfa5c05eb3a33af815fd188346058860d9e9e27e631343597",
-    ),
-    "tools/deploy/nginx/routes.conf": (
-        "5e9f6e34f6911366c0c785f1ab62249e4bb58f9bcaed112c74f8637e1532e925",
-        "ebfdcf0a4efcf8f13b8a9423e69ed251ea70a5ebc8193eefcf4d477b4ed5fc22",
+    "tools/infra/images.lock.json": (
+        "63e615673101a54601bba4c5a40fc4b6b00f55b0624d51356a31639214b5c76f",
+        "0656f548a22da0bc6b2cda0de41d0096578f85706c1e964e538ce6f52c9d6f49",
     ),
 }
 

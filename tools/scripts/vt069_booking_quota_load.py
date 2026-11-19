@@ -81,8 +81,6 @@ async def run() -> dict[str, int | float | bool]:
                         json=payload,
                         headers={"X-Synthetic-Student": str(payload["student"])},
                     )
-                elapsed = (perf_counter_ns() - started_ns) / 1_000_000_000
-                latencies.append(elapsed)
                 expected_allowed = payload["active_count"] < payload["max_active_appointments"]
                 expected_status = 201 if expected_allowed else 409
                 expected_outcome = (
@@ -96,11 +94,11 @@ async def run() -> dict[str, int | float | bool]:
                 business_rejections += int(response.status_code == 409)
                 other_failures += int(not actual_correct)
             except TimeoutError:
-                latencies.append((perf_counter_ns() - started_ns) / 1_000_000_000)
                 timeouts += 1
             except Exception:
-                latencies.append((perf_counter_ns() - started_ns) / 1_000_000_000)
                 other_failures += 1
+            finally:
+                latencies.append((perf_counter_ns() - started_ns) / 1_000_000_000)
 
         started = perf_counter()
         await asyncio.gather(*(submit(payload) for payload in payloads))

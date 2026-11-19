@@ -9,9 +9,11 @@ from tools.deploy.rollout_state import (
     Event,
     HostState,
     Operation,
+    RolloutError,
     Verification,
     selection,
 )
+from tools.deploy.rollout_store import StateStore
 
 
 def selected():
@@ -19,15 +21,20 @@ def selected():
     return selection("ghcr.io/example/releases@sha256:" + "f" * 64, manifest)
 
 
-def operation(phases=("preflight", "migration", "rollout", "readiness", "smoke", "succeeded")):
+def operation(
+    phases=("preflight", "migration", "rollout", "readiness", "smoke", "succeeded"),
+    *,
+    target=None,
+    schema_revision=SCHEMA,
+):
     return Operation(
         operation_id="a" * 32,
         command="deploy",
         orchestrator_sha="b" * 40,
-        target=selected(),
+        target=target or selected(),
         verification=(
             Verification(
-                schema_revision=SCHEMA,
+                schema_revision=schema_revision,
                 image_identity_verified=True,
                 database_volume_preserved=True,
                 worker_progress_verified=True,
@@ -51,6 +58,51 @@ def test_atomic_promotion_requires_verified_terminal_selection():
     assert parse(canonical(state), HostState) == state
     with pytest.raises(ValidationError):
         HostState(project="prl-demo", configuration_sha256="c" * 64, operation=op)
+
+
+def test_state_store_reads_a_successful_predecessor_proof(tmp_path):
+    data = manifest_data()
+    data["accepted_schema_revisions"] = ["20261019_1200_proposal_replay"]
+    manifest = parse(canonical(data), Manifest)
+    store = StateStore(tmp_path / "state")
+    chosen = store.remember(
+        "ghcr.io/example/releases@sha256:" + "e" * 64,
+        manifest,
+    )
+    predecessor = operation(
+        target=chosen,
+        schema_revision="20261019_1200_proposal_replay",
+    )
+    state = HostState(
+        project="prl-demo",
+        configuration_sha256="c" * 64,
+        stable=predecessor.target,
+        operation=predecessor,
+    )
+    store.save(state)
+    assert store.load() == state
+
+
+def test_state_store_rejects_a_proof_pin_that_disagrees_with_its_release(tmp_path):
+    manifest = parse(canonical(manifest_data()), Manifest)
+    store = StateStore(tmp_path / "state")
+    chosen = store.remember(
+        "ghcr.io/example/releases@sha256:" + "e" * 64,
+        manifest,
+    )
+    operation_with_wrong_pin = operation(
+        target=chosen,
+        schema_revision="20261019_1200_proposal_replay",
+    )
+    state = HostState(
+        project="prl-demo",
+        configuration_sha256="c" * 64,
+        stable=chosen,
+        operation=operation_with_wrong_pin,
+    )
+    store.save(state)
+    with pytest.raises(RolloutError, match="invalid-state"):
+        store.load()
 
 
 @pytest.mark.parametrize(

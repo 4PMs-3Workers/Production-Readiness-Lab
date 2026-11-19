@@ -52,9 +52,20 @@ class StateStore:
         if not self.path.exists():
             return None
         try:
-            return read(self.path, HostState)
+            state = read(self.path, HostState)
         except ReleaseError:
             raise RolloutError("invalid-state") from None
+        operation = state.operation
+        if operation is not None and operation.verification is not None:
+            if state.stable is None:
+                raise RolloutError("invalid-state")
+            try:
+                manifest = self.manifest(state.stable)
+            except RolloutError:
+                raise RolloutError("invalid-state") from None
+            if manifest.accepted_schema_revisions != [operation.verification.schema_revision]:
+                raise RolloutError("invalid-state")
+        return state
 
     def save(self, state: HostState, *, previous_configuration_sha256: str | None = None) -> None:
         # Retirement is not a second authoritative commit. Content addressing

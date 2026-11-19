@@ -177,7 +177,10 @@ describe('ADMIN booking configuration workspace', () => {
     const original = fetcher.getMockImplementation()!;
     fetcher.mockImplementation(async (path, init) => {
       const response = await original(path, init);
-      if (init?.method === 'PUT') throw new TypeError('lost after commit');
+      if (init?.method === 'PUT') {
+        configuration = { ...configuration, max_active_appointments: 4 };
+        throw new TypeError('lost after commit');
+      }
       return response;
     });
     render(<Harness />);
@@ -186,8 +189,14 @@ describe('ADMIN booking configuration workspace', () => {
     await screen.findByRole('heading', { name: 'Chưa xác định kết quả lưu' });
     expect(screen.getByRole('button', { name: 'Lưu cấu hình' })).toBeDisabled();
     await userEvent.click(screen.getByRole('button', { name: 'Kiểm tra trạng thái hiện tại' }));
+    const recovery = screen.getByRole('region', { name: 'Xem xét kết quả quản trị' });
+    expect(await within(recovery).findAllByText('Lịch đang giữ chỗ tối đa')).toHaveLength(2);
+    expect(within(recovery).getByText('3')).toBeInTheDocument();
+    expect(within(recovery).getByText('4')).toBeInTheDocument();
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Dùng trạng thái đã xác minh' }),
+      await screen.findByRole('button', {
+        name: 'Tôi đã xem kết quả, bắt đầu chỉnh sửa mới',
+      }),
     );
     expect(writes()).toHaveLength(1);
     expect(screen.getByLabelText('Bước bắt đầu slot (phút)')).toHaveValue(20);

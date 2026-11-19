@@ -154,6 +154,55 @@ async def test_admin_policy_change_controls_real_booking_outcome_and_atomic_effe
             await row_count(env.factory, Notification, Notification.appointment_id == created_id)
             == 2
         )
+
+        current = raised.json()
+        raised_to_four = await admin.put(
+            CONFIGURATION,
+            json=policy_body(current, max_active_appointments=4),
+            headers=write_headers(admin),
+        )
+        assert raised_to_four.status_code == 200, raised_to_four.json()
+        assert raised_to_four.json()["max_active_appointments"] == 4
+        fourth = await student.post(
+            BOOKINGS,
+            json=body,
+            headers={
+                **write_headers(student),
+                "Idempotency-Key": "quota-accepted-at-four",
+            },
+        )
+        assert fourth.status_code == 201, fourth.json()
+        assert fourth.json()["status"] == "UPCOMING"
+        assert await row_count(env.factory, Appointment) == 4
+
+        lowered_below_count = await admin.put(
+            CONFIGURATION,
+            json=policy_body(raised_to_four.json(), max_active_appointments=2),
+            headers=write_headers(admin),
+        )
+        assert lowered_below_count.status_code == 200, lowered_below_count.json()
+        assert lowered_below_count.json()["max_active_appointments"] == 2
+        assert await row_count(env.factory, Appointment) == 4
+        for key, status in (
+            ("existing-quota-0", "UPCOMING"),
+            ("existing-quota-1", "CHANGE_PENDING"),
+        ):
+            async with env.factory() as db:
+                existing = await db.scalar(
+                    select(Appointment).where(Appointment.creation_request_key == key)
+                )
+                assert existing is not None and existing.status == status
+        denied_after_lowering = await student.post(
+            BOOKINGS,
+            json=body,
+            headers={
+                **write_headers(student),
+                "Idempotency-Key": "quota-still-enforced-after-lowering",
+            },
+        )
+        assert denied_after_lowering.status_code == 409
+        assert denied_after_lowering.json()["error"]["code"] == "BOOKING_QUOTA_EXCEEDED"
+        assert await row_count(env.factory, Appointment) == 4
     finally:
         await admin.aclose()
 
