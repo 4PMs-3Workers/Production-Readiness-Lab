@@ -14,3 +14,5 @@
 - Before push: run Black, Ruff and Pyright; run the full related rollout unit family (not only new tests), changed frontend tests/typecheck/lint, and collect/run affected MySQL integration tests where available. Check staged diff. After push, inspect every configured workflow on the latest head, including push duplicates; a prior green SHA is not evidence for new code.
 - For CI failures download actual job logs/artifacts; record the failed command/assertion and cause before editing. Never hide failures with skip, weakened assertions, global timeout increases, or advisory exceptions.
 - Preserve historical RED/GREEN/mutation/load logs and PDF snapshots. Add dated supplemental evidence for follow-ups. Credentials and raw private logs remain outside tracked files.
+
+- When changing a rehearsal predecessor, re-derive behavior assertions from that exact source. The actual PR base already supports configuration-aware availability; an older predecessor's 503 response is not its contract. Keep schema-manifest rollback compatibility checks separate from an in-process availability probe.

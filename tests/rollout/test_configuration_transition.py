@@ -264,8 +264,10 @@ def test_reviewed_upgrade_preserves_host_and_refuses_incompatible_rollback(tmp_p
                     "2027-03-14T13:00:00Z" <= start <= "2027-03-14T15:30:00Z" for start in starts
                 )
                 old_slots = fixed_availability(upgraded.runtime, stack, old_backend, payload, token)
-                assert old_slots["status"] == 503
-                assert old_slots["body"]["error"]["code"] == "SERVICE_UNAVAILABLE"
+                # The actual PR base already implements configuration-aware
+                # availability; both images must expose the same persisted slots.
+                assert old_slots["status"] == 200
+                assert old_slots["body"] == new_slots["body"]
 
             running = running_images(upgraded.runtime)
             refused = host(ROOT, source, stack.port).rollback()
