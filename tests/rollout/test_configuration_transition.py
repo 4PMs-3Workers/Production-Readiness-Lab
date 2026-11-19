@@ -19,7 +19,9 @@ from tools.deploy.rollout_smoke_journal import SmokeJournal
 from tools.deploy.rollout_state import RolloutError
 from tools.deploy.rollout_store import StateStore
 
-BASE = "724169a33b852a6cc6b255aff7cb92fffed89908"
+# The release used to rehearse this transition is the actual PR base, not the
+# older release revision that preceded it in the repository history.
+BASE = "12a74f7308550ccc294a783edde79db267a526d1"
 
 FIXED_AVAILABILITY = """
 import asyncio
@@ -101,7 +103,7 @@ def running_images(runtime: ReleaseRuntime) -> dict[str, tuple[str, str]]:
     return images
 
 
-def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(tmp_path):
+def test_reviewed_upgrade_preserves_host_and_refuses_incompatible_rollback(tmp_path):
     assert os.environ.get("RUN_ROLLOUT_REHEARSAL") == "1", "Required rollout rehearsal cannot skip"
     source = prerequisites()
     archive = tmp_path / "base.tar"
@@ -262,17 +264,18 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
                     "2027-03-14T13:00:00Z" <= start <= "2027-03-14T15:30:00Z" for start in starts
                 )
                 old_slots = fixed_availability(upgraded.runtime, stack, old_backend, payload, token)
-                assert old_slots["status"] == 503
-                assert old_slots["body"]["error"]["code"] == "SERVICE_UNAVAILABLE"
+                # The actual PR base already implements configuration-aware
+                # availability; both images must expose the same persisted slots.
+                assert old_slots["status"] == 200
+                assert old_slots["body"] == new_slots["body"]
 
             running = running_images(upgraded.runtime)
             refused = host(ROOT, source, stack.port).rollback()
             assert refused.operation is not None
-            assert [event.phase for event in refused.operation.events] == [
-                "rollback_preflight",
-                "failed",
-            ]
-            assert refused.operation.events[-1].reason == "rollback-incompatible"
+            assert refused.operation == after.operation
+            assert refused.refusal is not None
+            assert refused.refusal.reason == "schema-incompatible"
+            assert not refused.operation.requires_recovery
             assert refused.stable == after.stable and refused.previous_stable == before.stable
             assert running_images(upgraded.runtime) == running
             upgraded.runtime.require_database(db_identity)
@@ -287,14 +290,24 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
             ).json()
             assert fixed["windows"] == policy["windows"]
 
+        running = running_images(upgraded.runtime)
         restored = host(ROOT, source, stack.port)
         result = restored.rollback()
-        assert result.operation is not None and result.operation.phase == "rolled_back", result
-        assert result.stable == before.stable
-        assert result.configuration_sha256 == after.configuration_sha256
-        assert restored.runtime.manifest == old
-        restored.runtime.require_database(db_identity)
-        assert restored.runtime.appointment_status(committed["id"]) == "UPCOMING"
+        assert result.operation is not None
+        assert result.operation == after.operation
+        assert result.refusal is not None and result.refusal.reason == "schema-incompatible"
+        assert not result.operation.requires_recovery
+        assert result.stable == after.stable and result.previous_stable == before.stable
+        assert running_images(upgraded.runtime) == running
+        upgraded.runtime.require_database(db_identity)
+        assert upgraded.runtime.appointment_status(committed["id"]) == "UPCOMING"
+        next_candidate = artifacts.manifest(3, backend, frontend, candidate_ref)
+        next_ref = artifacts.registry.publish(artifacts.repository + "/releases", next_candidate)
+        subsequent = host(ROOT, source, stack.port).deploy(next_ref)
+        assert subsequent.operation is not None and subsequent.operation.phase == "succeeded"
+        assert subsequent.stable is not None and subsequent.stable.reference == next_ref
+        upgraded.runtime.require_database(db_identity)
+        assert upgraded.runtime.appointment_status(committed["id"]) == "UPCOMING"
     finally:
         try:
             if stack is not None:

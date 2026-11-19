@@ -94,7 +94,7 @@ same rollback. The Linux rehearsal verifies the spring-forward availability
 response on both images, the refusal with the incompatible policy in place,
 and successful rollback after an admin saves a compatible policy.
 
-The delivered schema contract accepts `20261019_1200_proposal_replay`. Only the
+The delivered schema contract accepts `20261113_1200_booking_quota`. Only the
 initial bootstrap may start with an empty schema. Existing schemas require exactly
 that revision, the expected table/column inventory, InnoDB and no unsupported
 views, triggers, routines or events. Earlier, unknown, multiple-head and partial

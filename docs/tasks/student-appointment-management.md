@@ -195,7 +195,7 @@ effects; nếu transaction trước không commit, server đánh giá lại tr�
 | 403 | INVALID_ORIGIN | Origin/Referer không cùng site khi POST. |
 | 404 | NOT_FOUND | Detail/cancel không thuộc sinh viên; hoặc purpose/staff không còn đủ điều kiện để tạo. |
 | 409 | BOOKING_CONFLICT | Slot không còn hợp lệ hoặc bị chiếm. |
-| 409 | BOOKING_QUOTA_EXCEEDED | Đạt hạn mức ba lịch đang chiếm chỗ. |
+| 409 | BOOKING_QUOTA_EXCEEDED | Đạt `service_settings.max_active_appointments` lịch đang chiếm chỗ (mặc định 3). |
 | 409 | IDEMPOTENCY_CONFLICT | Idempotency-Key đã dùng với body khác. |
 | 409 | APPOINTMENT_STATE_CONFLICT | Appointment đã COMPLETED hoặc NO_SHOW. |
 | 409 | CANCELLATION_DEADLINE_PASSED | Thời điểm hủy bằng hoặc sau nửa đêm địa phương ngày hẹn. |

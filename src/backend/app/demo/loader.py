@@ -17,7 +17,7 @@ from app.demo.data import Dataset, SeedError, Window, load_dataset, overlaps, se
 from app.models import Purpose, ServiceHour, ServiceSetting, StaffPurpose, User
 
 # Exact reviewed head includes the bootstrap schema, student fields and proposal replay.
-SCHEMA_REVISION = "20261019_1200_proposal_replay"
+SCHEMA_REVISION = "20261113_1200_booking_quota"
 TABLES = ("users", "purposes", "staff_purposes", "service_settings", "service_hours")
 SYSTEM_SCHEMAS = {"mysql", "information_schema", "performance_schema", "sys"}
 

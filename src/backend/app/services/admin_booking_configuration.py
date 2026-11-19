@@ -19,7 +19,12 @@ from app.schemas.admin_booking_configuration import (
 from app.services.admin_access import lock_admin, read_under_policy_lock
 from app.services.admin_writes import write_under_policy_lock
 
-POLICY_FIELDS = ("timezone", "start_step_minutes", "booking_horizon_days")
+POLICY_FIELDS = (
+    "timezone",
+    "start_step_minutes",
+    "booking_horizon_days",
+    "max_active_appointments",
+)
 
 
 def _snapshot(policy: ServiceSetting, windows: Iterable[WindowKey]) -> BookingConfiguration:
@@ -27,6 +32,7 @@ def _snapshot(policy: ServiceSetting, windows: Iterable[WindowKey]) -> BookingCo
         timezone=policy.timezone,
         start_step_minutes=policy.start_step_minutes,
         booking_horizon_days=policy.booking_horizon_days,
+        max_active_appointments=policy.max_active_appointments,
         windows=[
             WeeklyWindow(weekday=weekday, opens_at=opens_at, closes_at=closes_at)
             for weekday, opens_at, closes_at in sorted(windows)

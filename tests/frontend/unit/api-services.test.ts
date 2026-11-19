@@ -175,6 +175,10 @@ describe('real HTTP services', () => {
     expect(error).toBeInstanceOf(ApiError);
     expect(error).toMatchObject({ code, requestId: 'support-123', retryAfter: '30' });
     expect(errorMessage(error)).not.toContain('SQL secret');
+    if (code === 'BOOKING_QUOTA_EXCEEDED') {
+      expect(errorMessage(error)).toContain('cấu hình hiện tại');
+      expect(errorMessage(error)).not.toContain('ba lịch');
+    }
   });
   it('distinguishes a caller abort from a bounded request timeout', async () => {
     const fetcher = vi.fn<typeof fetch>(

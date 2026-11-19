@@ -36,6 +36,19 @@ from app.models import Purpose, ServiceHour, ServiceSetting, StaffPurpose, User
 from app.repositories import users
 
 
+@pytest.fixture
+def policy_settings(auth_settings):
+    # Correctness/lock-order tests must leave time for real SQL and observer barriers.
+    # Dedicated timeout tests explicitly select short budgets instead.
+    return auth_settings.model_copy(
+        update={
+            "db_query_timeout_seconds": 10.0,
+            "db_lock_timeout_seconds": 5.0,
+            "request_timeout_seconds": 20.0,
+        }
+    )
+
+
 def _run_alembic_upgrade(connection: Connection) -> None:
     """Run ``alembic upgrade head`` using an already-open synchronous connection.
 

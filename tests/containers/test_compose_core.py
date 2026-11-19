@@ -136,7 +136,7 @@ def test_compose_configuration_keeps_secrets_ports_and_ddl_out_of_runtime(stack)
     config = json.loads(result.stdout)
     services = config["services"]
     source_services = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))["services"]
-    accepted_schema_revision = "20261019_1200_proposal_replay"
+    accepted_schema_revision = "20261113_1200_booking_quota"
     assert set(services) == {"mysql", "frontend", "api", "worker", "schema", "migrate", "seed"}
     assert all(not service.get("ports") for service in services.values())
     assert all(network["internal"] for network in config["networks"].values())
@@ -201,7 +201,7 @@ def test_mysql_migration_grants_schema_gate_and_persistence(stack):
     assert compose("run", "--rm", "-T", "schema").returncode == 0
     assert (
         sql("runtime", "SELECT version_num FROM alembic_version;").stdout.strip()
-        == "20261019_1200_proposal_replay"
+        == "20261113_1200_booking_quota"
     )
     assert (
         sql("runtime", "INSERT INTO audit_events SELECT * FROM audit_events WHERE 1=0;").returncode
@@ -251,7 +251,7 @@ def test_mysql_migration_grants_schema_gate_and_persistence(stack):
     assert compose("run", "--rm", "-T", "schema").returncode != 0
     assert (
         sql(
-            "root", "UPDATE alembic_version SET version_num='20261019_1200_proposal_replay';"
+            "root", "UPDATE alembic_version SET version_num='20261113_1200_booking_quota';"
         ).returncode
         == 0
     )

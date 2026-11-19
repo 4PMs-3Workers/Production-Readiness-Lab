@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.worker.resources import SchemaCompatibilityError, WorkerResources
 
 pytestmark = pytest.mark.mysql
-HEAD = "20261019_1200_proposal_replay"
+HEAD = "20261113_1200_booking_quota"
 
 
 async def test_schema_gate_only_reads_current_migrated_schema(mysql_engine, auth_settings):

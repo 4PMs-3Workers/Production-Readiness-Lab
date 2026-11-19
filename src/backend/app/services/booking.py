@@ -34,7 +34,7 @@ from app.domain.availability import (
     AvailabilityPolicy,
     BookingDateError,
 )
-from app.domain.booking import booking_request_hash, require_description
+from app.domain.booking import booking_quota_reached, booking_request_hash, require_description
 from app.models import Appointment, AuditEvent, Notification, User
 from app.observability.tracing import SpanFactory, safe_span, set_business_outcome
 from app.repositories import appointments, availability, catalog, users
@@ -214,7 +214,12 @@ async def _run_attempt_with_commit_safety(
         except ValueError:
             raise AppError(422, "VALIDATION_ERROR", "Invalid request", "input") from None
 
-        if await appointments.count_blocking_for_student(db, student_id=context.user_id) >= 3:
+        active_count = await appointments.count_blocking_for_student(db, student_id=context.user_id)
+        try:
+            quota_reached = booking_quota_reached(active_count, setting.max_active_appointments)
+        except ValueError:
+            raise ServiceUnavailable() from None
+        if quota_reached:
             raise _quota_conflict()
 
         bounds = business_day_bounds(selected_date=selected_date, zone=zone)

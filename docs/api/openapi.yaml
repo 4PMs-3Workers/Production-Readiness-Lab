@@ -526,6 +526,9 @@ components:
         booking_horizon_days:
           title: Booking Horizon Days
           type: integer
+        max_active_appointments:
+          title: Max Active Appointments
+          type: integer
         start_step_minutes:
           title: Start Step Minutes
           type: integer
@@ -545,6 +548,7 @@ components:
       - timezone
       - start_step_minutes
       - booking_horizon_days
+      - max_active_appointments
       - windows
       - updated_at
       title: BookingConfiguration
@@ -561,6 +565,11 @@ components:
           format: date-time
           title: Expected Updated At
           type: string
+        max_active_appointments:
+          maximum: 32767.0
+          minimum: 1.0
+          title: Max Active Appointments
+          type: integer
         start_step_minutes:
           maximum: 32767.0
           minimum: 1.0
@@ -581,6 +590,7 @@ components:
       - timezone
       - start_step_minutes
       - booking_horizon_days
+      - max_active_appointments
       - windows
       title: BookingConfigurationReplace
       type: object

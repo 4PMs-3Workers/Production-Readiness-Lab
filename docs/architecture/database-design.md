@@ -121,6 +121,7 @@ erDiagram
         varchar timezone
         smallint start_step_minutes
         smallint booking_horizon_days
+        smallint max_active_appointments
     }
     service_hours {
         binary(16) id PK
@@ -225,9 +226,10 @@ Lưu cấu hình chung áp dụng cho việc đặt lịch trong toàn trường
 | `timezone` | `varchar(64)` | NN, `'Asia/Ho_Chi_Minh'` | Múi giờ nghiệp vụ. |
 | `start_step_minutes` | `smallint` | NN, `15` | Bước chọn giờ bắt đầu. |
 | `booking_horizon_days` | `smallint` | NN, `7` | Số ngày lịch kế tiếp ngày hiện tại được phép đặt. |
+| `max_active_appointments` | `smallint` | NN, `3` | Số lịch `UPCOMING`/`CHANGE_PENDING` tối đa trên mỗi sinh viên; admin đổi qua booking configuration API. |
 | `updated_at` | `datetime(6)` | NN | Lần sửa cấu hình. |
 
-**Ràng buộc:** `id = 1`; bước chọn giờ và cửa sổ đặt lớn hơn 0. Seed bắt buộc tạo dòng cấu hình; dịch vụ kiểm tra múi giờ hợp lệ.
+**Ràng buộc:** `id = 1`; bước chọn giờ, cửa sổ đặt và hạn mức lịch đều lớn hơn 0. Seed bắt buộc tạo dòng cấu hình; dịch vụ kiểm tra múi giờ hợp lệ.
 
 Thời lượng lấy từ nhu cầu. Hạn hủy và phản hồi đề nghị áp dụng theo mục 5.1. Người sửa cấu hình được ghi trong audit. Thao tác đổi múi giờ, cửa sổ đặt hoặc giờ phục vụ không tự sửa các lịch đã xác nhận.
 
@@ -393,7 +395,7 @@ Ví dụ, CHECK có thể xác nhận thời điểm kết thúc lớn hơn th�
 | Đúng vai trò, sinh viên tự đặt, người thao tác có quyền | Dịch vụ xác thực và kiểm tra lại dưới khóa tài khoản. |
 | Khoảng thời gian và thời lượng hợp lệ | `CHECK` trên bảng; SQL mode nghiêm ngặt cho ngày giờ. |
 | Lịch đang chiếm chỗ không giao nhau | Khóa hàng nhân viên/sinh viên bằng `FOR UPDATE`, kiểm tra giao khoảng rồi ghi trong cùng transaction. |
-| Tối đa ba lịch đang chiếm chỗ | Khóa sinh viên rồi đếm trong giao dịch tạo lịch. |
+| Hạn mức lịch đang chiếm chỗ | `max_active_appointments`; khóa sinh viên rồi đếm trong giao dịch tạo lịch. |
 | Mỗi yêu cầu tạo tối đa một lịch | Unique theo sinh viên và mã yêu cầu; so sánh hash khi retry. |
 | Tối đa một đề nghị đang chờ | Generated column `pending_guard` và unique ghép theo lịch. |
 | Trạng thái lịch/đề nghị đồng bộ, trường bất biến | Luồng ghi của dịch vụ, khóa lịch và cập nhật trong cùng transaction. |
@@ -439,7 +441,7 @@ Trong các bảng bên dưới, `PK` là khóa chính, `FK` là khóa ngoại, `
 
 Quyền, thời điểm hiện tại và khả dụng được kiểm tra lại sau khi có đủ khóa trong transaction. Danh tính người thao tác lấy từ phiên, không lấy từ trường ID tùy ý trong request.
 
-Thời lượng lấy từ nhu cầu và được lưu tại lúc đặt. Thay đổi thời lượng danh mục không sửa lịch đã có. Sinh viên có tối đa ba lịch đang chiếm chỗ; `UPCOMING` và `CHANGE_PENDING` cùng được tính vào hạn mức.
+Thời lượng lấy từ nhu cầu và được lưu tại lúc đặt. Thay đổi thời lượng danh mục không sửa lịch đã có. Sinh viên có tối đa `max_active_appointments` lịch đang chiếm chỗ (mặc định 3); `UPCOMING` và `CHANGE_PENDING` cùng được tính vào hạn mức.
 
 ### 5.2. Trạng thái lịch và đề nghị
 
@@ -496,7 +498,7 @@ Mọi luồng ghi áp dụng cùng thứ tự trong một transaction InnoDB:
 3. Khóa lịch bằng `FOR UPDATE` theo ID tăng dần nếu thao tác nhiều lịch; sau đó khóa đề nghị/liên kết nhu cầu liên quan.
 4. Đọc lại dữ liệu sau khi có đủ khóa. Chạy câu lệnh riêng `SELECT UTC_TIMESTAMP(6)` để lấy thời điểm kiểm tra hạn, rồi kiểm tra quyền, trạng thái, hạn mức và khả dụng; ghi và commit.
 
-Khóa nhân viên đồng bộ việc đặt lịch, đổi lịch, khai báo thời gian không nhận và bật/tắt nhu cầu. Khóa sinh viên đồng bộ việc tạo lịch, tránh trùng lịch và hạn mức ba lịch. Quản trị đổi vai trò/vô hiệu hóa tài khoản khóa cùng hàng tài khoản. Với lịch đã tồn tại, có thể đọc trước ID người tham gia để xác định khóa; phải đọc lại lịch sau khi khóa. Người tham gia là dữ liệu bất biến.
+Khóa nhân viên đồng bộ việc đặt lịch, đổi lịch, khai báo thời gian không nhận và bật/tắt nhu cầu. Khóa sinh viên đồng bộ việc tạo lịch, tránh trùng lịch và hạn mức cấu hình. Quản trị đổi vai trò/vô hiệu hóa tài khoản khóa cùng hàng tài khoản. Với lịch đã tồn tại, có thể đọc trước ID người tham gia để xác định khóa; phải đọc lại lịch sau khi khóa. Người tham gia là dữ liệu bất biến.
 
 Ghi cấu hình STAFF chỉ khóa tài khoản actor sau settings rồi association/period liên quan,
 kiểm tra lại account active/STAFF dưới khóa. Không sửa appointment nên không cần khóa
@@ -509,13 +511,13 @@ ghi cùng transaction; unchanged PUT hoặc exact POST replay không phát sinh 
 
 Transaction kết thúc trong mỗi request. Thời gian chờ sinh viên phản hồi được lưu bằng trạng thái đề nghị.
 
-### 6.2. Tạo lịch và giới hạn ba lịch
+### 6.2. Tạo lịch và hạn mức lịch
 
 1. Xác thực sinh viên; chuẩn hóa nội dung yêu cầu và tính SHA-256. Hash bao gồm nhân viên, nhu cầu, giờ bắt đầu đã quy về UTC và mô tả theo biểu mẫu; loại bỏ các trường kỹ thuật như request ID.
 2. Tra `(student_id, creation_request_key)`; nếu đã có, xử lý retry theo §6.3.
 3. Bắt đầu transaction và lấy khóa theo §6.1; tra lại mã yêu cầu để xử lý request cạnh tranh.
 4. Kiểm tra hai tài khoản còn hoạt động và đúng vai trò; nhu cầu còn hoạt động, nhân viên đang nhận; mô tả có nội dung nếu được yêu cầu.
-5. Đếm lịch của sinh viên có trạng thái `UPCOMING/CHANGE_PENDING`; nếu đã có ba lịch thì từ chối.
+5. Đếm lịch của sinh viên có trạng thái `UPCOMING/CHANGE_PENDING`; nếu số lịch đạt `service_settings.max_active_appointments` thì từ chối.
 6. Kiểm tra cửa sổ đặt, toàn bộ thời lượng nằm trong giờ phục vụ, bước chọn giờ, thời gian không nhận và xung đột. Tính `ends_at` từ thời lượng nhu cầu.
 7. Insert lịch `UPCOMING` cùng mã/hash yêu cầu; insert audit và hai thông báo; commit rồi trả kết quả.
 
@@ -613,7 +615,7 @@ WHERE student_id = :student_id
   AND ends_at > :candidate_starts_at
 LIMIT 1;
 
--- Giới hạn ba lịch của sinh viên.
+-- Đếm lịch chiếm chỗ để so với service_settings.max_active_appointments.
 SELECT COUNT(*)
 FROM appointments
 WHERE student_id = :student_id
@@ -685,7 +687,7 @@ Các bài kiểm chứng chạy trên **MySQL 8.4/InnoDB thật**, cấu hình U
 | Người thao tác hoặc nhân viên sai vai trò | Dịch vụ từ chối. |
 | Hai lịch tiếp giáp / hai lịch giao khoảng | Tiếp giáp được phép; giao khoảng bị chặn. |
 | Hai request khác sinh viên đặt giao khoảng khi nhân viên chưa có lịch | Khóa hàng nhân viên bảo đảm chỉ một lịch được tạo. |
-| Bốn request cùng sinh viên đặt các giờ khác nhau | Tối đa ba lịch đang chiếm chỗ. |
+| Bốn request cùng sinh viên đặt các giờ khác nhau | Không vượt `max_active_appointments` (mặc định 3). |
 | 50 sinh viên cùng đặt một khoảng của một nhân viên | Một lịch được tạo. |
 | Cùng key/hash gửi lại, kể cả sau khi lịch đã hủy | Cùng ID/kết quả tạo ban đầu; giữ nguyên số lịch/audit/thông báo. |
 | Cùng key với nội dung khác | `409 IDEMPOTENCY_CONFLICT`. |

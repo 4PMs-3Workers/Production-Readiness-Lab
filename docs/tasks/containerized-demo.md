@@ -51,7 +51,7 @@ PRL_SEED_PASSWORD=<random-seed-database-password>
 
 `runtime.env` chứa cấu hình process API/worker. Bắt buộc đặt `DATABASE_URL`,
 `APPLICATION_ORIGIN`, `COOKIE_SECRET`, `CSRF_SECRET` và
-`ACCEPTED_SCHEMA_REVISIONS=20261019_1200_proposal_replay`. Với HTTP local, đặt
+`ACCEPTED_SCHEMA_REVISIONS=20261113_1200_booking_quota`. Với HTTP local, đặt
 `APPLICATION_ORIGIN=http://localhost:8080`, `ENVIRONMENT=local` và
 `COOKIE_SECURE=false`. URL dùng user `prl_runtime` cùng password trong `db.env`.
 Giữ `COOKIE_DOMAIN` không đặt; mặc định cookie host-only. Các giới hạn thời gian,
@@ -62,7 +62,7 @@ DATABASE_URL=mysql+asyncmy://prl_runtime:<database-password>@mysql/prl
 APPLICATION_ORIGIN=http://localhost:8080
 COOKIE_SECRET=<random-cookie-secret>
 CSRF_SECRET=<different-random-csrf-secret>
-ACCEPTED_SCHEMA_REVISIONS=20261019_1200_proposal_replay
+ACCEPTED_SCHEMA_REVISIONS=20261113_1200_booking_quota
 ENVIRONMENT=local
 COOKIE_SECURE=false
 ```

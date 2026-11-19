@@ -962,6 +962,7 @@ async def test_admin_mutations_work_with_deployed_runtime_grants(account_env, my
             "timezone": "UTC",
             "start_step_minutes": 20,
             "booking_horizon_days": 9,
+            "max_active_appointments": policy["max_active_appointments"],
             "windows": [{"weekday": 1, "opens_at": "08:00:00", "closes_at": "11:00:00"}],
         }
         applied = await client.put(policy_path, json=replacement, headers=write_headers(client))

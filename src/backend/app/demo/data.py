@@ -56,6 +56,7 @@ class BookingSettings(Record):
     timezone: Literal["Asia/Ho_Chi_Minh"]
     start_step_minutes: Literal[15]
     booking_horizon_days: Literal[7]
+    max_active_appointments: Literal[3]
 
 
 class Window(Record):
