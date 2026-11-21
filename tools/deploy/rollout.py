@@ -12,6 +12,7 @@ from tools.deploy import demo
 from tools.deploy.evidence import lifecycle_directory
 from tools.deploy.release_images import Registry, command
 from tools.deploy.release_manifest import (
+    ACCOUNT_LIFECYCLE_TRANSITION,
     ADMIN_POLICY_TRANSITION,
     ROOT,
     canonical,
@@ -51,19 +52,28 @@ def parser() -> Parser:
 
 
 def reviewed_transition(
-    overlay: str, observability: bool, selections: dict[str, object], *, root: Path = ROOT
+    overlay: str,
+    observability: bool,
+    selections: dict[str, object],
+    *,
+    root: Path = ROOT,
+    previous_host_sha256: str | None = None,
 ) -> ConfigurationTransition | None:
-    previous = previous_configuration(configuration(overlay, observability, root))
-    if previous is None:
-        return None
-    previous_host = demo._configuration_identity(
-        overlay,
-        observability,
-        selections,
-        root=root,
-        overrides={path: before for path, (before, _) in ADMIN_POLICY_TRANSITION.items()},
-    )
-    return ConfigurationTransition(previous_host, previous)
+    current = configuration(overlay, observability, root)
+    for transition in (ADMIN_POLICY_TRANSITION, ACCOUNT_LIFECYCLE_TRANSITION):
+        previous = previous_configuration(current, transition=transition)
+        if previous is None:
+            continue
+        previous_host = demo._configuration_identity(
+            overlay,
+            observability,
+            selections,
+            root=root,
+            overrides={path: before for path, (before, _) in transition.items()},
+        )
+        if previous_host_sha256 is None or previous_host_sha256 == previous_host:
+            return ConfigurationTransition(previous_host, previous)
+    return None
 
 
 def controller(args, store: StateStore) -> RolloutController:
@@ -101,6 +111,7 @@ def controller(args, store: StateStore) -> RolloutController:
                     persisted_status=selected.appointment_status,
                 )
 
+        state = store.load()
         return RolloutController(
             store,
             Registry(plain_http=args.plain_http),
@@ -110,7 +121,10 @@ def controller(args, store: StateStore) -> RolloutController:
             smoke=smoke,
             readiness=lambda selected: ready(selected, context),
             transition=reviewed_transition(
-                args.overlay, args.observability, host.configuration_selections
+                args.overlay,
+                args.observability,
+                host.configuration_selections,
+                previous_host_sha256=state.configuration_sha256 if state else None,
             ),
         )
     except RolloutError:

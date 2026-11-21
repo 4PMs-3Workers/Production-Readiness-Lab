@@ -246,23 +246,31 @@ GRANTS_PATH = "tools/deploy/mysql/grants.sql"
 # The account lifecycle release advances the accepted schema in the shared Compose
 # file and publishes new gateway routes. These exact identities pin the immediate
 # predecessor configuration for a reviewed upgrade and rollback.
-ADMIN_POLICY_TRANSITION = {
+ACCOUNT_LIFECYCLE_TRANSITION = {
     "tools/deploy/compose.yaml": (
         "1f9c939fb1496429e6870000e1e2c4ccb2a5773a402984d70b1bfd27ca15833e",
         "b47009b194b4be07186032126f4da0b78246b9f91905852602a61061d85869b9",
     ),
     "tools/deploy/nginx/route-map.conf": (
         "47b24ed0346691dbc949d958fe351f29af893727bbecdde172793358a83fd90c",
+        "6cf73275201e4f740b85a9d4fc66e6654250808770cc9a60cd58b3a5af5fe950",
+    ),
+}
+
+# CSV export advances the gateway map from stable aed6c68.
+ADMIN_POLICY_TRANSITION = {
+    "tools/deploy/nginx/route-map.conf": (
         "04f782e69aeccbde6704168c08eba879b6230464b6c11f6287bc6a4e7937b29e",
+        "6cf73275201e4f740b85a9d4fc66e6654250808770cc9a60cd58b3a5af5fe950",
     ),
 }
 
 
-def previous_configuration(current: Configuration) -> Configuration | None:
+def previous_configuration(
+    current: Configuration, *, transition: dict[str, tuple[str, str]] = ADMIN_POLICY_TRANSITION
+) -> Configuration | None:
     hashes = {item.path: item.sha256 for item in current.files}
-    transition = {
-        path: versions for path, versions in ADMIN_POLICY_TRANSITION.items() if path in hashes
-    }
+    transition = {path: versions for path, versions in transition.items() if path in hashes}
     if not transition or any(hashes[path] != after for path, (_, after) in transition.items()):
         return None
     data = current.model_dump(exclude={"sha256"})
@@ -277,7 +285,13 @@ def require_configuration(
     config: Configuration, root: Path = ROOT, *, allow_previous: bool = False
 ) -> None:
     current = configuration(config.overlay, config.observability, root)
-    if config != current and (not allow_previous or config != previous_configuration(current)):
+    if config != current and (
+        not allow_previous
+        or (
+            config != previous_configuration(current)
+            and config != previous_configuration(current, transition=ACCOUNT_LIFECYCLE_TRANSITION)
+        )
+    ):
         raise ReleaseError("incompatible-configuration")
 
 
@@ -355,7 +369,8 @@ def require_compatible(spec: Spec, root: Path = ROOT, *, allow_previous: bool = 
         if (
             not allow_previous
             or spec.accepted_schema_revisions != [PREDECESSOR_SCHEMA]
-            or spec.configuration != previous_configuration(current)
+            or spec.configuration
+            != previous_configuration(current, transition=ACCOUNT_LIFECYCLE_TRANSITION)
         ):
             raise ReleaseError("incompatible-schema")
     if spec.vendor_images != vendor_inventory(spec.configuration.observability, root):

@@ -21,13 +21,14 @@ from app.schemas.appointments import (
     AppointmentCreateRequest,
     AppointmentCreateResponse,
     AppointmentDetailResponse,
+    AppointmentExportQuery,
     AppointmentListItem,
     AppointmentListQuery,
     IdempotencyKey,
 )
 from app.schemas.common import ErrorResponse, PageResponse
+from app.services import appointment_export, cancellation, student_appointments
 from app.services import booking as booking_service
-from app.services import cancellation, student_appointments
 
 router = APIRouter(tags=["appointments"])
 
@@ -205,6 +206,41 @@ async def list_appointments(
     del _query_guard
     return await student_appointments.list_student_appointments(
         db, query, student_id=context.user_id, settings=request.app.state.settings
+    )
+
+
+@router.get(
+    "/appointments/export",
+    response_class=Response,
+    responses={
+        **appointment_responses({200: None}, 401, 403, 409, 422, 500, 503),
+        200: {
+            "description": "Owned UTF-8 CSV history (maximum 1000 rows)",
+            "content": {"text/csv": {"schema": {"type": "string"}}},
+            "headers": {
+                "Content-Disposition": {"schema": {"type": "string"}},
+                "Cache-Control": {"schema": {"type": "string"}},
+                "X-Request-ID": {"schema": {"type": "string"}},
+            },
+        },
+    },
+    summary="Export owned student appointment history",
+)
+async def export_appointments(
+    request: Request,
+    query: Annotated[AppointmentExportQuery, Query()],
+    context: Annotated[AuthContext, Depends(require_student)],
+    _query_guard: Annotated[None, Depends(reject_duplicate_catalog_query)],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
+) -> Response:
+    del _query_guard
+    content = await appointment_export.export_student_appointments(
+        db, query, student_id=context.user_id, settings=request.app.state.settings
+    )
+    return Response(
+        content,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="appointments.csv"'},
     )
 
 

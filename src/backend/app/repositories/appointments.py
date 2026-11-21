@@ -16,7 +16,7 @@ from app.models import (
     ServiceSetting,
     User,
 )
-from app.schemas.appointments import AppointmentListQuery
+from app.schemas.appointments import AppointmentListQuery, AppointmentStatus
 
 BLOCKING_STATUSES = ("UPCOMING", "CHANGE_PENDING")
 
@@ -80,6 +80,17 @@ async def read_student_appointment_page(
         .offset(offset)
     )
     return (await db.execute(statement)).all(), total
+
+
+async def read_student_appointment_export(
+    db: AsyncSession, *, student_id: UUID, status: AppointmentStatus | None, limit: int
+) -> Sequence[Row[Any]]:
+    """One bounded statement snapshot, including one sentinel row for overflow."""
+    statement = _student_detail_statement().where(Appointment.student_id == student_id)
+    if status is not None:
+        statement = statement.where(Appointment.status == status)
+    statement = statement.order_by(Appointment.starts_at.desc(), Appointment.id.desc()).limit(limit)
+    return (await db.execute(statement)).all()
 
 
 def _staff_detail_statement():
