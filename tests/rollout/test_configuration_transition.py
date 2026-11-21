@@ -12,8 +12,6 @@ from tests.rollout.fixtures import Artifacts, RolloutStack
 from tools.deploy import demo
 from tools.deploy.release_images import command
 from tools.deploy.release_manifest import (
-    ACCOUNT_LIFECYCLE_TRANSITION,
-    ADMIN_POLICY_TRANSITION,
     PREDECESSOR_SCHEMA,
     ROOT,
     SCHEMA,
@@ -122,14 +120,14 @@ def running_images(runtime: ReleaseRuntime) -> dict[str, tuple[str, str]]:
 
 
 @pytest.mark.parametrize(
-    "stable_ref,stable_schema,transition",
+    "stable_ref,stable_schema",
     [
-        (BASE, PREDECESSOR_SCHEMA, ACCOUNT_LIFECYCLE_TRANSITION),
-        ("aed6c68a4a081f558d01e9ba4c39cd031439af47", SCHEMA, ADMIN_POLICY_TRANSITION),
+        (BASE, PREDECESSOR_SCHEMA),
+        ("aed6c68a4a081f558d01e9ba4c39cd031439af47", SCHEMA),
     ],
 )
 def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
-    tmp_path, stable_ref, stable_schema, transition
+    tmp_path, stable_ref, stable_schema
 ):
     assert os.environ.get("RUN_ROLLOUT_REHEARSAL") == "1", "Required rollout rehearsal cannot skip"
     source = prerequisites()
@@ -189,6 +187,7 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
                 )
 
         def host(root, sha, port, readiness=ready):
+            state = store.load()
             selections = {"http_port": port}
             runtime = ReleaseRuntime(
                 stack.compose_base(root),
@@ -206,7 +205,11 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
                 smoke=smoke,
                 readiness=readiness,
                 transition=reviewed_transition(
-                    "local", False, selections, root=root, transition=transition
+                    "local",
+                    False,
+                    selections,
+                    root=root,
+                    previous_host_sha256=state.configuration_sha256 if state else None,
                 ),
             )
 

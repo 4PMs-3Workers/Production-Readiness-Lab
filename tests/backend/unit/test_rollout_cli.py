@@ -4,8 +4,44 @@ import sys
 
 from tests.backend.unit.rollout_fixtures import controller as fixture_controller
 from tests.backend.unit.rollout_fixtures import reference
-from tools.deploy import rollout
+from tools.deploy import demo, rollout
+from tools.deploy.release_manifest import (
+    ACCOUNT_LIFECYCLE_TRANSITION,
+    ADMIN_POLICY_TRANSITION,
+    ROOT,
+)
 from tools.deploy.rollout_store import StateStore
+
+
+def test_transition_is_selected_from_the_persisted_host_identity():
+    selections: dict[str, object] = {"http_port": 8080}
+    identities = []
+    for transition in (ADMIN_POLICY_TRANSITION, ACCOUNT_LIFECYCLE_TRANSITION):
+        expected = demo._configuration_identity(
+            "local",
+            False,
+            selections,
+            root=ROOT,
+            overrides={path: before for path, (before, _) in transition.items()},
+        )
+        identities.append(expected)
+        selected = rollout.reviewed_transition(
+            "local",
+            False,
+            selections,
+            previous_host_sha256=expected,
+        )
+        assert selected is not None and selected.previous_host_sha256 == expected
+    assert len(set(identities)) == 2
+    assert (
+        rollout.reviewed_transition(
+            "local",
+            False,
+            selections,
+            previous_host_sha256="0" * 64,
+        )
+        is None
+    )
 
 
 def test_status_needs_no_credentials_and_does_not_claim_fresh_health(tmp_path, monkeypatch, capsys):
