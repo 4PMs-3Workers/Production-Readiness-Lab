@@ -31,17 +31,20 @@ git rev-parse HEAD | Set-Content (Join-Path $studentRun 'head.txt')
 python -m pytest tests/backend/integration/test_appointment_export.py::test_export_source_cardinality_after_retry -q --require-mysql 2>&1 | Tee-Object -FilePath (Join-Path $studentRun 'tc18.txt')
 $studentTc18ExitCode = $LASTEXITCODE
 
-# The harness writes a tracked canonical JSON: preserve it before your run.
-$canonicalPoolReport = 'docs/assignments/VT-071/evidence/review-pool-production-performance.json'
+# Preserve the previous build output in this run directory.
+$canonicalPoolReport = 'build/vt071/review-pool-production-performance.json'
 $savedPoolReport = Join-Path $studentRun 'original-pool-report.json'
-Copy-Item -LiteralPath $canonicalPoolReport -Destination $savedPoolReport
+if (Test-Path -LiteralPath $canonicalPoolReport) {
+    Move-Item -LiteralPath $canonicalPoolReport -Destination $savedPoolReport
+}
 $env:BT3_RUN_LOAD = '1'
 try {
     python -m pytest 'tests/backend/integration/test_appointment_export_load_pool.py::test_export_pool_profile[production]' -q -s --require-mysql 2>&1 | Tee-Object -FilePath (Join-Path $studentRun 'pool.txt')
     $studentPoolExitCode = $LASTEXITCODE
-    Copy-Item -LiteralPath $canonicalPoolReport -Destination (Join-Path $studentRun 'student-pool-report.json')
+    if (Test-Path -LiteralPath $canonicalPoolReport) {
+        Copy-Item -LiteralPath $canonicalPoolReport -Destination (Join-Path $studentRun 'student-pool-report.json')
+    }
 } finally {
-    Copy-Item -LiteralPath $savedPoolReport -Destination $canonicalPoolReport
     Remove-Item Env:BT3_RUN_LOAD -ErrorAction SilentlyContinue
 }
 @{ tc18 = $studentTc18ExitCode; pool = $studentPoolExitCode } | ConvertTo-Json | Set-Content (Join-Path $studentRun 'exit-codes.json')

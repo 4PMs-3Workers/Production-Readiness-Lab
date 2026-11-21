@@ -66,14 +66,13 @@ python -m pip install -r requirements-dev.txt -e . coverage==7.17.0
 $env:MYSQL_TEST_URL = '<dedicated local MySQL 8.4 admin URL>'
 $env:PYTHONUTF8 = '1'
 python -m pytest tests/backend/integration/test_appointment_export.py tests/backend/unit/test_appointment_export.py tests/backend/unit/test_openapi_export.py -q --require-mysql
-python -m coverage run --source=app -m pytest tests/backend/integration/test_appointment_export.py tests/backend/unit/test_appointment_export.py tests/backend/unit/test_openapi_export.py -q --require-mysql
-python -m coverage json -o docs/assignments/VT-071/evidence/review-coverage-full.json
+python tools/scripts/vt071_coverage.py tests/backend/integration/test_appointment_export.py tests/backend/unit/test_appointment_export.py tests/backend/unit/test_openapi_export.py -q --require-mysql
 python tools/scripts/vt071_diff_coverage.py
 python tools/scripts/vt071_reverse_tests.py
 python tools/scripts/export_openapi.py
 ```
 
-37 export instances +4 OpenAPI =41 pass. Original red5fail/9pass (route absent); CSV
+Historical measurement at student source `15526cb`: 37 export instances +4 OpenAPI =41 pass. Original red5fail/9pass (route absent); CSV
 revision red7fail/10pass then green. Explicit greenlet/thread CTracer config resolves
 same-TC10 measurement omission. Export service34/34 lines,8/8 arcs. Diff coverage from
 official baseline: API6/6, repo7/7, schema3/3, service34/34 =50/50 changed executable
@@ -85,7 +84,7 @@ Original replay-only: a500f24b0aea8ac249251dfd30f534ffaa53a867 on
 codex/bt3-23001952-vt071-mutation. Killed503 !=200; did not prove duplicated rows.
 
 Direct/cardinality mutants: codex/bt3-23001952-vt071-mutants-verified. Exact commit
-SHAs, tests and outcomes: evidence/review-mutants.json. Branch HEAD restores source.
+SHAs, tests and outcomes are preserved in the [archived mutant metadata](https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/a664a1073ce6d7c8f116b66fc9498e5469917b57/docs/assignments/VT-071/evidence/review-mutants.json). Branch HEAD restores source.
 Owner omitted -> exact IDs fail; overflow raise omitted ->200 !=409; both role
 guards bypassed ->200 !=403. Primary role dependency alone survives because query
 guard still requires STUDENT: no deny behavior changed in the executed cases.
