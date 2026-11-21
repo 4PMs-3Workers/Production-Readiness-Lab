@@ -202,9 +202,7 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
                 artifacts.registry,
                 runtime,
                 sha,
-                demo._configuration_identity(
-                    "local", False, selections, root=root, transition=transition
-                ),
+                demo._configuration_identity("local", False, selections, root=root),
                 smoke=smoke,
                 readiness=readiness,
                 transition=reviewed_transition(

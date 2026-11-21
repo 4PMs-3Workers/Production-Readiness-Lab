@@ -11,6 +11,7 @@ from tools.deploy.release_manifest import (
     ACCOUNT_LIFECYCLE_TRANSITION,
     ADMIN_POLICY_TRANSITION,
     CHECKS,
+    PREDECESSOR_SCHEMA,
     ROOT,
     SCHEMA,
     Manifest,
@@ -129,6 +130,21 @@ def test_reviewed_predecessor_requires_opt_in_and_exact_configuration(
         with pytest.raises(ReleaseError, match="incompatible-configuration"):
             require_configuration(previous, tmp_path, allow_previous=True)
         path.write_bytes(original)
+
+
+def test_legacy_schema_is_bound_to_the_legacy_configuration():
+    current = configuration("local", False)
+    data = spec_data()
+    data["accepted_schema_revisions"] = [PREDECESSOR_SCHEMA]
+    legacy = previous_configuration(current, transition=ACCOUNT_LIFECYCLE_TRANSITION)
+    assert legacy is not None
+    data["configuration"] = legacy.model_dump()
+    require_compatible(parse(canonical(data), Spec), allow_previous=True)
+    csv_predecessor = previous_configuration(current)
+    assert csv_predecessor is not None
+    data["configuration"] = csv_predecessor.model_dump()
+    with pytest.raises(ReleaseError, match="incompatible-schema"):
+        require_compatible(parse(canonical(data), Spec), allow_previous=True)
 
 
 @pytest.mark.parametrize(

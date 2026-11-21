@@ -369,7 +369,8 @@ def require_compatible(spec: Spec, root: Path = ROOT, *, allow_previous: bool = 
         if (
             not allow_previous
             or spec.accepted_schema_revisions != [PREDECESSOR_SCHEMA]
-            or spec.configuration != previous_configuration(current)
+            or spec.configuration
+            != previous_configuration(current, transition=ACCOUNT_LIFECYCLE_TRANSITION)
         ):
             raise ReleaseError("incompatible-schema")
     if spec.vendor_images != vendor_inventory(spec.configuration.observability, root):
