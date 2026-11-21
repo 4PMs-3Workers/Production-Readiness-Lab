@@ -50,6 +50,14 @@ import type {
   AccountPasswordBody,
 } from '@/services/admin-contracts';
 import { parseAdminAccount, parseAdminAccountPage } from './admin-account-mapping';
+import type {
+  AdminPurposeQuery,
+  PurposeCreateBody,
+  PurposeReplaceBody,
+} from '@/services/admin-catalog-contracts';
+import type { BookingConfigurationReplaceBody } from '@/services/admin-configuration-contracts';
+import { parseAdminPurpose, parseAdminPurposePage, purposeMatches } from './admin-catalog-mapping';
+import { copyPolicy, parseAdminConfiguration, policyMatches } from './admin-configuration-mapping';
 import { ApiError, BookingRejection } from './errors';
 import { parseBookingContext } from './booking-context';
 import {
@@ -515,6 +523,106 @@ export class ApiServices {
     const data = await this.request<unknown>(`/admin/accounts?${params}`, scoped);
     await this.verifyAdmin(scoped);
     return parseAdminAccountPage(data);
+  }
+  private async adminRead(path: string, options: AdminAccessOptions) {
+    const scoped = {
+      ...options,
+      signal: AbortSignal.any([this.scope.signal, ...(options.signal ? [options.signal] : [])]),
+    };
+    await this.verifyAdmin(scoped);
+    const data = await this.request<unknown>(path, scoped);
+    await this.verifyAdmin(scoped);
+    return data;
+  }
+  async listAdminPurposes(query: AdminPurposeQuery, options: AdminAccessOptions) {
+    const params = new URLSearchParams({
+      page: String(query.page),
+      page_size: String(query.pageSize ?? 20),
+    });
+    if (query.isActive !== undefined) params.set('is_active', String(query.isActive));
+    return parseAdminPurposePage(await this.adminRead(`/admin/purposes?${params}`, options));
+  }
+  async getAdminPurpose(id: string, options: AdminAccessOptions) {
+    const purpose = parseAdminPurpose(
+      await this.adminRead(`/admin/purposes/${encodeURIComponent(id)}`, options),
+    );
+    requireContract(purpose.id === id);
+    return purpose;
+  }
+  async createAdminPurpose(body: PurposeCreateBody, options: AdminWriteOptions) {
+    const payload: PurposeCreateBody = {
+      code: body.code,
+      name: body.name.trim(),
+      duration_minutes: body.duration_minutes,
+      requires_free_text: body.requires_free_text,
+      is_active: body.is_active,
+    };
+    const purpose = parseAdminPurpose(
+      await this.write<unknown>(
+        '/admin/purposes',
+        payload,
+        options,
+        {},
+        options.expectedUserId,
+        options.onDispatch,
+        'POST',
+        'ADMIN',
+        options.expectedSessionGeneration,
+      ),
+    );
+    requireContract(purpose.code === payload.code && purposeMatches(purpose, payload));
+    return purpose;
+  }
+  async replaceAdminPurpose(id: string, body: PurposeReplaceBody, options: AdminWriteOptions) {
+    const payload: PurposeReplaceBody = {
+      expected_updated_at: body.expected_updated_at,
+      name: body.name.trim(),
+      duration_minutes: body.duration_minutes,
+      requires_free_text: body.requires_free_text,
+      is_active: body.is_active,
+    };
+    const purpose = parseAdminPurpose(
+      await this.write<unknown>(
+        `/admin/purposes/${encodeURIComponent(id)}`,
+        payload,
+        options,
+        {},
+        options.expectedUserId,
+        options.onDispatch,
+        'PUT',
+        'ADMIN',
+        options.expectedSessionGeneration,
+      ),
+    );
+    requireContract(purpose.id === id && purposeMatches(purpose, payload));
+    return purpose;
+  }
+  async getAdminBookingConfiguration(options: AdminAccessOptions) {
+    return parseAdminConfiguration(await this.adminRead('/admin/booking-configuration', options));
+  }
+  async replaceAdminBookingConfiguration(
+    body: BookingConfigurationReplaceBody,
+    options: AdminWriteOptions,
+  ) {
+    const payload: BookingConfigurationReplaceBody = {
+      ...copyPolicy(body),
+      expected_updated_at: body.expected_updated_at,
+    };
+    const configuration = parseAdminConfiguration(
+      await this.write<unknown>(
+        '/admin/booking-configuration',
+        payload,
+        options,
+        {},
+        options.expectedUserId,
+        options.onDispatch,
+        'PUT',
+        'ADMIN',
+        options.expectedSessionGeneration,
+      ),
+    );
+    requireContract(policyMatches(configuration, payload));
+    return configuration;
   }
   async createAdminAccount(body: AccountCreateBody, options: AdminWriteOptions) {
     const payload = { ...body };

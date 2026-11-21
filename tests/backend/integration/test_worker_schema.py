@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.worker.resources import SchemaCompatibilityError, WorkerResources
 
 pytestmark = pytest.mark.mysql
-HEAD = "20261019_1200_proposal_replay"
+HEAD = "20261114_1200_soft_delete"
 
 
 async def test_schema_gate_only_reads_current_migrated_schema(mysql_engine, auth_settings):
@@ -24,7 +24,10 @@ async def test_schema_gate_only_reads_current_migrated_schema(mysql_engine, auth
     assert statements and all(statement.startswith("SELECT") for statement in statements)
 
 
-@pytest.mark.parametrize("revision", [None, "a1b2c3d4e5f6", "unknown-release"])
+@pytest.mark.parametrize(
+    "revision",
+    [None, "a1b2c3d4e5f6", "20261019_1200_proposal_replay", "unknown-release"],
+)
 async def test_schema_gate_rejects_missing_old_or_unknown_revision(
     mysql_engine, auth_settings, revision
 ):

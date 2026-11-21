@@ -87,6 +87,14 @@ def backend_image():
     run("docker", "image", "rm", image)
 
 
+def teardown_gateway_fixture(base, project, env, failed):
+    try:
+        if failed:
+            preserve_gateway_failure(base, project, env)
+    finally:
+        run(*base, "down", "--remove-orphans", "--volumes", "--timeout", "5", env=env)
+
+
 def preserve_gateway_failure(base, project, env):
     """Save diagnostics for this UUID-owned fixture before its teardown."""
     output = (
@@ -94,6 +102,7 @@ def preserve_gateway_failure(base, project, env):
         / ".superpowers/sdd/2026-10-23-observability-foundation"
         / f"task-5-gateway-fixture-{project}.txt"
     )
+    output.parent.mkdir(parents=True, exist_ok=True)
     sections = []
     for label, command in (
         ("compose ps -a", [*base, "ps", "--all", "--format", "json"]),
@@ -101,7 +110,12 @@ def preserve_gateway_failure(base, project, env):
         (
             "spool metadata as UID 101 helper",
             [
-                *base, "exec", "-T", "rotate_helper", "sh", "-c",
+                *base,
+                "exec",
+                "-T",
+                "rotate_helper",
+                "sh",
+                "-c",
                 'id; stat -c "%a %u:%g %n" /var/log/prl /var/log/prl/access.jsonl*',
             ],
         ),
@@ -115,11 +129,16 @@ def preserve_gateway_failure(base, project, env):
             snapshot = output.with_name(f"{output.stem}-{service}-access.jsonl{suffix}")
             copied = subprocess.run(
                 [
-                    "docker", "cp",
+                    "docker",
+                    "cp",
                     f"{project}-{service}-1:/var/log/prl/access.jsonl{suffix}",
                     str(snapshot),
                 ],
-                cwd=ROOT, env=env, text=True, capture_output=True, timeout=30,
+                cwd=ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=30,
             )
             sections.append(
                 f"## {service} file snapshot -> {snapshot.name} "
@@ -128,11 +147,16 @@ def preserve_gateway_failure(base, project, env):
     checkpoint_snapshot = output.with_name(f"{output.stem}-collector-file-storage")
     checkpoint_copy = subprocess.run(
         [
-            "docker", "cp",
+            "docker",
+            "cp",
             f"{project}-collector-1:/var/lib/otelcol/file_storage",
             str(checkpoint_snapshot),
         ],
-        cwd=ROOT, env=env, text=True, capture_output=True, timeout=30,
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=30,
     )
     sections.append(
         f"## Collector file_storage snapshot -> {checkpoint_snapshot.name} "
@@ -141,13 +165,21 @@ def preserve_gateway_failure(base, project, env):
     )
     ids_result = subprocess.run(
         ["docker", "ps", "-aq", "--filter", f"label=com.docker.compose.project={project}"],
-        cwd=ROOT, env=env, text=True, capture_output=True, timeout=30,
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=30,
     )
     container_ids = ids_result.stdout.split()
     if container_ids:
         inspected = subprocess.run(
-            ["docker", "inspect", *container_ids], cwd=ROOT, env=env, text=True,
-            capture_output=True, timeout=30,
+            ["docker", "inspect", *container_ids],
+            cwd=ROOT,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=30,
         )
         sections.append(
             f"## docker inspect (exit {inspected.returncode})\n"
@@ -155,13 +187,21 @@ def preserve_gateway_failure(base, project, env):
         )
     volumes_result = subprocess.run(
         ["docker", "volume", "ls", "-q", "--filter", f"label=com.docker.compose.project={project}"],
-        cwd=ROOT, env=env, text=True, capture_output=True, timeout=30,
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=30,
     )
     volume_names = volumes_result.stdout.split()
     if volume_names:
         inspected_volumes = subprocess.run(
-            ["docker", "volume", "inspect", *volume_names], cwd=ROOT, env=env,
-            text=True, capture_output=True, timeout=30,
+            ["docker", "volume", "inspect", *volume_names],
+            cwd=ROOT,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=30,
         )
         sections.append(
             f"## docker volume inspect (exit {inspected_volumes.returncode})\n"
@@ -176,6 +216,7 @@ def pytest_runtest_makereport(item, call):
     report = outcome.get_result()
     if report.when == "call":
         item.rep_call = report
+
 
 def certificate(directory):
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -321,9 +362,8 @@ def gateway(request, tmp_path_factory, backend_image):
             yield client, mode, base, env
     finally:
         report = getattr(request.node, "rep_call", None)
-        if sys.exc_info()[0] is not None or (report is not None and report.failed):
-            preserve_gateway_failure(base, project, env)
-        run(*base, "down", "--remove-orphans", "--volumes", "--timeout", "5", env=env)
+        failed = sys.exc_info()[0] is not None or (report is not None and report.failed)
+        teardown_gateway_fixture(base, project, env, failed)
 
 
 def test_real_routing_headers_and_spoofed_identity(gateway):

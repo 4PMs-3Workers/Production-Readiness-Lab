@@ -17,6 +17,15 @@ ACCOUNT = "11111111-1111-4111-8111-111111111111"
         ("POST", f"/api/v1/admin/accounts/{ACCOUNT}", False),
         ("PATCH", f"/api/v1/admin/accounts/{ACCOUNT}/password", False),
         ("POST", "/api/v1/appointments", True),
+        ("POST", "/api/v1/admin/purposes", True),
+        ("PUT", f"/api/v1/admin/purposes/{ACCOUNT}", True),
+        ("PUT", "/api/v1/admin/booking-configuration", True),
+        ("PATCH", "/api/v1/admin/booking-configuration", False),
+        ("POST", "/api/v1/admin/booking-configuration", False),
+        ("GET", "/api/v1/admin/booking-configuration", False),
+        ("PUT", "/api/v1/admin/purposes/not-a-uuid", False),
+        ("PUT", "/api/v1/admin/purposes/------------------------------------", False),
+        ("PUT", f"/api/v1/admin/purposes/{ACCOUNT}/password", False),
     ],
 )
 @pytest.mark.parametrize("status", [200, 201, 409])

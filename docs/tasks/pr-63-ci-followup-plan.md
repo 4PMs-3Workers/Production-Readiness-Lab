@@ -1,0 +1,10 @@
+# PR #63 CI follow-up plan
+
+Continue on `feature/issue-53-reproducible-booking-load` in the existing Issue #53 worktree. Base is `develop`; retain pushed history. Use systematic debugging, TDD for behavioral corrections, and verification before each commit.
+
+1. **Restore gateway startup and cleanup.** CI reports Docker cannot create `/etc/nginx/prl/deploy` under the read-only `/etc/nginx/prl` bind. Move evidence to a sibling mount, update the Nginx alias and contract, and add a structural regression forbidding nested mounts beneath read-only binds. Verify both local/HTTPS overlays and affected callers. Commit: `fix(deploy): mount runtime evidence outside read-only configuration`.
+2. **Preserve integration database credentials.** The load MySQL test stringifies a SQLAlchemy URL, replacing its password with `***`. Preserve the real credential only in the connection value, keep logs redacted, cover URL round trips with encoded special characters, and use a URL object for the admin engine. Commit: `fix(test): preserve load integration database credentials`.
+3. **Bound upstream tool download retries.** The age installer fails on transient redirect/read timeouts. Retry only transient failures within one overall deadline, discard partial attempts, and retain pinned digest, extraction and size checks. Test retries, permanent failures and integrity rejection. Commit: `fix(backup): retry transient pinned age downloads`.
+4. **Prevent recurrence and verify the pushed result.** Add branch-specific agent guidance, check full backend unit/load coverage and required style/type/workflow consumers, review changes, push, and inspect both push and pull-request workflows for the final SHA. Read fresh logs for each new failure. Keep zero-skip gates and existing assertions. Update PR #63 with measured results; do not merge or deploy.
+
+Local Docker Linux is unavailable, so actual container/MySQL acceptance must be obtained from CI. The main checkout graph is older and does not cover new branch source; no index is created.

@@ -107,7 +107,7 @@ def requires_request_deadline(scope: Scope) -> bool:
         or (is_staff_appointment_path(scope) and method in {"GET", "POST"})
         or (is_staff_configuration_path(scope) and method in {"GET", "PUT", "POST", "DELETE"})
         or (is_staff_context_path(scope) and method == "GET")
-        or (is_admin_account_path(scope) and method in {"GET", "POST", "PATCH"})
+        or (is_admin_account_path(scope) and method in {"GET", "POST", "PATCH", "DELETE"})
         or (is_admin_booking_path(scope) and method in {"GET", "POST", "PUT"})
     )
 

@@ -13,7 +13,8 @@ from typing import Annotated, Literal, Self, TypeAlias, TypeVar
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 ROOT = Path(__file__).resolve().parents[2]
-SCHEMA = "20261019_1200_proposal_replay"
+SCHEMA = "20261114_1200_soft_delete"
+PREDECESSOR_SCHEMA = "20261019_1200_proposal_replay"
 MAX_JSON = 1024 * 1024
 SHA: TypeAlias = Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]
 Hex: TypeAlias = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
@@ -242,29 +243,40 @@ def configuration(overlay: str, observability: bool, root: Path = ROOT) -> Confi
 
 GRANTS_PATH = "tools/deploy/mysql/grants.sql"
 
-# Issue #50 adds routes/runtime privileges; BT3 adds the student export route.
-# Both preserve the base routes/grants. Only these exact two file versions are
-# covered by the reviewed transition; other configuration drift still fails closed.
-ADMIN_POLICY_TRANSITION = {
-    GRANTS_PATH: (
-        "6350525d0dace2a66459f486606e2f45a1d84e48cc673e0ab1a38f8e3c49a926",
-        "8a7277032db2552dc45e9031dd0947d1b0aa363b0d1ebd445366225af3af038a",
+# The account lifecycle release advances the accepted schema in the shared Compose
+# file and publishes new gateway routes. These exact identities pin the immediate
+# predecessor configuration for a reviewed upgrade and rollback.
+ACCOUNT_LIFECYCLE_TRANSITION = {
+    "tools/deploy/compose.yaml": (
+        "1f9c939fb1496429e6870000e1e2c4ccb2a5773a402984d70b1bfd27ca15833e",
+        "b47009b194b4be07186032126f4da0b78246b9f91905852602a61061d85869b9",
     ),
     "tools/deploy/nginx/route-map.conf": (
-        "1c5c8eaa269404fff5f30bd8eecd5733768891b5226684bb5f867748b29ce5fd",
-        "a21773dd60ab774b23b854523f51186637bc9a94e85d4e5488e4aec15280d7ee",
+        "47b24ed0346691dbc949d958fe351f29af893727bbecdde172793358a83fd90c",
+        "6cf73275201e4f740b85a9d4fc66e6654250808770cc9a60cd58b3a5af5fe950",
+    ),
+}
+
+# CSV export advances the gateway map from stable aed6c68.
+ADMIN_POLICY_TRANSITION = {
+    "tools/deploy/nginx/route-map.conf": (
+        "04f782e69aeccbde6704168c08eba879b6230464b6c11f6287bc6a4e7937b29e",
+        "6cf73275201e4f740b85a9d4fc66e6654250808770cc9a60cd58b3a5af5fe950",
     ),
 }
 
 
-def previous_configuration(current: Configuration) -> Configuration | None:
+def previous_configuration(
+    current: Configuration, *, transition: dict[str, tuple[str, str]] = ADMIN_POLICY_TRANSITION
+) -> Configuration | None:
     hashes = {item.path: item.sha256 for item in current.files}
-    if any(hashes.get(path) != after for path, (_, after) in ADMIN_POLICY_TRANSITION.items()):
+    transition = {path: versions for path, versions in transition.items() if path in hashes}
+    if not transition or any(hashes[path] != after for path, (_, after) in transition.items()):
         return None
     data = current.model_dump(exclude={"sha256"})
     for item in data["files"]:
-        if item["path"] in ADMIN_POLICY_TRANSITION:
-            item["sha256"] = ADMIN_POLICY_TRANSITION[item["path"]][0]
+        if item["path"] in transition:
+            item["sha256"] = transition[item["path"]][0]
     data["sha256"] = hashlib.sha256(canonical(data)).hexdigest()
     return parse(canonical(data), Configuration)
 
@@ -273,7 +285,13 @@ def require_configuration(
     config: Configuration, root: Path = ROOT, *, allow_previous: bool = False
 ) -> None:
     current = configuration(config.overlay, config.observability, root)
-    if config != current and (not allow_previous or config != previous_configuration(current)):
+    if config != current and (
+        not allow_previous
+        or (
+            config != previous_configuration(current)
+            and config != previous_configuration(current, transition=ACCOUNT_LIFECYCLE_TRANSITION)
+        )
+    ):
         raise ReleaseError("incompatible-configuration")
 
 
@@ -347,7 +365,13 @@ def vendor_inventory(observability: bool, root: Path = ROOT) -> dict[str, str]:
 def require_compatible(spec: Spec, root: Path = ROOT, *, allow_previous: bool = False) -> None:
     require_configuration(spec.configuration, root, allow_previous=allow_previous)
     if spec.accepted_schema_revisions != [SCHEMA]:
-        raise ReleaseError("incompatible-schema")
+        current = configuration(spec.configuration.overlay, spec.configuration.observability, root)
+        if (
+            not allow_previous
+            or spec.accepted_schema_revisions != [PREDECESSOR_SCHEMA]
+            or spec.configuration != previous_configuration(current)
+        ):
+            raise ReleaseError("incompatible-schema")
     if spec.vendor_images != vendor_inventory(spec.configuration.observability, root):
         raise ReleaseError("vendor-inventory-mismatch")
 

@@ -17,9 +17,9 @@ dependencies = [
     "click==8.5.0",
     "fastapi==0.143.0",
     "uvicorn==0.54.0",
-    "opentelemetry-api==1.45.1",
-    "opentelemetry-sdk==1.45.1",
-    "opentelemetry-exporter-otlp-proto-http==1.45.1",
+    "opentelemetry-api==1.45.2",
+    "opentelemetry-sdk==1.45.2",
+    "opentelemetry-exporter-otlp-proto-http==1.45.2",
     "prometheus-client==0.26.0",
     "pydantic==2.14.1",
     "pydantic-settings==2.15.0",
@@ -58,6 +58,8 @@ include = [
     "tests/backend/unit/test_offhost_monitor.py",
     "tools/deploy/rollout*.py",
     "tests/rollout",
+    "tools/load",
+    "tests/load",
 ]
 extraPaths = ["src/backend", "tools/infra/offhost"]
 venvPath = "."
@@ -65,7 +67,7 @@ venv = ".venv"
 pythonVersion = "3.11"
 
 [tool.pytest.ini_options]
-testpaths = ["tests/backend"]
+testpaths = ["tests/backend", "tests/load"]
 pythonpath = ["src/backend", "tests/backend/integration"]
 addopts = ["--import-mode=importlib"]
 asyncio_mode = "auto"

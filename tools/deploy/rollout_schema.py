@@ -3,7 +3,7 @@
 from typing import Literal
 
 from pydantic import Field
-from tools.deploy.release_manifest import SCHEMA, Strict
+from tools.deploy.release_manifest import PREDECESSOR_SCHEMA, SCHEMA, Strict
 from tools.deploy.rollout_state import RolloutError
 
 from app.models import Base
@@ -12,6 +12,15 @@ from app.models import Base
 # Revision stamps alone cannot prove that a partially applied DDL is usable.
 EXPECTED = {name: sorted(table.columns.keys()) for name, table in Base.metadata.tables.items()}
 EXPECTED["alembic_version"] = ["version_num"]
+EXPECTED_PREDECESSOR = {
+    **EXPECTED,
+    "users": [
+        column
+        for column in EXPECTED["users"]
+        if column not in {"deleted_at", "is_active_before_delete"}
+    ],
+}
+SCHEMA_COLUMNS = {SCHEMA: EXPECTED, PREDECESSOR_SCHEMA: EXPECTED_PREDECESSOR}
 
 
 class SchemaSnapshot(Strict):
@@ -24,16 +33,17 @@ class SchemaSnapshot(Strict):
 def require_schema(
     snapshot: SchemaSnapshot, accepted: list[str], *, allow_empty: bool = False
 ) -> Literal["bootstrap", "current"]:
-    if accepted != [SCHEMA]:
+    if not accepted or set(accepted) - SCHEMA_COLUMNS.keys():
         raise RolloutError("schema-incompatible")
     if not snapshot.tables and not snapshot.revisions:
         if allow_empty and snapshot.unsupported_objects == 0:
             return "bootstrap"
         raise RolloutError("schema-partial")
-    if len(snapshot.revisions) != 1 or snapshot.revisions[0] != SCHEMA:
+    if len(snapshot.revisions) != 1 or snapshot.revisions[0] not in accepted:
         raise RolloutError("schema-incompatible")
     if (
-        {name: sorted(columns) for name, columns in snapshot.tables.items()} != EXPECTED
+        {name: sorted(columns) for name, columns in snapshot.tables.items()}
+        != SCHEMA_COLUMNS[snapshot.revisions[0]]
         or snapshot.unsupported_objects != 0
         or snapshot.nontransactional_tables != 0
     ):

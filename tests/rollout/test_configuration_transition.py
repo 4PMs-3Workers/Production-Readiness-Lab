@@ -2,24 +2,44 @@
 
 import json
 import os
+import subprocess
+import sys
 import tarfile
+from uuid import uuid4
 
 import pytest
 from tests.rollout.fixtures import Artifacts, RolloutStack
 from tools.deploy import demo
 from tools.deploy.release_images import command
-from tools.deploy.release_manifest import ROOT, SCHEMA, canonical
+from tools.deploy.release_manifest import (
+    ACCOUNT_LIFECYCLE_TRANSITION,
+    ADMIN_POLICY_TRANSITION,
+    PREDECESSOR_SCHEMA,
+    ROOT,
+    SCHEMA,
+    canonical,
+)
 from tools.deploy.rollout import reviewed_transition
 from tools.deploy.rollout_controller import RolloutController
 from tools.deploy.rollout_http import SmokeCredentials, SmokeSession
+from tools.deploy.rollout_readiness import ready
 from tools.deploy.rollout_rehearsal import prerequisites
 from tools.deploy.rollout_runtime import Deadline, ReleaseRuntime
+from tools.deploy.rollout_schema import require_schema
 from tools.deploy.rollout_smoke import booking_payload, business_smoke
 from tools.deploy.rollout_smoke_journal import SmokeJournal
-from tools.deploy.rollout_state import RolloutError
+from tools.deploy.rollout_state import (
+    Event,
+    HostState,
+    Operation,
+    RolloutError,
+    Verification,
+    timestamp,
+)
 from tools.deploy.rollout_store import StateStore
 
-BASE = "724169a33b852a6cc6b255aff7cb92fffed89908"
+# Build exactly the release before the account lifecycle schema and gateway changes.
+BASE = "12a74f7308550ccc294a783edde79db267a526d1"
 
 FIXED_AVAILABILITY = """
 import asyncio
@@ -101,13 +121,22 @@ def running_images(runtime: ReleaseRuntime) -> dict[str, tuple[str, str]]:
     return images
 
 
-def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(tmp_path):
+@pytest.mark.parametrize(
+    "stable_ref,stable_schema,transition",
+    [
+        (BASE, PREDECESSOR_SCHEMA, ACCOUNT_LIFECYCLE_TRANSITION),
+        ("aed6c68a4a081f558d01e9ba4c39cd031439af47", SCHEMA, ADMIN_POLICY_TRANSITION),
+    ],
+)
+def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
+    tmp_path, stable_ref, stable_schema, transition
+):
     assert os.environ.get("RUN_ROLLOUT_REHEARSAL") == "1", "Required rollout rehearsal cannot skip"
     source = prerequisites()
     archive = tmp_path / "base.tar"
     base = tmp_path / "base"
     base.mkdir()
-    command(["git", "archive", "--format=tar", "-o", str(archive), BASE], cwd=ROOT)
+    command(["git", "archive", "--format=tar", "-o", str(archive), stable_ref], cwd=ROOT)
     with tarfile.open(archive) as tree:
         tree.extractall(base, filter="data")
 
@@ -116,12 +145,20 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
     try:
         artifacts.start()
         old_backend = artifacts.build(
-            "base-backend", base / "Dockerfile.backend", base, source_sha=BASE
+            "base-backend", base / "Dockerfile.backend", base, source_sha=stable_ref
         )
         old_frontend = artifacts.build(
-            "base-frontend", base / "Dockerfile.frontend", base, source_sha=BASE
+            "base-frontend", base / "Dockerfile.frontend", base, source_sha=stable_ref
         )
-        old = artifacts.manifest(1, old_backend, old_frontend, None, root=base, source_sha=BASE)
+        old = artifacts.manifest(
+            1,
+            old_backend,
+            old_frontend,
+            None,
+            root=base,
+            source_sha=stable_ref,
+            schema_revision=stable_schema,
+        )
         old_ref = artifacts.registry.publish(artifacts.repository + "/releases", old)
         artifacts.registry.verify_images(old, pull=True)
         for reference in old.vendor_images.values():
@@ -151,7 +188,7 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
                     persisted_status=runtime.appointment_status,
                 )
 
-        def host(root, sha, port):
+        def host(root, sha, port, readiness=ready):
             selections = {"http_port": port}
             runtime = ReleaseRuntime(
                 stack.compose_base(root),
@@ -159,23 +196,81 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
                 stack.origin,
                 stack.project,
                 tmp_path / "rendered",
-                root=root,
             )
             return RolloutController(
                 store,
                 artifacts.registry,
                 runtime,
                 sha,
-                demo._configuration_identity("local", False, selections, root=root),
+                demo._configuration_identity(
+                    "local", False, selections, root=root, transition=transition
+                ),
                 smoke=smoke,
-                transition=reviewed_transition("local", False, selections, root=root),
+                readiness=readiness,
+                transition=reviewed_transition(
+                    "local", False, selections, root=root, transition=transition
+                ),
             )
 
-        original = host(base, BASE, stack.port)
-        before = original.deploy(old_ref)
-        assert before.operation is not None and before.operation.phase == "succeeded", before
-        assert before.stable is not None and before.stable.reference == old_ref
+        original = host(base, stable_ref, stack.port)
+        original.runtime.select(old)
+        require_schema(original.runtime.schema(), [stable_schema])
         db_identity = original.runtime.database_identity()
+        ready(original.runtime)
+        checks = smoke(original.runtime)
+        stable = store.remember(old_ref, old)
+        started_at = timestamp()
+        before = HostState(
+            project=stack.project,
+            configuration_sha256=original.configuration_sha256,
+            stable=stable,
+            operation=Operation(
+                operation_id=uuid4().hex,
+                command="deploy",
+                orchestrator_sha=stable_ref,
+                target=stable,
+                events=[
+                    Event(phase=phase, at=started_at, elapsed_seconds=0)
+                    for phase in (
+                        "preflight",
+                        "migration",
+                        "rollout",
+                        "readiness",
+                        "smoke",
+                        "succeeded",
+                    )
+                ],
+                verification=Verification(
+                    schema_revision=stable_schema,
+                    image_identity_verified=True,
+                    database_volume_preserved=True,
+                    worker_progress_verified=True,
+                    smoke_checks=checks,
+                ),
+            ),
+        )
+        # Persist the historical record through the archived predecessor's validator and writer.
+        historical_state = before.model_dump(mode="json")
+        historical_state["operation"].pop("migration_source")
+        subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import sys; "
+                "from pathlib import Path; "
+                "from tools.deploy.release_manifest import parse; "
+                "from tools.deploy.rollout_state import HostState; "
+                "from tools.deploy.rollout_store import StateStore; "
+                "StateStore(Path(sys.argv[1])).save(parse(sys.stdin.buffer.read(), HostState))",
+                str(store.directory),
+            ],
+            input=canonical(historical_state),
+            cwd=base,
+            env={**os.environ, "PYTHONPATH": str(base / "src/backend")},
+            check=True,
+            timeout=20,
+        )
+        assert store.load() == before
         with SmokeSession(stack.origin, Deadline(20)) as session:
             session.login(student)
             payload = booking_payload(session, student)
@@ -196,6 +291,24 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
         assert upgraded.transition is not None
         assert upgraded.transition.previous_release == old.configuration
         assert upgraded.transition.previous_host_sha256 == before.configuration_sha256
+
+        def reject_candidate(runtime):
+            if runtime.manifest == candidate:
+                require_schema(runtime.schema(), [SCHEMA])
+                raise RolloutError("readiness-failed")
+            ready(runtime)
+
+        failed = host(ROOT, source, stack.port, readiness=reject_candidate).deploy(candidate_ref)
+        assert failed.operation is not None and failed.operation.phase == "rolled_back", failed
+        assert failed.operation.trigger_reason == "readiness-failed"
+        assert failed.operation.verification is not None
+        assert failed.operation.verification.schema_revision == stable_schema
+        assert failed.stable == before.stable
+        upgraded.runtime.select(old)
+        require_schema(upgraded.runtime.schema(), [stable_schema])
+        upgraded.runtime.require_database(db_identity)
+        assert upgraded.runtime.appointment_status(committed["id"]) == "UPCOMING"
+
         after = upgraded.deploy(candidate_ref)
         assert after.operation is not None and after.operation.phase == "succeeded", after
         assert after.stable is not None and after.stable.reference == candidate_ref
@@ -262,17 +375,13 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
                     "2027-03-14T13:00:00Z" <= start <= "2027-03-14T15:30:00Z" for start in starts
                 )
                 old_slots = fixed_availability(upgraded.runtime, stack, old_backend, payload, token)
-                assert old_slots["status"] == 503
-                assert old_slots["body"]["error"]["code"] == "SERVICE_UNAVAILABLE"
+                assert old_slots["status"] == 200
+                assert [slot["starts_at"] for slot in old_slots["body"]["slots"]] == starts
 
             running = running_images(upgraded.runtime)
             refused = host(ROOT, source, stack.port).rollback()
-            assert refused.operation is not None
-            assert [event.phase for event in refused.operation.events] == [
-                "rollback_preflight",
-                "failed",
-            ]
-            assert refused.operation.events[-1].reason == "rollback-incompatible"
+            assert refused.operation == after.operation
+            assert refused.refusal is not None and refused.refusal.reason == "rollback-incompatible"
             assert refused.stable == after.stable and refused.previous_stable == before.stable
             assert running_images(upgraded.runtime) == running
             upgraded.runtime.require_database(db_identity)
@@ -293,6 +402,9 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
         assert result.stable == before.stable
         assert result.configuration_sha256 == after.configuration_sha256
         assert restored.runtime.manifest == old
+        assert result.operation.verification is not None
+        assert result.operation.verification.schema_revision == stable_schema
+        require_schema(restored.runtime.schema(), [stable_schema])
         restored.runtime.require_database(db_identity)
         assert restored.runtime.appointment_status(committed["id"]) == "UPCOMING"
     finally:

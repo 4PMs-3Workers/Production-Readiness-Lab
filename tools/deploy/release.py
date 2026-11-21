@@ -92,7 +92,8 @@ def render(
         if name in spec.services or name == "backup_metrics_exporter":
             lines += ["    build: !reset null"]
         if name in {"api", "worker", "schema"}:
-            lines += ["    environment:", f"      ACCEPTED_SCHEMA_REVISIONS: {SCHEMA}"]
+            revision = spec.accepted_schema_revisions[0]
+            lines += ["    environment:", f"      ACCEPTED_SCHEMA_REVISIONS: {revision}"]
             lines += [f"      SERVICE_RELEASE: {spec.provenance.source_sha}"]
     return ("\n".join(lines) + "\n").encode()
 

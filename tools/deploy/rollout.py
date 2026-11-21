@@ -51,9 +51,16 @@ def parser() -> Parser:
 
 
 def reviewed_transition(
-    overlay: str, observability: bool, selections: dict[str, object], *, root: Path = ROOT
+    overlay: str,
+    observability: bool,
+    selections: dict[str, object],
+    *,
+    root: Path = ROOT,
+    transition: dict[str, tuple[str, str]] = ADMIN_POLICY_TRANSITION,
 ) -> ConfigurationTransition | None:
-    previous = previous_configuration(configuration(overlay, observability, root))
+    previous = previous_configuration(
+        configuration(overlay, observability, root), transition=transition
+    )
     if previous is None:
         return None
     previous_host = demo._configuration_identity(
@@ -61,7 +68,7 @@ def reviewed_transition(
         observability,
         selections,
         root=root,
-        overrides={path: before for path, (before, _) in ADMIN_POLICY_TRANSITION.items()},
+        overrides={path: before for path, (before, _) in transition.items()},
     )
     return ConfigurationTransition(previous_host, previous)
 

@@ -7,6 +7,7 @@ from collections.abc import Sequence
 
 from alembic import command
 from alembic.config import Config
+from alembic.migration import MigrationContext
 from sqlalchemy import Connection
 from sqlalchemy.engine import make_url
 
@@ -23,19 +24,29 @@ async def check_schema() -> None:
             await resources.check_compatibility(settings)
 
 
-async def migrate() -> None:
+SOFT_DELETE_SCHEMA = "20261114_1200_soft_delete"
+SOFT_DELETE_PREDECESSOR = "20261019_1200_proposal_replay"
+
+
+async def migrate(*, rollback_soft_delete: bool = False) -> None:
     url = make_url(os.environ["DATABASE_URL"])
     engine = create_database_engine(url, connect_args={"connect_timeout": 5}, hide_parameters=True)
     try:
         async with asyncio.timeout(120):
             async with migration_connection(engine) as connection:
 
-                def upgrade(sync_connection: Connection) -> None:
+                def run_revision(sync_connection: Connection) -> None:
                     config = Config("alembic.ini")
                     config.attributes["connection"] = sync_connection
-                    command.upgrade(config, "head")
+                    if not rollback_soft_delete:
+                        command.upgrade(config, "head")
+                        return
+                    current = MigrationContext.configure(sync_connection).get_current_revision()
+                    if current != SOFT_DELETE_SCHEMA:
+                        raise RuntimeError("Unexpected schema for soft-delete rollback")
+                    command.downgrade(config, SOFT_DELETE_PREDECESSOR)
 
-                await connection.run_sync(upgrade)
+                await connection.run_sync(run_revision)
     finally:
         async with asyncio.timeout(5):
             await engine.dispose()
@@ -43,11 +54,14 @@ async def migrate() -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
-    if len(args) != 1 or args[0] not in {"schema", "migrate"}:
-        print("Usage: python -m app.deploy {schema|migrate}", file=sys.stderr)
+    if len(args) != 1 or args[0] not in {"schema", "migrate", "rollback-soft-delete"}:
+        print("Usage: python -m app.deploy {schema|migrate|rollback-soft-delete}", file=sys.stderr)
         return 2
     try:
-        asyncio.run(check_schema() if args[0] == "schema" else migrate())
+        if args[0] == "schema":
+            asyncio.run(check_schema())
+        else:
+            asyncio.run(migrate(rollback_soft_delete=args[0] == "rollback-soft-delete"))
     except Exception:
         # Driver and migration exceptions may contain SQL, parameters or credentials.
         print(

@@ -17,6 +17,7 @@ export default defineConfig({
         [
           fileURLToPath(new URL('../../tests/frontend/safe-reporter.ts', import.meta.url)),
           {
+            requireComplete: !process.argv.includes('--list'),
             outputFile: fileURLToPath(
               new URL('../../playwright-report/frontend-api-safe/summary.json', import.meta.url),
             ),
@@ -25,6 +26,15 @@ export default defineConfig({
       ]
     : [
         ['list'],
+        [
+          fileURLToPath(new URL('../../tests/frontend/safe-reporter.ts', import.meta.url)),
+          {
+            requireComplete: !process.argv.includes('--list'),
+            outputFile: fileURLToPath(
+              new URL('../../playwright-report/frontend-api-safe/summary.json', import.meta.url),
+            ),
+          },
+        ],
         [
           'html',
           {

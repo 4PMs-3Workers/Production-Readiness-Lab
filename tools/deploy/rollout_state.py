@@ -8,6 +8,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import Field, model_validator
 from tools.deploy.release_manifest import (
+    PREDECESSOR_SCHEMA,
     SCHEMA,
     SHA,
     Digest,
@@ -72,7 +73,7 @@ SMOKE_CHECKS = {
 }
 NEXT: dict[str, set[str]] = {
     "preflight": {"migration"},
-    "migration": {"rollout"},
+    "migration": {"rollout", "rollback_preflight"},
     "rollout": {"readiness", "rollback_preflight"},
     "readiness": {"smoke", "rollback_preflight"},
     "smoke": {"succeeded", "rollback_preflight"},
@@ -153,7 +154,9 @@ class Verification(Strict):
 
     @model_validator(mode="after")
     def complete(self) -> Self:
-        if self.schema_revision != SCHEMA or self.smoke_checks != sorted(SMOKE_CHECKS):
+        if self.schema_revision not in {SCHEMA, PREDECESSOR_SCHEMA} or self.smoke_checks != sorted(
+            SMOKE_CHECKS
+        ):
             raise ValueError("Incomplete service verification")
         return self
 
@@ -166,6 +169,7 @@ class Operation(Strict):
     fallback: Selection | None = None
     trigger_reason: Reason | None = None
     recovery_pending: bool = False
+    migration_source: Selection | None = None
     events: list[Event] = Field(min_length=1, max_length=16)
     verification: Verification | None = None
 
@@ -201,6 +205,10 @@ class Operation(Strict):
 
     @model_validator(mode="after")
     def transitions(self) -> Self:
+        if self.migration_source is not None and (
+            self.command != "rollback" or self.migration_source == self.target
+        ):
+            raise ValueError("Invalid rollback migration source")
         if self.phase in {"succeeded", "rolled_back"} and self.recovery_pending:
             raise ValueError("Verified recovery cannot remain pending")
         if (self.phase in {"succeeded", "rolled_back"}) != (self.verification is not None):

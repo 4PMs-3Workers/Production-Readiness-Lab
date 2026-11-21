@@ -3,7 +3,9 @@ import { dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import type {
   FullResult,
+  FullConfig,
   Reporter,
+  Suite,
   TestCase,
   TestError,
   TestResult,
@@ -37,7 +39,11 @@ export default class SafeReporter implements Reporter {
     retry: number;
   }[] = [];
   private globalErrors = 0;
-  constructor(private options: { outputFile: string }) {}
+  private expected: ReturnType<typeof reference>[] = [];
+  constructor(private options: { outputFile: string; requireComplete?: boolean }) {}
+  onBegin(_config: FullConfig, suite: Suite) {
+    this.expected = suite.allTests().map(reference);
+  }
   printsToStdio() {
     return true;
   }
@@ -63,16 +69,35 @@ export default class SafeReporter implements Reporter {
       `E2E ${identity.caseId} project=${identity.project} retry=${result.retry}: ${result.status}\n`,
     );
   }
-  onEnd(result: FullResult) {
+  async onEnd(result: FullResult) {
+    const complete =
+      this.expected.length > 0 &&
+      this.globalErrors === 0 &&
+      this.attempts.length === this.expected.length &&
+      this.expected.every(
+        (expected) =>
+          expected.project !== 'unknown' &&
+          !expected.caseId.startsWith('unknown:') &&
+          this.attempts.filter(
+            (attempt) =>
+              attempt.caseId === expected.caseId &&
+              attempt.project === expected.project &&
+              attempt.status === 'passed' &&
+              attempt.retry === 0,
+          ).length === 1,
+      );
+    const status = this.options.requireComplete && !complete ? 'failed' : result.status;
     const summary = {
-      status: result.status,
+      status,
       globalErrors: this.globalErrors,
+      ...(this.options.requireComplete ? { expected: this.expected, complete } : {}),
       attempts: this.attempts,
     };
     mkdirSync(dirname(this.options.outputFile), { recursive: true });
     writeFileSync(this.options.outputFile, JSON.stringify(summary, null, 2) + '\n');
     process.stdout.write(
-      `E2E: ${result.status}; attempts=${this.attempts.length}; globalErrors=${this.globalErrors}\n`,
+      `E2E: ${status}; attempts=${this.attempts.length}; globalErrors=${this.globalErrors}\n`,
     );
+    if (this.options.requireComplete && !complete) return { status: 'failed' as const };
   }
 }

@@ -83,6 +83,8 @@ class TelemetryMetrics:
             ("reason",),
             registry=self.registry,
         )
+        for reason in sorted(FAILURE_REASONS):
+            self.db_failures.labels(reason)
         self.telemetry_exported = Counter(
             "prl_telemetry_exported_total",
             "Telemetry items successfully exported.",

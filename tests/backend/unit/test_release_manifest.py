@@ -8,6 +8,8 @@ import sys
 import pytest
 from tools.deploy.release import render
 from tools.deploy.release_manifest import (
+    ACCOUNT_LIFECYCLE_TRANSITION,
+    ADMIN_POLICY_TRANSITION,
     CHECKS,
     ROOT,
     SCHEMA,
@@ -91,34 +93,42 @@ def test_roundtrip_atomic_write_and_separate_pr_head(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("overlay", "observability"), [("local", False), ("https", False), ("https", True)]
+    "overlay,observability", [("local", False), ("https", False), ("https", True)]
 )
 @pytest.mark.parametrize(
-    "reviewed_path", ["tools/deploy/mysql/grants.sql", "tools/deploy/nginx/route-map.conf"]
+    "stable_ref,transition",
+    [
+        ("12a74f7308550ccc294a783edde79db267a526d1", ACCOUNT_LIFECYCLE_TRANSITION),
+        ("aed6c68a4a081f558d01e9ba4c39cd031439af47", ADMIN_POLICY_TRANSITION),
+    ],
 )
 def test_reviewed_predecessor_requires_opt_in_and_exact_configuration(
-    tmp_path, overlay, observability, reviewed_path
+    tmp_path, overlay, observability, stable_ref, transition
 ):
     current = configuration(overlay, observability)
-    previous = previous_configuration(current)
-    assert previous is not None
+    stable = tmp_path / "stable"
+    for item in current.files:
+        path = stable / item.path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(
+            subprocess.check_output(["git", "show", stable_ref + ":" + item.path], cwd=ROOT)
+        )
+    previous = configuration(overlay, observability, stable)
+    assert previous_configuration(current, transition=transition) == previous
     with pytest.raises(ReleaseError, match="incompatible-configuration"):
         require_configuration(previous)
     require_configuration(previous, allow_previous=True)
-
     for item in current.files:
         path = tmp_path / item.path
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes((ROOT / item.path).read_bytes())
-    # Changes outside the two reviewed files cannot be excused by the transition.
-    with (tmp_path / "tools/deploy/nginx/routes.conf").open("ab") as output:
-        output.write(b"\n# unreviewed\n")
-    with pytest.raises(ReleaseError, match="incompatible-configuration"):
-        require_configuration(previous, tmp_path, allow_previous=True)
-    # A third version of either reviewed file cannot use this transition either.
-    with (tmp_path / reviewed_path).open("ab") as output:
-        output.write(b"\n# unreviewed\n")
-    assert previous_configuration(configuration(overlay, observability, tmp_path)) is None
+    for name in ("tools/deploy/nginx/error-input.conf", "tools/deploy/nginx/route-map.conf"):
+        path = tmp_path / name
+        original = path.read_bytes()
+        path.write_bytes(original + b"\n# unreviewed\n")
+        with pytest.raises(ReleaseError, match="incompatible-configuration"):
+            require_configuration(previous, tmp_path, allow_previous=True)
+        path.write_bytes(original)
 
 
 @pytest.mark.parametrize(

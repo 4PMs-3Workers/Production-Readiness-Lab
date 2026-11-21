@@ -16,8 +16,8 @@ from app.core.passwords import PasswordPolicy, PasswordService
 from app.demo.data import Dataset, SeedError, Window, load_dataset, overlaps, seed_id
 from app.models import Purpose, ServiceHour, ServiceSetting, StaffPurpose, User
 
-# Exact reviewed head includes the bootstrap schema, student fields and proposal replay.
-SCHEMA_REVISION = "20261019_1200_proposal_replay"
+# Exact reviewed head includes account soft-delete and restore lifecycle support.
+SCHEMA_REVISION = "20261114_1200_soft_delete"
 TABLES = ("users", "purposes", "staff_purposes", "service_settings", "service_hours")
 SYSTEM_SCHEMAS = {"mysql", "information_schema", "performance_schema", "sys"}
 
