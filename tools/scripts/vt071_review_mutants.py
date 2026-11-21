@@ -14,7 +14,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-EVIDENCE = ROOT / "docs/assignments/VT-071/evidence"
+EVIDENCE = ROOT / "build/vt071"
+EVIDENCE.mkdir(parents=True, exist_ok=True)
 SOURCE = "src/backend/app/services/booking.py"
 REPO = "src/backend/app/repositories/appointments.py"
 API = "src/backend/app/api/appointments.py"

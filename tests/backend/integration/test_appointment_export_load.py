@@ -119,7 +119,7 @@ async def test_export_80_tasks_five_rounds(availability_env):
             )
     finally:
         await asyncio.gather(*(client.aclose() for client in clients))
-    evidence = Path("docs/assignments/VT-071/evidence/performance.json")
+    evidence = Path("build/vt071/performance.json")
     evidence.parent.mkdir(parents=True, exist_ok=True)
     evidence.write_text(json.dumps(measurements, indent=2), encoding="utf-8")
     for result in measurements["rounds"]:

@@ -1,2 +1,0 @@
-venv .venv subdirectory not found in venv path d:\SE\tmp\bt3-vt071.
-0 errors, 0 warnings, 0 informations

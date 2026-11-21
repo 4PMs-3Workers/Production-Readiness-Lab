@@ -122,13 +122,33 @@ async def test_export_real_login_scope_contract_and_inactive_catalog(availabilit
     env = availability_env
     await seed_history(env)
     async with env.factory.begin() as db:
+        first = await db.get(Appointment, UUID(int=100))
+        tied = await db.get(Appointment, UUID(int=101))
+        tied.starts_at = first.starts_at
+        tied.ends_at = first.ends_at
+    async with env.factory.begin() as db:
         purpose = await db.get(Purpose, env.purpose_id)
         purpose.is_active = False
         purpose.name = "Tư vấn, học tập"
         staff = await db.get(User, env.staff_id)
         staff.is_active = False
     await sign_in(env)
-    response = await env.client.get(PATH)
+    statements = []
+    engine = env.factory.kw["bind"].sync_engine
+
+    def capture_order(_connection, _cursor, statement, _parameters, _context, _many):
+        if "appointments" in statement:
+            statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", capture_order)
+    try:
+        response = await env.client.get(PATH)
+    finally:
+        event.remove(engine, "before_cursor_execute", capture_order)
+    assert any(
+        "ORDER BY appointments.starts_at DESC, appointments.id DESC" in statement
+        for statement in statements
+    )
     exported = rows(response)
     async with env.factory() as db:
         expected = list(
@@ -141,6 +161,7 @@ async def test_export_real_login_scope_contract_and_inactive_catalog(availabilit
             ).all()
         )
     assert [row["id"] for row in exported] == [str(value) for value in expected]
+    assert [row["id"] for row in exported] == [str(UUID(int=i)) for i in (102, 101, 100)]
     assert exported[0]["starts_at"] == "2026-10-18T01:00:00Z"
     assert exported[0]["duration_minutes"] == "30"
     assert exported[0]["purpose_name"] == "Tư vấn, học tập"
@@ -170,7 +191,23 @@ async def test_export_rejects_overflow_instead_of_truncation(availability_env):
     env = availability_env
     await seed_history(env, 1000)
     await sign_in(env)
-    assert len(rows(await env.client.get(PATH))) == 1000
+    captured = []
+    engine = env.factory.kw["bind"].sync_engine
+
+    def capture(_connection, _cursor, statement, parameters, _context, _many):
+        if "LIMIT" in statement and "appointments" in statement:
+            captured.append((statement, parameters))
+
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        assert len(rows(await env.client.get(PATH))) == 1000
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    assert any(
+        "ORDER BY appointments.starts_at DESC, appointments.id DESC" in statement
+        and parameters[-1] == 1001
+        for statement, parameters in captured
+    )
     async with env.factory.begin() as db:
         sample = await db.get(Appointment, UUID(int=100))
         db.add(

@@ -321,6 +321,17 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
         upgraded.runtime.require_database(db_identity)
         assert upgraded.runtime.appointment_status(committed["id"]) == "UPCOMING"
 
+        if stable_ref == "aed6c68a4a081f558d01e9ba4c39cd031439af47":
+            restored = host(ROOT, source, stack.port)
+            result = restored.rollback()
+            assert result.operation is not None and result.operation.phase == "rolled_back"
+            assert result.stable == before.stable
+            assert restored.runtime.manifest == old
+            restored.runtime.require_database(db_identity)
+            require_schema(restored.runtime.schema(), [stable_schema])
+            assert restored.runtime.appointment_status(committed["id"]) == "UPCOMING"
+            return
+
         with SmokeSession(stack.origin, Deadline(20)) as session:
             session.login(admin)
             path = "/api/v1/admin/booking-configuration"

@@ -234,7 +234,8 @@ async def test_export_cold_full_warmup_and_warm_bursts(availability_env, monkeyp
         for b in report["bursts"]
         if b["phase"].startswith("warm") and b["phase"] != "warmup80"
     )
-    Path("docs/assignments/VT-071/evidence/review-performance.json").write_text(
+    Path("build/vt071").mkdir(parents=True, exist_ok=True)
+    Path("build/vt071/review-performance.json").write_text(
         json.dumps(report, indent=2), encoding="utf-8"
     )
     assert (

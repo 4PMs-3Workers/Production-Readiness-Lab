@@ -35,7 +35,8 @@ def main():
         *reversed(nodes),
     ]
     completed = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True)
-    output = ROOT / "docs/assignments/VT-071/evidence/reverse-order.txt"
+    output = ROOT / "build/vt071/reverse-order.txt"
+    output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
         "Collected nodes in normal order:\n"
         + "\n".join(nodes)

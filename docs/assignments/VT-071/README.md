@@ -330,7 +330,7 @@ before/after improvement experiment; NFR-03 remainsFAIL. Both runs use the same
 Windows host and local MySQL. Each fixture has a new UUID schema and fresh login;
 within a run,80clients share one authenticated session.
 
-See [student execution ledger](evidence/student-20261102/README.md), summary/manifest,
+See [student execution ledger](https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/a664a1073ce6d7c8f116b66fc9498e5469917b57/docs/assignments/VT-071/evidence/student-20261102/README.md), summary/manifest,
 and the compressed raw-evidence.zip (19files,~164KiB instead of~1.95MiB expanded).
 The ledger maps local-only checkout/helper branch names to the published student
 mutant branch; normalized JSON links to that public ref. Original metadata inside

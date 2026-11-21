@@ -24,5 +24,5 @@ báo cáo chưa tuyên bố an toàn trên mọi spreadsheet client. NFR-03 vẫ
 503 pool đã xác minh nằm ở auth trước export. Ý kiến đồng ý với cách triển khai
 không phải chấp thuận merge ngay hoặc thay cho review của nhóm.
 
-Nguồn kết quả đo: [ledger tự kiểm chứng](evidence/student-20261102/README.md).
+Nguồn kết quả đo: [ledger tự kiểm chứng](https://github.com/4PMs-3Workers/Production-Readiness-Lab/blob/a664a1073ce6d7c8f116b66fc9498e5469917b57/docs/assignments/VT-071/evidence/student-20261102/README.md).
 Checklist đọc diff: [student-diff-review-guide.md](student-diff-review-guide.md).

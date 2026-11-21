@@ -391,7 +391,8 @@ async def test_export_pool_profile(availability_env, mysql_engine, monkeypatch, 
         for b in report["bursts"]
         if b["phase"].startswith("warm") and b["phase"] != "warmup80"
     )
-    evidence = Path("docs/assignments/VT-071/evidence")
+    evidence = Path("build/vt071")
+    evidence.mkdir(parents=True, exist_ok=True)
     (evidence / f"review-pool-{pool_mode}-performance.json").write_text(
         json.dumps(report, indent=2), encoding="utf-8"
     )

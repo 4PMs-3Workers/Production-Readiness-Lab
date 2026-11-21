@@ -1,2 +1,0 @@
-All checks passed!
-RUFF_EXIT_CODE=0

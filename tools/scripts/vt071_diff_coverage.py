@@ -1,6 +1,7 @@
 """Report coverage on executable added/changed lines relative to the official baseline."""
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -17,16 +18,26 @@ FILES = [
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--coverage", default="docs/assignments/VT-071/evidence/review-coverage-full.json"
-    )
-    parser.add_argument(
-        "--output", default="docs/assignments/VT-071/evidence/review-diff-coverage.json"
-    )
+    parser.add_argument("--coverage", default="build/vt071/coverage.json")
+    parser.add_argument("--output", default="build/vt071/review-diff-coverage.json")
     args = parser.parse_args()
-    measured = json.loads(Path(args.coverage).read_text(encoding="utf-8"))["files"]
+    coverage_path = Path(args.coverage)
+    metadata_path = Path(str(coverage_path) + ".source.json")
+    if not metadata_path.is_file():
+        parser.error("Coverage source metadata is required; run tools/scripts/vt071_coverage.py")
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    if metadata.get("coverage_sha256") != hashlib.sha256(coverage_path.read_bytes()).hexdigest():
+        parser.error("Coverage JSON does not match its source metadata")
+    if any(
+        metadata.get("file_sha256", {}).get(name)
+        != hashlib.sha256(Path(name).read_bytes()).hexdigest()
+        for name in FILES
+    ):
+        parser.error("Coverage source differs from the working tree; measure coverage again")
+    measured = json.loads(coverage_path.read_text(encoding="utf-8"))["files"]
     measured = {name.replace("\\", "/"): value for name, value in measured.items()}
     result = {
+        "measured_source": metadata,
         "baseline": BASELINE,
         "denominator": "added lines intersect executable statements",
         "files": [],
@@ -75,6 +86,7 @@ def main():
         result["covered"] += row["covered"]
         result["executable_changed"] += row["executable_changed"]
     result["line_percent"] = 100 * result["covered"] / result["executable_changed"]
+    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     Path(args.output).write_text(json.dumps(result, indent=2), encoding="utf-8")
     print(json.dumps(result, indent=2))
 

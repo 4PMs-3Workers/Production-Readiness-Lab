@@ -1,3 +1,0 @@
-.                                                                        [100%]
-1 passed in 7.33s
-EXIT_CODE=0
