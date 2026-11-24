@@ -1,14 +1,17 @@
 """VT-070 only: run loopback HTTP against a fresh, migrated MySQL lab database."""
 
+import argparse
 import asyncio
 import json
 import os
 import socket
 from collections import Counter
+from contextlib import AsyncExitStack
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from math import ceil
 from time import perf_counter
+from unittest.mock import patch
 from uuid import UUID
 
 import httpx
@@ -31,6 +34,7 @@ from app.models import (
     StaffPurpose,
     User,
 )
+from app.services import notifications
 
 N = 150
 WAVES = 2
@@ -126,8 +130,24 @@ async def wave(client: httpx.AsyncClient, offset: int, size: int):
     return await asyncio.gather(*(send(i) for i in range(offset, offset + N))), peak
 
 
-async def summarize_db(factory, start: int, count: int):
-    appointment_ids = [ids(i)[0] for i in range(start, start + count)]
+def notice_oracle(
+    expected_recipients: dict[UUID, UUID],
+    attempts: list[tuple[UUID, UUID, bool | None]],
+    written_notices: list[tuple[UUID, UUID]],
+) -> bool:
+    if any(delivered is None for _, _, delivered in attempts):
+        return False
+    expected = Counter(expected_recipients.items())
+    attempted = Counter((appointment, student) for appointment, student, _ in attempts)
+    successful = Counter(
+        (appointment, student) for appointment, student, delivered in attempts if delivered
+    )
+    persisted = Counter(written_notices)
+    # A recorded failure can leave a committed row when the commit acknowledgment is lost.
+    return attempted == expected and successful <= persisted <= expected
+
+
+async def summarize_db(factory, appointment_ids: list[UUID]):
     async with factory() as db:
         outcomes = await db.scalar(
             select(func.count())
@@ -142,24 +162,32 @@ async def summarize_db(factory, start: int, count: int):
                 AuditEvent.entity_id.in_([str(item) for item in appointment_ids]),
             )
         )
-        events = dict(
-            (
-                await db.execute(
-                    select(Notification.event_type, func.count())
-                    .where(Notification.appointment_id.in_(appointment_ids))
-                    .group_by(Notification.event_type)
-                )
-            ).all()
+        generic_notices = await db.scalar(
+            select(func.count())
+            .select_from(Notification)
+            .where(
+                Notification.appointment_id.in_(appointment_ids),
+                Notification.event_type == "APPOINTMENT_OUTCOME_RECORDED",
+            )
         )
     return {
         "outcome_rows": outcomes,
         "audit_rows": audits,
-        "generic_notices": events.get("APPOINTMENT_OUTCOME_RECORDED", 0),
-        "extra_notices": events.get("APPOINTMENT_NO_SHOW", 0),
+        "generic_notices": generic_notices,
     }
 
 
-async def main() -> None:
+async def read_extra_notices(factory) -> dict[UUID, tuple[UUID, UUID]]:
+    async with factory() as db:
+        rows = await db.execute(
+            select(Notification.id, Notification.appointment_id, Notification.recipient_id).where(
+                Notification.event_type == "APPOINTMENT_NO_SHOW"
+            )
+        )
+        return {notice_id: (appointment, recipient) for notice_id, appointment, recipient in rows}
+
+
+async def main(*, baseline: bool) -> int:
     # The command never seeds a shared or remote database.
     url = make_url(os.environ["DATABASE_URL"])
     if (
@@ -188,6 +216,18 @@ async def main() -> None:
     app = create_app(settings)
     app.dependency_overrides[require_staff] = lab_actor
     app.dependency_overrides[require_csrf] = lab_actor
+    delivery = getattr(notifications, "deliver_no_show_notice", None)
+    if delivery is None and not baseline:
+        raise SystemExit("The app has no no-show notice delivery. Use --baseline for the baseline.")
+    delivery_results: list[tuple[UUID, UUID, bool | None]] = []
+
+    async def record_delivery(sessions, appointment_id: UUID, student_id: UUID) -> None:
+        assert delivery is not None
+        index = len(delivery_results)
+        delivery_results.append((appointment_id, student_id, None))
+        delivered = await delivery(sessions, appointment_id, student_id)
+        delivery_results[index] = (appointment_id, student_id, delivered)
+
     classes = (("normal", len(BODY), 200), ("max_valid", 32768, 200), ("over_limit", 32769, 413))
     pending = asyncio.Event()
     pending.set()
@@ -207,7 +247,13 @@ async def main() -> None:
             if not active_asgi:
                 pending.set()
 
-    async with app.router.lifespan_context(app):
+    all_classes_passed = True
+    async with AsyncExitStack() as stack:
+        if delivery is not None:
+            stack.enter_context(
+                patch.object(notifications, "deliver_no_show_notice", record_delivery)
+            )
+        await stack.enter_async_context(app.router.lifespan_context(app))
         factory = app.state.session_factory
         await seed(factory, N * (1 + WAVES * len(classes)))
         with socket.socket() as listener:
@@ -228,9 +274,11 @@ async def main() -> None:
                 ) as client:
                     warmup, _ = await wave(client, 0, len(BODY))
                     await asyncio.wait_for(pending.wait(), timeout=10)
+                    previous_notices = await read_extra_notices(factory)
                     print(json.dumps({"warmup_status": Counter(code for code, _ in warmup)}))
                     for j, (name, size, expected) in enumerate(classes):
                         start = N + j * N * WAVES
+                        attempts_before = len(delivery_results)
                         samples = []
                         peaks = []
                         for w in range(WAVES):
@@ -241,7 +289,25 @@ async def main() -> None:
                         counts = Counter(code for code, _ in samples)
                         timings = sorted(t for _, t in samples)
                         p95 = timings[ceil(0.95 * len(timings)) - 1]
-                        db_counts = await summarize_db(factory, start, len(samples))
+                        appointments = {
+                            appointment: student
+                            for appointment, student, _ in (
+                                ids(i) for i in range(start, start + len(samples))
+                            )
+                        }
+                        db_counts = await summarize_db(factory, list(appointments))
+                        current_notices = await read_extra_notices(factory)
+                        written_notices = [
+                            notice
+                            for notice_id, notice in current_notices.items()
+                            if notice_id not in previous_notices
+                        ]
+                        previous_notices = current_notices
+                        attempts = delivery_results[attempts_before:]
+                        expected_recipients = (
+                            appointments if expected == 200 and not baseline else {}
+                        )
+                        notices_ok = notice_oracle(expected_recipients, attempts, written_notices)
                         expected_count = len(samples) if expected == 200 else 0
                         observed_expected = counts[str(expected)]
                         oracle = (
@@ -249,8 +315,10 @@ async def main() -> None:
                             and db_counts["outcome_rows"] == expected_count
                             and db_counts["audit_rows"] == expected_count
                             and db_counts["generic_notices"] == 2 * expected_count
-                            and (expected != 413 or db_counts["extra_notices"] == 0)
+                            and notices_ok
                         )
+                        gate_pass = oracle and p95 <= 4.0 and all(p == N for p in peaks)
+                        all_classes_passed &= gate_pass
                         print(
                             json.dumps(
                                 {
@@ -261,17 +329,28 @@ async def main() -> None:
                                     "status": counts,
                                     "p95_s_all": round(p95, 6),
                                     **db_counts,
+                                    "extra_notices": len(written_notices),
+                                    "delivery_attempts": len(attempts),
+                                    "delivery_failures": sum(
+                                        delivered is False for _, _, delivered in attempts
+                                    ),
+                                    "delivery_incomplete": sum(
+                                        delivered is None for _, _, delivered in attempts
+                                    ),
+                                    "notice_oracle": notices_ok,
                                     "oracle": oracle,
-                                    "gate_pass": oracle
-                                    and p95 <= 4.0
-                                    and all(p == N for p in peaks),
+                                    "gate_pass": gate_pass,
                                 }
                             )
                         )
             finally:
                 server.should_exit = True
                 await server_task
+    return int(not all_classes_passed)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--baseline", action="store_true", help="Expect no extra no-show notices.")
+    args = parser.parse_args()
+    raise SystemExit(asyncio.run(main(baseline=args.baseline)))

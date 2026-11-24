@@ -7,9 +7,10 @@ Feature checkpoint: `04f2a58079bf191003f0e56f35e69ba0ee92c72f`.
 For the first successful HTTP transition to NO_SHOW, publish one extra student
 inbox notice after the main transaction commits and the response body is sent.
 The existing outcome, audit, two generic notices, and response fields are unchanged.
-The separate session gives the best-effort write its own 250 ms timeout; a database
-error or timeout logs a fixed message without the error payload. Do not retry an
-uncertain write. Replaying the same outcome does not schedule another extra notice.
+Once the final response body is sent, the HTTP deadline ends and the best-effort
+write runs in its own session with a 250 ms timeout. A database error or timeout
+logs a fixed message without the error payload. Do not retry an uncertain write.
+Replaying the same outcome does not schedule another extra notice.
 No durable delivery or crash recovery is claimed. The lab does not merge or deploy.
 
 ## Reproduce
@@ -91,13 +92,19 @@ synthetic records; use a separate disposable DB for each run. To start, run
 `python -m alembic upgrade head` from the application checkout.
 
 For the baseline, run the same script by absolute path from a separate checkout
-at `12a74f7` with **only that checkout's** `src/backend` on the app import path.
+at `12a74f7` with **only that checkout's** `src/backend` on the app import path
+and pass `--baseline`.
 The patch run used `e26fecc` plus the measurement script. Auth and CSRF identities
 are overridden in a loopback-only HTTP app, while API, middleware, SQL and
 connection pool are real. Default pool: 5 connections, 5 overflow, checkout
 timeout 0.5 s. Outside measurement, warm up with 150 normal requests. Measure
 2 waves of 150 per class (300 distinct appointments). Include failed requests
-in nearest-rank client p95; verify writes after background tasks drain.
+in nearest-rank client p95. Verify writes after background tasks drain. On the
+candidate, each successful request needs one delivery attempt for the correct
+student. A successful write must produce one row. A recorded delivery failure can
+leave zero or one row if the commit status is uncertain. Baseline and rejected
+requests must produce zero attempts and zero extra rows. The command exits with
+status 1 if any measured class fails its gate.
 
 | Checkout | Bytes | Expected status count | 503 | Transport error | p95 (s) | Outcomes / audit / generic / extra |
 | --- | ---: | ---: | ---: | ---: | ---: | --- |

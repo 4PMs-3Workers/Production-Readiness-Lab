@@ -1,5 +1,6 @@
 """VT-070: exercise the real ASGI app and outcome service with DB test doubles."""
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager, contextmanager
 from datetime import UTC, datetime, timedelta
@@ -17,7 +18,7 @@ from app.dependencies.auth import require_csrf
 from app.dependencies.database import get_db_session
 from app.dependencies.staff import require_staff
 from app.domain.auth import AuthContext
-from app.factory import create_app
+from app.factory import ResponseInterruptedError, create_app
 from app.models import AuditEvent, Notification
 from app.services import notifications
 from app.services import staff_appointments as service
@@ -35,7 +36,7 @@ def payload(size):
 
 
 class Harness:
-    def __init__(self, settings, *, delivery_error=None, shared_state=True):
+    def __init__(self, settings, *, delivery_error=None, delivery_delay=0.0, shared_state=True):
         self.app = create_app(settings)
         self.row = self.new_row()
         self.shared_state = shared_state
@@ -43,6 +44,7 @@ class Harness:
         self.deliveries = []
         self.sent = False
         self.failures = delivery_error
+        self.delivery_delay = delivery_delay
         self.delivery_attempts = 0
         self.primary_commits = 0
         self.primary_failure: SQLAlchemyError | None = None
@@ -104,6 +106,8 @@ class Harness:
         @asynccontextmanager
         async def transaction():
             yield
+            if self.delivery_delay:
+                await asyncio.sleep(self.delivery_delay)
             if self.failures:
                 raise self.failures
             self.deliveries.extend(staged)
@@ -170,14 +174,14 @@ async def test_outcome_contract(auth_settings, status):
 
 
 @pytest.mark.parametrize(
-    "error",
+    ("error", "delay"),
     [
-        pytest.param(SQLAlchemyError("do-not-log-test-payload"), id="TC03"),
-        pytest.param(TimeoutError("do-not-log-test-payload"), id="TC13"),
+        pytest.param(SQLAlchemyError("do-not-log-test-payload"), 0.0, id="TC03"),
+        pytest.param(None, 1.0, id="TC13"),
     ],
 )
-async def test_delivery_failure_after_commit(auth_settings, caplog, monkeypatch, error):
-    h = Harness(auth_settings, delivery_error=error)
+async def test_delivery_failure_after_commit(auth_settings, caplog, monkeypatch, error, delay):
+    h = Harness(auth_settings, delivery_error=error, delivery_delay=delay)
     # In-process Alembic migrations can disable loggers created during test collection.
     logger = logging.getLogger(notifications.__name__)
     monkeypatch.setattr(logger, "disabled", False)
@@ -192,6 +196,55 @@ async def test_delivery_failure_after_commit(auth_settings, caplog, monkeypatch,
     assert not h.deliveries
     assert "no_show_notice_failed" in caplog.text
     assert "do-not-log-test-payload" not in caplog.text
+
+
+async def test_post_response_delivery_outlives_request_deadline(auth_settings, caplog):
+    settings = auth_settings.model_copy(update={"request_timeout_seconds": 0.75})
+    h = Harness(settings, delivery_delay=0.18)
+
+    async def app(scope, receive, send):
+        async def send_near_deadline(message):
+            if message["type"] == "http.response.body" and not message.get("more_body", False):
+                loop = asyncio.get_running_loop()
+                remaining = scope["state"]["request_deadline"] - loop.time()
+                await asyncio.sleep(max(0, remaining - 0.09))
+            await send(message)
+
+        await h.asgi(scope, receive, send_near_deadline)
+
+    with h.bind():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(PATH, json={"status": "NO_SHOW"})
+
+    assert response.status_code == 200
+    assert h.primary_commits == h.delivery_attempts == len(h.deliveries) == 1
+    assert "Unhandled application exception: TimeoutError" not in caplog.text
+
+
+async def test_stalled_final_body_send_remains_inside_request_deadline(auth_settings):
+    settings = auth_settings.model_copy(update={"request_timeout_seconds": 0.75})
+    h = Harness(settings)
+
+    async def app(scope, receive, send):
+        async def block_final_body(message):
+            if message["type"] == "http.response.body" and not message.get("more_body", False):
+                await asyncio.Event().wait()
+            await send(message)
+
+        await h.asgi(scope, receive, block_final_body)
+
+    with h.bind():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            async with asyncio.timeout(2):
+                with pytest.raises(ResponseInterruptedError):
+                    await client.post(PATH, json={"status": "NO_SHOW"})
+
+    assert h.primary_commits == 1
+    assert h.delivery_attempts == 0
 
 
 async def test_TC04_same_intent_replay_no_duplicate(auth_settings):

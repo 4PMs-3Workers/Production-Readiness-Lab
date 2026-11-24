@@ -49,8 +49,8 @@ async def deliver_no_show_notice(
     sessions: Callable[[], AbstractAsyncContextManager[AsyncSession]],
     appointment_id: UUID,
     student_id: UUID,
-) -> None:
-    """Best effort in a separate transaction; no retry for uncertain writes."""
+) -> bool:
+    """Return whether the separate write completed. Never retry an uncertain write."""
     try:
         async with asyncio.timeout(0.25):
             async with sessions() as db, db.begin():
@@ -63,6 +63,8 @@ async def deliver_no_show_notice(
                 )
     except (SQLAlchemyError, TimeoutError):
         _LOGGER.warning("no_show_notice_failed")
+        return False
+    return True
 
 
 def _not_found() -> AppError:

@@ -147,6 +147,7 @@ async def record_staff_appointment_outcome(
             appointment_id,
             student_id,
         )
+        request.state.finish_deadline_on_response = True
 
     return await staff_appointments.record_staff_appointment_outcome(
         db,
