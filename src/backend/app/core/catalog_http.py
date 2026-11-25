@@ -23,6 +23,8 @@ class PrivateApiHttpMiddleware:
             return
 
         started = False
+        request = Request(scope)
+        request_timeout: asyncio.Timeout | None = None
 
         async def private_send(message: Message) -> None:
             nonlocal started
@@ -30,8 +32,15 @@ class PrivateApiHttpMiddleware:
                 started = True
                 MutableHeaders(scope=message)["Cache-Control"] = "private, no-store"
             await send(message)
-
-        request = Request(scope)
+            if (
+                request_timeout is not None
+                and not request_timeout.expired()
+                and message["type"] == "http.response.body"
+                and not message.get("more_body", False)
+                and getattr(request.state, "finish_deadline_on_response", False)
+            ):
+                # Starlette awaits background tasks immediately after the final send.
+                request_timeout.reschedule(None)
 
         async def dispatch() -> None:
             downstream_receive = receive
@@ -48,8 +57,11 @@ class PrivateApiHttpMiddleware:
             if requires_request_deadline(scope):
                 deadline = asyncio.get_running_loop().time() + self.settings.request_timeout_seconds
                 scope.setdefault("state", {})["request_deadline"] = deadline
-                async with asyncio.timeout_at(deadline):
-                    await dispatch()
+                async with asyncio.timeout_at(deadline) as request_timeout:
+                    try:
+                        await dispatch()
+                    finally:
+                        request_timeout = None
             else:
                 await dispatch()
         except AppError as exc:
