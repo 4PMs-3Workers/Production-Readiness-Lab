@@ -24,10 +24,12 @@ from uuid import UUID
 
 import httpx
 import pytest
+from dotenv import dotenv_values
 from sqlalchemy import text
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.ext.asyncio import AsyncSession, AsyncSessionTransaction
 from sqlalchemy.pool import NullPool
+from tests.backend.integration.nfr03_native import native_api
 from tests.backend.integration.test_appointment_export import PATH, rows, seed_history
 from tests.backend.integration.test_appointment_export_load_review import (
     SAMPLE,
@@ -38,8 +40,10 @@ from tests.backend.integration.test_appointment_export_load_review import (
 )
 from tests.backend.integration.test_appointments_api import ORIGIN
 from tests.backend.integration.test_booking_context import sign_in
+from tools.deploy.release_manifest import SCHEMA
 from tools.load.export_probe import PHASES, burst_verdict, measure_pool, save_report
 
+from app.core.config import Settings
 from app.core.database import create_database_engine
 from app.factory import create_app
 from app.services import appointment_export, auth
@@ -219,6 +223,7 @@ async def test_export_nfr03(availability_env, mysql_engine, monkeypatch, pool_mo
     settings = env.app.state.settings.model_copy(
         update={
             "database_url": mysql_engine.url.render_as_string(hide_password=False),
+            "accepted_schema_revisions_raw": SCHEMA,
         }
     )
     assert (settings.db_pool_size, settings.db_max_overflow, settings.db_pool_timeout_seconds) == (
@@ -226,6 +231,30 @@ async def test_export_nfr03(availability_env, mysql_engine, monkeypatch, pool_mo
         5,
         0.5,
     )
+
+    profile = os.getenv("NFR03_PROFILE", "default")
+    profiles = {
+        "default": (5, 5),
+        "retain10": (10, 0),
+        "capacity20": (20, 0),
+        "capacity40": (40, 0),
+        "candidate40": (40, 0),
+    }
+    assert profile in profiles
+    size, overflow = profiles[profile]
+    queue_timeout = 0.75 if profile == "candidate40" else 0.5
+    settings = settings.model_copy(
+        update={
+            "db_pool_size": size,
+            "db_max_overflow": overflow,
+            "db_pool_timeout_seconds": queue_timeout,
+        }
+    )
+
+    if profile == "candidate40":
+        overrides = dotenv_values("tools/deploy/profiles/nfr03-candidate.env.example")
+        settings = Settings.model_validate({**settings.model_dump(by_alias=True), **overrides})
+        size, overflow = settings.db_pool_size, settings.db_max_overflow
 
     def null_factory(url, *, connect_args, **_pool_options):
         return create_database_engine(url, connect_args=connect_args, poolclass=NullPool)
@@ -236,12 +265,14 @@ async def test_export_nfr03(availability_env, mysql_engine, monkeypatch, pool_mo
         else create_app(settings)
     )
     monitor = create_database_engine(mysql_engine.url.set(database=None), poolclass=NullPool)
-    diagnostic = os.getenv("NFR03_DIAGNOSTICS", "1") == "1"
+    native = os.getenv("NFR03_TRANSPORT", "asgi") == "http"
+    diagnostic = not native and os.getenv("NFR03_DIAGNOSTICS", "1") == "1"
     if diagnostic:
         install_profiling(monkeypatch)
     report = {
         "protocol": "nfr03-export-v2",
         "diagnostics": diagnostic,
+        "server_diagnostics": os.getenv("NFR03_SERVER_DIAGNOSTICS") == "1",
         "source_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
         "source_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"])),
         "versions": {p: version(p) for p in ["SQLAlchemy", "asyncmy", "fastapi"]},
@@ -249,9 +280,10 @@ async def test_export_nfr03(availability_env, mysql_engine, monkeypatch, pool_mo
         "platform": platform.platform(),
         "logical_cpus": os.cpu_count(),
         "pool_mode": pool_mode,
-        "pool_size": 5 if pool_mode == "production" else None,
-        "max_overflow": 5 if pool_mode == "production" else None,
-        "pool_timeout_seconds": 0.5 if pool_mode == "production" else None,
+        "profile": profile,
+        "pool_size": size,
+        "max_overflow": overflow,
+        "pool_timeout_seconds": settings.db_pool_timeout_seconds,
         "connect_timeout_seconds": settings.db_connect_timeout_seconds,
         "query_timeout_seconds": settings.db_query_timeout_seconds,
         "request_timeout_seconds": settings.request_timeout_seconds,
@@ -269,52 +301,111 @@ async def test_export_nfr03(availability_env, mysql_engine, monkeypatch, pool_mo
             "First burst follows migrations, seed, login and serial request; not empty-cache cold",
         ],
         "bursts": [],
+        "external_timing_limits": (
+            "Native stage timers absent unless server diagnostics enabled; "
+            "no gateway/TLS or worker load"
+        ),
     }
+    if native:
+        report["transport"] = (
+            "loopback HTTP, separate Uvicorn process, real MySQL TCP; no gateway/TLS"
+        )
     completed = False
     try:
-        async with application.router.lifespan_context(application), monitor.connect() as observer:
-            profiling = (
-                measure_pool(application.state.engine, SAMPLE, STAGE)
-                if diagnostic
-                else nullcontext({})
-            )
-            with profiling as pool_metrics:
-                report["pool_metrics"] = pool_metrics
+        if native:
+            async with native_api(settings) as target, monitor.connect() as observer:
                 await run_bursts(
-                    application, observer, report, settings, pool_mode, expected, env, mysql_engine
+                    application,
+                    observer,
+                    report,
+                    settings,
+                    pool_mode,
+                    expected,
+                    env,
+                    mysql_engine,
+                    target=target,
                 )
+        else:
+            await run_asgi(
+                application,
+                monitor,
+                report,
+                settings,
+                pool_mode,
+                expected,
+                env,
+                mysql_engine,
+                diagnostic,
+            )
         completed = True
     finally:
-        await monitor.dispose()
-        report["completed"] = completed
-        report["passed"] = completed and burst_verdict(report["bursts"])
-        for burst in report["bursts"]:
-            for sample in burst["samples"]:
-                sample.pop("_acquire_started", None)
-        report["source_file_sha256"] = {
-            name: hashlib.sha256(Path(name).read_bytes()).hexdigest()
-            for name in [
-                "src/backend/app/services/auth.py",
-                "src/backend/app/services/appointment_export.py",
-                "tools/load/export_probe.py",
-                "tests/backend/integration/test_appointment_export_nfr03.py",
-            ]
-        }
-        output = save_report(report, Path("build/nfr03/nfr03-export-v2") / report["source_sha"])
-        print("NFR03_REPORT=" + str(output))
+        await finish_report(monitor, report, completed)
     assert report["passed"], "NFR-03 gate failed; evidence retained"
 
 
-async def run_bursts(
-    application, observer, report, settings, pool_mode, expected, env, mysql_engine
+async def run_asgi(
+    application, monitor, report, settings, pool_mode, expected, env, mysql_engine, diagnostic
 ):
-    report["engine_class"] = type(application.state.engine.pool).__name__
+    async with application.router.lifespan_context(application), monitor.connect() as observer:
+        profiling = (
+            measure_pool(application.state.engine, SAMPLE, STAGE) if diagnostic else nullcontext({})
+        )
+        with profiling as pool_metrics:
+            report["pool_metrics"] = pool_metrics
+            await run_bursts(
+                application, observer, report, settings, pool_mode, expected, env, mysql_engine
+            )
+
+
+async def finish_report(monitor, report, completed):
+    await monitor.dispose()
+    report["completed"] = completed
+    report["generator_saturated"] = any(
+        b.get("event_loop_lag_samples", 0) < 2
+        or b.get("event_loop_lag_p95_seconds") is None
+        or b["event_loop_lag_p95_seconds"] > 0.1
+        or b.get("lag_missed_tick_fraction", 1) > 0.1
+        for b in report["bursts"]
+    )
+    report["passed"] = (
+        completed and burst_verdict(report["bursts"]) and not report["generator_saturated"]
+    )
+    for burst in report["bursts"]:
+        for sample in burst["samples"]:
+            sample.pop("_acquire_started", None)
+    report["source_file_sha256"] = {
+        name: hashlib.sha256(Path(name).read_bytes()).hexdigest()
+        for name in [
+            "src/backend/app/services/auth.py",
+            "src/backend/app/services/appointment_export.py",
+            "tools/load/export_probe.py",
+            "tests/backend/integration/nfr03_native.py",
+            "tools/deploy/profiles/nfr03-candidate.env.example",
+            "tests/backend/integration/test_appointment_export_nfr03.py",
+        ]
+    }
+    output = save_report(report, Path("build/nfr03/nfr03-export-v2") / report["source_sha"])
+    print("NFR03_REPORT=" + str(output))
+
+
+async def run_bursts(
+    application, observer, report, settings, pool_mode, expected, env, mysql_engine, target=None
+):
+    report["engine_class"] = (
+        "external process; not sampled" if target else type(application.state.engine.pool).__name__
+    )
     report["mysql"] = await observer.scalar(text("SELECT VERSION()"))
+    report["mysql_max_connections"] = await observer.scalar(text("SELECT @@max_connections"))
     clients = [
         httpx.AsyncClient(
-            transport=httpx.ASGITransport(DiagnosticApp(application)),
-            base_url=ORIGIN,
-            cookies=env.client.cookies,
+            transport=(
+                httpx.AsyncHTTPTransport(retries=0)
+                if target
+                else httpx.ASGITransport(DiagnosticApp(application))
+            ),
+            base_url=target or ORIGIN,
+            cookies=dict(env.client.cookies) if target else env.client.cookies,
+            trust_env=False,
         )
         for _ in range(80)
     ]
@@ -342,7 +433,7 @@ async def run_bursts(
                         pass
                     lag.append(max(0, perf_counter() - target))
                     snapshots.append(await mysql_snapshot(observer, mysql_engine.url.database))
-                    if pool_mode == "production":
+                    if pool_mode == "production" and not target:
                         pool = application.state.engine.pool
                         snapshots[-1]["pool_checked_out"] = pool.checkedout()
 
@@ -423,6 +514,8 @@ async def run_bursts(
                 "host_busy_percent": host_cpu,
                 "harness_cpu_seconds": process_cpu,
                 "event_loop_lag_p95_seconds": p95(lag),
+                "event_loop_lag_samples": len(lag),
+                "lag_missed_tick_fraction": sum(x > 0.1 for x in lag) / len(lag) if lag else None,
             }
             report["bursts"].append(summary)
             print(
