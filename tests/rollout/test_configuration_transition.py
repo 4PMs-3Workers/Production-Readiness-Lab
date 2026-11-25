@@ -291,9 +291,6 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
         assert store.load() == before
 
         upgraded = host(ROOT, source, stack.port)
-        assert upgraded.transition is not None
-        assert upgraded.transition.previous_release == old.configuration
-        assert upgraded.transition.previous_host_sha256 == before.configuration_sha256
 
         def reject_candidate(runtime):
             if runtime.manifest == candidate:
@@ -334,6 +331,9 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
         assert upgraded.runtime.appointment_status(committed["id"]) == "UPCOMING"
 
         after = upgraded.deploy(candidate_ref)
+        assert upgraded.transition is not None
+        assert upgraded.transition.previous_release == old.configuration
+        assert upgraded.transition.previous_host_sha256 == before.configuration_sha256
         assert after.operation is not None and after.operation.phase == "succeeded", after
         assert after.stable is not None and after.stable.reference == candidate_ref
         assert after.previous_stable == before.stable
