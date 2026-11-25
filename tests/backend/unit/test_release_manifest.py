@@ -8,7 +8,10 @@ import sys
 import pytest
 from tools.deploy.release import render
 from tools.deploy.release_manifest import (
+    ACCOUNT_LIFECYCLE_TRANSITION,
+    ADMIN_POLICY_TRANSITION,
     CHECKS,
+    PREDECESSOR_SCHEMA,
     ROOT,
     SCHEMA,
     Manifest,
@@ -90,56 +93,58 @@ def test_roundtrip_atomic_write_and_separate_pr_head(tmp_path):
     require_configuration(manifest.configuration)
 
 
-def test_reviewed_predecessor_requires_opt_in_and_exact_configuration(tmp_path):
-    current = configuration("local", False)
-    previous = previous_configuration(current)
-    assert previous is not None
-    previous_hashes = {item.path: item.sha256 for item in previous.files}
-    assert previous_hashes["tools/deploy/compose.yaml"] == (
-        "1f9c939fb1496429e6870000e1e2c4ccb2a5773a402984d70b1bfd27ca15833e"
-    )
-    assert previous_hashes["tools/deploy/nginx/route-map.conf"] == (
-        "47b24ed0346691dbc949d958fe351f29af893727bbecdde172793358a83fd90c"
-    )
-    assert previous_hashes["tools/deploy/compose.local.yaml"] == (
-        "5766741d8e44c72fc5487cd689ca658a6780e9f8cf804481df4f3a9a89bbb758"
-    )
-    assert previous_hashes["tools/deploy/nginx/nginx.conf"] == (
-        "dd8331ac797a1f5bfa5c05eb3a33af815fd188346058860d9e9e27e631343597"
-    )
-    assert previous_hashes["tools/deploy/nginx/routes.conf"] == (
-        "ebfdcf0a4efcf8f13b8a9423e69ed251ea70a5ebc8193eefcf4d477b4ed5fc22"
-    )
-    https_previous = previous_configuration(configuration("https", False))
-    assert https_previous is not None
-    https_hashes = {item.path: item.sha256 for item in https_previous.files}
-    assert "tools/deploy/compose.local.yaml" not in https_hashes
-    assert https_hashes["tools/deploy/nginx/nginx.conf"] == (
-        "dd8331ac797a1f5bfa5c05eb3a33af815fd188346058860d9e9e27e631343597"
-    )
-    assert https_hashes["tools/deploy/nginx/routes.conf"] == (
-        "ebfdcf0a4efcf8f13b8a9423e69ed251ea70a5ebc8193eefcf4d477b4ed5fc22"
-    )
-    assert https_hashes["tools/deploy/compose.https.yaml"] == (
-        "0811f0b010706d59351e7f3a0c4951b9f788731913877c1d88a805be1c0ad305"
-    )
+@pytest.mark.parametrize(
+    "overlay,observability", [("local", False), ("https", False), ("https", True)]
+)
+@pytest.mark.parametrize(
+    "stable_ref,transition",
+    [
+        ("12a74f7308550ccc294a783edde79db267a526d1", ACCOUNT_LIFECYCLE_TRANSITION),
+        ("aed6c68a4a081f558d01e9ba4c39cd031439af47", ADMIN_POLICY_TRANSITION),
+    ],
+)
+def test_reviewed_predecessor_requires_opt_in_and_exact_configuration(
+    tmp_path, overlay, observability, stable_ref, transition
+):
+    current = configuration(overlay, observability)
+    stable = tmp_path / "stable"
+    for item in current.files:
+        path = stable / item.path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(
+            subprocess.check_output(["git", "show", stable_ref + ":" + item.path], cwd=ROOT)
+        )
+    previous = configuration(overlay, observability, stable)
+    assert previous_configuration(current, transition=transition) == previous
     with pytest.raises(ReleaseError, match="incompatible-configuration"):
         require_configuration(previous)
     require_configuration(previous, allow_previous=True)
-
     for item in current.files:
         path = tmp_path / item.path
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes((ROOT / item.path).read_bytes())
-    # Changes outside the explicitly reviewed files cannot use the transition.
-    with (tmp_path / "tools/deploy/nginx/error-input.conf").open("ab") as output:
-        output.write(b"\n# unreviewed\n")
-    with pytest.raises(ReleaseError, match="incompatible-configuration"):
-        require_configuration(previous, tmp_path, allow_previous=True)
-    # A third version of a reviewed file cannot use this transition either.
-    with (tmp_path / "tools/deploy/nginx/route-map.conf").open("ab") as output:
-        output.write(b"\n-- unreviewed\n")
-    assert previous_configuration(configuration("local", False, tmp_path)) is None
+    for name in ("tools/deploy/nginx/error-input.conf", "tools/deploy/nginx/route-map.conf"):
+        path = tmp_path / name
+        original = path.read_bytes()
+        path.write_bytes(original + b"\n# unreviewed\n")
+        with pytest.raises(ReleaseError, match="incompatible-configuration"):
+            require_configuration(previous, tmp_path, allow_previous=True)
+        path.write_bytes(original)
+
+
+def test_legacy_schema_is_bound_to_the_legacy_configuration():
+    current = configuration("local", False)
+    data = spec_data()
+    data["accepted_schema_revisions"] = [PREDECESSOR_SCHEMA]
+    legacy = previous_configuration(current, transition=ACCOUNT_LIFECYCLE_TRANSITION)
+    assert legacy is not None
+    data["configuration"] = legacy.model_dump()
+    require_compatible(parse(canonical(data), Spec), allow_previous=True)
+    csv_predecessor = previous_configuration(current)
+    assert csv_predecessor is not None
+    data["configuration"] = csv_predecessor.model_dump()
+    with pytest.raises(ReleaseError, match="incompatible-schema"):
+        require_compatible(parse(canonical(data), Spec), allow_previous=True)
 
 
 @pytest.mark.parametrize(

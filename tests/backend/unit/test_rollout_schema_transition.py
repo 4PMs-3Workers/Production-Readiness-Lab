@@ -4,7 +4,13 @@ from contextlib import nullcontext
 
 import pytest
 from tests.backend.unit.rollout_fixtures import controller, reference, release
-from tools.deploy.release_manifest import SCHEMA, canonical, configuration, previous_configuration
+from tools.deploy.release_manifest import (
+    ACCOUNT_LIFECYCLE_TRANSITION,
+    SCHEMA,
+    canonical,
+    configuration,
+    previous_configuration,
+)
 from tools.deploy.rollout_controller import ConfigurationTransition
 from tools.deploy.rollout_schema import EXPECTED, SchemaSnapshot
 from tools.deploy.rollout_state import RolloutError
@@ -15,7 +21,9 @@ OLD_REVISION = "20261019_1200_proposal_replay"
 def historical_host(tmp_path, monkeypatch):
     host = controller(tmp_path)
     state = host.deploy(reference())
-    previous = previous_configuration(configuration("local", False))
+    previous = previous_configuration(
+        configuration("local", False), transition=ACCOUNT_LIFECYCLE_TRANSITION
+    )
     assert previous is not None and state.operation is not None
     old = release(125, deployed_configuration=previous, schema_revision=OLD_REVISION)
     old_ref = reference(3)
@@ -148,3 +156,70 @@ def test_resume_rolls_back_when_grants_fail_after_a_committed_migration(tmp_path
     assert result.operation is not None and result.operation.phase == "rolled_back"
     assert result.operation.trigger_reason == "migration-failed"
     assert result.stable == old and host.runtime.snapshot.revisions == [OLD_REVISION]
+
+
+@pytest.mark.parametrize("after_migration", [False, True])
+def test_fresh_controller_recovers_transition_after_host_rebind(
+    tmp_path, monkeypatch, after_migration
+):
+    from tools.deploy import demo, rollout
+    from tools.deploy.release_manifest import ROOT
+    from tools.deploy.rollout_controller import RolloutController
+    from tools.deploy.rollout_store import StateStore, replace_state
+
+    host, old = historical_host(tmp_path, monkeypatch)
+    selections: dict[str, object] = {"http_port": 8080}
+    old_hash = demo._configuration_identity(
+        "local",
+        False,
+        selections,
+        root=ROOT,
+        overrides={p: before for p, (before, _) in ACCOUNT_LIFECYCLE_TRANSITION.items()},
+    )
+    current_hash = demo._configuration_identity("local", False, selections, root=ROOT)
+    before = host.store.load()
+    assert before is not None
+    host.store.path.write_bytes(canonical(replace_state(before, configuration_sha256=old_hash)))
+    host.control.configuration_sha256 = current_hash
+    host.control.transition = ConfigurationTransition(
+        old_hash, host.store.manifest(old).configuration
+    )
+    migrate = host.runtime.migrate
+
+    def crash():
+        if after_migration:
+            migrate()
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(host.runtime, "migrate", crash)
+    with pytest.raises(KeyboardInterrupt):
+        host.deploy(reference(2))
+    persisted = host.store.load()
+    assert persisted is not None and persisted.configuration_sha256 == current_hash
+    assert host.runtime.snapshot.revisions == ([SCHEMA] if after_migration else [OLD_REVISION])
+    store = StateStore(host.store.directory)
+
+    def resolve(state):
+        return rollout.reviewed_transition(
+            "local",
+            False,
+            selections,
+            previous_host_sha256=state.configuration_sha256,
+            stable_configuration=store.manifest(state.stable).configuration,
+        )
+
+    fresh = RolloutController(
+        store,
+        host.registry,
+        host.runtime,
+        "b" * 40,
+        current_hash,
+        smoke=host.control.smoke,
+        readiness=host.control.readiness,
+        transition_resolver=resolve,
+    )
+    monkeypatch.setattr(host.runtime, "migrate", (lambda: None) if after_migration else migrate)
+    result = fresh.deploy(reference(2), resume=True)
+    assert result.operation is not None and result.operation.phase == "succeeded"
+    assert result.previous_stable == old
+    assert host.runtime.snapshot.revisions == [SCHEMA]

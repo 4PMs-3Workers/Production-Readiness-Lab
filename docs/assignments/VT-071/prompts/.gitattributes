@@ -1,0 +1,3 @@
+# Preserve original prompt bytes and their checksum across platforms.
+original-request.txt -text
+plan-prompt.txt -text

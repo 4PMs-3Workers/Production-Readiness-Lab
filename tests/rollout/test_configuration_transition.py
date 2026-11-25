@@ -11,7 +11,12 @@ import pytest
 from tests.rollout.fixtures import Artifacts, RolloutStack
 from tools.deploy import demo
 from tools.deploy.release_images import command
-from tools.deploy.release_manifest import PREDECESSOR_SCHEMA, ROOT, SCHEMA, canonical
+from tools.deploy.release_manifest import (
+    PREDECESSOR_SCHEMA,
+    ROOT,
+    SCHEMA,
+    canonical,
+)
 from tools.deploy.rollout import reviewed_transition
 from tools.deploy.rollout_controller import RolloutController
 from tools.deploy.rollout_http import SmokeCredentials, SmokeSession
@@ -114,13 +119,22 @@ def running_images(runtime: ReleaseRuntime) -> dict[str, tuple[str, str]]:
     return images
 
 
-def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(tmp_path):
+@pytest.mark.parametrize(
+    "stable_ref,stable_schema",
+    [
+        (BASE, PREDECESSOR_SCHEMA),
+        ("aed6c68a4a081f558d01e9ba4c39cd031439af47", SCHEMA),
+    ],
+)
+def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
+    tmp_path, stable_ref, stable_schema
+):
     assert os.environ.get("RUN_ROLLOUT_REHEARSAL") == "1", "Required rollout rehearsal cannot skip"
     source = prerequisites()
     archive = tmp_path / "base.tar"
     base = tmp_path / "base"
     base.mkdir()
-    command(["git", "archive", "--format=tar", "-o", str(archive), BASE], cwd=ROOT)
+    command(["git", "archive", "--format=tar", "-o", str(archive), stable_ref], cwd=ROOT)
     with tarfile.open(archive) as tree:
         tree.extractall(base, filter="data")
 
@@ -129,10 +143,10 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
     try:
         artifacts.start()
         old_backend = artifacts.build(
-            "base-backend", base / "Dockerfile.backend", base, source_sha=BASE
+            "base-backend", base / "Dockerfile.backend", base, source_sha=stable_ref
         )
         old_frontend = artifacts.build(
-            "base-frontend", base / "Dockerfile.frontend", base, source_sha=BASE
+            "base-frontend", base / "Dockerfile.frontend", base, source_sha=stable_ref
         )
         old = artifacts.manifest(
             1,
@@ -140,8 +154,8 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
             old_frontend,
             None,
             root=base,
-            source_sha=BASE,
-            schema_revision=PREDECESSOR_SCHEMA,
+            source_sha=stable_ref,
+            schema_revision=stable_schema,
         )
         old_ref = artifacts.registry.publish(artifacts.repository + "/releases", old)
         artifacts.registry.verify_images(old, pull=True)
@@ -189,12 +203,21 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
                 demo._configuration_identity("local", False, selections, root=root),
                 smoke=smoke,
                 readiness=readiness,
-                transition=reviewed_transition("local", False, selections, root=root),
+                transition_resolver=lambda state: reviewed_transition(
+                    "local",
+                    False,
+                    selections,
+                    root=root,
+                    previous_host_sha256=state.configuration_sha256,
+                    stable_configuration=(
+                        store.manifest(state.stable).configuration if state.stable else None
+                    ),
+                ),
             )
 
-        original = host(base, BASE, stack.port)
+        original = host(base, stable_ref, stack.port)
         original.runtime.select(old)
-        require_schema(original.runtime.schema(), [PREDECESSOR_SCHEMA])
+        require_schema(original.runtime.schema(), [stable_schema])
         db_identity = original.runtime.database_identity()
         ready(original.runtime)
         checks = smoke(original.runtime)
@@ -207,7 +230,7 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
             operation=Operation(
                 operation_id=uuid4().hex,
                 command="deploy",
-                orchestrator_sha=BASE,
+                orchestrator_sha=stable_ref,
                 target=stable,
                 events=[
                     Event(phase=phase, at=started_at, elapsed_seconds=0)
@@ -221,7 +244,7 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
                     )
                 ],
                 verification=Verification(
-                    schema_revision=PREDECESSOR_SCHEMA,
+                    schema_revision=stable_schema,
                     image_identity_verified=True,
                     database_volume_preserved=True,
                     worker_progress_verified=True,
@@ -268,9 +291,6 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
         assert store.load() == before
 
         upgraded = host(ROOT, source, stack.port)
-        assert upgraded.transition is not None
-        assert upgraded.transition.previous_release == old.configuration
-        assert upgraded.transition.previous_host_sha256 == before.configuration_sha256
 
         def reject_candidate(runtime):
             if runtime.manifest == candidate:
@@ -278,18 +298,42 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
                 raise RolloutError("readiness-failed")
             ready(runtime)
 
-        failed = host(ROOT, source, stack.port, readiness=reject_candidate).deploy(candidate_ref)
+        if stable_schema == PREDECESSOR_SCHEMA:
+            interrupted = host(ROOT, source, stack.port, readiness=reject_candidate)
+
+            def crash_before_migration():
+                raise KeyboardInterrupt()
+
+            interrupted.runtime.migrate = crash_before_migration
+            with pytest.raises(KeyboardInterrupt):
+                interrupted.deploy(candidate_ref)
+            persisted = store.load()
+            assert (
+                persisted is not None
+                and persisted.configuration_sha256 == upgraded.configuration_sha256
+            )
+            require_schema(interrupted.runtime.schema(), [PREDECESSOR_SCHEMA])
+            failed = host(ROOT, source, stack.port, readiness=reject_candidate).deploy(
+                candidate_ref, resume=True
+            )
+        else:
+            failed = host(ROOT, source, stack.port, readiness=reject_candidate).deploy(
+                candidate_ref
+            )
         assert failed.operation is not None and failed.operation.phase == "rolled_back", failed
         assert failed.operation.trigger_reason == "readiness-failed"
         assert failed.operation.verification is not None
-        assert failed.operation.verification.schema_revision == PREDECESSOR_SCHEMA
+        assert failed.operation.verification.schema_revision == stable_schema
         assert failed.stable == before.stable
         upgraded.runtime.select(old)
-        require_schema(upgraded.runtime.schema(), [PREDECESSOR_SCHEMA])
+        require_schema(upgraded.runtime.schema(), [stable_schema])
         upgraded.runtime.require_database(db_identity)
         assert upgraded.runtime.appointment_status(committed["id"]) == "UPCOMING"
 
         after = upgraded.deploy(candidate_ref)
+        assert upgraded.transition is not None
+        assert upgraded.transition.previous_release == old.configuration
+        assert upgraded.transition.previous_host_sha256 == before.configuration_sha256
         assert after.operation is not None and after.operation.phase == "succeeded", after
         assert after.stable is not None and after.stable.reference == candidate_ref
         assert after.previous_stable == before.stable
@@ -358,6 +402,17 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
                 assert old_slots["status"] == 200
                 assert [slot["starts_at"] for slot in old_slots["body"]["slots"]] == starts
 
+            if stable_schema == SCHEMA:
+                restored = host(ROOT, source, stack.port)
+                result = restored.rollback()
+                assert result.operation is not None and result.operation.phase == "rolled_back"
+                assert result.stable == before.stable
+                restored.runtime.require_database(db_identity)
+                require_schema(restored.runtime.schema(), [SCHEMA])
+                assert restored.runtime.appointment_status(committed["id"]) == "UPCOMING"
+                assert session.request("GET", path, 200, private=True).json() == saved
+                return
+
             running = running_images(upgraded.runtime)
             refused = host(ROOT, source, stack.port).rollback()
             assert refused.operation == after.operation
@@ -383,8 +438,8 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
         assert result.configuration_sha256 == after.configuration_sha256
         assert restored.runtime.manifest == old
         assert result.operation.verification is not None
-        assert result.operation.verification.schema_revision == PREDECESSOR_SCHEMA
-        require_schema(restored.runtime.schema(), [PREDECESSOR_SCHEMA])
+        assert result.operation.verification.schema_revision == stable_schema
+        require_schema(restored.runtime.schema(), [stable_schema])
         restored.runtime.require_database(db_identity)
         assert restored.runtime.appointment_status(committed["id"]) == "UPCOMING"
     finally:

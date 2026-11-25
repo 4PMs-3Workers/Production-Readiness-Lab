@@ -11,12 +11,14 @@ from uuid import uuid4
 
 from tools.deploy.release_images import Registry
 from tools.deploy.release_manifest import (
+    ACCOUNT_LIFECYCLE_TRANSITION,
     PREDECESSOR_SCHEMA,
     SCHEMA,
     Configuration,
     canonical,
     configuration,
     parse,
+    previous_configuration,
 )
 from tools.deploy.rollout_lock import operation_lock
 from tools.deploy.rollout_preflight import Prepared, ReleaseConsumer
@@ -57,12 +59,14 @@ class RolloutController:
         smoke: Callable[[ReleaseRuntime], list[str]],
         readiness: Callable[[ReleaseRuntime], None] = ready,
         transition: ConfigurationTransition | None = None,
+        transition_resolver: Callable[[HostState], ConfigurationTransition | None] | None = None,
     ):
         self.store, self.registry, self.runtime = store, registry, runtime
         self.source_sha, self.configuration_sha256 = orchestrator_sha, configuration_sha256
         self.consumer = ReleaseConsumer(registry, store, root=runtime.root)
         self.smoke, self.readiness = smoke, readiness
         self.transition = transition
+        self.transition_resolver = transition_resolver
         self.state: HostState | None = None
         self.started = 0.0
         self.started_at = ""
@@ -78,6 +82,8 @@ class RolloutController:
         )
         if state.project != self.runtime.project:
             raise RolloutError("incompatible-configuration")
+        if self.transition_resolver is not None:
+            self.transition = self.transition_resolver(state)
         if state.configuration_sha256 != self.configuration_sha256:
             transition = self.transition
             if (
@@ -380,7 +386,9 @@ class RolloutController:
         before = self.runtime.database_identity()
         current = configuration(self.runtime.overlay, self.runtime.observability, self.runtime.root)
         # prepare() accepts only the exact current configuration or the reviewed predecessor.
-        predecessor = prepared.manifest.configuration != current
+        predecessor = prepared.manifest.configuration == previous_configuration(
+            current, transition=ACCOUNT_LIFECYCLE_TRANSITION
+        )
         with self.runtime.predecessor_policy_guard() if predecessor else nullcontext():
             if needs_downgrade:
                 # Account writers are drained before checking for retained lifecycle data.
