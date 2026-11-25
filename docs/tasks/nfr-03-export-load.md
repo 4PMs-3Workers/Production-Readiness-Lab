@@ -53,3 +53,27 @@ Checkpoint validation: 103 tests passed across `tests/load` and export MySQL int
 5. Complete three repeat acceptance runs, sustained/mixed checks and required final-head CI.
 
 Docker Desktop's Linux daemon was unavailable at the checkpoint. A release-like Linux/gateway lab and its non-secret topology information are needed for release certification. NFR-03 remains **FAIL/open**.
+
+
+## HTTP isolation and candidate configuration follow-up
+
+The branch now includes loopback HTTP transport with a separately owned Uvicorn process, real readiness preflight and bounded cleanup. Set `NFR03_TRANSPORT=http`; `NFR03_PROFILE` accepts `default`, `retain10`, `capacity20`, `capacity40` and `candidate40`. Server-side diagnostic wrappers are opt-in with `NFR03_SERVER_DIAGNOSTICS=1`, recorded separately from acceptance. This remains a test entry point, not a production HTTP CLI.
+
+Preliminary experiments retained all outcomes: default HTTP 242/560 failures; retaining 10 connections 250/560; capacity20 194/560; capacity40 4/560 in an unprofiled run and 26/560 in a separately profiled run. Server instrumentation located the remaining profiled errors at auth pool acquisition. A single-query auth experiment produced 241/560 failures and was discarded; no auth code change is retained.
+
+The candidate configuration is `tools/deploy/profiles/nfr03-candidate.env.example`: pool40, overflow0, queue0.75s, query1s and request3s. It is not automatically enabled and leaves production defaults unchanged. The queue budget remains inside the existing transaction/request deadlines; those deadlines were not increased. The bounded example requires deployment review: if one API and one worker share these settings, reserve up to 80 application connections plus explicit operational headroom. The lab server reports max_connections=151; this is not evidence of the actual production capacity or RAM/CPU budget.
+
+Six alternating runs at clean source `25a65bdb6beb9d05ed433ad51fa262379b10e33f` used order A/B/B/A/A/B, where A=default and B=candidate40. Every report recorded source_dirty=false and generator_saturated=false.
+
+| Run ID | Profile | Errors / 560 | Burst p95 success range, s |
+| --- | --- | --- | --- |
+| e868c35a3eb8447ab20e39254cffa556 | default | 242 | 0.742–0.872 |
+| 835ca5664ae246019774320c3c077a51 | candidate40 | 0 | 1.061–1.288 |
+| 71c5884c74db4d2cbad03d9b0269a52b | candidate40 | 0 | 1.099–1.298 |
+| b333d6bd4a44418ba556edfcfbc41c70 | default | 278 | 0.740–0.927 |
+| d709dd962aef44baa726facc4e02dfee | default | 238 | 0.733–0.887 |
+| 0f91e7c6908a46cb9deec09f297224bb | candidate40 | 0 | 1.146–1.836 |
+
+These are Windows native HTTP/MySQL lab results, not gateway/TLS/container acceptance. The new `NFR-03 isolated HTTP lab` workflow records a Linux default baseline, requires three candidate runs, checks contracts with zero skips and retains sanitized artifacts for 30 days. Its API runs in a native process and has no container CPU quota or worker; its MySQL service has a 1 CPU/1 GiB limit. Do not compare its numbers directly to Windows as a before/after improvement.
+
+Current remaining release gates: actual gateway/TLS and target attestation, multi-session/sustained mixed workload, intended replica/resource/connection budgets and final candidate deployment review. The local three-run success is evidence for the candidate profile, not closure of production NFR-03. Earlier checkpoint statements above describe their dated stage and are superseded by this section where noted.

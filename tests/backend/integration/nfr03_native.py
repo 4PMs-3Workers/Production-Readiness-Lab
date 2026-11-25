@@ -30,6 +30,7 @@ async def native_api(settings):
     origin = f"http://127.0.0.1:{port}"
     # No command-line secrets, output bodies, or credential-bearing error logs.
     diagnostic = os.getenv("NFR03_SERVER_DIAGNOSTICS") == "1"
+    (root / "build/nfr03").mkdir(parents=True, exist_ok=True)
     output = (
         (root / "build/nfr03" / ("server-" + uuid4().hex + ".jsonl")).open("w", encoding="utf-8")
         if diagnostic
