@@ -257,7 +257,10 @@ async def test_staff_outcome_routes_session_actor_and_payload(auth_settings, mon
     appointment_id = uuid4()
     received = []
 
-    async def record(db, *, appointment_id, outcome, context, request_id, settings, deadline):
+    async def record(
+        db, *, appointment_id, outcome, context, request_id, settings, deadline, on_no_show
+    ):
+        assert callable(on_no_show)
         received.append((appointment_id, outcome.status, context, request_id, deadline))
         return StaffAppointmentOutcomeResponse(
             id=appointment_id,
