@@ -68,3 +68,31 @@ def test_failed_rollback_keeps_failure_and_original_stable(tmp_path):
     assert result.operation.events[-1].reason == "smoke-failed"
     assert result.stable == before.stable
     assert result.previous_stable == before.previous_stable
+
+
+def test_csv_rollback_does_not_apply_account_policy_restriction(tmp_path, monkeypatch):
+    from tools.deploy.release_manifest import configuration, previous_configuration
+
+    host = controller(tmp_path)
+    previous = previous_configuration(configuration("local", False))
+    host.registry.releases[reference()] = release(deployed_configuration=previous)
+    # Seed the already-verified predecessor without invoking an unrelated forward transition.
+    from tools.deploy.rollout_state import HostState
+
+    stable = host.store.remember(reference(), host.registry.releases[reference()])
+    host.store.save(
+        HostState(project=host.runtime.project, configuration_sha256="c" * 64, stable=stable)
+    )
+    host.runtime.previous_stable = stable
+    host.registry.releases[reference(2)] = release(124, reference())
+    deployed = host.deploy(reference(2))
+    assert deployed.operation is not None and deployed.operation.phase == "succeeded"
+    host.runtime.previous_stable = deployed.stable
+
+    def forbidden():
+        raise AssertionError("CSV rollback must not restrict account predecessor policy")
+
+    monkeypatch.setattr(host.runtime, "predecessor_policy_guard", forbidden)
+    result = host.rollback()
+    assert result.operation is not None and result.operation.phase == "rolled_back"
+    assert result.stable == stable

@@ -94,3 +94,31 @@ def test_legacy_lifecycle_cannot_bypass_managed_release_decisions(tmp_path, monk
 
     monkeypatch.setattr(demo, "run", forbidden)
     assert demo.main(["up", "--overlay", "local"]) == 1
+
+
+def test_rebound_host_requires_exact_stable_configuration():
+    from tools.deploy.release_manifest import configuration, previous_configuration
+
+    selections: dict[str, object] = {"http_port": 8080}
+    current = configuration("local", False)
+    current_host = demo._configuration_identity("local", False, selections, root=ROOT)
+    legacy = previous_configuration(current, transition=ACCOUNT_LIFECYCLE_TRANSITION)
+    selected = rollout.reviewed_transition(
+        "local",
+        False,
+        selections,
+        previous_host_sha256=current_host,
+        stable_configuration=legacy,
+    )
+    assert selected is not None and selected.previous_release == legacy
+    for host_hash, stable in [(current_host, current), (current_host, None), ("0" * 64, legacy)]:
+        assert (
+            rollout.reviewed_transition(
+                "local",
+                False,
+                selections,
+                previous_host_sha256=host_hash,
+                stable_configuration=stable,
+            )
+            is None
+        )

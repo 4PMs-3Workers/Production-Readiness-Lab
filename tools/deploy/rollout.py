@@ -15,6 +15,7 @@ from tools.deploy.release_manifest import (
     ACCOUNT_LIFECYCLE_TRANSITION,
     ADMIN_POLICY_TRANSITION,
     ROOT,
+    Configuration,
     canonical,
     configuration,
     previous_configuration,
@@ -58,8 +59,10 @@ def reviewed_transition(
     *,
     root: Path = ROOT,
     previous_host_sha256: str | None = None,
+    stable_configuration: Configuration | None = None,
 ) -> ConfigurationTransition | None:
     current = configuration(overlay, observability, root)
+    current_host = demo._configuration_identity(overlay, observability, selections, root=root)
     for transition in (ADMIN_POLICY_TRANSITION, ACCOUNT_LIFECYCLE_TRANSITION):
         previous = previous_configuration(current, transition=transition)
         if previous is None:
@@ -72,6 +75,8 @@ def reviewed_transition(
             overrides={path: before for path, (before, _) in transition.items()},
         )
         if previous_host_sha256 is None or previous_host_sha256 == previous_host:
+            return ConfigurationTransition(previous_host, previous)
+        if previous_host_sha256 == current_host and stable_configuration == previous:
             return ConfigurationTransition(previous_host, previous)
     return None
 
@@ -111,7 +116,6 @@ def controller(args, store: StateStore) -> RolloutController:
                     persisted_status=selected.appointment_status,
                 )
 
-        state = store.load()
         return RolloutController(
             store,
             Registry(plain_http=args.plain_http),
@@ -120,11 +124,14 @@ def controller(args, store: StateStore) -> RolloutController:
             host.configuration_sha256,
             smoke=smoke,
             readiness=lambda selected: ready(selected, context),
-            transition=reviewed_transition(
+            transition_resolver=lambda state: reviewed_transition(
                 args.overlay,
                 args.observability,
                 host.configuration_selections,
                 previous_host_sha256=state.configuration_sha256 if state else None,
+                stable_configuration=(
+                    store.manifest(state.stable).configuration if state.stable else None
+                ),
             ),
         )
     except RolloutError:
