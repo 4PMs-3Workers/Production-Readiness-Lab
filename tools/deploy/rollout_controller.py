@@ -14,7 +14,7 @@ from tools.deploy.release_manifest import SCHEMA, Configuration, canonical, conf
 from tools.deploy.rollout_lock import operation_lock
 from tools.deploy.rollout_preflight import Prepared, ReleaseConsumer
 from tools.deploy.rollout_readiness import ready
-from tools.deploy.rollout_runtime import Deadline, ReleaseRuntime
+from tools.deploy.rollout_runtime import DatabaseIdentity, Deadline, ReleaseRuntime
 from tools.deploy.rollout_schema import require_schema
 from tools.deploy.rollout_state import (
     TERMINAL,
@@ -290,6 +290,8 @@ class RolloutController:
                     and prepared.selected != state.operation.target
                 ):
                     raise RolloutError("invalid-manifest")
+                # A fresh CLI runtime needs its overlay before any catalog probe.
+                self.runtime.select(prepared.manifest)
                 if rebind:
                     assert state.stable is not None
                     if prepared.manifest.previous_stable != state.stable.reference:
@@ -399,10 +401,16 @@ class RolloutController:
         require_schema(self.runtime.schema(), prepared.manifest.accepted_schema_revisions)
         return prepared
 
-    def _restore(self, target: Selection, prepared: Prepared | None = None) -> HostState:
+    def _restore(
+        self,
+        target: Selection,
+        prepared: Prepared | None = None,
+        before: DatabaseIdentity | None = None,
+    ) -> HostState:
         if prepared is None:
             prepared = self._rollback_preflight(target)
-        before = self.runtime.database_identity()
+        if before is None:
+            before = self.runtime.database_identity()
         current = configuration(self.runtime.overlay, self.runtime.observability, self.runtime.root)
         # prepare() accepts only the exact current configuration or the reviewed predecessor.
         predecessor = prepared.manifest.configuration != current
@@ -446,12 +454,13 @@ class RolloutController:
                 return self._refuse(state, "rollback", "rollback-unavailable")
             try:
                 prepared = self._rollback_preflight(target)
+                before = self.runtime.database_identity()
             except RolloutError as error:
                 # A read-only refusal must preserve the operation and recovery
                 # target that were already pending on disk.
                 return self._refuse(state, "rollback", error.reason)
             self._begin(state, target, "rollback")
             try:
-                return self._restore(target, prepared)
+                return self._restore(target, prepared, before)
             except Exception as error:
                 return self._failed(error)

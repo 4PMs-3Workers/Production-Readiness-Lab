@@ -14,7 +14,7 @@ def test_synthetic_load_records_one_latency_for_invalid_json_response(monkeypatc
         injected = True
         response = await original_post(self, *args, **kwargs)
         if corrupt:
-            return httpx.Response(200, content=b"{", request=response.request)
+            return httpx.Response(response.status_code, content=b"{", request=response.request)
         return response
 
     monkeypatch.setattr(httpx.AsyncClient, "post", post_with_one_invalid_json)

@@ -8,6 +8,22 @@ from tools.deploy.rollout_state import HostState, selection
 
 
 def reload_controller(host):
+    from tests.backend.unit.rollout_fixtures import MemoryRuntime
+
+    previous = host.runtime
+    host.runtime = MemoryRuntime(previous.scratch, host.store)
+    host.runtime.snapshot = previous.snapshot
+    host.runtime.previous_stable = previous.previous_stable
+    original_schema = host.runtime.schema
+
+    def selected_schema():
+        if host.runtime.overlay_path is None:
+            from tools.deploy.rollout_state import RolloutError
+
+            raise RolloutError("invalid-manifest")
+        return original_schema()
+
+    host.runtime.schema = selected_schema
     host.control = rollout_controller.RolloutController(
         host.store,
         host.registry,
@@ -395,3 +411,42 @@ def test_partial_schema_is_refused_before_migration_or_rollout(tmp_path):
     assert result.operation is not None
     assert result.operation.phase == "failed"
     assert "migrate" not in host.runtime.calls and "rollout" not in host.runtime.calls
+
+
+def test_rollback_identity_refusal_keeps_candidate_resumable(tmp_path, monkeypatch):
+    from tools.deploy.rollout_state import RolloutError
+
+    host = controller(tmp_path)
+    stable = host.deploy(reference()).stable
+    host.runtime.previous_stable = stable
+    candidate = reference(2)
+    host.registry.releases[candidate] = release(124, reference())
+    host.runtime.fail = "migration"
+    failed = host.deploy(candidate)
+    assert failed.operation is not None and failed.operation.requires_recovery
+
+    def unavailable():
+        raise RolloutError("database-unavailable")
+
+    monkeypatch.setattr(host.runtime, "database_identity", unavailable)
+    refused = host.rollback()
+    assert refused.refusal is not None
+    assert refused.refusal.reason == "database-unavailable"
+    assert refused.operation == failed.operation
+    assert host.store.load() == refused
+    reload_controller(host)
+    resumed = host.deploy(candidate, resume=True)
+    assert resumed.operation is not None and resumed.operation.phase == "succeeded"
+    assert resumed.stable is not None and resumed.stable.reference == candidate
+
+
+def test_preflight_failure_keeps_legacy_v1_operation_encoding(tmp_path):
+    import json
+
+    host = controller(tmp_path)
+    host.registry.missing = True
+    failed = host.deploy(reference())
+    assert failed.operation is not None and failed.operation.phase == "failed"
+    data = json.loads(host.store.path.read_text())
+    assert "migration_started" not in data["operation"]
+    assert host.store.load() == failed

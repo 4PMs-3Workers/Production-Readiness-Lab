@@ -6,7 +6,7 @@ import hashlib
 from datetime import UTC, datetime
 from typing import Annotated, Literal, Self
 
-from pydantic import Field, model_validator
+from pydantic import Field, SerializerFunctionWrapHandler, model_serializer, model_validator
 from tools.deploy.release_manifest import (
     REVIEWED_PREDECESSOR_SCHEMAS,
     SCHEMA,
@@ -172,6 +172,14 @@ class Operation(Strict):
     migration_started: bool = False
     events: list[Event] = Field(min_length=1, max_length=16)
     verification: Verification | None = None
+
+    @model_serializer(mode="wrap")
+    def serialize_operation(self, handler: SerializerFunctionWrapHandler) -> dict:
+        data = handler(self)
+        # Pre-migration refusals retain the original strict v1 wire encoding.
+        if not self.migration_started:
+            data.pop("migration_started", None)
+        return data
 
     @property
     def phase(self) -> Phase:
