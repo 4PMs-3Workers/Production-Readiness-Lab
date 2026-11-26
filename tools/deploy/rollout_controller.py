@@ -228,11 +228,18 @@ class RolloutController:
         *,
         allow_empty: bool,
         schema_revisions: list[str] | None = None,
+        state: HostState | None = None,
+        resume: bool = False,
     ) -> None:
         self.consumer.verify(prepared)
         self.runtime.select(prepared.manifest)
         self.runtime.validate_plan()
         self.runtime.vendor_images()
+        # Calculate resume schema only after verification and overlay selection.
+        if state is not None:
+            schema_revisions = self._migration_input_schema_revisions(
+                state, prepared, resume=resume
+            )
         require_schema(
             self.runtime.schema(),
             schema_revisions or prepared.manifest.accepted_schema_revisions,
@@ -290,8 +297,6 @@ class RolloutController:
                     and prepared.selected != state.operation.target
                 ):
                     raise RolloutError("invalid-manifest")
-                # A fresh CLI runtime needs its overlay before any catalog probe.
-                self.runtime.select(prepared.manifest)
                 if rebind:
                     assert state.stable is not None
                     if prepared.manifest.previous_stable != state.stable.reference:
@@ -299,9 +304,8 @@ class RolloutController:
                     self._preflight(
                         prepared,
                         allow_empty=False,
-                        schema_revisions=self._migration_input_schema_revisions(
-                            state, prepared, resume=resume
-                        ),
+                        state=state,
+                        resume=resume,
                     )
             except RolloutError as error:
                 return self._refuse(state, "deploy", error.reason)
@@ -320,9 +324,8 @@ class RolloutController:
                     self._preflight(
                         prepared,
                         allow_empty=state.stable is None,
-                        schema_revisions=self._migration_input_schema_revisions(
-                            state, prepared, resume=resume
-                        ),
+                        state=state,
+                        resume=resume,
                     )
                 self._transition("migration")
                 before = self.runtime.prepare_database()

@@ -450,3 +450,21 @@ def test_preflight_failure_keeps_legacy_v1_operation_encoding(tmp_path):
     data = json.loads(host.store.path.read_text())
     assert "migration_started" not in data["operation"]
     assert host.store.load() == failed
+
+
+def test_invalid_configuration_is_verified_before_select(tmp_path, monkeypatch):
+    from tools.deploy.rollout_state import RolloutError
+
+    host = controller(tmp_path)
+
+    def refuse(_prepared):
+        raise RolloutError("incompatible-configuration")
+
+    def select(_manifest):
+        pytest.fail("invalid configuration must be refused before render/select")
+
+    monkeypatch.setattr(host.control.consumer, "verify", refuse)
+    monkeypatch.setattr(host.runtime, "select", select)
+    failed = host.deploy(reference())
+    assert failed.operation is not None
+    assert failed.operation.events[-1].reason == "incompatible-configuration"

@@ -27,3 +27,5 @@
 - Complete read-only database identity checks before replacing a pending deploy with rollback; carry that checked identity into restore and assert refused rollback followed by candidate resume.
 - Preserve the strict v1 wire encoding when migration has not started. Test persisted JSON; adding a default field is not backward reader compatibility. Post-migration marker states require the updated controller.
 - Malformed JSON tests must keep the expected HTTP status so the decoder is reached. Hash identity inputs must have enforced LF; never normalize production hash comparisons or expand accepted hashes to bypass checkout differences.
+
+- Keep manifest verification before runtime selection/rendering. Compute resume schema revisions inside preflight after verify/select, not in caller argument evaluation or an earlier unvalidated select. Test invalid-configuration refusal as well as valid fresh-runtime resume.
