@@ -35,6 +35,12 @@ class DatabaseIdentity:
     volume: str
 
 
+@dataclass(frozen=True)
+class PredecessorPolicy:
+    snapshot: dict
+    api_running: bool
+
+
 class Deadline:
     def __init__(self, seconds: float, *, clock: Callable[[], float] = time.monotonic):
         self.clock = clock
@@ -419,8 +425,7 @@ class ReleaseRuntime:
     def _booking_policy(self) -> dict:
         return self.json_output(self.sql(POLICY_SQL))
 
-    @contextmanager
-    def predecessor_policy_guard(self) -> Iterator[None]:
+    def prepare_predecessor_policy(self) -> PredecessorPolicy:
         if self.manifest is None:
             raise RolloutError("invalid-manifest")
         policy = self._booking_policy()
@@ -453,6 +458,15 @@ class ReleaseRuntime:
         api = self.inspect("api", optional=True)
         running = api is not None and api.get("running") is True
         # Leave time for the recheck and restarting the original API on refusal.
+        if running and self.deadline.remaining() < 85:
+            raise RolloutError("deadline-exceeded")
+        return PredecessorPolicy(policy, running)
+
+    @contextmanager
+    def predecessor_policy_guard(self, prepared: PredecessorPolicy | None = None) -> Iterator[None]:
+        if prepared is None:
+            prepared = self.prepare_predecessor_policy()
+        policy, running = prepared.snapshot, prepared.api_running
         if running and self.deadline.remaining() < 85:
             raise RolloutError("deadline-exceeded")
         try:

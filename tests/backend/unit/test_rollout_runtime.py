@@ -153,3 +153,23 @@ def test_deadline_never_restarts_the_budget_between_stages():
     now[0] = 310
     with pytest.raises(RolloutError, match="deadline-exceeded"):
         budget.remaining()
+
+
+def test_prepared_policy_guard_rechecks_restart_budget_before_api_drain(tmp_path, monkeypatch):
+    host = runtime(tmp_path)
+    host.select(manifest())
+    now = [0.0]
+    host.deadline = Deadline(300, clock=lambda: now[0])
+    monkeypatch.setattr(host, "_booking_policy", lambda: {"timezone": "UTC"})
+    monkeypatch.setattr(host, "inspect", lambda *args, **kwargs: {"running": True})
+    monkeypatch.setattr(host, "command", lambda *args, **kwargs: b"")
+    actions = []
+    monkeypatch.setattr(host, "compose", lambda action, *args, **kwargs: actions.append(action))
+    now[0] = 214.0
+    prepared = host.prepare_predecessor_policy()
+    # Persisting the rollback decision can consume the remaining restart reserve.
+    now[0] = 216.0
+    with pytest.raises(RolloutError, match="deadline-exceeded"):
+        with host.predecessor_policy_guard(prepared):
+            pytest.fail("The API must stay running when the restart reserve has expired")
+    assert actions == []

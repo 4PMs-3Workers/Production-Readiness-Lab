@@ -14,7 +14,12 @@ from tools.deploy.release_manifest import SCHEMA, Configuration, canonical, conf
 from tools.deploy.rollout_lock import operation_lock
 from tools.deploy.rollout_preflight import Prepared, ReleaseConsumer
 from tools.deploy.rollout_readiness import ready
-from tools.deploy.rollout_runtime import DatabaseIdentity, Deadline, ReleaseRuntime
+from tools.deploy.rollout_runtime import (
+    DatabaseIdentity,
+    Deadline,
+    PredecessorPolicy,
+    ReleaseRuntime,
+)
 from tools.deploy.rollout_schema import require_schema
 from tools.deploy.rollout_state import (
     TERMINAL,
@@ -36,6 +41,13 @@ from tools.deploy.rollout_store import StateStore, replace_state
 class ConfigurationTransition:
     previous_host_sha256: str
     previous_release: Configuration
+
+
+@dataclass(frozen=True)
+class RollbackPlan:
+    prepared: Prepared
+    database: DatabaseIdentity
+    policy: PredecessorPolicy | None
 
 
 class RolloutController:
@@ -396,28 +408,35 @@ class RolloutController:
         except Exception as rollback_error:
             return self._failed(rollback_error)
 
-    def _rollback_preflight(self, target: Selection) -> Prepared:
+    def _rollback_preflight(self, target: Selection) -> RollbackPlan:
         prepared = self.consumer.prepare(target.reference, expected=target)
         self.runtime.select(prepared.manifest)
         self.runtime.validate_plan()
         self.runtime.vendor_images()
         require_schema(self.runtime.schema(), prepared.manifest.accepted_schema_revisions)
-        return prepared
+        database = self.runtime.database_identity()
+        current = configuration(self.runtime.overlay, self.runtime.observability, self.runtime.root)
+        # prepare() accepts only the exact current configuration or the reviewed predecessor.
+        policy = (
+            self.runtime.prepare_predecessor_policy()
+            if prepared.manifest.configuration != current
+            else None
+        )
+        return RollbackPlan(prepared, database, policy)
 
     def _restore(
         self,
         target: Selection,
-        prepared: Prepared | None = None,
-        before: DatabaseIdentity | None = None,
+        plan: RollbackPlan | None = None,
     ) -> HostState:
-        if prepared is None:
-            prepared = self._rollback_preflight(target)
-        if before is None:
-            before = self.runtime.database_identity()
-        current = configuration(self.runtime.overlay, self.runtime.observability, self.runtime.root)
-        # prepare() accepts only the exact current configuration or the reviewed predecessor.
-        predecessor = prepared.manifest.configuration != current
-        with self.runtime.predecessor_policy_guard() if predecessor else nullcontext():
+        if plan is None:
+            plan = self._rollback_preflight(target)
+        prepared, before = plan.prepared, plan.database
+        with (
+            self.runtime.predecessor_policy_guard(plan.policy)
+            if plan.policy is not None
+            else nullcontext()
+        ):
             self._transition("rollback_rollout")
         # There is deliberately no migration, seed, downgrade, or DB startup here.
         self.runtime.rollout()
@@ -456,14 +475,13 @@ class RolloutController:
             if target is None:
                 return self._refuse(state, "rollback", "rollback-unavailable")
             try:
-                prepared = self._rollback_preflight(target)
-                before = self.runtime.database_identity()
+                plan = self._rollback_preflight(target)
             except RolloutError as error:
                 # A read-only refusal must preserve the operation and recovery
                 # target that were already pending on disk.
                 return self._refuse(state, "rollback", error.reason)
             self._begin(state, target, "rollback")
             try:
-                return self._restore(target, prepared, before)
+                return self._restore(target, plan)
             except Exception as error:
                 return self._failed(error)

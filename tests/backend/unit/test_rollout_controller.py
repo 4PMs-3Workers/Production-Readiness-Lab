@@ -1,7 +1,14 @@
 import pytest
 import tools.deploy.rollout_controller as rollout_controller
 from tests.backend.unit.rollout_fixtures import controller, reference, release
-from tools.deploy.release_manifest import Manifest, canonical, parse
+from tools.deploy.release_manifest import (
+    Manifest,
+    Spec,
+    canonical,
+    parse,
+    previous_configuration,
+    proof,
+)
 from tools.deploy.rollout_preflight import Prepared
 from tools.deploy.rollout_schema import EXPECTED, PREDECESSOR_EXPECTED, SchemaSnapshot
 from tools.deploy.rollout_state import HostState, selection
@@ -468,3 +475,93 @@ def test_invalid_configuration_is_verified_before_select(tmp_path, monkeypatch):
     failed = host.deploy(reference())
     assert failed.operation is not None
     assert failed.operation.events[-1].reason == "incompatible-configuration"
+
+
+@pytest.mark.parametrize("policy_outcome", ["refused", "compatible", "changed-after-drain"])
+def test_predecessor_policy_preflight_preserves_recovery_until_api_drain(
+    tmp_path, monkeypatch, policy_outcome
+):
+    from tools.deploy.rollout_state import RolloutError
+
+    host = controller(tmp_path)
+    candidate_ref = reference(2)
+    candidate = release(124, reference())
+    prior_configuration = previous_configuration(candidate.configuration)
+    assert prior_configuration is not None
+    prior_data = release().model_dump(mode="json")
+    prior_data["configuration"] = prior_configuration.model_dump(mode="json")
+    spec_data = {
+        key: value
+        for key, value in prior_data.items()
+        if key
+        not in {"candidate_proof", "published_proof", "source_checks", "candidate_artifact_id"}
+    }
+    spec_data["format"] = "prl-candidate"
+    spec = parse(canonical(spec_data), Spec)
+    prior_data["candidate_proof"] = proof(spec, "candidate").model_dump(mode="json")
+    prior_data["published_proof"] = proof(spec, "published").model_dump(mode="json")
+    predecessor = parse(canonical(prior_data), Manifest)
+    host.registry.releases[reference()] = predecessor
+    stable = host.store.remember(reference(), predecessor)
+    host.store.save(
+        HostState(
+            project=host.runtime.project,
+            configuration_sha256=host.control.configuration_sha256,
+            stable=stable,
+        )
+    )
+    host.runtime.previous_stable = stable
+    host.registry.releases[candidate_ref] = candidate
+    host.runtime.fail = "migration"
+    pending = host.deploy(candidate_ref)
+    assert pending.operation is not None and pending.operation.requires_recovery
+    host.runtime.fail = None
+    host.runtime.calls.clear()
+    policy = {"timezone": "America/New_York"}
+    snapshots = iter(
+        [policy, {"timezone": "UTC"} if policy_outcome == "changed-after-drain" else policy]
+    )
+    monkeypatch.setattr(host.runtime, "_booking_policy", lambda: next(snapshots))
+    monkeypatch.setattr(host.runtime, "inspect", lambda *args, **kwargs: {"running": True})
+
+    def check_policy(args, **kwargs):
+        current = host.store.load()
+        assert current is not None and current.operation == pending.operation
+        host.runtime.calls.append("check-policy")
+        if policy_outcome == "refused":
+            raise RolloutError("rollback-incompatible")
+        return b""
+
+    def compose(action, *args, **kwargs):
+        current = host.store.load()
+        assert current is not None and current.operation is not None
+        assert current.operation.command == "rollback"
+        assert current.operation.phase == "rollback_preflight"
+        assert current.operation.requires_recovery
+        host.runtime.calls.append(action)
+
+    monkeypatch.setattr(host.runtime, "command", check_policy)
+    monkeypatch.setattr(host.runtime, "compose", compose)
+    result = host.rollback()
+    assert host.store.load() == result
+    if policy_outcome == "refused":
+        assert result.refusal is not None and result.refusal.reason == "rollback-incompatible"
+        assert result.operation == pending.operation and result.stable == pending.stable
+        assert host.runtime.calls == ["plan", "images", "check-policy"]
+        reload_controller(host)
+        resumed = host.deploy(candidate_ref, resume=True)
+        assert resumed.operation is not None and resumed.operation.phase == "succeeded"
+        assert resumed.stable is not None and resumed.stable.reference == candidate_ref
+        assert host.store.load() == resumed
+    elif policy_outcome == "compatible":
+        assert result.operation is not None and result.operation.phase == "rolled_back"
+        assert result.stable == stable and not result.operation.requires_recovery
+        assert host.runtime.calls.index("check-policy") < host.runtime.calls.index("stop")
+        assert host.runtime.calls.index("stop") < host.runtime.calls.index("rollout")
+        assert "start" not in host.runtime.calls
+    else:
+        assert result.operation is not None and result.operation.phase == "failed"
+        assert result.operation.events[-1].reason == "rollback-incompatible"
+        assert result.operation.command == "rollback" and result.operation.requires_recovery
+        assert host.runtime.calls == ["plan", "images", "check-policy", "stop", "start"]
+        assert result.stable == stable
