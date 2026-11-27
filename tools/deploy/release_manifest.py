@@ -14,8 +14,13 @@ from typing import Annotated, Literal, Self, TypeAlias, TypeVar
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 ROOT = Path(__file__).resolve().parents[2]
-SCHEMA = "20261113_1200_booking_quota"
-REVIEWED_PREDECESSOR_SCHEMAS = {"20261019_1200_proposal_replay"}
+SCHEMA = "20261127_1200_quota_acct_merge"
+PREDECESSOR_SCHEMA = "20261019_1200_proposal_replay"
+REVIEWED_PREDECESSOR_SCHEMAS = {
+    PREDECESSOR_SCHEMA,
+    "20261113_1200_booking_quota",
+    "20261114_1200_soft_delete",
+}
 MAX_JSON = 1024 * 1024
 SHA: TypeAlias = Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]
 Hex: TypeAlias = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
@@ -272,23 +277,37 @@ GRANTS_PATH = "tools/deploy/mysql/grants.sql"
 # Exact identities for the reviewed transition from the PR's actual base (12a74f7)
 # to this release. Keep both sides pinned so a different local tree cannot claim
 # the same predecessor transition.
-ADMIN_POLICY_TRANSITION = {
+ACCOUNT_LIFECYCLE_TRANSITION = {
     GRANTS_PATH: (
         "8a7277032db2552dc45e9031dd0947d1b0aa363b0d1ebd445366225af3af038a",
         "bdede7d278ee16b114ed2da85ac9e350cfdacec1aa0b4f125237b2765229f3a3",
     ),
     "tools/deploy/compose.yaml": (
         "1f9c939fb1496429e6870000e1e2c4ccb2a5773a402984d70b1bfd27ca15833e",
-        "af71a4d21ef4bcfdb127ae327143728fa59e5f4610caaa5e234ca1d537179d28",
+        "c80f638203edc844cac581a3b6ace78aa80eaa9cba35b19dcfc50ae2fac0a3e8",
+    ),
+    "tools/deploy/nginx/route-map.conf": (
+        "47b24ed0346691dbc949d958fe351f29af893727bbecdde172793358a83fd90c",
+        "6cf73275201e4f740b85a9d4fc66e6654250808770cc9a60cd58b3a5af5fe950",
+    ),
+}
+ADMIN_POLICY_TRANSITION = {
+    GRANTS_PATH: (
+        "8a7277032db2552dc45e9031dd0947d1b0aa363b0d1ebd445366225af3af038a",
+        "bdede7d278ee16b114ed2da85ac9e350cfdacec1aa0b4f125237b2765229f3a3",
+    ),
+    "tools/deploy/compose.yaml": (
+        "b47009b194b4be07186032126f4da0b78246b9f91905852602a61061d85869b9",
+        "c80f638203edc844cac581a3b6ace78aa80eaa9cba35b19dcfc50ae2fac0a3e8",
     ),
 }
 
 
-def previous_configuration(current: Configuration) -> Configuration | None:
+def previous_configuration(
+    current: Configuration, *, transition: dict[str, tuple[str, str]] = ADMIN_POLICY_TRANSITION
+) -> Configuration | None:
     hashes = {item.path: item.sha256 for item in current.files}
-    transition = {
-        path: versions for path, versions in ADMIN_POLICY_TRANSITION.items() if path in hashes
-    }
+    transition = {path: versions for path, versions in transition.items() if path in hashes}
     if not transition or any(hashes[path] != after for path, (_, after) in transition.items()):
         return None
     data = current.model_dump(exclude={"sha256"})
@@ -303,7 +322,13 @@ def require_configuration(
     config: Configuration, root: Path = ROOT, *, allow_previous: bool = False
 ) -> None:
     current = configuration(config.overlay, config.observability, root)
-    if config != current and (not allow_previous or config != previous_configuration(current)):
+    if config != current and (
+        not allow_previous
+        or (
+            config != previous_configuration(current)
+            and config != previous_configuration(current, transition=ACCOUNT_LIFECYCLE_TRANSITION)
+        )
+    ):
         raise ReleaseError("incompatible-configuration")
 
 
@@ -377,6 +402,16 @@ def vendor_inventory(observability: bool, root: Path = ROOT) -> dict[str, str]:
 def require_compatible(spec: Spec, root: Path = ROOT, *, allow_previous: bool = False) -> None:
     require_configuration(spec.configuration, root, allow_previous=allow_previous)
     accepted_schema = schema_revision(root)
+    if (
+        accepted_schema != PREDECESSOR_SCHEMA
+        and spec.accepted_schema_revisions == [PREDECESSOR_SCHEMA]
+        and spec.configuration
+        != previous_configuration(
+            configuration(spec.configuration.overlay, spec.configuration.observability, root),
+            transition=ACCOUNT_LIFECYCLE_TRANSITION,
+        )
+    ):
+        raise ReleaseError("incompatible-schema")
     compatible_schemas = {accepted_schema}
     if allow_previous:
         compatible_schemas |= REVIEWED_PREDECESSOR_SCHEMAS

@@ -91,7 +91,7 @@ def settings_for(fixture):
             "APPLICATION_ORIGIN": "http://127.0.0.1:3101",
             "COOKIE_SECRET": "frontend-e2e-only-cookie-secret",
             "CSRF_SECRET": "frontend-e2e-only-csrf-secret",
-            "ACCEPTED_SCHEMA_REVISIONS": "20261113_1200_booking_quota",
+            "ACCEPTED_SCHEMA_REVISIONS": "20261127_1200_quota_acct_merge",
             "COOKIE_SECURE": False,
             "ENVIRONMENT": "test",
             "LOGIN_IP_ATTEMPTS": 200,

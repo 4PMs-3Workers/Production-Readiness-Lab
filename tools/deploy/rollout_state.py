@@ -73,7 +73,7 @@ SMOKE_CHECKS = {
 }
 NEXT: dict[str, set[str]] = {
     "preflight": {"migration"},
-    "migration": {"rollout"},
+    "migration": {"rollout", "rollback_preflight"},
     "rollout": {"readiness", "rollback_preflight"},
     "readiness": {"smoke", "rollback_preflight"},
     "smoke": {"succeeded", "rollback_preflight"},
@@ -170,6 +170,7 @@ class Operation(Strict):
     trigger_reason: Reason | None = None
     recovery_pending: bool = False
     migration_started: bool = False
+    migration_source: Selection | None = None
     events: list[Event] = Field(min_length=1, max_length=16)
     verification: Verification | None = None
 
@@ -179,6 +180,8 @@ class Operation(Strict):
         # Pre-migration refusals retain the original strict v1 wire encoding.
         if not self.migration_started:
             data.pop("migration_started", None)
+        if self.migration_source is None:
+            data.pop("migration_source", None)
         return data
 
     @property
@@ -213,6 +216,10 @@ class Operation(Strict):
 
     @model_validator(mode="after")
     def transitions(self) -> Self:
+        if self.migration_source is not None and (
+            self.command != "rollback" or self.migration_source == self.target
+        ):
+            raise ValueError("Invalid rollback migration source")
         if self.phase in {"succeeded", "rolled_back"} and self.recovery_pending:
             raise ValueError("Verified recovery cannot remain pending")
         if (self.phase in {"succeeded", "rolled_back"}) != (self.verification is not None):

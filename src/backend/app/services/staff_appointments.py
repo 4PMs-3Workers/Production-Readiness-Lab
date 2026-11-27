@@ -1,6 +1,7 @@
 """Assigned appointment reads and outcome recording for authenticated staff members."""
 
 import asyncio
+from collections.abc import Callable
 from typing import Any
 from uuid import UUID
 
@@ -106,7 +107,7 @@ async def _record_outcome_attempt(
     context: AuthContext,
     request_id: str,
     settings: Settings,
-) -> StaffAppointmentOutcomeResponse:
+) -> tuple[StaffAppointmentOutcomeResponse, UUID | None]:
     transaction = await db.begin()
     try:
         async with asyncio.timeout(settings.db_lock_timeout_seconds):
@@ -144,7 +145,7 @@ async def _record_outcome_attempt(
                     id=row.id, status=outcome.status, outcome_at=UtcTimestamp(row.outcome_at)
                 )
                 await rollback(db)
-                return result
+                return result, None
             raise AppError(
                 409,
                 "APPOINTMENT_STATE_CONFLICT",
@@ -193,8 +194,9 @@ async def _record_outcome_attempt(
         result = StaffAppointmentOutcomeResponse(
             id=row.id, status=outcome.status, outcome_at=UtcTimestamp(now)
         )
+        student_id = row.student_id if outcome.status == "NO_SHOW" else None
         await commit_safely(db, transaction)
-        return result
+        return result, student_id
     except BaseException:
         await rollback(db)
         raise
@@ -209,6 +211,7 @@ async def record_staff_appointment_outcome(
     request_id: str,
     settings: Settings,
     deadline: float,
+    on_no_show: Callable[[UUID, UUID], None] | None = None,
 ) -> StaffAppointmentOutcomeResponse:
     """Record an assigned appointment result once its stored end time has passed."""
     if context.role != "STAFF":
@@ -218,7 +221,7 @@ async def record_staff_appointment_outcome(
             for attempt in range(settings.max_deadlock_retries + 1):
                 try:
                     async with asyncio.timeout(settings.db_query_timeout_seconds):
-                        return await _record_outcome_attempt(
+                        result, student_id = await _record_outcome_attempt(
                             db,
                             appointment_id=appointment_id,
                             outcome=outcome,
@@ -226,6 +229,7 @@ async def record_staff_appointment_outcome(
                             request_id=request_id,
                             settings=settings,
                         )
+                    break
                 except SQLAlchemyError as error:
                     if (
                         mysql_error_code(error) not in RETRYABLE_MYSQL_ERRORS
@@ -237,10 +241,14 @@ async def record_staff_appointment_outcome(
                     if delay <= 0:
                         raise ServiceUnavailable() from None
                     await asyncio.sleep(delay)
-        raise ServiceUnavailable()
+            else:
+                raise ServiceUnavailable()
     except (TimeoutError, CommitOutcomeUnknown, SQLAlchemyError):
         await rollback(db)
         raise ServiceUnavailable() from None
     except asyncio.CancelledError:
         await rollback(db)
         raise
+    if student_id is not None and on_no_show is not None:
+        on_no_show(result.id, student_id)
+    return result

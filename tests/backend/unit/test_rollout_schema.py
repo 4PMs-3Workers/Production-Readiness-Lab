@@ -58,6 +58,8 @@ def test_predecessor_source_can_verify_its_selected_schema_revision():
     data = current()
     data["revisions"] = ["20261019_1200_proposal_replay"]
     data["tables"]["service_settings"].remove("max_active_appointments")
+    data["tables"]["users"].remove("deleted_at")
+    data["tables"]["users"].remove("is_active_before_delete")
     assert require_schema(SchemaSnapshot(**data), ["20261019_1200_proposal_replay"]) == "current"
 
 

@@ -9,8 +9,9 @@ import sys
 import pytest
 from tools.deploy.release import render
 from tools.deploy.release_manifest import (
-    ADMIN_POLICY_TRANSITION,
+    ACCOUNT_LIFECYCLE_TRANSITION,
     CHECKS,
+    PREDECESSOR_SCHEMA,
     ROOT,
     SCHEMA,
     Manifest,
@@ -95,15 +96,22 @@ def test_roundtrip_atomic_write_and_separate_pr_head(tmp_path):
 def test_reviewed_predecessor_schema_requires_rollback_opt_in():
     data = spec_data()
     data["accepted_schema_revisions"] = ["20261019_1200_proposal_replay"]
-    predecessor = parse(canonical(data), Spec)
     with pytest.raises(ReleaseError, match="incompatible-schema"):
+        require_compatible(parse(canonical(data), Spec))
+    previous = previous_configuration(
+        configuration("local", False), transition=ACCOUNT_LIFECYCLE_TRANSITION
+    )
+    assert previous is not None
+    data["configuration"] = previous.model_dump()
+    predecessor = parse(canonical(data), Spec)
+    with pytest.raises(ReleaseError, match="incompatible-configuration"):
         require_compatible(predecessor)
     require_compatible(predecessor, allow_previous=True)
 
 
 def test_reviewed_predecessor_requires_opt_in_and_exact_configuration(tmp_path):
     current = configuration("local", False)
-    previous = previous_configuration(current)
+    previous = previous_configuration(current, transition=ACCOUNT_LIFECYCLE_TRANSITION)
     assert previous is not None
     previous_hashes = {item.path: item.sha256 for item in previous.files}
     assert previous_hashes["Dockerfile.backend"] == (
@@ -130,7 +138,9 @@ def test_reviewed_predecessor_requires_opt_in_and_exact_configuration(tmp_path):
     assert previous_hashes["tools/infra/images.lock.json"] == (
         "63e615673101a54601bba4c5a40fc4b6b00f55b0624d51356a31639214b5c76f"
     )
-    https_previous = previous_configuration(configuration("https", False))
+    https_previous = previous_configuration(
+        configuration("https", False), transition=ACCOUNT_LIFECYCLE_TRANSITION
+    )
     assert https_previous is not None
     https_hashes = {item.path: item.sha256 for item in https_previous.files}
     assert "tools/deploy/compose.local.yaml" not in https_hashes
@@ -146,28 +156,40 @@ def test_reviewed_predecessor_requires_opt_in_and_exact_configuration(tmp_path):
     with pytest.raises(ReleaseError, match="incompatible-configuration"):
         require_configuration(previous)
     require_configuration(previous, allow_previous=True)
-
     for item in current.files:
         path = tmp_path / item.path
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes((ROOT / item.path).read_bytes())
-    # Changes outside the explicitly reviewed files cannot use the transition.
-    with (tmp_path / "tools/deploy/nginx/error-input.conf").open("ab") as output:
-        output.write(b"\n# unreviewed\n")
-    with pytest.raises(ReleaseError, match="incompatible-configuration"):
-        require_configuration(previous, tmp_path, allow_previous=True)
-    # A third version of either reviewed file cannot use this transition either.
-    with (tmp_path / "tools/deploy/mysql/grants.sql").open("ab") as output:
-        output.write(b"\n-- unreviewed\n")
-    assert previous_configuration(configuration("local", False, tmp_path)) is None
+    for name in ("tools/deploy/nginx/error-input.conf", "tools/deploy/nginx/route-map.conf"):
+        path = tmp_path / name
+        original = path.read_bytes()
+        path.write_bytes(original + b"\n# unreviewed\n")
+        with pytest.raises(ReleaseError, match="incompatible-configuration"):
+            require_configuration(previous, tmp_path, allow_previous=True)
+        path.write_bytes(original)
+
+
+def test_legacy_schema_is_bound_to_the_legacy_configuration():
+    current = configuration("local", False)
+    data = spec_data()
+    data["accepted_schema_revisions"] = [PREDECESSOR_SCHEMA]
+    legacy = previous_configuration(current, transition=ACCOUNT_LIFECYCLE_TRANSITION)
+    assert legacy is not None
+    data["configuration"] = legacy.model_dump()
+    require_compatible(parse(canonical(data), Spec), allow_previous=True)
+    csv_predecessor = previous_configuration(current)
+    assert csv_predecessor is not None
+    data["configuration"] = csv_predecessor.model_dump()
+    with pytest.raises(ReleaseError, match="incompatible-schema"):
+        require_compatible(parse(canonical(data), Spec), allow_previous=True)
 
 
 def test_reviewed_transition_is_the_exact_pr_base_configuration():
     current = configuration("local", False)
-    previous = previous_configuration(current)
+    previous = previous_configuration(current, transition=ACCOUNT_LIFECYCLE_TRANSITION)
     assert previous is not None
     expected_base_hashes = {
-        path: before for path, (before, _after) in ADMIN_POLICY_TRANSITION.items()
+        path: before for path, (before, _after) in ACCOUNT_LIFECYCLE_TRANSITION.items()
     }
     actual_base_hashes = {item.path: item.sha256 for item in previous.files}
     assert all(actual_base_hashes[path] == digest for path, digest in expected_base_hashes.items())
@@ -176,7 +198,7 @@ def test_reviewed_transition_is_the_exact_pr_base_configuration():
         assert hashlib.sha256(fixture.read_bytes()).hexdigest() == digest
         assert (
             hashlib.sha256((ROOT / path).read_bytes()).hexdigest()
-            == ADMIN_POLICY_TRANSITION[path][1]
+            == ACCOUNT_LIFECYCLE_TRANSITION[path][1]
         )
 
 
@@ -305,6 +327,11 @@ def test_render_covers_operational_backend_without_build_fallback():
 def test_rendered_predecessor_keeps_its_schema_pin():
     data = spec_data()
     data["accepted_schema_revisions"] = ["20261019_1200_proposal_replay"]
+    previous = previous_configuration(
+        configuration("local", False), transition=ACCOUNT_LIFECYCLE_TRANSITION
+    )
+    assert previous is not None
+    data["configuration"] = previous.model_dump()
     spec = parse(canonical(data), Spec)
     text = render(spec, allow_previous=True).decode()
     assert "ACCEPTED_SCHEMA_REVISIONS: 20261019_1200_proposal_replay" in text

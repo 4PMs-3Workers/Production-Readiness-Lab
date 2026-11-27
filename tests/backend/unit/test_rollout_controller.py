@@ -10,7 +10,7 @@ from tools.deploy.release_manifest import (
     proof,
 )
 from tools.deploy.rollout_preflight import Prepared
-from tools.deploy.rollout_schema import EXPECTED, PREDECESSOR_EXPECTED, SchemaSnapshot
+from tools.deploy.rollout_schema import CATALOGS, EXPECTED, PREDECESSOR_EXPECTED, SchemaSnapshot
 from tools.deploy.rollout_state import HostState, selection
 
 
@@ -64,6 +64,51 @@ def test_upgrade_preflight_uses_the_previous_stable_schema_before_migration(tmp_
     ]
 
 
+def test_resume_flag_on_new_target_does_not_bypass_exact_predecessor_catalog(tmp_path, monkeypatch):
+    host = controller(tmp_path)
+    initial = host.deploy(reference())
+    old_revision = "20261113_1200_booking_quota"
+    old = release(125, schema_revision=old_revision)
+    host.registry.releases[reference(3)] = old
+    stable = host.store.remember(reference(3), old)
+    data = initial.model_dump(mode="json")
+    data["stable"] = stable.model_dump(mode="json")
+    data["operation"]["target"] = data["stable"]
+    data["operation"]["verification"]["schema_revision"] = old_revision
+    host.store.path.write_bytes(canonical(data))
+    host.runtime.previous_stable = stable
+    host.registry.releases[reference(2)] = release(124, reference(3))
+    # The database drifted without this new candidate entering migration.
+    refused = host.deploy(reference(2), resume=True)
+    assert refused.operation is not None and refused.operation.phase == "failed"
+    assert refused.operation.events[-1].reason == "schema-incompatible"
+    assert not refused.operation.requires_recovery
+    assert refused.stable == stable and host.store.load() == refused
+    assert host.runtime.calls.count("migrate") == 1  # only the initial fixture deployment
+
+    host.runtime.snapshot = SchemaSnapshot(
+        tables=CATALOGS[old_revision],
+        revisions=[old_revision],
+        unsupported_objects=0,
+        nontransactional_tables=0,
+    )
+
+    def migrate():
+        host.runtime.snapshot = SchemaSnapshot(
+            tables=EXPECTED,
+            revisions=host.registry.releases[reference(2)].accepted_schema_revisions,
+            unsupported_objects=0,
+            nontransactional_tables=0,
+        )
+
+    monkeypatch.setattr(host.runtime, "migrate", migrate)
+    deployed = host.deploy(reference(2))
+    assert deployed.operation is not None and deployed.operation.phase == "succeeded"
+    assert deployed.previous_stable == stable
+    assert deployed.stable is not None and deployed.stable.reference == reference(2)
+    assert host.store.load() == deployed
+
+
 def test_upgrade_checks_predecessor_schema_until_migration_completes(tmp_path, monkeypatch):
     host = controller(tmp_path)
     previous_data = release().model_dump(mode="json")
@@ -99,7 +144,7 @@ def test_upgrade_checks_predecessor_schema_until_migration_completes(tmp_path, m
         host.runtime.calls.append("migrate")
         host.runtime.snapshot = SchemaSnapshot(
             tables=EXPECTED,
-            revisions=["20261113_1200_booking_quota"],
+            revisions=["20261127_1200_quota_acct_merge"],
             unsupported_objects=0,
             nontransactional_tables=0,
         )
@@ -145,7 +190,7 @@ def test_resume_after_migration_uses_and_validates_the_candidate_catalog(tmp_pat
         host.runtime.calls.append("migrate")
         host.runtime.snapshot = SchemaSnapshot(
             tables=EXPECTED,
-            revisions=["20261113_1200_booking_quota"],
+            revisions=["20261127_1200_quota_acct_merge"],
             unsupported_objects=0,
             nontransactional_tables=0,
         )
@@ -167,7 +212,7 @@ def test_resume_after_migration_uses_and_validates_the_candidate_catalog(tmp_pat
     interrupted = host.deploy(candidate_ref)
     assert interrupted.operation is not None and interrupted.operation.phase == "failed"
     assert interrupted.operation.requires_recovery
-    assert host.runtime.snapshot.revisions == ["20261113_1200_booking_quota"]
+    assert host.runtime.snapshot.revisions == ["20261127_1200_quota_acct_merge"]
 
     monkeypatch.setattr(host.runtime, "apply_grants", original_grants)
     resumed = host.deploy(candidate_ref, resume=True)
@@ -204,7 +249,7 @@ def test_resume_preflight_retry_preserves_migration_history(tmp_path, monkeypatc
         host.runtime.calls.append("migrate")
         host.runtime.snapshot = SchemaSnapshot(
             tables=EXPECTED,
-            revisions=["20261113_1200_booking_quota"],
+            revisions=["20261127_1200_quota_acct_merge"],
             unsupported_objects=0,
             nontransactional_tables=0,
         )
@@ -245,15 +290,15 @@ def test_resume_preflight_retry_preserves_migration_history(tmp_path, monkeypatc
 def test_resume_is_allowed_when_automatic_fallback_was_refused_at_preflight(tmp_path, monkeypatch):
     host = controller(tmp_path)
     previous_data = release().model_dump(mode="json")
-    previous_data["accepted_schema_revisions"] = ["20261019_1200_proposal_replay"]
+    previous_data["accepted_schema_revisions"] = ["20261113_1200_booking_quota"]
     previous = parse(canonical(previous_data), Manifest)
     previous_ref = reference()
     host.registry.releases[previous_ref] = previous
     stable = host.store.remember(previous_ref, previous)
     host.runtime.previous_stable = stable
     host.runtime.snapshot = SchemaSnapshot(
-        tables=PREDECESSOR_EXPECTED,
-        revisions=["20261019_1200_proposal_replay"],
+        tables=CATALOGS["20261113_1200_booking_quota"],
+        revisions=["20261113_1200_booking_quota"],
         unsupported_objects=0,
         nontransactional_tables=0,
     )
@@ -271,7 +316,7 @@ def test_resume_is_allowed_when_automatic_fallback_was_refused_at_preflight(tmp_
         host.runtime.calls.append("migrate")
         host.runtime.snapshot = SchemaSnapshot(
             tables=EXPECTED,
-            revisions=["20261113_1200_booking_quota"],
+            revisions=["20261127_1200_quota_acct_merge"],
             unsupported_objects=0,
             nontransactional_tables=0,
         )
@@ -315,15 +360,15 @@ def test_resume_is_allowed_when_automatic_fallback_was_refused_at_preflight(tmp_
 def test_refused_rollback_does_not_block_a_later_compatible_deploy(tmp_path):
     host = controller(tmp_path)
     old_data = release().model_dump(mode="json")
-    old_data["accepted_schema_revisions"] = ["20261019_1200_proposal_replay"]
+    old_data["accepted_schema_revisions"] = ["20261113_1200_booking_quota"]
     old = parse(canonical(old_data), Manifest)
     old_ref = reference()
     host.registry.releases[old_ref] = old
     stable = host.store.remember(old_ref, old)
     host.runtime.previous_stable = stable
     host.runtime.snapshot = SchemaSnapshot(
-        tables=PREDECESSOR_EXPECTED,
-        revisions=["20261019_1200_proposal_replay"],
+        tables=CATALOGS["20261113_1200_booking_quota"],
+        revisions=["20261113_1200_booking_quota"],
         unsupported_objects=0,
         nontransactional_tables=0,
     )
@@ -339,7 +384,7 @@ def test_refused_rollback_does_not_block_a_later_compatible_deploy(tmp_path):
         host.runtime.calls.append("migrate")
         host.runtime.snapshot = SchemaSnapshot(
             tables=EXPECTED,
-            revisions=["20261113_1200_booking_quota"],
+            revisions=["20261127_1200_quota_acct_merge"],
             unsupported_objects=0,
             nontransactional_tables=0,
         )
@@ -486,7 +531,11 @@ def test_predecessor_policy_preflight_preserves_recovery_until_api_drain(
     host = controller(tmp_path)
     candidate_ref = reference(2)
     candidate = release(124, reference())
-    prior_configuration = previous_configuration(candidate.configuration)
+    from tools.deploy.release_manifest import ACCOUNT_LIFECYCLE_TRANSITION
+
+    prior_configuration = previous_configuration(
+        candidate.configuration, transition=ACCOUNT_LIFECYCLE_TRANSITION
+    )
     assert prior_configuration is not None
     prior_data = release().model_dump(mode="json")
     prior_data["configuration"] = prior_configuration.model_dump(mode="json")

@@ -25,6 +25,18 @@ from app.services import booking as service
 ZONE = ZoneInfo("Asia/Ho_Chi_Minh")
 
 
+@pytest.fixture
+def booking_service_settings(auth_settings):
+    """Use bounded test deadlines for business assertions on shared CI runners."""
+    return auth_settings.model_copy(
+        update={
+            "request_timeout_seconds": 20.0,
+            "db_query_timeout_seconds": 10.0,
+            "db_lock_timeout_seconds": 5.0,
+        }
+    )
+
+
 def _context(student_id):
     return AuthContext(
         session_id=uuid4(),
@@ -107,12 +119,12 @@ async def _row_count(factory, model):
 
 
 async def test_creation_commits_appointment_audit_and_two_private_notifications(
-    booking_env, auth_settings
+    booking_env, booking_service_settings
 ):
     env, _, start = booking_env
     description = "  private consultation detail  "
     receipt, replayed = await _create(
-        env, _payload(env, start, description=description), auth_settings
+        env, _payload(env, start, description=description), booking_service_settings
     )
 
     assert replayed is False
@@ -148,11 +160,11 @@ async def test_creation_commits_appointment_audit_and_two_private_notifications(
 
 
 async def test_same_key_replays_original_receipt_after_current_status_changes(
-    booking_env, auth_settings
+    booking_env, booking_service_settings
 ):
     env, _, start = booking_env
     payload = _payload(env, start)
-    original, replayed = await _create(env, payload, auth_settings, key="stable-key")
+    original, replayed = await _create(env, payload, booking_service_settings, key="stable-key")
     assert replayed is False
     async with env.factory.begin() as db:
         row = await db.get(Appointment, original.id)
@@ -160,7 +172,7 @@ async def test_same_key_replays_original_receipt_after_current_status_changes(
         row.status = "CANCELLED"
         row.cancelled_at = await users.utc_now(db)
 
-    replay, replayed = await _create(env, payload, auth_settings, key="stable-key")
+    replay, replayed = await _create(env, payload, booking_service_settings, key="stable-key")
     assert replayed is True
     assert replay == original
     assert replay.status == "UPCOMING"
@@ -169,16 +181,16 @@ async def test_same_key_replays_original_receipt_after_current_status_changes(
 
 
 async def test_same_key_with_different_content_is_an_idempotency_conflict(
-    booking_env, auth_settings
+    booking_env, booking_service_settings
 ):
     env, _, start = booking_env
-    await _create(env, _payload(env, start), auth_settings, key="different-content")
+    await _create(env, _payload(env, start), booking_service_settings, key="different-content")
 
     with pytest.raises(AppError) as caught:
         await _create(
             env,
             _payload(env, start + timedelta(minutes=15)),
-            auth_settings,
+            booking_service_settings,
             key="different-content",
         )
 
@@ -189,7 +201,7 @@ async def test_same_key_with_different_content_is_an_idempotency_conflict(
 
 
 async def test_inactive_purpose_staff_or_acceptance_is_rechecked_under_locks(
-    booking_env, auth_settings
+    booking_env, booking_service_settings
 ):
     env, _, start = booking_env
     async with env.factory.begin() as db:
@@ -202,12 +214,14 @@ async def test_inactive_purpose_staff_or_acceptance_is_rechecked_under_locks(
         association.is_accepting = False
 
     with pytest.raises(AppError) as caught:
-        await _create(env, _payload(env, start), auth_settings)
+        await _create(env, _payload(env, start), booking_service_settings)
     assert (caught.value.status_code, caught.value.code) == (404, "NOT_FOUND")
     assert await _row_count(env.factory, Appointment) == 0
 
 
-async def test_required_description_is_checked_against_current_purpose(booking_env, auth_settings):
+async def test_required_description_is_checked_against_current_purpose(
+    booking_env, booking_service_settings
+):
     env, _, start = booking_env
     async with env.factory.begin() as db:
         purpose = await db.get(Purpose, env.purpose_id)
@@ -215,12 +229,12 @@ async def test_required_description_is_checked_against_current_purpose(booking_e
         purpose.requires_free_text = True
 
     with pytest.raises(AppError) as caught:
-        await _create(env, _payload(env, start), auth_settings)
+        await _create(env, _payload(env, start), booking_service_settings)
     assert (caught.value.status_code, caught.value.code) == (422, "VALIDATION_ERROR")
     assert await _row_count(env.factory, Appointment) == 0
 
     receipt, replayed = await _create(
-        env, _payload(env, start, description="  reason as entered  "), auth_settings
+        env, _payload(env, start, description="  reason as entered  "), booking_service_settings
     )
     assert replayed is False
     async with env.factory() as db:
@@ -230,7 +244,7 @@ async def test_required_description_is_checked_against_current_purpose(booking_e
 
 
 async def test_quota_counts_only_upcoming_and_change_pending_across_all_dates(
-    booking_env, auth_settings
+    booking_env, booking_service_settings
 ):
     env, selected_date, start = booking_env
     await _seed_appointment(
@@ -254,13 +268,13 @@ async def test_quota_counts_only_upcoming_and_change_pending_across_all_dates(
         )
 
     with pytest.raises(AppError) as caught:
-        await _create(env, _payload(env, start), auth_settings)
+        await _create(env, _payload(env, start), booking_service_settings)
     assert (caught.value.status_code, caught.value.code) == (409, "BOOKING_QUOTA_EXCEEDED")
     assert await _row_count(env.factory, Appointment) == 4
 
 
 async def test_student_and_staff_overlaps_block_but_half_open_adjacency_is_allowed(
-    booking_env, auth_settings
+    booking_env, booking_service_settings
 ):
     env, _, start = booking_env
     await _seed_appointment(
@@ -271,11 +285,11 @@ async def test_student_and_staff_overlaps_block_but_half_open_adjacency_is_allow
         starts_at=start,
     )
     with pytest.raises(AppError) as caught:
-        await _create(env, _payload(env, start + timedelta(minutes=15)), auth_settings)
+        await _create(env, _payload(env, start + timedelta(minutes=15)), booking_service_settings)
     assert (caught.value.status_code, caught.value.code) == (409, "BOOKING_CONFLICT")
 
     receipt, replayed = await _create(
-        env, _payload(env, start + timedelta(minutes=30)), auth_settings
+        env, _payload(env, start + timedelta(minutes=30)), booking_service_settings
     )
     assert replayed is False
     async with env.factory() as db:
@@ -284,7 +298,9 @@ async def test_student_and_staff_overlaps_block_but_half_open_adjacency_is_allow
         assert adjacent.starts_at == start + timedelta(minutes=30)
 
 
-async def test_staff_overlap_from_another_student_blocks_candidate(booking_env, auth_settings):
+async def test_staff_overlap_from_another_student_blocks_candidate(
+    booking_env, booking_service_settings
+):
     env, _, start = booking_env
     await _seed_appointment(
         env,
@@ -295,12 +311,14 @@ async def test_staff_overlap_from_another_student_blocks_candidate(booking_env, 
     )
 
     with pytest.raises(AppError) as caught:
-        await _create(env, _payload(env, start), auth_settings)
+        await _create(env, _payload(env, start), booking_service_settings)
     assert (caught.value.status_code, caught.value.code) == (409, "BOOKING_CONFLICT")
 
 
 @pytest.mark.parametrize("status", ["UPCOMING", "CHANGE_PENDING"])
-async def test_only_upcoming_and_change_pending_intervals_block(booking_env, auth_settings, status):
+async def test_only_upcoming_and_change_pending_intervals_block(
+    booking_env, booking_service_settings, status
+):
     env, _, start = booking_env
     await _seed_appointment(
         env,
@@ -312,12 +330,12 @@ async def test_only_upcoming_and_change_pending_intervals_block(booking_env, aut
     )
 
     with pytest.raises(AppError) as caught:
-        await _create(env, _payload(env, start), auth_settings)
+        await _create(env, _payload(env, start), booking_service_settings)
     assert (caught.value.status_code, caught.value.code) == (409, "BOOKING_CONFLICT")
 
 
 async def test_settings_and_accounts_are_locked_before_the_separate_database_clock(
-    booking_env, auth_settings
+    booking_env, booking_service_settings
 ):
     env, _, start = booking_env
     statements = []
@@ -329,7 +347,7 @@ async def test_settings_and_accounts_are_locked_before_the_separate_database_clo
 
     event.listen(sync_engine, "before_cursor_execute", capture)
     try:
-        await _create(env, _payload(env, start), auth_settings)
+        await _create(env, _payload(env, start), booking_service_settings)
     finally:
         event.remove(sync_engine, "before_cursor_execute", capture)
 
@@ -360,7 +378,9 @@ async def test_settings_and_accounts_are_locked_before_the_separate_database_clo
     assert settings_lock < min(lock_indexes) < max(lock_indexes) < clock_read
 
 
-async def test_same_student_concurrent_same_key_creates_one_bundle(booking_env, auth_settings):
+async def test_same_student_concurrent_same_key_creates_one_bundle(
+    booking_env, booking_service_settings
+):
     env, _, start = booking_env
     barrier = asyncio.Barrier(2)
     payload = _payload(env, start)
@@ -368,7 +388,7 @@ async def test_same_student_concurrent_same_key_creates_one_bundle(booking_env, 
     async def submit():
         async with env.factory() as db:
             await barrier.wait()
-            return await _create(env, payload, auth_settings, key="racing-key", db=db)
+            return await _create(env, payload, booking_service_settings, key="racing-key", db=db)
 
     outcomes = await asyncio.gather(submit(), submit())
     assert sorted(replayed for _, replayed in outcomes) == [False, True]
@@ -379,7 +399,7 @@ async def test_same_student_concurrent_same_key_creates_one_bundle(booking_env, 
 
 
 async def test_same_student_concurrent_same_key_different_hash_conflicts(
-    booking_env, auth_settings
+    booking_env, booking_service_settings
 ):
     env, _, start = booking_env
     barrier = asyncio.Barrier(2)
@@ -388,7 +408,9 @@ async def test_same_student_concurrent_same_key_different_hash_conflicts(
         async with env.factory() as db:
             await barrier.wait()
             try:
-                return await _create(env, payload, auth_settings, key="racing-conflict", db=db)
+                return await _create(
+                    env, payload, booking_service_settings, key="racing-conflict", db=db
+                )
             except AppError as error:
                 return error
 
@@ -404,7 +426,7 @@ async def test_same_student_concurrent_same_key_different_hash_conflicts(
     assert await _row_count(env.factory, Notification) == 2
 
 
-async def test_account_lock_serializes_the_last_quota_slot(booking_env, auth_settings):
+async def test_account_lock_serializes_the_last_quota_slot(booking_env, booking_service_settings):
     env, selected_date, start = booking_env
     for offset in (2, 3):
         await _seed_appointment(
@@ -425,7 +447,7 @@ async def test_account_lock_serializes_the_last_quota_slot(booking_env, auth_set
                 return await _create(
                     env,
                     _payload(env, slot),
-                    auth_settings,
+                    booking_service_settings,
                     key="quota-" + slot.isoformat(),
                     db=db,
                 )
@@ -442,7 +464,7 @@ async def test_account_lock_serializes_the_last_quota_slot(booking_env, auth_set
 
 
 async def test_staff_account_lock_serializes_different_students_for_one_slot(
-    booking_env, auth_settings
+    booking_env, booking_service_settings
 ):
     env, _, start = booking_env
     barrier = asyncio.Barrier(2)
@@ -454,7 +476,7 @@ async def test_staff_account_lock_serializes_different_students_for_one_slot(
                 return await _create(
                     env,
                     _payload(env, start),
-                    auth_settings,
+                    booking_service_settings,
                     student_id=student_id,
                     key="staff-slot-" + student_id.hex,
                     db=db,
@@ -523,7 +545,9 @@ async def _release_after(event_to_set, seconds):
     event_to_set.set()
 
 
-async def test_notification_failure_rolls_back_the_entire_write_bundle(booking_env, auth_settings):
+async def test_notification_failure_rolls_back_the_entire_write_bundle(
+    booking_env, booking_service_settings
+):
     env, _, start = booking_env
     trigger = "reject_booking_notification"
     async with env.factory.kw["bind"].begin() as connection:
@@ -533,7 +557,7 @@ async def test_notification_failure_rolls_back_the_entire_write_bundle(booking_e
         )
     try:
         with pytest.raises(AppError) as caught:
-            await _create(env, _payload(env, start), auth_settings)
+            await _create(env, _payload(env, start), booking_service_settings)
         assert caught.value.status_code == 503
         assert caught.value.error_class == "service"
         assert await _row_count(env.factory, Appointment) == 0

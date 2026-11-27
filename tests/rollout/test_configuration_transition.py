@@ -2,21 +2,38 @@
 
 import json
 import os
+import subprocess
+import sys
 import tarfile
+from uuid import uuid4
 
 import pytest
 from tests.rollout.fixtures import Artifacts, RolloutStack
 from tools.deploy import demo
 from tools.deploy.release_images import command
-from tools.deploy.release_manifest import ROOT, SCHEMA, canonical
+from tools.deploy.release_manifest import (
+    PREDECESSOR_SCHEMA,
+    ROOT,
+    SCHEMA,
+    canonical,
+)
 from tools.deploy.rollout import reviewed_transition
 from tools.deploy.rollout_controller import RolloutController
 from tools.deploy.rollout_http import SmokeCredentials, SmokeSession
+from tools.deploy.rollout_readiness import ready
 from tools.deploy.rollout_rehearsal import prerequisites
 from tools.deploy.rollout_runtime import Deadline, ReleaseRuntime
+from tools.deploy.rollout_schema import require_schema
 from tools.deploy.rollout_smoke import booking_payload, business_smoke
 from tools.deploy.rollout_smoke_journal import SmokeJournal
-from tools.deploy.rollout_state import RolloutError
+from tools.deploy.rollout_state import (
+    Event,
+    HostState,
+    Operation,
+    RolloutError,
+    Verification,
+    timestamp,
+)
 from tools.deploy.rollout_store import StateStore
 
 # The release used to rehearse this transition is the actual PR base, not the
@@ -104,12 +121,14 @@ def running_images(runtime: ReleaseRuntime) -> dict[str, tuple[str, str]]:
 
 
 def test_reviewed_upgrade_preserves_host_and_refuses_incompatible_rollback(tmp_path):
+    stable_ref = BASE
+    stable_schema = PREDECESSOR_SCHEMA
     assert os.environ.get("RUN_ROLLOUT_REHEARSAL") == "1", "Required rollout rehearsal cannot skip"
     source = prerequisites()
     archive = tmp_path / "base.tar"
     base = tmp_path / "base"
     base.mkdir()
-    command(["git", "archive", "--format=tar", "-o", str(archive), BASE], cwd=ROOT)
+    command(["git", "archive", "--format=tar", "-o", str(archive), stable_ref], cwd=ROOT)
     with tarfile.open(archive) as tree:
         tree.extractall(base, filter="data")
 
@@ -118,12 +137,20 @@ def test_reviewed_upgrade_preserves_host_and_refuses_incompatible_rollback(tmp_p
     try:
         artifacts.start()
         old_backend = artifacts.build(
-            "base-backend", base / "Dockerfile.backend", base, source_sha=BASE
+            "base-backend", base / "Dockerfile.backend", base, source_sha=stable_ref
         )
         old_frontend = artifacts.build(
-            "base-frontend", base / "Dockerfile.frontend", base, source_sha=BASE
+            "base-frontend", base / "Dockerfile.frontend", base, source_sha=stable_ref
         )
-        old = artifacts.manifest(1, old_backend, old_frontend, None, root=base, source_sha=BASE)
+        old = artifacts.manifest(
+            1,
+            old_backend,
+            old_frontend,
+            None,
+            root=base,
+            source_sha=stable_ref,
+            schema_revision=stable_schema,
+        )
         old_ref = artifacts.registry.publish(artifacts.repository + "/releases", old)
         artifacts.registry.verify_images(old, pull=True)
         for reference in old.vendor_images.values():
@@ -153,7 +180,7 @@ def test_reviewed_upgrade_preserves_host_and_refuses_incompatible_rollback(tmp_p
                     persisted_status=runtime.appointment_status,
                 )
 
-        def host(root, sha, port):
+        def host(root, sha, port, readiness=ready):
             selections = {"http_port": port}
             runtime = ReleaseRuntime(
                 stack.compose_base(root),
@@ -161,7 +188,6 @@ def test_reviewed_upgrade_preserves_host_and_refuses_incompatible_rollback(tmp_p
                 stack.origin,
                 stack.project,
                 tmp_path / "rendered",
-                root=root,
             )
             return RolloutController(
                 store,
@@ -170,14 +196,79 @@ def test_reviewed_upgrade_preserves_host_and_refuses_incompatible_rollback(tmp_p
                 sha,
                 demo._configuration_identity("local", False, selections, root=root),
                 smoke=smoke,
-                transition=reviewed_transition("local", False, selections, root=root),
+                readiness=readiness,
+                transition_resolver=lambda state: reviewed_transition(
+                    "local",
+                    False,
+                    selections,
+                    root=root,
+                    previous_host_sha256=state.configuration_sha256,
+                    stable_configuration=(
+                        store.manifest(state.stable).configuration if state.stable else None
+                    ),
+                ),
             )
 
-        original = host(base, BASE, stack.port)
-        before = original.deploy(old_ref)
-        assert before.operation is not None and before.operation.phase == "succeeded", before
-        assert before.stable is not None and before.stable.reference == old_ref
+        original = host(base, stable_ref, stack.port)
+        original.runtime.select(old)
+        require_schema(original.runtime.schema(), [stable_schema])
         db_identity = original.runtime.database_identity()
+        ready(original.runtime)
+        checks = smoke(original.runtime)
+        stable = store.remember(old_ref, old)
+        started_at = timestamp()
+        before = HostState(
+            project=stack.project,
+            configuration_sha256=original.configuration_sha256,
+            stable=stable,
+            operation=Operation(
+                operation_id=uuid4().hex,
+                command="deploy",
+                orchestrator_sha=stable_ref,
+                target=stable,
+                events=[
+                    Event(phase=phase, at=started_at, elapsed_seconds=0)
+                    for phase in (
+                        "preflight",
+                        "migration",
+                        "rollout",
+                        "readiness",
+                        "smoke",
+                        "succeeded",
+                    )
+                ],
+                verification=Verification(
+                    schema_revision=stable_schema,
+                    image_identity_verified=True,
+                    database_volume_preserved=True,
+                    worker_progress_verified=True,
+                    smoke_checks=checks,
+                ),
+            ),
+        )
+        # Persist the historical record through the archived predecessor's validator and writer.
+        historical_state = before.model_dump(mode="json")
+        assert "migration_source" not in historical_state["operation"]
+        assert "migration_started" not in historical_state["operation"]
+        subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import sys; "
+                "from pathlib import Path; "
+                "from tools.deploy.release_manifest import parse; "
+                "from tools.deploy.rollout_state import HostState; "
+                "from tools.deploy.rollout_store import StateStore; "
+                "StateStore(Path(sys.argv[1])).save(parse(sys.stdin.buffer.read(), HostState))",
+                str(store.directory),
+            ],
+            input=canonical(historical_state),
+            cwd=base,
+            env={**os.environ, "PYTHONPATH": str(base / "src/backend")},
+            check=True,
+            timeout=20,
+        )
+        assert store.load() == before
         with SmokeSession(stack.origin, Deadline(20)) as session:
             session.login(student)
             payload = booking_payload(session, student)
@@ -195,10 +286,49 @@ def test_reviewed_upgrade_preserves_host_and_refuses_incompatible_rollback(tmp_p
         assert store.load() == before
 
         upgraded = host(ROOT, source, stack.port)
+
+        def reject_candidate(runtime):
+            if runtime.manifest == candidate:
+                require_schema(runtime.schema(), [SCHEMA])
+                raise RolloutError("readiness-failed")
+            ready(runtime)
+
+        if stable_schema == PREDECESSOR_SCHEMA:
+            interrupted = host(ROOT, source, stack.port, readiness=reject_candidate)
+
+            def crash_before_migration():
+                raise KeyboardInterrupt()
+
+            interrupted.runtime.migrate = crash_before_migration
+            with pytest.raises(KeyboardInterrupt):
+                interrupted.deploy(candidate_ref)
+            persisted = store.load()
+            assert (
+                persisted is not None
+                and persisted.configuration_sha256 == upgraded.configuration_sha256
+            )
+            require_schema(interrupted.runtime.schema(), [PREDECESSOR_SCHEMA])
+            failed = host(ROOT, source, stack.port, readiness=reject_candidate).deploy(
+                candidate_ref, resume=True
+            )
+        else:
+            failed = host(ROOT, source, stack.port, readiness=reject_candidate).deploy(
+                candidate_ref
+            )
+        assert failed.operation is not None and failed.operation.phase == "rolled_back", failed
+        assert failed.operation.trigger_reason == "readiness-failed"
+        assert failed.operation.verification is not None
+        assert failed.operation.verification.schema_revision == stable_schema
+        assert failed.stable == before.stable
+        upgraded.runtime.select(old)
+        require_schema(upgraded.runtime.schema(), [stable_schema])
+        upgraded.runtime.require_database(db_identity)
+        assert upgraded.runtime.appointment_status(committed["id"]) == "UPCOMING"
+
+        after = upgraded.deploy(candidate_ref)
         assert upgraded.transition is not None
         assert upgraded.transition.previous_release == old.configuration
         assert upgraded.transition.previous_host_sha256 == before.configuration_sha256
-        after = upgraded.deploy(candidate_ref)
         assert after.operation is not None and after.operation.phase == "succeeded", after
         assert after.stable is not None and after.stable.reference == candidate_ref
         assert after.previous_stable == before.stable
@@ -274,7 +404,7 @@ def test_reviewed_upgrade_preserves_host_and_refuses_incompatible_rollback(tmp_p
             assert refused.operation is not None
             assert refused.operation == after.operation
             assert refused.refusal is not None
-            assert refused.refusal.reason == "schema-incompatible"
+            assert refused.refusal.reason == "rollback-incompatible"
             assert not refused.operation.requires_recovery
             assert refused.stable == after.stable and refused.previous_stable == before.stable
             assert running_images(upgraded.runtime) == running
@@ -294,14 +424,14 @@ def test_reviewed_upgrade_preserves_host_and_refuses_incompatible_rollback(tmp_p
         restored = host(ROOT, source, stack.port)
         result = restored.rollback()
         assert result.operation is not None
-        assert result.operation == after.operation
-        assert result.refusal is not None and result.refusal.reason == "schema-incompatible"
+        assert result.operation.phase == "rolled_back"
+        assert result.refusal is None
         assert not result.operation.requires_recovery
-        assert result.stable == after.stable and result.previous_stable == before.stable
-        assert running_images(upgraded.runtime) == running
+        assert result.stable == before.stable
+        require_schema(restored.runtime.schema(), [stable_schema])
         upgraded.runtime.require_database(db_identity)
         assert upgraded.runtime.appointment_status(committed["id"]) == "UPCOMING"
-        next_candidate = artifacts.manifest(3, backend, frontend, candidate_ref)
+        next_candidate = artifacts.manifest(3, backend, frontend, old_ref)
         next_ref = artifacts.registry.publish(artifacts.repository + "/releases", next_candidate)
         subsequent = host(ROOT, source, stack.port).deploy(next_ref)
         assert subsequent.operation is not None and subsequent.operation.phase == "succeeded"

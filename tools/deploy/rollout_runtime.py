@@ -200,6 +200,38 @@ class ReleaseRuntime:
             cap=125,
         )
 
+    def require_reversible_soft_delete(self) -> None:
+        if (
+            self.sql(
+                "SELECT EXISTS (SELECT 1 FROM prl.users "
+                "WHERE deleted_at IS NOT NULL OR is_active_before_delete IS NOT NULL) "
+                "OR COALESCE((SELECT max_active_appointments FROM prl.service_settings "
+                "WHERE id = 1), 0) <> 3;"
+            )
+            != b"0"
+        ):
+            raise RolloutError("rollback-incompatible")
+
+    def downgrade_soft_delete(self) -> None:
+        self.compose("stop", "--timeout", "40", "api", "worker", reason="rollback-failed", cap=90)
+        self.compose(
+            "--profile",
+            "operations",
+            "run",
+            "--pull",
+            "never",
+            "--no-deps",
+            "--rm",
+            "-T",
+            "migrate",
+            "python",
+            "-m",
+            "app.deploy",
+            "rollback-soft-delete",
+            reason="rollback-failed",
+            cap=125,
+        )
+
     def rollout(self) -> None:
         self.compose("stop", "--timeout", "40", "api", "worker", "frontend", cap=140)
         self.compose("run", "--pull", "never", "--no-deps", "--rm", "-T", "schema", cap=15)
@@ -457,8 +489,9 @@ class ReleaseRuntime:
         )
         api = self.inspect("api", optional=True)
         running = api is not None and api.get("running") is True
-        # Leave time for the recheck and restarting the original API on refusal.
-        if running and self.deadline.remaining() < 85:
+        # Stop (50s), policy and downgrade checks (15s each), restart (15s),
+        # and 5s margin all share the existing rollback deadline.
+        if running and self.deadline.remaining() < 100:
             raise RolloutError("deadline-exceeded")
         return PredecessorPolicy(policy, running)
 
@@ -467,7 +500,7 @@ class ReleaseRuntime:
         if prepared is None:
             prepared = self.prepare_predecessor_policy()
         policy, running = prepared.snapshot, prepared.api_running
-        if running and self.deadline.remaining() < 85:
+        if running and self.deadline.remaining() < 100:
             raise RolloutError("deadline-exceeded")
         try:
             if running:

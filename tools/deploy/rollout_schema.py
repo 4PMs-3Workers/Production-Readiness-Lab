@@ -14,6 +14,15 @@ EXPECTED = {name: sorted(table.columns.keys()) for name, table in Base.metadata.
 EXPECTED["alembic_version"] = ["version_num"]
 PREDECESSOR_EXPECTED = {name: list(columns) for name, columns in EXPECTED.items()}
 PREDECESSOR_EXPECTED["service_settings"].remove("max_active_appointments")
+for column in ("deleted_at", "is_active_before_delete"):
+    PREDECESSOR_EXPECTED["users"].remove(column)
+CATALOGS = {SCHEMA: EXPECTED, "20261019_1200_proposal_replay": PREDECESSOR_EXPECTED}
+for revision, missing in (
+    ("20261113_1200_booking_quota", "users"),
+    ("20261114_1200_soft_delete", "service_settings"),
+):
+    CATALOGS[revision] = {name: list(columns) for name, columns in EXPECTED.items()}
+    CATALOGS[revision][missing] = list(PREDECESSOR_EXPECTED[missing])
 
 
 class SchemaSnapshot(Strict):
@@ -28,7 +37,7 @@ def require_schema(
 ) -> Literal["bootstrap", "current"]:
     # The selected release must declare the schema revision actually delivered.
     # An older release pin cannot prove it can run on a forward-migrated database.
-    if len(accepted) != 1 or accepted[0] not in {SCHEMA, *REVIEWED_PREDECESSOR_SCHEMAS}:
+    if not accepted or not set(accepted) <= {SCHEMA, *REVIEWED_PREDECESSOR_SCHEMAS}:
         raise RolloutError("schema-incompatible")
     if not snapshot.tables and not snapshot.revisions:
         if allow_empty and snapshot.unsupported_objects == 0:
@@ -37,10 +46,10 @@ def require_schema(
     if len(snapshot.revisions) != 1:
         raise RolloutError("schema-incompatible")
     delivered_revision = snapshot.revisions[0]
-    if delivered_revision != accepted[0]:
+    if delivered_revision not in accepted:
         raise RolloutError("schema-incompatible")
     observed = {name: sorted(columns) for name, columns in snapshot.tables.items()}
-    expected = EXPECTED if delivered_revision == SCHEMA else PREDECESSOR_EXPECTED
+    expected = CATALOGS[delivered_revision]
     catalog_incompatible = observed != expected
     if (
         catalog_incompatible

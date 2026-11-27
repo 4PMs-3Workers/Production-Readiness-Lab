@@ -21,7 +21,7 @@ def worker_environment(env):
             "CSRF_SECRET": "test-only-worker-csrf-secret",
             "COOKIE_SECURE": "false",
             "ENVIRONMENT": "test",
-            "ACCEPTED_SCHEMA_REVISIONS": "20261113_1200_booking_quota",
+            "ACCEPTED_SCHEMA_REVISIONS": "20261127_1200_quota_acct_merge",
             "WORKER_POLL_INTERVAL_SECONDS": "0.05",
             "WORKER_HEARTBEAT_INTERVAL_SECONDS": "0.05",
             "WORKER_GRACE_SECONDS": "1",

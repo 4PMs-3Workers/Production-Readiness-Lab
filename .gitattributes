@@ -22,7 +22,25 @@
 /tools/deploy/** text eol=lf
 /tools/backup/** text eol=lf
 
-# Release identity compares canonical Git blob bytes on every platform.
+# Keep audited release configuration byte-identical in Windows and Linux checkouts.
 /Dockerfile.backend text eol=lf
 /Dockerfile.frontend text eol=lf
+/src/backend/app/observability/alert_receiver.py text eol=lf
+/tools/infra/alertmanager.yml text eol=lf
+/tools/infra/collector.Dockerfile text eol=lf
+/tools/infra/gateway-log-rotate.sh text eol=lf
+/tools/infra/grafana-dashboard-providers.yml text eol=lf
+/tools/infra/grafana-datasources.yml text eol=lf
+/tools/infra/grafana/dashboards/api-errors.json text eol=lf
+/tools/infra/grafana/dashboards/db-pool.json text eol=lf
+/tools/infra/grafana/dashboards/gateway.json text eol=lf
+/tools/infra/grafana/dashboards/telemetry-loss.json text eol=lf
+/tools/infra/grafana/dashboards/worker-progress.json text eol=lf
 /tools/infra/images.lock.json text eol=lf
+/tools/infra/loki-rules/fake/gateway-sli.yml text eol=lf
+/tools/infra/loki.yaml text eol=lf
+/tools/infra/otel-collector.yaml text eol=lf
+/tools/infra/prometheus-rule-tests.yml text eol=lf
+/tools/infra/prometheus-rules.yml text eol=lf
+/tools/infra/prometheus.yml text eol=lf
+/tools/infra/tempo.yaml text eol=lf

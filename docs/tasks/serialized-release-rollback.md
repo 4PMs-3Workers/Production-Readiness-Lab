@@ -69,45 +69,58 @@ identities, profile and schema compatibility, and checks the complete Compose
 plan before changing running application services. All application builds are
 removed from the generated final overlay; Compose uses `--no-build --pull never`.
 
-### Upgrade a host to administrative booking configuration
+### Upgrade a host to the account lifecycle release
 
-Finish any pending operation on the base checkout first. Update the same checkout
-and deploy the new manifest with the existing stable digest in `previous_stable`.
-Keep the same Compose project, profile, ports, and origins. The reviewed transition
-matches the exact old and new digests of `grants.sql` and `route-map.conf`, the
-cached base manifest, and the original host binding. The controller updates that
-binding together with the deploy operation after the candidate passes preflight.
+Finish any pending operation on the predecessor checkout first. Deploy the new
+manifest with the existing stable digest in `previous_stable`. Keep the same
+Compose project, profile, ports, and origins. The reviewed transition pins the
+old and new Compose and gateway route-map digests, the retained release manifest,
+and the original host binding. The host accepts verification records from the
+predecessor release.
 
-The deployment sends the verified grant SQL to the running MySQL container and
-recreates the gateway with the new routes. The added privileges and routes are
-compatible with the base release. A rollback from the updated checkout restores
-the base manifest's exact images while retaining the current host binding, grants,
-gateway configuration, and MySQL volume, provided the persisted policy is
-compatible. Preflight checks the saved service hours and local midnights using
-the retained backend's timezone rules. It covers the booking horizon and a full
-Gregorian cycle of recurring weekday rules beyond it. A nonexistent or repeated
-boundary returns `rollback-incompatible` before replacing the running release.
-The controller also rechecks the policy after draining the API and resumes the
-same API container if the policy changed during preflight. The saved policy
-remains in MySQL. An admin can explicitly save compatible hours and retry the
-same rollback. The Linux rehearsal verifies the spring-forward availability
-response on both images, the refusal with the incompatible policy in place,
-and successful rollback after an admin saves a compatible policy.
+Before migration, deployment requires the exact schema catalog declared by the
+retained stable manifest: `20261019_1200_proposal_replay`,
+`20261113_1200_booking_quota`, or `20261114_1200_soft_delete`. The delivered
+schema is `20261127_1200_quota_acct_merge`, a merge of the unchanged quota and
+account lifecycle migrations.
+After the guarded `app.deploy` migration and grants, it requires the delivered
+revision before starting the candidate. Only initial bootstrap accepts an empty
+schema. Each revision requires its expected table and column inventory, InnoDB,
+and no unsupported views, triggers, routines, or events. Unknown and partial
+schemas are refused. MySQL DDL commits implicitly; the two migration branches
+are not one transaction. If the process stops between a table change and its Alembic revision
+commit, the controller reports the layout or revision mismatch. Leave the
+application stopped during recovery and have the database operator verify the
+table definition, check constraint, index and revision against this migration
+before reconciling the revision and retrying the release operation.
 
-The delivered schema contract accepts `20261113_1200_booking_quota`. Only the
-initial bootstrap may start with an empty schema. Existing schemas require exactly
-that revision, the expected table/column inventory, InnoDB and no unsupported
-views, triggers, routines or events. Earlier, unknown, multiple-head and partial
-states are refused. Adding a future migration requires a separately reviewed
-compatibility contract; accepting a revision stamp alone is insufficient.
+After migration, every candidate check requires the complete delivered catalog
+and revision. A same-candidate resume may accept that complete catalog only when
+the persisted operation already entered migration. Unknown, multiple-head and
+partial states are refused. Adding a future migration requires a separately
+reviewed compatibility contract; accepting a revision stamp alone is insufficient.
 
-Deployment invokes the existing guarded `app.deploy` migration path and reviewed
-grants. MySQL migration and backup retain their existing named lifecycle guard.
-The MySQL socket health probe also requires networking to be enabled, rejecting
-the temporary bootstrap server until initialization and identity setup finish.
-Rollback runs no migration, seed or downgrade. Application replacement gracefully
-stops the services and retains both the original MySQL container and its owned
-data volume. There is no `down --volumes` or database cutover path.
+Rollback to the reviewed `20261019_1200_proposal_replay` predecessor can remove
+both branches only when quota is 3 and no user
+retains soft-delete lifecycle data. Read-only preflight checks these conditions
+before replacing a pending operation, checks them again after draining API
+writers, and the migration job checks both before issuing any downgrade DDL.
+Rollback to either intermediate branch is refused; candidate resume remains the
+recovery path when automatic fallback refuses before service replacement.
+
+The reviewed configuration sources are the original PR base `12a74f7` and the
+integrated develop head `8e34f99`. Hosts on the older CSV source `aed6c68` must
+first upgrade through the reviewed develop release; its route-map identity is
+not accepted directly by this controller.
+
+Predecessor rollback also checks saved service hours and local midnights using
+the retained backend's timezone rules. The check covers the booking horizon
+and recurring weekday rules over a Gregorian cycle. An incompatible policy
+returns `rollback-incompatible`. The controller rechecks the policy after draining
+the API and resumes the original API container if preflight fails. The Linux
+rehearsal uses the actual predecessor images and database revision, injects a
+readiness failure after migration, and checks that the restored release sees the
+committed appointment in the same MySQL volume.
 
 ## Lock, state and recovery decisions
 

@@ -1,0 +1,2 @@
+# Keep the embedded AI log identical to its Git blob and checksum.
+ai-usage-log.md text eol=lf
