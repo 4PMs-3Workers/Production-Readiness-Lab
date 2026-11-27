@@ -97,7 +97,7 @@ class MemoryRuntime(ReleaseRuntime):
         self.database = DatabaseIdentity("a" * 64, "isolated_mysql_data")
         self.snapshot = SchemaSnapshot(
             tables=copy.deepcopy(EXPECTED),
-            revisions=["20261114_1200_soft_delete"],
+            revisions=["20261127_1200_quota_acct_merge"],
             unsupported_objects=0,
             nontransactional_tables=0,
         )

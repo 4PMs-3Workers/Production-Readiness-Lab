@@ -31,6 +31,35 @@ function fixture() {
   return { fetcher, services: new ApiServices(fetcher) };
 }
 describe('ADMIN atomic booking configuration', () => {
+  it('preserves a nondefault quota from provider through draft and full-resource PUT', async () => {
+    const provider = { ...configuration, max_active_appointments: 5 };
+    const parsed = parseAdminConfiguration(provider);
+    expect(parsed).toHaveProperty('max_active_appointments', 5);
+    const policy = draftPolicy(configurationDraft(parsed));
+    expect(policy).toHaveProperty('max_active_appointments', 5);
+    const { services, fetcher } = fixture();
+    const original = fetcher.getMockImplementation()!;
+    fetcher.mockImplementation(async (path, init) =>
+      init?.method
+        ? Response.json({ ...policy, updated_at: configuration.updated_at })
+        : original(path, init),
+    );
+    await services.replaceAdminBookingConfiguration(
+      { ...policy, expected_updated_at: configuration.updated_at },
+      options,
+    );
+    const request = fetcher.mock.calls.find(([, init]) => init?.method === 'PUT');
+    expect(JSON.parse(String(request?.[1]?.body))).toHaveProperty('max_active_appointments', 5);
+    expect(policyMatches(provider, { ...provider, max_active_appointments: 4 })).toBe(false);
+  });
+  it.each([undefined, 0, 32768, '3', true, null])(
+    'rejects invalid or missing quota %s',
+    (quota) => {
+      expect(() =>
+        parseAdminConfiguration({ ...configuration, max_active_appointments: quota }),
+      ).toThrow();
+    },
+  );
   it('reads the singleton without query and checks the ADMIN before and after', async () => {
     const { services, fetcher } = fixture();
     expect(await services.getAdminBookingConfiguration(options)).toEqual(configuration);
@@ -62,6 +91,7 @@ describe('ADMIN atomic booking configuration', () => {
       timezone: configuration.timezone,
       start_step_minutes: 15,
       booking_horizon_days: 7,
+      max_active_appointments: 3,
       windows: configuration.windows,
       expected_updated_at: configuration.updated_at,
     });

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
@@ -13,8 +14,13 @@ from typing import Annotated, Literal, Self, TypeAlias, TypeVar
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 ROOT = Path(__file__).resolve().parents[2]
-SCHEMA = "20261114_1200_soft_delete"
+SCHEMA = "20261127_1200_quota_acct_merge"
 PREDECESSOR_SCHEMA = "20261019_1200_proposal_replay"
+REVIEWED_PREDECESSOR_SCHEMAS = {
+    PREDECESSOR_SCHEMA,
+    "20261113_1200_booking_quota",
+    "20261114_1200_soft_delete",
+}
 MAX_JSON = 1024 * 1024
 SHA: TypeAlias = Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]
 Hex: TypeAlias = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
@@ -41,6 +47,31 @@ class ReleaseError(Exception):
     def __init__(self, code: str):
         super().__init__(code)
         self.code = code
+
+
+def schema_revision(root: Path = ROOT) -> str:
+    """Return the exact schema pin declared by the selected source tree."""
+    if root.resolve() == ROOT.resolve():
+        return SCHEMA
+    try:
+        module = ast.parse((root / "tools/deploy/release_manifest.py").read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        raise ReleaseError("incompatible-schema") from None
+    for node in module.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "SCHEMA" for target in node.targets
+        ):
+            if isinstance(node.value, ast.Constant) and type(node.value.value) is str:
+                return node.value.value
+        if (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "SCHEMA"
+            and isinstance(node.value, ast.Constant)
+            and type(node.value.value) is str
+        ):
+            return node.value.value
+    raise ReleaseError("incompatible-schema")
 
 
 class Strict(BaseModel):
@@ -243,25 +274,31 @@ def configuration(overlay: str, observability: bool, root: Path = ROOT) -> Confi
 
 GRANTS_PATH = "tools/deploy/mysql/grants.sql"
 
-# The account lifecycle release advances the accepted schema in the shared Compose
-# file and publishes new gateway routes. These exact identities pin the immediate
-# predecessor configuration for a reviewed upgrade and rollback.
+# Exact identities for the reviewed transition from the PR's actual base (12a74f7)
+# to this release. Keep both sides pinned so a different local tree cannot claim
+# the same predecessor transition.
 ACCOUNT_LIFECYCLE_TRANSITION = {
+    GRANTS_PATH: (
+        "8a7277032db2552dc45e9031dd0947d1b0aa363b0d1ebd445366225af3af038a",
+        "bdede7d278ee16b114ed2da85ac9e350cfdacec1aa0b4f125237b2765229f3a3",
+    ),
     "tools/deploy/compose.yaml": (
         "1f9c939fb1496429e6870000e1e2c4ccb2a5773a402984d70b1bfd27ca15833e",
-        "b47009b194b4be07186032126f4da0b78246b9f91905852602a61061d85869b9",
+        "c80f638203edc844cac581a3b6ace78aa80eaa9cba35b19dcfc50ae2fac0a3e8",
     ),
     "tools/deploy/nginx/route-map.conf": (
         "47b24ed0346691dbc949d958fe351f29af893727bbecdde172793358a83fd90c",
         "6cf73275201e4f740b85a9d4fc66e6654250808770cc9a60cd58b3a5af5fe950",
     ),
 }
-
-# CSV export advances the gateway map from stable aed6c68.
 ADMIN_POLICY_TRANSITION = {
-    "tools/deploy/nginx/route-map.conf": (
-        "04f782e69aeccbde6704168c08eba879b6230464b6c11f6287bc6a4e7937b29e",
-        "6cf73275201e4f740b85a9d4fc66e6654250808770cc9a60cd58b3a5af5fe950",
+    GRANTS_PATH: (
+        "8a7277032db2552dc45e9031dd0947d1b0aa363b0d1ebd445366225af3af038a",
+        "bdede7d278ee16b114ed2da85ac9e350cfdacec1aa0b4f125237b2765229f3a3",
+    ),
+    "tools/deploy/compose.yaml": (
+        "b47009b194b4be07186032126f4da0b78246b9f91905852602a61061d85869b9",
+        "c80f638203edc844cac581a3b6ace78aa80eaa9cba35b19dcfc50ae2fac0a3e8",
     ),
 }
 
@@ -364,15 +401,25 @@ def vendor_inventory(observability: bool, root: Path = ROOT) -> dict[str, str]:
 
 def require_compatible(spec: Spec, root: Path = ROOT, *, allow_previous: bool = False) -> None:
     require_configuration(spec.configuration, root, allow_previous=allow_previous)
-    if spec.accepted_schema_revisions != [SCHEMA]:
-        current = configuration(spec.configuration.overlay, spec.configuration.observability, root)
-        if (
-            not allow_previous
-            or spec.accepted_schema_revisions != [PREDECESSOR_SCHEMA]
-            or spec.configuration
-            != previous_configuration(current, transition=ACCOUNT_LIFECYCLE_TRANSITION)
-        ):
-            raise ReleaseError("incompatible-schema")
+    accepted_schema = schema_revision(root)
+    if (
+        accepted_schema != PREDECESSOR_SCHEMA
+        and spec.accepted_schema_revisions == [PREDECESSOR_SCHEMA]
+        and spec.configuration
+        != previous_configuration(
+            configuration(spec.configuration.overlay, spec.configuration.observability, root),
+            transition=ACCOUNT_LIFECYCLE_TRANSITION,
+        )
+    ):
+        raise ReleaseError("incompatible-schema")
+    compatible_schemas = {accepted_schema}
+    if allow_previous:
+        compatible_schemas |= REVIEWED_PREDECESSOR_SCHEMAS
+    if (
+        len(spec.accepted_schema_revisions) != 1
+        or spec.accepted_schema_revisions[0] not in compatible_schemas
+    ):
+        raise ReleaseError("incompatible-schema")
     if spec.vendor_images != vendor_inventory(spec.configuration.observability, root):
         raise ReleaseError("vendor-inventory-mismatch")
 

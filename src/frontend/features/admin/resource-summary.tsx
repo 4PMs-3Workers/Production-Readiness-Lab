@@ -38,6 +38,8 @@ export function ConfigurationSummary({ value }: { value: BookingPolicy }) {
       <dd>{value.start_step_minutes} phút</dd>
       <dt>Cửa sổ đặt lịch</dt>
       <dd>{value.booking_horizon_days} ngày kế tiếp</dd>
+      <dt>Lịch đang giữ chỗ tối đa</dt>
+      <dd>{value.max_active_appointments}</dd>
       {weekdays.map((day, index) => (
         <div key={day} style={{ display: 'contents' }}>
           <dt>{day}</dt>

@@ -68,6 +68,7 @@ export function copyPolicy(value: BookingPolicy): BookingPolicy {
     timezone: value.timezone,
     start_step_minutes: value.start_step_minutes,
     booking_horizon_days: value.booking_horizon_days,
+    max_active_appointments: value.max_active_appointments,
     windows: canonicalWindows(value.windows),
   };
 }
@@ -82,6 +83,7 @@ export function parseAdminConfiguration(value: unknown): AdminBookingConfigurati
       data.timezone.length <= 64 &&
       positiveSmallInt(data.start_step_minutes) &&
       positiveSmallInt(data.booking_horizon_days) &&
+      positiveSmallInt(data.max_active_appointments) &&
       revisionTimestamp(data.updated_at) &&
       Array.isArray(data.windows),
   );
@@ -99,6 +101,7 @@ export function parseAdminConfiguration(value: unknown): AdminBookingConfigurati
     timezone: data.timezone,
     start_step_minutes: data.start_step_minutes,
     booking_horizon_days: data.booking_horizon_days,
+    max_active_appointments: data.max_active_appointments,
     windows: canonicalWindows(windows),
     updated_at: data.updated_at,
   };

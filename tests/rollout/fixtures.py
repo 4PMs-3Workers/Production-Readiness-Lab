@@ -23,7 +23,6 @@ from tools.deploy.release_images import Registry, archive_image, command
 from tools.deploy.release_manifest import (
     CHECKS,
     ROOT,
-    SCHEMA,
     Image,
     Manifest,
     Spec,
@@ -32,6 +31,9 @@ from tools.deploy.release_manifest import (
     parse,
     proof,
     vendor_inventory,
+)
+from tools.deploy.release_manifest import (
+    schema_revision as source_schema_revision,
 )
 
 REGISTRY_IMAGE = "registry:2.8.3"
@@ -178,7 +180,7 @@ class Artifacts:
         *,
         root: Path = ROOT,
         source_sha: str | None = None,
-        schema_revision: str = SCHEMA,
+        schema_revision: str | None = None,
     ) -> Manifest:
         # Strict fixture metadata exercises #44's delivered reader and OCI clients.
         # These simulated checks/review fields must never be called real release proof.
@@ -204,7 +206,7 @@ class Artifacts:
                 frontend="frontend",
             ),
             vendor_images=vendor_inventory(False, root),
-            accepted_schema_revisions=[schema_revision],
+            accepted_schema_revisions=[schema_revision or source_schema_revision(root)],
             configuration=configuration("local", False, root).model_dump(),
             previous_stable=previous,
             bootstrap=previous is None,

@@ -24,7 +24,8 @@ const messages: Record<string, string> = {
   INVALID_ORIGIN: 'Không thể xác minh nguồn yêu cầu. Vui lòng kiểm tra địa chỉ cổng tư vấn.',
   NOT_FOUND: 'Không tìm thấy dữ liệu hoặc bạn không có quyền truy cập.',
   BOOKING_CONFLICT: 'Giờ hẹn không còn khả dụng. Vui lòng chọn lại giờ.',
-  BOOKING_QUOTA_EXCEEDED: 'Bạn đã có tối đa ba lịch đang giữ chỗ. Hãy kiểm tra các lịch đã đặt.',
+  BOOKING_QUOTA_EXCEEDED:
+    'Bạn đã đạt giới hạn lịch đang giữ chỗ theo cấu hình hiện tại. Hãy kiểm tra các lịch đã đặt.',
   IDEMPOTENCY_CONFLICT:
     'Mã yêu cầu đã gắn với nội dung khác. Hãy kiểm tra lịch sử trước khi đặt thêm.',
   CANCELLATION_DEADLINE_PASSED: 'Đã quá thời hạn hủy lịch hẹn này.',

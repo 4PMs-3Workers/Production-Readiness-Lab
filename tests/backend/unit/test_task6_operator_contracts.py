@@ -32,7 +32,7 @@ def v2_manifest(**updates):
         "overlay": "https",
         "observability": True,
         "configuration_sha256": "b" * 64,
-        "schema_revisions": ["20261114_1200_soft_delete"],
+        "schema_revisions": ["20261127_1200_quota_acct_merge"],
         "images": {
             "collector": {"id": "sha256:" + "c" * 64, "digests": []},
             "local_alert_receiver": {"id": "sha256:" + "d" * 64, "digests": []},
@@ -73,7 +73,7 @@ def test_v2_manifest_accepts_historical_schema_revision(has_target_origin):
     "schema_revisions",
     [
         ["unknown_revision"],
-        ["20261019_1200_proposal_replay", "20261114_1200_soft_delete"],
+        ["20261019_1200_proposal_replay", "20261127_1200_quota_acct_merge"],
     ],
 )
 def test_manifest_rejects_unknown_or_multiple_schema_revisions(schema_revisions):
@@ -129,7 +129,7 @@ def test_runtime_attestation_contains_active_application_image_identity(tmp_path
         deployment_state="active",
         target_origin="https://app.example.invalid",
     )
-    assert manifest["schema_revisions"] == ["20261114_1200_soft_delete"]
+    assert manifest["schema_revisions"] == ["20261127_1200_quota_acct_merge"]
     path = tmp_path / "attestation.json"
 
     evidence.write_target_attestation(path, manifest)
@@ -169,7 +169,7 @@ def test_v1_manifest_remains_readable_with_its_exact_historical_shape():
     evidence = module("evidence")
     current = evidence.create("a" * 40, "https", "up", "passed", {})
     assert current["manifest_version"] == 1
-    assert current["schema_revisions"] == ["20261114_1200_soft_delete"]
+    assert current["schema_revisions"] == ["20261127_1200_quota_acct_merge"]
     historical = dict(current, schema_revisions=["20261019_1200_proposal_replay"])
     assert evidence.validate(historical) == historical
     with pytest.raises(ValueError):

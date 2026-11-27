@@ -7,7 +7,32 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deploy import SOFT_DELETE_PREDECESSOR, SOFT_DELETE_SCHEMA, migrate
-from app.models import User
+from app.models import ServiceSetting, User
+
+
+@pytest.mark.mysql
+async def test_combined_schema_rollback_refuses_nondefault_quota_before_ddl(
+    mysql_engine, monkeypatch
+):
+    monkeypatch.setenv("DATABASE_URL", mysql_engine.url.render_as_string(hide_password=False))
+    async with AsyncSession(mysql_engine) as db, db.begin():
+        db.add(ServiceSetting(max_active_appointments=2))
+    with pytest.raises(RuntimeError, match="configured booking quota would be lost"):
+        await migrate(rollback_soft_delete=True)
+    async with mysql_engine.connect() as connection:
+        assert (
+            await connection.scalar(text("SELECT version_num FROM alembic_version"))
+            == SOFT_DELETE_SCHEMA
+        )
+        assert (
+            await connection.scalar(
+                text("SELECT max_active_appointments FROM service_settings WHERE id = 1")
+            )
+            == 2
+        )
+        await connection.execute(
+            text("SELECT deleted_at, is_active_before_delete FROM users LIMIT 1")
+        )
 
 
 @pytest.mark.mysql
@@ -17,6 +42,7 @@ async def test_guarded_schema_rollback_preserves_account_and_refuses_tombstones(
     monkeypatch.setenv("DATABASE_URL", mysql_engine.url.render_as_string(hide_password=False))
     account_id = uuid4()
     async with AsyncSession(mysql_engine) as db, db.begin():
+        db.add(ServiceSetting(max_active_appointments=3))
         db.add(
             User(
                 id=account_id,

@@ -24,7 +24,7 @@ x-runtime: &runtime
     - path: ${PRL_RUNTIME_ENV_FILE:?Set external runtime env-file path}
       format: raw
   environment:
-    ACCEPTED_SCHEMA_REVISIONS: 20261114_1200_soft_delete
+    ACCEPTED_SCHEMA_REVISIONS: 20261127_1200_quota_acct_merge
   networks: [data]
 
 services:

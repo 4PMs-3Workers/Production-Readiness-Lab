@@ -45,14 +45,17 @@ def test_failed_rollback_preflight_retries_the_interrupted_deploys_stable_target
     host, before = interrupted_deploy(tmp_path, stable_count)
     host.registry.missing = True
     failed = host.rollback()
-    assert failed.operation is not None and failed.operation.phase == "failed"
-    assert failed.operation.target == before.stable
-    assert failed.operation.requires_recovery
+    assert failed.operation is not None and failed.operation.phase == "interrupted"
+    failed_operation = failed.operation
+    persisted = host.store.load()
+    assert persisted is not None
+    assert failed_operation == persisted.operation
+    assert failed_operation.command == "deploy"
+    assert failed.refusal is not None and failed.refusal.reason == "missing-images"
+    assert failed_operation.requires_recovery
     assert failed.stable == before.stable
 
     reload_controller(host)
-    refused = host.deploy(reference(3), resume=True)
-    assert refused.refusal is not None and refused.refusal.reason == "interrupted-operation"
     host.registry.missing = False
     recovered = host.rollback()
     assert recovered.operation is not None and recovered.operation.phase == "rolled_back"

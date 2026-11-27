@@ -15,6 +15,7 @@ class ServiceSetting(Base):
         CheckConstraint("id = 1", name="singleton"),
         CheckConstraint("start_step_minutes > 0", name="start_step"),
         CheckConstraint("booking_horizon_days > 0", name="booking_horizon"),
+        CheckConstraint("max_active_appointments > 0", name="max_active_appointments"),
         TABLE_OPTIONS,
     )
 
@@ -29,5 +30,8 @@ class ServiceSetting(Base):
     )
     booking_horizon_days: Mapped[int] = mapped_column(
         SmallInteger, default=7, server_default=text("7")
+    )
+    max_active_appointments: Mapped[int] = mapped_column(
+        SmallInteger, default=3, server_default=text("3")
     )
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now, onupdate=utc_now)

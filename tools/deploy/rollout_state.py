@@ -6,9 +6,9 @@ import hashlib
 from datetime import UTC, datetime
 from typing import Annotated, Literal, Self
 
-from pydantic import Field, model_validator
+from pydantic import Field, SerializerFunctionWrapHandler, model_serializer, model_validator
 from tools.deploy.release_manifest import (
-    PREDECESSOR_SCHEMA,
+    REVIEWED_PREDECESSOR_SCHEMAS,
     SCHEMA,
     SHA,
     Digest,
@@ -154,8 +154,8 @@ class Verification(Strict):
 
     @model_validator(mode="after")
     def complete(self) -> Self:
-        if self.schema_revision not in {SCHEMA, PREDECESSOR_SCHEMA} or self.smoke_checks != sorted(
-            SMOKE_CHECKS
+        if self.schema_revision not in {SCHEMA, *REVIEWED_PREDECESSOR_SCHEMAS} or (
+            self.smoke_checks != sorted(SMOKE_CHECKS)
         ):
             raise ValueError("Incomplete service verification")
         return self
@@ -169,9 +169,20 @@ class Operation(Strict):
     fallback: Selection | None = None
     trigger_reason: Reason | None = None
     recovery_pending: bool = False
+    migration_started: bool = False
     migration_source: Selection | None = None
     events: list[Event] = Field(min_length=1, max_length=16)
     verification: Verification | None = None
+
+    @model_serializer(mode="wrap")
+    def serialize_operation(self, handler: SerializerFunctionWrapHandler) -> dict:
+        data = handler(self)
+        # Pre-migration refusals retain the original strict v1 wire encoding.
+        if not self.migration_started:
+            data.pop("migration_started", None)
+        if self.migration_source is None:
+            data.pop("migration_source", None)
+        return data
 
     @property
     def phase(self) -> Phase:

@@ -68,7 +68,7 @@
     {"staff_email": "dang.ngo@demo.example.invalid", "purpose_code": "OTHER", "is_accepting": true},
     {"staff_email": "dang.ngo@demo.example.invalid", "purpose_code": "ACADEMIC_ADVISOR", "is_accepting": true}
   ],
-  "settings": {"id": 1, "timezone": "Asia/Ho_Chi_Minh", "start_step_minutes": 15, "booking_horizon_days": 7},
+  "settings": {"id": 1, "timezone": "Asia/Ho_Chi_Minh", "start_step_minutes": 15, "booking_horizon_days": 7, "max_active_appointments": 3},
   "hours": [
     {"weekday": 1, "opens_at": "08:00:00", "closes_at": "11:30:00"},
     {"weekday": 1, "opens_at": "13:30:00", "closes_at": "17:00:00"},
