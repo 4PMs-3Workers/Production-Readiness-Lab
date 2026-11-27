@@ -255,8 +255,22 @@ def test_mysql_migration_grants_schema_gate_and_persistence(stack):
         ).returncode
         == 0
     )
-    # The pre-soft-delete schema lacks columns used by this release and must be rejected.
-    assert compose("run", "--rm", "-T", "schema").returncode != 0
+    assert compose("run", "--rm", "-T", "schema").returncode == 0
+    # A historical revision must be rejected even if the catalog still looks current.
+    for revision in (
+        "20261019_1200_proposal_replay",
+        "20261113_1200_booking_quota",
+        "20261114_1200_soft_delete",
+    ):
+        assert sql("root", f"UPDATE alembic_version SET version_num='{revision}';").returncode == 0
+        assert compose("run", "--rm", "-T", "schema").returncode != 0
+    assert (
+        sql(
+            "root", "UPDATE alembic_version SET version_num='20261127_1200_quota_acct_merge';"
+        ).returncode
+        == 0
+    )
+    assert compose("run", "--rm", "-T", "schema").returncode == 0
 
     assert compose("down", "--timeout", "40").returncode == 0
     assert compose("up", "-d", "--wait", "mysql", timeout=120).returncode == 0
