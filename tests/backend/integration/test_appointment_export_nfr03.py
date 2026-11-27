@@ -179,6 +179,7 @@ def host_cpu_ticks():
 
 
 OBSERVER_SECONDS = 2.0
+OBSERVER_CONNECT_ARGS = {"connect_timeout": 1, "read_timeout": 1}
 WATCHER_STOP_SECONDS = 1.0
 CLEANUP_SECONDS = 2.0
 LAG_INTERVAL_SECONDS = 0.01
@@ -320,7 +321,7 @@ async def test_export_nfr03(availability_env, mysql_engine, monkeypatch, pool_mo
     monitor = create_database_engine(
         mysql_engine.url.set(database=None),
         poolclass=NullPool,
-        connect_args={"connect_timeout": 1, "read_timeout": 1, "write_timeout": 1},
+        connect_args=OBSERVER_CONNECT_ARGS,
     )
     native = os.getenv("NFR03_TRANSPORT", "asgi") == "http"
     diagnostic = not native and os.getenv("NFR03_DIAGNOSTICS", "1") == "1"

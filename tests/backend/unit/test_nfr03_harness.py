@@ -190,3 +190,11 @@ async def test_dispose_timeout_still_writes_report(monkeypatch, tmp_path):
     await asyncio.wait_for(probe.finish_report(SimpleNamespace(dispose=blocked), report, True), 0.5)
     assert not report["completed"] and not report["passed"]
     saved.assert_called_once()
+
+
+def test_observer_options_are_supported_by_pinned_driver():
+    import inspect
+
+    import asyncmy
+
+    inspect.signature(asyncmy.connect).bind_partial(**probe.OBSERVER_CONNECT_ARGS)
