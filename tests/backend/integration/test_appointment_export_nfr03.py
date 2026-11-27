@@ -26,6 +26,7 @@ import httpx
 import pytest
 from dotenv import dotenv_values
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.ext.asyncio import AsyncSession, AsyncSessionTransaction
 from sqlalchemy.pool import NullPool
@@ -177,7 +178,59 @@ def host_cpu_ticks():
     return idle.value, kernel.value + user.value  # Windows kernel time includes idle.
 
 
+OBSERVER_SECONDS = 2.0
+WATCHER_STOP_SECONDS = 1.0
+CLEANUP_SECONDS = 2.0
+LAG_INTERVAL_SECONDS = 0.01
+MIN_LAG_WINDOW_SECONDS = 0.03
+
+
+async def bounded(awaitable, seconds):
+    task = asyncio.ensure_future(awaitable)
+    try:
+        done, _ = await asyncio.wait({task}, timeout=seconds)
+        if not done:
+            raise TimeoutError("NFR observer/cleanup deadline exceeded")
+        return task.result()
+    finally:
+        if not task.done():
+            task.cancel()
+            await asyncio.wait({task}, timeout=WATCHER_STOP_SECONDS)
+
+        def consume(completed):
+            if not completed.cancelled():
+                completed.exception()
+
+        if task.done():
+            consume(task)
+        else:
+            task.add_done_callback(consume)
+
+
+@asynccontextmanager
+async def observer_connection(monitor):
+    connection = await bounded(monitor.connect(), OBSERVER_SECONDS)
+    try:
+        yield connection
+    finally:
+        await bounded(connection.close(), CLEANUP_SECONDS)
+
+
+async def sample_lag(stop, lag, ready):
+    started = perf_counter()
+    ready.set()
+    while not stop.is_set() or perf_counter() - started < MIN_LAG_WINDOW_SECONDS or len(lag) < 2:
+        due = perf_counter() + LAG_INTERVAL_SECONDS
+        await asyncio.sleep(LAG_INTERVAL_SECONDS)
+        lag.append(max(0, perf_counter() - due))
+    return perf_counter() - started
+
+
 async def mysql_snapshot(connection, schema):
+    return await bounded(_mysql_snapshot(connection, schema), OBSERVER_SECONDS)
+
+
+async def _mysql_snapshot(connection, schema):
     status = dict(
         (
             await connection.execute(
@@ -264,13 +317,17 @@ async def test_export_nfr03(availability_env, mysql_engine, monkeypatch, pool_mo
         if pool_mode == "null"
         else create_app(settings)
     )
-    monitor = create_database_engine(mysql_engine.url.set(database=None), poolclass=NullPool)
+    monitor = create_database_engine(
+        mysql_engine.url.set(database=None),
+        poolclass=NullPool,
+        connect_args={"connect_timeout": 1, "read_timeout": 1, "write_timeout": 1},
+    )
     native = os.getenv("NFR03_TRANSPORT", "asgi") == "http"
     diagnostic = not native and os.getenv("NFR03_DIAGNOSTICS", "1") == "1"
     if diagnostic:
         install_profiling(monkeypatch)
     report = {
-        "protocol": "nfr03-export-v2",
+        "protocol": "nfr03-export-v3",
         "diagnostics": diagnostic,
         "server_diagnostics": os.getenv("NFR03_SERVER_DIAGNOSTICS") == "1",
         "source_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
@@ -287,6 +344,7 @@ async def test_export_nfr03(availability_env, mysql_engine, monkeypatch, pool_mo
         "connect_timeout_seconds": settings.db_connect_timeout_seconds,
         "query_timeout_seconds": settings.db_query_timeout_seconds,
         "request_timeout_seconds": settings.request_timeout_seconds,
+        "api_workers": 1 if native else None,
         "concurrency": 80,
         "owned_rows": 100,
         "foreign_rows": 1,
@@ -313,7 +371,7 @@ async def test_export_nfr03(availability_env, mysql_engine, monkeypatch, pool_mo
     completed = False
     try:
         if native:
-            async with native_api(settings) as target, monitor.connect() as observer:
+            async with native_api(settings) as target, observer_connection(monitor) as observer:
                 await run_bursts(
                     application,
                     observer,
@@ -338,6 +396,12 @@ async def test_export_nfr03(availability_env, mysql_engine, monkeypatch, pool_mo
                 diagnostic,
             )
         completed = True
+    except TimeoutError:
+        report.setdefault("failure_stage", "observer")
+        raise
+    except SQLAlchemyError:
+        report.setdefault("failure_stage", "observer")
+        raise
     finally:
         await finish_report(monitor, report, completed)
     assert report["passed"], "NFR-03 gate failed; evidence retained"
@@ -346,7 +410,10 @@ async def test_export_nfr03(availability_env, mysql_engine, monkeypatch, pool_mo
 async def run_asgi(
     application, monitor, report, settings, pool_mode, expected, env, mysql_engine, diagnostic
 ):
-    async with application.router.lifespan_context(application), monitor.connect() as observer:
+    async with (
+        application.router.lifespan_context(application),
+        observer_connection(monitor) as observer,
+    ):
         profiling = (
             measure_pool(application.state.engine, SAMPLE, STAGE) if diagnostic else nullcontext({})
         )
@@ -358,17 +425,29 @@ async def run_asgi(
 
 
 async def finish_report(monitor, report, completed):
-    await monitor.dispose()
+    try:
+        await bounded(monitor.dispose(), CLEANUP_SECONDS)
+    except Exception:
+        completed = False
+        report["observer_failure"] = "observer_cleanup_error"
     report["completed"] = completed
+    report["lag_evidence_complete"] = bool(report["bursts"]) and all(
+        b.get("event_loop_lag_samples", 0) >= 2 and b.get("event_loop_lag_p95_seconds") is not None
+        for b in report["bursts"]
+    )
     report["generator_saturated"] = any(
-        b.get("event_loop_lag_samples", 0) < 2
-        or b.get("event_loop_lag_p95_seconds") is None
-        or b["event_loop_lag_p95_seconds"] > 0.1
-        or b.get("lag_missed_tick_fraction", 1) > 0.1
+        b.get("event_loop_lag_p95_seconds", 0) is not None
+        and (
+            b.get("event_loop_lag_p95_seconds", 0) > 0.1
+            or (b.get("lag_missed_tick_fraction") or 0) > 0.1
+        )
         for b in report["bursts"]
     )
     report["passed"] = (
-        completed and burst_verdict(report["bursts"]) and not report["generator_saturated"]
+        completed
+        and burst_verdict(report["bursts"])
+        and report["lag_evidence_complete"]
+        and not report["generator_saturated"]
     )
     for burst in report["bursts"]:
         for sample in burst["samples"]:
@@ -384,7 +463,7 @@ async def finish_report(monitor, report, completed):
             "tests/backend/integration/test_appointment_export_nfr03.py",
         ]
     }
-    output = save_report(report, Path("build/nfr03/nfr03-export-v2") / report["source_sha"])
+    output = save_report(report, Path("build/nfr03/nfr03-export-v3") / report["source_sha"])
     print("NFR03_REPORT=" + str(output))
 
 
@@ -394,8 +473,10 @@ async def run_bursts(
     report["engine_class"] = (
         "external process; not sampled" if target else type(application.state.engine.pool).__name__
     )
-    report["mysql"] = await observer.scalar(text("SELECT VERSION()"))
-    report["mysql_max_connections"] = await observer.scalar(text("SELECT @@max_connections"))
+    report["mysql"] = await bounded(observer.scalar(text("SELECT VERSION()")), OBSERVER_SECONDS)
+    report["mysql_max_connections"] = await bounded(
+        observer.scalar(text("SELECT @@max_connections")), OBSERVER_SECONDS
+    )
     clients = [
         httpx.AsyncClient(
             transport=(
@@ -412,7 +493,16 @@ async def run_bursts(
     try:
         assert len(rows(await clients[0].get(PATH))) == 100
         for phase in PHASES:
-            snapshots = [await mysql_snapshot(observer, mysql_engine.url.database)]
+            snapshots = []
+            samples = []
+            phase_record = {
+                "phase": phase,
+                "samples": samples,
+                "mysql_snapshots": snapshots,
+                "observer_complete": False,
+            }
+            report["bursts"].append(phase_record)
+            snapshots.append(await mysql_snapshot(observer, mysql_engine.url.database))
             barrier = asyncio.Barrier(80)
             burst_clock = {}
             cpu_before, process_before, started = (
@@ -423,22 +513,25 @@ async def run_bursts(
             stop = asyncio.Event()
             lag = []
 
-            async def observe(stop=stop, lag=lag, snapshots=snapshots):
+            async def observe(stop=stop, snapshots=snapshots):
                 while not stop.is_set():
-                    target = perf_counter() + 0.25
                     try:
                         await asyncio.wait_for(stop.wait(), timeout=0.25)
                         break
                     except TimeoutError:
                         pass
-                    lag.append(max(0, perf_counter() - target))
                     snapshots.append(await mysql_snapshot(observer, mysql_engine.url.database))
                     if pool_mode == "production" and not target:
                         pool = application.state.engine.pool
                         snapshots[-1]["pool_checked_out"] = pool.checkedout()
 
             async def download(
-                index, client, phase=phase, barrier=barrier, burst_clock=burst_clock
+                index,
+                client,
+                phase=phase,
+                barrier=barrier,
+                burst_clock=burst_clock,
+                samples=samples,
             ):
                 record = {"sample": f"{phase}-{index}", "server_failures": []}
                 token = SAMPLE.set(record)
@@ -456,6 +549,14 @@ async def run_bursts(
                     record["scope_ok"] = len(exported) == 100 and [r["id"] for r in exported] == [
                         str(UUID(int=100 + i)) for i in reversed(range(100))
                     ]
+                except asyncio.CancelledError:
+                    record.update(
+                        cancelled=True,
+                        status=None,
+                        scope_ok=False,
+                        latency_seconds=perf_counter() - request_started,
+                    )
+                    raise
                 except Exception as error:
                     record.setdefault("latency_seconds", perf_counter() - request_started)
                     record["client_exception_type"] = type(error).__name__
@@ -463,19 +564,34 @@ async def run_bursts(
                     record["scope_ok"] = False
                 finally:
                     SAMPLE.reset(token)
+                    samples.append(record)
                 return record
 
             watcher = asyncio.create_task(observe())
+            ready = asyncio.Event()
+            lag_watcher = asyncio.create_task(sample_lag(stop, lag, ready))
+            await ready.wait()
             try:
-                samples = await asyncio.wait_for(
+                await asyncio.wait_for(
                     asyncio.gather(
                         *(download(index, client) for index, client in enumerate(clients))
                     ),
                     timeout=30,
                 )
+            except TimeoutError:
+                report["failure_stage"] = "downloads"
+                raise
             finally:
+                request_window = perf_counter() - burst_clock.get("released", started)
                 stop.set()
-                await watcher
+                results = await asyncio.gather(
+                    bounded(watcher, WATCHER_STOP_SECONDS),
+                    bounded(lag_watcher, WATCHER_STOP_SECONDS),
+                    return_exceptions=True,
+                )
+                if any(isinstance(r, BaseException) for r in results):
+                    report["observer_failure"] = "observer_shutdown_error"
+                    raise TimeoutError("NFR collector failed to stop")
             elapsed, process_cpu, cpu_after = (
                 perf_counter() - started,
                 process_time() - process_before,
@@ -511,17 +627,21 @@ async def run_bursts(
                     for f in sample.get("operation_failures", [])
                 ),
                 "elapsed_seconds": elapsed,
+                "request_window_seconds": request_window,
+                "lag_observation_window_seconds": results[1],
+                "lag_sample_interval_seconds": LAG_INTERVAL_SECONDS,
+                "observer_complete": True,
                 "host_busy_percent": host_cpu,
                 "harness_cpu_seconds": process_cpu,
                 "event_loop_lag_p95_seconds": p95(lag),
                 "event_loop_lag_samples": len(lag),
                 "lag_missed_tick_fraction": sum(x > 0.1 for x in lag) / len(lag) if lag else None,
             }
-            report["bursts"].append(summary)
+            phase_record.update(summary)
             print(
                 json.dumps(
                     {k: v for k, v in summary.items() if k not in ("samples", "mysql_snapshots")}
                 )
             )
     finally:
-        await asyncio.gather(*(client.aclose() for client in clients))
+        await bounded(asyncio.gather(*(client.aclose() for client in clients)), CLEANUP_SECONDS)

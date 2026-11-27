@@ -77,3 +77,16 @@ Six alternating runs at clean source `25a65bdb6beb9d05ed433ad51fa262379b10e33f` 
 These are Windows native HTTP/MySQL lab results, not gateway/TLS/container acceptance. The new `NFR-03 isolated HTTP lab` workflow records a Linux default baseline, requires three candidate runs, checks contracts with zero skips and retains sanitized artifacts for 30 days. Its API runs in a native process and has no container CPU quota or worker; its MySQL service has a 1 CPU/1 GiB limit. Do not compare its numbers directly to Windows as a before/after improvement.
 
 Current remaining release gates: actual gateway/TLS and target attestation, multi-session/sustained mixed workload, intended replica/resource/connection budgets and final candidate deployment review. The local three-run success is evidence for the candidate profile, not closure of production NFR-03. Earlier checkpoint statements above describe their dated stage and are superseded by this section where noted.
+
+
+## Review remediation, 27 November 2026
+
+The follow-up integrates current develop (quota/account schema merge included) and addresses all five findings on PR69. It does not change application runtime code, pool profiles or business deadlines.
+
+Protocol `nfr03-export-v3` separates 10 ms lag sampling from 250 ms MySQL snapshots, observes at least 30 ms and starts the sampler before the workload barrier. Response latencies end when the body is received; observation/cleanup time is recorded separately. Missing lag evidence is incomplete, not measured saturation, and cannot pass. ASGI occupancy sampling uses the outer transport target again.
+
+The native lab explicitly passes `--workers 1`, even under `WEB_CONCURRENCY=2`. The workflow sets that inherited value intentionally to exercise the override. Observer I/O has connect/read/write timeouts of 1 second; snapshot/metadata deadlines are 2 seconds. Watcher stop waits 1 second then cancels and drains for at most another second. Monitor/client cleanup is bounded. Completed and cancelled response records are retained in partial reports, and observer failures cannot yield PASS.
+
+The workflow tracks dependency manifests, root/backend fixtures, integration inputs, migrations/configuration inputs and the installed offhost package. Harness regression tests run without the load opt-in and are included in formatting, lint, typecheck and contracts. Base moves to develop now that PR55 is merged.
+
+The original seven regression cases failed before the fix for the reviewed boundaries; the expanded twelve-case suite passes after the fix. Old protocol-v2 results above are retained as historical measurements and do not certify the new sampler or the newly combined source. Final-head workflow and v3 lab results are recorded in PR69, with sanitized artifacts rather than committed raw JSON/logs. Production release limitations remain open.

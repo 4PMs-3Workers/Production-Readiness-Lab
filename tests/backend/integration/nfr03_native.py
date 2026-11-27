@@ -47,6 +47,8 @@ async def native_api(settings):
                 else "app.factory:create_app"
             ),
             "--factory",
+            "--workers",
+            "1",
             "--host",
             "127.0.0.1",
             "--port",

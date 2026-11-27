@@ -3,12 +3,18 @@ name: NFR-03 isolated HTTP lab
 on:
   workflow_dispatch:
   pull_request:
-    branches: [develop, main, codex/bt3-23001952-vt071]
+    branches: [develop, main]
     paths:
       - '.github/workflows/nfr03-export-lab.yml'
       - 'src/backend/**'
-      - 'tests/backend/integration/*nfr03*'
-      - 'tests/backend/unit/test_nfr03_profile.py'
+      - 'tests/backend/integration/**'
+      - 'tests/backend/conftest.py'
+      - 'requirements*.txt'
+      - 'pyproject.toml'
+      - 'alembic.ini'
+      - 'tools/infra/offhost/**'
+      - 'tools/deploy/release_manifest.py'
+      - 'tests/backend/unit/test_nfr03*.py'
       - 'tests/load/**'
       - 'tools/load/**'
       - 'tools/deploy/profiles/**'
@@ -40,6 +46,7 @@ jobs:
       BT3_RUN_LOAD: '1'
       NFR03_TRANSPORT: http
       NFR03_SERVER_DIAGNOSTICS: '0'
+      WEB_CONCURRENCY: '2'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -54,10 +61,10 @@ jobs:
       - run: .venv/bin/python -m pip install -r requirements-dev.txt -e . -e tools/infra/offhost
       - name: Check probe and configuration contracts
         run: |
-          .venv/bin/python -m black --check tools/load/export_probe.py tests/load/test_export_probe.py tests/backend/unit/test_nfr03_profile.py tests/backend/integration/nfr03_native.py tests/backend/integration/test_appointment_export_nfr03.py
-          .venv/bin/python -m ruff check tools/load/export_probe.py tests/load/test_export_probe.py tests/backend/unit/test_nfr03_profile.py tests/backend/integration/nfr03_native.py tests/backend/integration/test_appointment_export_nfr03.py
-          .venv/bin/python -m pyright tools/load/export_probe.py tests/load/test_export_probe.py tests/backend/unit/test_nfr03_profile.py tests/backend/integration/nfr03_native.py tests/backend/integration/test_appointment_export_nfr03.py
-          .venv/bin/python -m pytest tests/load tests/backend/unit/test_nfr03_profile.py tests/backend/integration/test_appointment_export.py -q --require-mysql --junitxml=build/nfr03/contracts.xml
+          .venv/bin/python -m black --check tools/load/export_probe.py tests/load/test_export_probe.py tests/backend/unit/test_nfr03*.py tests/backend/integration/nfr03_native.py tests/backend/integration/test_appointment_export_nfr03.py
+          .venv/bin/python -m ruff check tools/load/export_probe.py tests/load/test_export_probe.py tests/backend/unit/test_nfr03*.py tests/backend/integration/nfr03_native.py tests/backend/integration/test_appointment_export_nfr03.py
+          .venv/bin/python -m pyright tools/load/export_probe.py tests/load/test_export_probe.py tests/backend/unit/test_nfr03*.py tests/backend/integration/nfr03_native.py tests/backend/integration/test_appointment_export_nfr03.py
+          .venv/bin/python -m pytest tests/load tests/backend/unit/test_nfr03*.py tests/backend/integration/test_appointment_export.py -q --require-mysql --junitxml=build/nfr03/contracts.xml
           .venv/bin/python - <<'PY'
           from xml.etree import ElementTree as ET
           root = ET.parse('build/nfr03/contracts.xml').getroot()
@@ -79,6 +86,7 @@ jobs:
           assert len(reports) == 1
           report = reports[0]
           assert report['profile'] == 'default' and report['completed'] and not report['source_dirty']
+          assert report['protocol'] == 'nfr03-export-v3'
           assert sum(len(b['samples']) for b in report['bursts']) == 560
           PY
       - name: Require three candidate HTTP runs
@@ -95,6 +103,7 @@ jobs:
           candidates = [r for r in reports if r['profile'] == 'candidate40']
           assert len(candidates) == 3
           assert all(r['passed'] and r['completed'] and not r['source_dirty'] for r in candidates)
+          assert all(r['protocol'] == 'nfr03-export-v3' for r in candidates)
           PY
       - name: Preserve bounded sanitized evidence
         if: always()
