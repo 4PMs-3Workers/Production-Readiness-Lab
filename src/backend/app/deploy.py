@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from alembic import command
 from alembic.config import Config
 from alembic.migration import MigrationContext
-from sqlalchemy import Connection
+from sqlalchemy import Connection, text
 from sqlalchemy.engine import make_url
 
 from app.core.config import load_settings
@@ -24,7 +24,7 @@ async def check_schema() -> None:
             await resources.check_compatibility(settings)
 
 
-SOFT_DELETE_SCHEMA = "20261114_1200_soft_delete"
+SOFT_DELETE_SCHEMA = "20261127_1200_quota_acct_merge"
 SOFT_DELETE_PREDECESSOR = "20261019_1200_proposal_replay"
 
 
@@ -44,6 +44,20 @@ async def migrate(*, rollback_soft_delete: bool = False) -> None:
                     current = MigrationContext.configure(sync_connection).get_current_revision()
                     if current != SOFT_DELETE_SCHEMA:
                         raise RuntimeError("Unexpected schema for soft-delete rollback")
+                    if sync_connection.scalar(
+                        text(
+                            "SELECT EXISTS (SELECT 1 FROM users WHERE deleted_at IS NOT NULL "
+                            "OR is_active_before_delete IS NOT NULL)"
+                        )
+                    ):
+                        raise RuntimeError("Cannot downgrade: lifecycle state would be lost")
+                    quota = sync_connection.scalar(
+                        text("SELECT max_active_appointments FROM service_settings WHERE id = 1")
+                    )
+                    if quota != 3:
+                        raise RuntimeError(
+                            "Cannot downgrade: configured booking quota would be lost"
+                        )
                     command.downgrade(config, SOFT_DELETE_PREDECESSOR)
 
                 await connection.run_sync(run_revision)

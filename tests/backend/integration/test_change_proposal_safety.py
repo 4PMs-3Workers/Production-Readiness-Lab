@@ -27,6 +27,7 @@ pytestmark = pytest.mark.mysql
 async def test_competing_creations_serialize_replay_or_precondition(
     booking_env, policy_settings, monkeypatch, same_key, replacing
 ):
+    # Real-lock observation is a correctness barrier, not a production latency check.
     env, _, start = booking_env
     identifier = await seed(env, start)
     body = payload(start)
@@ -227,11 +228,11 @@ async def test_waiting_operation_reads_database_clock_after_all_locks(
 
 @pytest.mark.parametrize("stage", ["proposal", "appointment", "audit", "second-notification"])
 async def test_failed_replacement_rolls_back_supersede_counter_and_every_side_effect(
-    booking_env, auth_settings, stage
+    booking_env, policy_settings, stage
 ):
     env, _, start = booking_env
     identifier = await seed(env, start)
-    first, _ = await create(env, identifier, payload(start), auth_settings)
+    first, _ = await create(env, identifier, payload(start), policy_settings)
     table, operation = {
         "proposal": ("change_proposals", "INSERT"),
         "appointment": ("appointments", "UPDATE"),
@@ -257,7 +258,7 @@ async def test_failed_replacement_rolls_back_supersede_counter_and_every_side_ef
                     env,
                     identifier,
                     payload(start + timedelta(minutes=30), version=1, pending_id=first.id),
-                    auth_settings,
+                    policy_settings,
                     key="replacement",
                     db=db,
                 )
@@ -279,14 +280,14 @@ async def test_failed_replacement_rolls_back_supersede_counter_and_every_side_ef
 @pytest.mark.parametrize("committed", [True, False])
 @pytest.mark.parametrize("operation", ["create", "decision"])
 async def test_unknown_commit_never_retries_writes_and_same_intent_recovers(
-    booking_env, auth_settings, monkeypatch, committed, operation
+    booking_env, policy_settings, monkeypatch, committed, operation
 ):
     env, _, start = booking_env
     identifier = await seed(env, start)
     body = payload(start)
     first = None
     if operation == "decision":
-        first, _ = await create(env, identifier, body, auth_settings)
+        first, _ = await create(env, identifier, body, policy_settings)
     original = AsyncSessionTransaction.commit
     calls = 0
 
@@ -299,8 +300,8 @@ async def test_unknown_commit_never_retries_writes_and_same_intent_recovers(
 
     async def send():
         if first is not None:
-            return await decide(env, identifier, first.id, auth_settings)
-        return await create(env, identifier, body, auth_settings)
+            return await decide(env, identifier, first.id, policy_settings)
+        return await create(env, identifier, body, policy_settings)
 
     with monkeypatch.context() as patch:
         patch.setattr(AsyncSessionTransaction, "commit", uncertain)
@@ -323,11 +324,11 @@ async def test_unknown_commit_never_retries_writes_and_same_intent_recovers(
 
 
 async def test_timeout_after_flush_rolls_back_and_releases_all_locks(
-    booking_env, auth_settings, monkeypatch
+    booking_env, policy_settings, monkeypatch
 ):
     env, _, start = booking_env
     identifier = await seed(env, start)
-    settings = auth_settings.model_copy(update={"db_query_timeout_seconds": 0.25})
+    settings = policy_settings.model_copy(update={"db_query_timeout_seconds": 0.25})
     async with env.factory() as db:
         original = db.flush
 
@@ -349,13 +350,13 @@ async def test_timeout_after_flush_rolls_back_and_releases_all_locks(
 
 @pytest.mark.parametrize("state", ["due", "not-due", "inconsistent", "terminal"])
 async def test_shared_expiry_is_transaction_owned_and_safe_for_inactive_participants(
-    booking_env, auth_settings, monkeypatch, state
+    booking_env, policy_settings, monkeypatch, state
 ):
     env, _, start = booking_env
     identifier = await seed(env, start)
-    first, _ = await create(env, identifier, payload(start), auth_settings)
+    first, _ = await create(env, identifier, payload(start), policy_settings)
     if state == "terminal":
-        await cancel(env, identifier, auth_settings)
+        await cancel(env, identifier, policy_settings)
     async with env.factory.begin() as db:
         (await db.get(User, env.staff_id)).is_active = False
         (await db.get(User, env.student_id)).is_active = False
@@ -375,7 +376,7 @@ async def test_shared_expiry_is_transaction_owned_and_safe_for_inactive_particip
         return await service.expire_change_proposal_in_transaction(
             db,
             proposal_id=first.id,
-            settings=auth_settings,
+            settings=policy_settings,
             request_id="expiry-system",
         )
 
@@ -408,11 +409,11 @@ async def test_shared_expiry_is_transaction_owned_and_safe_for_inactive_particip
 
 
 async def test_expiry_changes_and_effects_rollback_with_caller(
-    booking_env, auth_settings, monkeypatch
+    booking_env, policy_settings, monkeypatch
 ):
     env, _, start = booking_env
     identifier = await seed(env, start)
-    first, _ = await create(env, identifier, payload(start), auth_settings)
+    first, _ = await create(env, identifier, payload(start), policy_settings)
 
     async def clock(db):
         return first.expires_at.root
@@ -424,7 +425,7 @@ async def test_expiry_changes_and_effects_rollback_with_caller(
             await service.expire_change_proposal_in_transaction(
                 db,
                 proposal_id=uuid4(),
-                settings=auth_settings,
+                settings=policy_settings,
                 request_id="missing",
             )
             == "NOT_FOUND"
@@ -433,7 +434,7 @@ async def test_expiry_changes_and_effects_rollback_with_caller(
             await service.expire_change_proposal_in_transaction(
                 db,
                 proposal_id=first.id,
-                settings=auth_settings,
+                settings=policy_settings,
                 request_id="expiry",
             )
             == "EXPIRED"
@@ -447,7 +448,7 @@ async def test_expiry_changes_and_effects_rollback_with_caller(
 
 @pytest.mark.parametrize("error_code", [1205, 1213])
 async def test_known_commit_abort_retries_whole_intent_without_duplicate_side_effects(
-    booking_env, auth_settings, monkeypatch, error_code
+    booking_env, policy_settings, monkeypatch, error_code
 ):
     env, _, start = booking_env
     identifier = await seed(env, start)
@@ -462,7 +463,7 @@ async def test_known_commit_abort_retries_whole_intent_without_duplicate_side_ef
         await original(transaction)
 
     monkeypatch.setattr(AsyncSessionTransaction, "commit", abort_once)
-    receipt, replayed = await create(env, identifier, payload(start), auth_settings)
+    receipt, replayed = await create(env, identifier, payload(start), policy_settings)
     assert calls == 2 and not replayed and receipt.created_version == 1
     assert await counts(env) == (1, 1, 2)
 

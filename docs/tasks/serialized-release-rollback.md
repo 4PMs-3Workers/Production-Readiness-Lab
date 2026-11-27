@@ -78,29 +78,40 @@ old and new Compose and gateway route-map digests, the retained release manifest
 and the original host binding. The host accepts verification records from the
 predecessor release.
 
-The deployment accepts the exact `20261019_1200_proposal_replay` schema for the
-reviewed predecessor or the delivered `20261114_1200_soft_delete` schema.
+Before migration, deployment requires the exact schema catalog declared by the
+retained stable manifest: `20261019_1200_proposal_replay`,
+`20261113_1200_booking_quota`, or `20261114_1200_soft_delete`. The delivered
+schema is `20261127_1200_quota_acct_merge`, a merge of the unchanged quota and
+account lifecycle migrations.
 After the guarded `app.deploy` migration and grants, it requires the delivered
 revision before starting the candidate. Only initial bootstrap accepts an empty
 schema. Each revision requires its expected table and column inventory, InnoDB,
 and no unsupported views, triggers, routines, or events. Unknown and partial
-schemas are refused. Each direction changes the table in one atomic MySQL
-ALTER. If the process stops between that ALTER and the Alembic revision
+schemas are refused. MySQL DDL commits implicitly; the two migration branches
+are not one transaction. If the process stops between a table change and its Alembic revision
 commit, the controller reports the layout or revision mismatch. Leave the
 application stopped during recovery and have the database operator verify the
 table definition, check constraint, index and revision against this migration
 before reconciling the revision and retrying the release operation.
 
-Rollback within a revision only replaces the application services. Rollback to
-the reviewed predecessor drains account writers and verifies that no accounts
-remain soft-deleted. If any remain, it returns `rollback-incompatible`, keeps the
-database on the new schema, and restarts the API if it was running. An admin
-can restore those accounts through the account API before retrying. If the
-guard passes, the verified candidate image runs the single reviewed downgrade
-under the same MySQL lifecycle lock as migration and backup. The controller
-verifies the predecessor schema and starts the predecessor's exact images.
-Both paths retain the MySQL volume, existing records, audit history, and revoked
-sessions.
+After migration, every candidate check requires the complete delivered catalog
+and revision. A same-candidate resume may accept that complete catalog only when
+the persisted operation already entered migration. Unknown, multiple-head and
+partial states are refused. Adding a future migration requires a separately
+reviewed compatibility contract; accepting a revision stamp alone is insufficient.
+
+Rollback to the reviewed `20261019_1200_proposal_replay` predecessor can remove
+both branches only when quota is 3 and no user
+retains soft-delete lifecycle data. Read-only preflight checks these conditions
+before replacing a pending operation, checks them again after draining API
+writers, and the migration job checks both before issuing any downgrade DDL.
+Rollback to either intermediate branch is refused; candidate resume remains the
+recovery path when automatic fallback refuses before service replacement.
+
+The reviewed configuration sources are the original PR base `12a74f7` and the
+integrated develop head `8e34f99`. Hosts on the older CSV source `aed6c68` must
+first upgrade through the reviewed develop release; its route-map identity is
+not accepted directly by this controller.
 
 Predecessor rollback also checks saved service hours and local midnights using
 the retained backend's timezone rules. The check covers the booking horizon

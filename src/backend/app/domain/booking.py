@@ -14,6 +14,15 @@ def require_description(description: str | None, *, required: bool) -> str | Non
     return description
 
 
+def booking_quota_reached(active_count: int, limit: int) -> bool:
+    """Return whether the number of quota-consuming appointments reaches the policy limit."""
+    if type(active_count) is not int or active_count < 0:
+        raise ValueError("Active appointment count must be a nonnegative integer")
+    if type(limit) is not int or not 1 <= limit <= 32767:
+        raise ValueError("Booking quota must be a positive SMALLINT")
+    return active_count >= limit
+
+
 def canonical_booking_request_bytes(request: AppointmentCreateRequest) -> bytes:
     """Serialize documented business fields for stable idempotency comparison."""
     payload = {

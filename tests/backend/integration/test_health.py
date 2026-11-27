@@ -2,6 +2,7 @@ import asyncio
 from time import monotonic
 from typing import cast
 
+import httpx
 import pytest
 from alembic.config import Config
 from alembic.script import ScriptDirectory
@@ -140,14 +141,19 @@ def test_readiness_timeout_covers_connection_and_queries(delay):
     assert connection.closed or not connection.queries  # No connection was acquired yet.
 
 
-def test_readiness_timeout_covers_revision_query():
+async def test_readiness_timeout_covers_revision_query():
     app = create_app(settings(timeout=0.2))
     connection = Connection(["a1b2c3d4e5f6"], revision_delay=0.25)
-    with TestClient(app) as client:
+    # Measure the ASGI response on the same event loop, excluding TestClient's
+    # cross-thread scheduler while retaining the deadline and cleanup assertions.
+    async with app.router.lifespan_context(app):
         app.state.engine = Engine(connection)
-        started = monotonic()
-        result = client.get("/health/ready")
-        elapsed = monotonic() - started
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://localhost:3000"
+        ) as client:
+            started = monotonic()
+            result = await client.get("/health/ready")
+            elapsed = monotonic() - started
     assert result.status_code == 503
     assert elapsed < 0.7
     assert connection.closed

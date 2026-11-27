@@ -12,7 +12,8 @@ from tools.deploy.release_manifest import (
     previous_configuration,
 )
 from tools.deploy.rollout_controller import ConfigurationTransition
-from tools.deploy.rollout_schema import EXPECTED, SchemaSnapshot
+from tools.deploy.rollout_runtime import PredecessorPolicy
+from tools.deploy.rollout_schema import PREDECESSOR_EXPECTED, SchemaSnapshot
 from tools.deploy.rollout_state import RolloutError
 
 OLD_REVISION = "20261019_1200_proposal_replay"
@@ -36,20 +37,8 @@ def historical_host(tmp_path, monkeypatch):
     host.store.path.write_bytes(canonical(data))
     host.control.transition = ConfigurationTransition("d" * 64, previous)
     host.registry.releases[reference(2)] = release(124, old_ref)
-    old_tables = dict(
-        EXPECTED,
-        users=[
-            c
-            for c in EXPECTED["users"]
-            if c
-            not in {
-                "deleted_at",
-                "is_active_before_delete",
-            }
-        ],
-    )
     old_schema = SchemaSnapshot(
-        tables=old_tables,
+        tables=PREDECESSOR_EXPECTED,
         revisions=[OLD_REVISION],
         unsupported_objects=0,
         nontransactional_tables=0,
@@ -74,6 +63,9 @@ def historical_host(tmp_path, monkeypatch):
     monkeypatch.setattr(host.runtime, "downgrade_soft_delete", downgrade, raising=False)
     monkeypatch.setattr(host.runtime, "require_reversible_soft_delete", lambda: None, raising=False)
     monkeypatch.setattr(host.runtime, "predecessor_policy_guard", nullcontext)
+    monkeypatch.setattr(
+        host.runtime, "prepare_predecessor_policy", lambda: PredecessorPolicy({}, False)
+    )
     return host, old_selection
 
 

@@ -41,6 +41,7 @@ def test_failed_atomic_replace_keeps_old_stable_and_cleans_temporary_file(tmp_pa
 def test_replacing_operation_retains_historical_authoritative_decision(tmp_path):
     store = StateStore(tmp_path)
     op = operation()
+    store.remember(op.target.reference, parse(canonical(manifest_data()), Manifest))
     first = replace_state(state(), stable=op.target.model_dump(), operation=op.model_dump())
     store.save(first)
     second = replace_state(first, operation=None)

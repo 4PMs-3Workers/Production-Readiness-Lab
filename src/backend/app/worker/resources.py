@@ -15,7 +15,7 @@ from app.core.transactions import mysql_error_code, read_transaction
 from app.observability.database import attach_database
 from app.observability.runtime import TelemetryRuntime
 
-SUPPORTED_SCHEMA_REVISIONS = frozenset({"20261114_1200_soft_delete"})
+SUPPORTED_SCHEMA_REVISIONS = frozenset({"20261127_1200_quota_acct_merge"})
 CleanupDeadline = Callable[[], float | None]
 
 

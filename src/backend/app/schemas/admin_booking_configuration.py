@@ -63,6 +63,7 @@ class BookingConfiguration(BaseModel):
     timezone: str
     start_step_minutes: int
     booking_horizon_days: int
+    max_active_appointments: int
     windows: list[WeeklyWindow]
     updated_at: datetime
 
@@ -74,6 +75,7 @@ class BookingConfigurationReplace(BaseModel):
     timezone: str = Field(min_length=1, max_length=64)
     start_step_minutes: PositiveSmallInt
     booking_horizon_days: PositiveSmallInt
+    max_active_appointments: PositiveSmallInt
     windows: list[WeeklyWindow]
 
     @field_validator("timezone")

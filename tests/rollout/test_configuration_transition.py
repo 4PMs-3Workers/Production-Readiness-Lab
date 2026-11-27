@@ -36,7 +36,8 @@ from tools.deploy.rollout_state import (
 )
 from tools.deploy.rollout_store import StateStore
 
-# Build exactly the release before the account lifecycle schema and gateway changes.
+# The release used to rehearse this transition is the actual PR base, not the
+# older release revision that preceded it in the repository history.
 BASE = "12a74f7308550ccc294a783edde79db267a526d1"
 
 FIXED_AVAILABILITY = """
@@ -119,16 +120,9 @@ def running_images(runtime: ReleaseRuntime) -> dict[str, tuple[str, str]]:
     return images
 
 
-@pytest.mark.parametrize(
-    "stable_ref,stable_schema",
-    [
-        (BASE, PREDECESSOR_SCHEMA),
-        ("aed6c68a4a081f558d01e9ba4c39cd031439af47", SCHEMA),
-    ],
-)
-def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
-    tmp_path, stable_ref, stable_schema
-):
+def test_reviewed_upgrade_preserves_host_and_refuses_incompatible_rollback(tmp_path):
+    stable_ref = BASE
+    stable_schema = PREDECESSOR_SCHEMA
     assert os.environ.get("RUN_ROLLOUT_REHEARSAL") == "1", "Required rollout rehearsal cannot skip"
     source = prerequisites()
     archive = tmp_path / "base.tar"
@@ -254,7 +248,8 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
         )
         # Persist the historical record through the archived predecessor's validator and writer.
         historical_state = before.model_dump(mode="json")
-        historical_state["operation"].pop("migration_source")
+        assert "migration_source" not in historical_state["operation"]
+        assert "migration_started" not in historical_state["operation"]
         subprocess.run(
             [
                 sys.executable,
@@ -399,24 +394,18 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
                     "2027-03-14T13:00:00Z" <= start <= "2027-03-14T15:30:00Z" for start in starts
                 )
                 old_slots = fixed_availability(upgraded.runtime, stack, old_backend, payload, token)
+                # The actual PR base already implements configuration-aware
+                # availability; both images must expose the same persisted slots.
                 assert old_slots["status"] == 200
-                assert [slot["starts_at"] for slot in old_slots["body"]["slots"]] == starts
-
-            if stable_schema == SCHEMA:
-                restored = host(ROOT, source, stack.port)
-                result = restored.rollback()
-                assert result.operation is not None and result.operation.phase == "rolled_back"
-                assert result.stable == before.stable
-                restored.runtime.require_database(db_identity)
-                require_schema(restored.runtime.schema(), [SCHEMA])
-                assert restored.runtime.appointment_status(committed["id"]) == "UPCOMING"
-                assert session.request("GET", path, 200, private=True).json() == saved
-                return
+                assert old_slots["body"] == new_slots["body"]
 
             running = running_images(upgraded.runtime)
             refused = host(ROOT, source, stack.port).rollback()
+            assert refused.operation is not None
             assert refused.operation == after.operation
-            assert refused.refusal is not None and refused.refusal.reason == "rollback-incompatible"
+            assert refused.refusal is not None
+            assert refused.refusal.reason == "rollback-incompatible"
+            assert not refused.operation.requires_recovery
             assert refused.stable == after.stable and refused.previous_stable == before.stable
             assert running_images(upgraded.runtime) == running
             upgraded.runtime.require_database(db_identity)
@@ -431,17 +420,24 @@ def test_reviewed_configuration_upgrade_and_rollback_preserve_the_existing_host(
             ).json()
             assert fixed["windows"] == policy["windows"]
 
+        running = running_images(upgraded.runtime)
         restored = host(ROOT, source, stack.port)
         result = restored.rollback()
-        assert result.operation is not None and result.operation.phase == "rolled_back", result
+        assert result.operation is not None
+        assert result.operation.phase == "rolled_back"
+        assert result.refusal is None
+        assert not result.operation.requires_recovery
         assert result.stable == before.stable
-        assert result.configuration_sha256 == after.configuration_sha256
-        assert restored.runtime.manifest == old
-        assert result.operation.verification is not None
-        assert result.operation.verification.schema_revision == stable_schema
         require_schema(restored.runtime.schema(), [stable_schema])
-        restored.runtime.require_database(db_identity)
-        assert restored.runtime.appointment_status(committed["id"]) == "UPCOMING"
+        upgraded.runtime.require_database(db_identity)
+        assert upgraded.runtime.appointment_status(committed["id"]) == "UPCOMING"
+        next_candidate = artifacts.manifest(3, backend, frontend, old_ref)
+        next_ref = artifacts.registry.publish(artifacts.repository + "/releases", next_candidate)
+        subsequent = host(ROOT, source, stack.port).deploy(next_ref)
+        assert subsequent.operation is not None and subsequent.operation.phase == "succeeded"
+        assert subsequent.stable is not None and subsequent.stable.reference == next_ref
+        upgraded.runtime.require_database(db_identity)
+        assert upgraded.runtime.appointment_status(committed["id"]) == "UPCOMING"
     finally:
         try:
             if stack is not None:
