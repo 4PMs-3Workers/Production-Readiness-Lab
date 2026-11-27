@@ -195,3 +195,9 @@ Checklist bàn giao:
 - [ ] PR mô tả đúng kết quả và giới hạn; draft chỉ được đưa tiếp khi đủ điều kiện review.
 
 Hoàn tất plan này sửa tính đúng đắn của lab. NFR-03 cho production vẫn cần gateway/TLS, target attestation, worker/mixed workload, resource/connection budget và review deployment thực tế như đã công bố; không tự đóng release gate dựa vào ba lượt native HTTP.
+
+## Follow-up: v4 lag cutoff
+
+The first v3 review found that a healthy sample due after the request burst could lower p95 and hide a slow in-window sample. Protocol v4 records each sample deadline, freezes the request cutoff once, and computes lag verdicts from deadlines at or before that cutoff. Tail observations fill the two-sample minimum only when the request window has fewer than two samples. The report records which samples fed the verdict. Four deterministic regression cases cover the p95 boundary, an inclusive late wake, short requests, and the complete `run_bursts()` reporting path.
+
+The v4 change updates the report protocol and output directory and must rerun the Linux baseline plus three candidate iterations on a clean final source. V2 and v3 results remain historical evidence.

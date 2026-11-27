@@ -86,7 +86,7 @@ jobs:
           assert len(reports) == 1
           report = reports[0]
           assert report['profile'] == 'default' and report['completed'] and not report['source_dirty']
-          assert report['protocol'] == 'nfr03-export-v3'
+          assert report['protocol'] == 'nfr03-export-v4'
           assert sum(len(b['samples']) for b in report['bursts']) == 560
           PY
       - name: Require three candidate HTTP runs
@@ -103,7 +103,7 @@ jobs:
           candidates = [r for r in reports if r['profile'] == 'candidate40']
           assert len(candidates) == 3
           assert all(r['passed'] and r['completed'] and not r['source_dirty'] for r in candidates)
-          assert all(r['protocol'] == 'nfr03-export-v3' for r in candidates)
+          assert all(r['protocol'] == 'nfr03-export-v4' for r in candidates)
           PY
       - name: Preserve bounded sanitized evidence
         if: always()

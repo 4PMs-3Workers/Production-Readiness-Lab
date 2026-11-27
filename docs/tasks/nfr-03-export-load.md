@@ -89,4 +89,11 @@ The native lab explicitly passes `--workers 1`, even under `WEB_CONCURRENCY=2`. 
 
 The workflow tracks dependency manifests, root/backend fixtures, integration inputs, migrations/configuration inputs and the installed offhost package. Harness regression tests run without the load opt-in and are included in formatting, lint, typecheck and contracts. Base moves to develop now that PR55 is merged.
 
-The original seven regression cases failed before the fix for the reviewed boundaries; the expanded twelve-case suite passes after the fix. Old protocol-v2 results above are retained as historical measurements and do not certify the new sampler or the newly combined source. Final-head workflow and v3 lab results are recorded in PR69, with sanitized artifacts rather than committed raw JSON/logs. Production release limitations remain open.
+The original seven regression cases failed before the fix for the reviewed boundaries; the expanded thirteen-case suite passes after the fix. Old protocol-v2 results above are retained as historical measurements and do not certify the new sampler or the newly combined source. Final-head workflow and v3 lab results are recorded in PR69, with sanitized artifacts rather than committed raw JSON/logs. Production release limitations remain open.
+
+
+## Protocol v4 lag cutoff follow-up, 28 November 2026
+
+Protocol `nfr03-export-v4` records each lag sample's scheduled deadline and measured delay. The workload cutoff is captured once immediately after downloads finish. Samples due at or before that cutoff feed the lag p95 and late-sample ratio, including a sample that wakes after the cutoff. If fewer than two samples are due in the request window, only the earliest tail samples needed to reach two count toward the verdict. The full observation stream remains in the report with each sample marked as included or excluded; the 30 ms minimum observation period remains outside request latency.
+
+This rule prevents a healthy post-burst sample from reducing the p95 of a slow in-window tick. Four v4 regression cases cover the 445 ms p95 boundary, inclusive cutoff, short bursts and the full `run_bursts()` reporting path. Existing missing-evidence behavior remains covered. The harness now collects 17 tests. Protocol v2 and v3 reports remain historical and are not compared as v4 acceptance. The v4 Linux baseline and three candidate runs must be recorded on the same clean final source before they can certify this sampler. Production NFR-03 remains open.

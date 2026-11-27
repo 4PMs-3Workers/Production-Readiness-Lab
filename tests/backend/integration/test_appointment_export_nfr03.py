@@ -186,6 +186,14 @@ LAG_INTERVAL_SECONDS = 0.01
 MIN_LAG_WINDOW_SECONDS = 0.03
 
 
+def select_lag_observations(observations, request_ended_at):
+    in_window = [observation for observation in observations if observation[0] <= request_ended_at]
+    if len(in_window) >= 2:
+        return in_window
+    tail = [observation for observation in observations if observation[0] > request_ended_at]
+    return in_window + tail[: 2 - len(in_window)]
+
+
 async def bounded(awaitable, seconds):
     task = asyncio.ensure_future(awaitable)
     try:
@@ -221,9 +229,9 @@ async def sample_lag(stop, lag, ready):
     started = perf_counter()
     ready.set()
     while not stop.is_set() or perf_counter() - started < MIN_LAG_WINDOW_SECONDS or len(lag) < 2:
-        due = perf_counter() + LAG_INTERVAL_SECONDS
+        due_at = perf_counter() + LAG_INTERVAL_SECONDS
         await asyncio.sleep(LAG_INTERVAL_SECONDS)
-        lag.append(max(0, perf_counter() - due))
+        lag.append((due_at, max(0, perf_counter() - due_at)))
     return perf_counter() - started
 
 
@@ -328,7 +336,7 @@ async def test_export_nfr03(availability_env, mysql_engine, monkeypatch, pool_mo
     if diagnostic:
         install_profiling(monkeypatch)
     report = {
-        "protocol": "nfr03-export-v3",
+        "protocol": "nfr03-export-v4",
         "diagnostics": diagnostic,
         "server_diagnostics": os.getenv("NFR03_SERVER_DIAGNOSTICS") == "1",
         "source_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
@@ -464,7 +472,7 @@ async def finish_report(monitor, report, completed):
             "tests/backend/integration/test_appointment_export_nfr03.py",
         ]
     }
-    output = save_report(report, Path("build/nfr03/nfr03-export-v3") / report["source_sha"])
+    output = save_report(report, Path("build/nfr03/nfr03-export-v4") / report["source_sha"])
     print("NFR03_REPORT=" + str(output))
 
 
@@ -583,7 +591,8 @@ async def run_bursts(
                 report["failure_stage"] = "downloads"
                 raise
             finally:
-                request_window = perf_counter() - burst_clock.get("released", started)
+                request_ended_at = perf_counter()
+                request_window = request_ended_at - burst_clock.get("released", started)
                 stop.set()
                 results = await asyncio.gather(
                     bounded(watcher, WATCHER_STOP_SECONDS),
@@ -593,6 +602,9 @@ async def run_bursts(
                 if any(isinstance(r, BaseException) for r in results):
                     report["observer_failure"] = "observer_shutdown_error"
                     raise TimeoutError("NFR collector failed to stop")
+            selected_lag = select_lag_observations(lag, request_ended_at)
+            lag_values = [value for _, value in selected_lag]
+            selected_due_times = {due_at for due_at, _ in selected_lag}
             elapsed, process_cpu, cpu_after = (
                 perf_counter() - started,
                 process_time() - process_before,
@@ -634,14 +646,31 @@ async def run_bursts(
                 "observer_complete": True,
                 "host_busy_percent": host_cpu,
                 "harness_cpu_seconds": process_cpu,
-                "event_loop_lag_p95_seconds": p95(lag),
-                "event_loop_lag_samples": len(lag),
-                "lag_missed_tick_fraction": sum(x > 0.1 for x in lag) / len(lag) if lag else None,
+                "event_loop_lag_observations": [
+                    {
+                        "due_offset_seconds": due_at - burst_clock.get("released", started),
+                        "lag_seconds": value,
+                        "used_for_verdict": due_at in selected_due_times,
+                    }
+                    for due_at, value in lag
+                ],
+                "lag_observation_cutoff_offset_seconds": request_window,
+                "event_loop_lag_p95_seconds": p95(lag_values),
+                "event_loop_lag_samples": len(lag_values),
+                "lag_missed_tick_fraction": (
+                    sum(value > 0.1 for value in lag_values) / len(lag_values)
+                    if lag_values
+                    else None
+                ),
             }
             phase_record.update(summary)
             print(
                 json.dumps(
-                    {k: v for k, v in summary.items() if k not in ("samples", "mysql_snapshots")}
+                    {
+                        k: v
+                        for k, v in summary.items()
+                        if k not in ("samples", "mysql_snapshots", "event_loop_lag_observations")
+                    }
                 )
             )
     finally:
